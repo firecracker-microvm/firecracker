@@ -206,9 +206,143 @@ impl Drop for VfioDevice {
     }
 }
 
+// Internal type for distributing the emulated area accesses
+// between different components
+#[derive(Debug)]
+enum HandleBarAccessResult {
+    PartialOverlap,
+    MsixTable(u64),
+    MsixPba(u64),
+    Device(u8, u64),
+}
+
+// Distribute BAR acess aiming at the emulated areas
+fn vfio_distribute_bar_access(
+    emulated_areas: &[VfioBarEmulatedArea],
+    msix_cap: &MsixCap,
+    base: u64,
+    offset: u64,
+    data_len: u64,
+) -> HandleBarAccessResult {
+    let data_start = offset;
+    let data_end = offset + data_len;
+    for area in emulated_areas.iter() {
+        if area.gpa == base {
+            if area
+                .usage
+                .contains(VfioBarEmulatedAreaUsageFlags::MSIX_TABLE)
+            {
+                let (t_off, t_size) = msix_cap.table_bar_offset_and_size();
+                let (t_off, t_size) = (t_off as u64, t_size as u64);
+                assert!(area.in_bar_offset <= t_off);
+                let t_start = t_off - area.in_bar_offset;
+                let t_end = t_start + t_size;
+                if t_start <= data_start && data_end <= t_end {
+                    return HandleBarAccessResult::MsixTable(offset - t_start);
+                }
+                // Reject partial overlap with table.
+                // This should not happen in normal operations, but malicious
+                // driver can try this.
+                // In this case it should be fine to ignore the access all together
+                if data_start < t_end && t_start < data_end {
+                    return HandleBarAccessResult::PartialOverlap;
+                }
+            }
+
+            if area.usage.contains(VfioBarEmulatedAreaUsageFlags::MSIX_PBA) {
+                let (p_off, p_size) = msix_cap.pba_bar_offset_and_size();
+                let (p_off, p_size) = (p_off as u64, p_size as u64);
+                assert!(area.in_bar_offset <= p_off);
+                let p_start = p_off - area.in_bar_offset;
+                let p_end = p_start + p_size;
+                if p_start <= data_start && data_end <= p_end {
+                    return HandleBarAccessResult::MsixPba(offset - p_start);
+                }
+                // Reject partial overlap with pba.
+                // This should not happen in normal operations, but malicious
+                // driver can try this.
+                // In this case it should be fine to ignore the access all together
+                if data_start < p_end && p_start < data_end {
+                    return HandleBarAccessResult::PartialOverlap;
+                }
+            }
+
+            return HandleBarAccessResult::Device(area.bar_idx, area.in_bar_offset + offset);
+        }
+    }
+    // SAFETY: if this is ever reached it would mean we have a bug in the code which adds
+    // VfioBarEmulatedArea into the MmioBus.
+    unreachable!()
+}
+
 impl BusDevice for VfioDevice {
-    fn read(&mut self, _base: u64, _offset: u64, _data: &mut [u8]) {}
-    fn write(&mut self, _base: u64, _offset: u64, _data: &[u8]) -> Option<Arc<Barrier>> {
+    fn read(&mut self, base: u64, offset: u64, data: &mut [u8]) {
+        match vfio_distribute_bar_access(
+            &self.msix_state.emulated_areas,
+            &self.msix_state.cap,
+            base,
+            offset,
+            usize_to_u64(data.len()),
+        ) {
+            HandleBarAccessResult::PartialOverlap => {
+                warn!(
+                    "[{}] BusDevice::read ignoring read with partial overlap: base: {base:#x} \
+                     offset: {offset:#x}",
+                    self.config.id
+                );
+                data.fill(0);
+            }
+            HandleBarAccessResult::MsixTable(offset) => {
+                self.msix_state.config.read_table(offset, data);
+            }
+            HandleBarAccessResult::MsixPba(offset) => {
+                self.msix_state.config.read_pba(offset, data);
+            }
+            HandleBarAccessResult::Device(region_idx, in_region_off) => {
+                let region_size = self.device.get_region_size(region_idx as u32);
+                if in_region_off + (data.len() as u64) <= region_size {
+                    self.device
+                        .region_read(region_idx as u32, data, in_region_off);
+                } else {
+                    // If access is partially out of the region boundaries
+                    // just ignore it
+                }
+            }
+        }
+    }
+
+    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+        match vfio_distribute_bar_access(
+            &self.msix_state.emulated_areas,
+            &self.msix_state.cap,
+            base,
+            offset,
+            usize_to_u64(data.len()),
+        ) {
+            HandleBarAccessResult::PartialOverlap => {
+                warn!(
+                    "[{}] BusDevice::write ignoring write with partial overlap: base: {base:#x} \
+                     offset: {offset:#x}",
+                    self.config.id
+                );
+            }
+            HandleBarAccessResult::MsixTable(offset) => {
+                self.msix_state.config.write_table(offset, data);
+            }
+            HandleBarAccessResult::MsixPba(offset) => {
+                self.msix_state.config.write_pba(offset, data);
+            }
+            HandleBarAccessResult::Device(region_idx, in_region_off) => {
+                let region_size = self.device.get_region_size(region_idx as u32);
+                if in_region_off + (data.len() as u64) <= region_size {
+                    self.device
+                        .region_write(region_idx as u32, data, in_region_off);
+                } else {
+                    // If access is partially out of the region boundaries
+                    // just ignore it
+                }
+            }
+        }
         None
     }
 }
@@ -2210,5 +2344,195 @@ mod tests {
             err,
             VfioError::MsixPbaOutOfRange(0, 0xff8, 16, 0x1000)
         ));
+    }
+
+    const BAR_GPA: u64 = 0x1000;
+
+    fn emulated_area_table_only() -> ArrayVec<VfioBarEmulatedArea, 2> {
+        let mut areas = ArrayVec::new();
+        areas.push(VfioBarEmulatedArea {
+            bar_idx: 0,
+            in_bar_offset: 0,
+            gpa: BAR_GPA,
+            size: 0x1000,
+            usage: VfioBarEmulatedAreaUsageFlags::MSIX_TABLE,
+        });
+        areas
+    }
+
+    fn emulated_areas_pba_only() -> ArrayVec<VfioBarEmulatedArea, 2> {
+        let mut areas = ArrayVec::new();
+        areas.push(VfioBarEmulatedArea {
+            bar_idx: 0,
+            in_bar_offset: 0,
+            gpa: BAR_GPA,
+            size: 0x1000,
+            usage: VfioBarEmulatedAreaUsageFlags::MSIX_PBA,
+        });
+        areas
+    }
+
+    fn emulated_areas_merged() -> ArrayVec<VfioBarEmulatedArea, 2> {
+        let mut areas = ArrayVec::new();
+        areas.push(VfioBarEmulatedArea {
+            bar_idx: 0,
+            in_bar_offset: 0,
+            gpa: BAR_GPA,
+            size: 0x1000,
+            usage: VfioBarEmulatedAreaUsageFlags::MSIX_TABLE
+                | VfioBarEmulatedAreaUsageFlags::MSIX_PBA,
+        });
+        areas
+    }
+
+    #[test]
+    fn test_distribute_bar_access_table_inside_table_range() {
+        let areas = emulated_area_table_only();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x800);
+        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x10, 4);
+        assert!(matches!(result, HandleBarAccessResult::MsixTable(0x10)));
+    }
+
+    #[test]
+    fn test_distribute_bar_access_table_outside_table_range_forwards_to_device() {
+        let areas = emulated_area_table_only();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x800);
+        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x100, 4);
+        assert!(matches!(result, HandleBarAccessResult::Device(0, 0x100)));
+    }
+
+    #[test]
+    fn test_distribute_bar_access_pba_inside_pba_range() {
+        let areas = emulated_areas_pba_only();
+        let cap = MsixCap::new(0, 4, 0x800, 0, 0x100);
+        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x100, 4);
+        assert!(matches!(result, HandleBarAccessResult::MsixPba(0)));
+    }
+
+    #[test]
+    fn test_distribute_bar_access_pba_outside_pba_range_forwards_to_device() {
+        let areas = emulated_areas_pba_only();
+        let cap = MsixCap::new(0, 4, 0x800, 0, 0x100);
+        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x800, 4);
+        assert!(matches!(result, HandleBarAccessResult::Device(0, 0x800)));
+    }
+
+    #[test]
+    fn test_distribute_bar_access_merged_hits_table() {
+        let areas = emulated_areas_merged();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x200);
+        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x10, 4);
+        assert!(matches!(result, HandleBarAccessResult::MsixTable(0x10)));
+    }
+
+    #[test]
+    fn test_distribute_bar_access_merged_hits_pba() {
+        let areas = emulated_areas_merged();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x200);
+        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x200, 4);
+        assert!(matches!(result, HandleBarAccessResult::MsixPba(0)));
+    }
+
+    #[test]
+    fn test_distribute_bar_access_merged_padding_forwards_to_device() {
+        let areas = emulated_areas_merged();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x200);
+        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x800, 4);
+        assert!(matches!(result, HandleBarAccessResult::Device(0, 0x800)));
+    }
+
+    #[test]
+    fn test_distribute_bar_access_partial_overlap_table_start() {
+        let areas = emulated_area_table_only();
+        let cap = MsixCap::new(0, 4, 0x100, 0, 0x800);
+        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0xfe, 4);
+        assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
+    }
+
+    #[test]
+    fn test_distribute_bar_access_partial_overlap_table_end() {
+        let areas = emulated_area_table_only();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x800);
+        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x3e, 4);
+        assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
+    }
+
+    #[test]
+    fn test_distribute_bar_access_partial_overlap_pba_start() {
+        let areas = emulated_areas_pba_only();
+        let cap = MsixCap::new(0, 4, 0x800, 0, 0x100);
+        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0xfe, 4);
+        assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
+    }
+
+    #[test]
+    fn test_distribute_bar_access_partial_overlap_pba_end() {
+        let areas = emulated_areas_pba_only();
+        let cap = MsixCap::new(0, 4, 0x800, 0, 0x100);
+        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x106, 4);
+        assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
+    }
+
+    /// A single emulated area covering two host pages, produced by merging a table area and a
+    /// pba area whose host page aligned ranges overlap but start on different pages, so the
+    /// merged area starts BELOW the table's page.
+    fn merged_area_with_pba_on_lower_page() -> (ArrayVec<VfioBarEmulatedArea, 2>, MsixCap) {
+        let page = usize_to_u64(host_page_size());
+
+        let mut areas = ArrayVec::<VfioBarEmulatedArea, 2>::new();
+        areas.push(VfioBarEmulatedArea {
+            bar_idx: 0,
+            in_bar_offset: 0,
+            gpa: BAR_GPA,
+            size: 2 * page,
+            usage: VfioBarEmulatedAreaUsageFlags::MSIX_TABLE
+                | VfioBarEmulatedAreaUsageFlags::MSIX_PBA,
+        });
+
+        // pba:   2 chunks   (16 B)     at BAR offset `page - 8`
+        // table: 128 entries (0x800 B) at BAR offset `page + 8`
+        #[allow(clippy::cast_possible_truncation)]
+        let msix_cap = MsixCap::new(0, 128, (page + 8) as u32, 0, (page - 8) as u32);
+
+        (areas, msix_cap)
+    }
+
+    #[test]
+    fn test_distribute_bar_access_big_merged_emulated_area() {
+        let page = usize_to_u64(host_page_size());
+        let (areas, cap) = merged_area_with_pba_on_lower_page();
+
+        // offset is far bellow MSIX_PBA, so must become a device access
+        {
+            let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x10, 4);
+            assert!(matches!(result, HandleBarAccessResult::Device(0, 0x10)));
+        }
+
+        // offset is the start of the MSIX_PBA
+        {
+            let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, page - 8, 4);
+            assert!(matches!(result, HandleBarAccessResult::MsixPba(0)));
+        }
+
+        // offset is the start of the MSIX_TABLE
+        {
+            let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, page + 8, 4);
+            assert!(matches!(result, HandleBarAccessResult::MsixTable(0)));
+        }
+
+        // offset after MSIX_TABLE, so must be a device access
+        {
+            let offset = page + 8 + 0x800;
+            let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, offset, 4);
+            assert!(matches!(result, HandleBarAccessResult::Device(0, o) if o == offset));
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "unreachable")]
+    fn test_distribute_bar_access_unrelated_base_panics() {
+        let areas = emulated_area_table_only();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x800);
+        let _ = vfio_distribute_bar_access(&areas, &cap, BAR_GPA + 0x1000, 0, 4);
     }
 }
