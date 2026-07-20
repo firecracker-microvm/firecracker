@@ -572,6 +572,7 @@ class FCMetricsMonitor(Thread):
                 "instance": global_props.instance,
                 "host_kernel": "linux-" + global_props.host_linux_version,
                 "guest_kernel": vm.guest_kernel.metric_id,
+                "backend": str(vm.backend),
             }
         )
         self.start()
