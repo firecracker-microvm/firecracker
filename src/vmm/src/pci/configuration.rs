@@ -118,6 +118,7 @@ impl Bars {
         self.bars[bar_idx as usize].encoded_addr = addr | prefetchable;
         self.bars[bar_idx as usize].encoded_size = size;
     }
+
     /// Set 2 consecutive BAR slots as a single 64bit bar
     pub fn set_bar_64(&mut self, bar_idx: u8, addr: u64, size: u64, prefetchable: BarPrefetchable) {
         assert_ne!(size, 0);
@@ -143,6 +144,7 @@ impl Bars {
         self.bars[(bar_idx + 1) as usize].encoded_addr = addr_hi;
         self.bars[(bar_idx + 1) as usize].encoded_size = size_hi;
     }
+
     /// Get the address of the 32bit or 64bit BAR
     pub fn get_bar_addr(&self, bar_idx: u8) -> u64 {
         assert!(bar_idx < NUM_BAR_REGS);
@@ -153,6 +155,7 @@ impl Bars {
             self.get_bar_addr_32(bar_idx)
         }
     }
+
     /// Get the size of the 32bit or 64bit BAR
     pub fn get_bar_size(&self, bar_idx: u8) -> u64 {
         assert!(bar_idx < NUM_BAR_REGS);
@@ -163,6 +166,7 @@ impl Bars {
             self.get_bar_size_32(bar_idx)
         }
     }
+
     /// Get the address of the 32bit bar
     pub fn get_bar_addr_32(&self, bar_idx: u8) -> u64 {
         assert!(bar_idx < NUM_BAR_REGS);
@@ -173,6 +177,7 @@ impl Bars {
         let bar = &self.bars[bar_idx as usize];
         u64::from(bar.encoded_addr & !0b1111)
     }
+
     /// Get the address of the 64bit bar
     pub fn get_bar_addr_64(&self, bar_idx: u8) -> u64 {
         assert!(bar_idx < NUM_BAR_REGS - 1);
@@ -180,6 +185,7 @@ impl Bars {
         let addr_lo = self.bars[bar_idx as usize].encoded_addr & !0b1111;
         (addr_hi as u64) << 32 | (addr_lo as u64)
     }
+
     /// Get the size of the 32bit bar
     pub fn get_bar_size_32(&self, bar_idx: u8) -> u64 {
         assert!(bar_idx < NUM_BAR_REGS);
@@ -190,6 +196,7 @@ impl Bars {
         let bar = &self.bars[bar_idx as usize];
         u64::from(decode_32_bits_bar_size(bar.encoded_size))
     }
+
     /// Get the size of the 64bit bar
     pub fn get_bar_size_64(&self, bar_idx: u8) -> u64 {
         assert!(bar_idx < NUM_BAR_REGS - 1);
@@ -197,6 +204,7 @@ impl Bars {
         let size_lo = self.bars[bar_idx as usize].encoded_size;
         decode_64_bits_bar_size(size_hi, size_lo)
     }
+
     /// Writes into a given BAR register at the given offset
     pub fn write(&mut self, bar_idx: u8, offset: u8, data: &[u8]) {
         // There are only 6 registers each 4 bytes long
@@ -215,6 +223,7 @@ impl Bars {
             // https://elixir.bootlin.com/linux/v6.19.8/source/drivers/pci/setup-res.c#L107
         }
     }
+
     /// Reads from a given BAR register at the given offset
     pub fn read(&mut self, bar_idx: u8, offset: u8, data: &mut [u8]) {
         // There are only 6 registers each 4 bytes long
