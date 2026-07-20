@@ -21,10 +21,10 @@ use zerocopy::IntoBytes;
 use crate::arch::host_page_size;
 use crate::logger::{debug, error, warn};
 use crate::pci::configuration::{
-    Bars, NUM_BAR_REGS, decode_32_bits_bar_size, decode_64_bits_bar_size,
+    BAR0_REG_IDX, Bars, NUM_BAR_REGS, ROM_BAR_REG, decode_32_bits_bar_size, decode_64_bits_bar_size,
 };
 use crate::pci::msix::{MsixCap, MsixConfig};
-use crate::pci::{PciCapabilityId, PciExpressCapabilityId, PciSBDF};
+use crate::pci::{PciCapabilityId, PciDevice, PciExpressCapabilityId, PciSBDF};
 use crate::utils::{
     align_down_host_page, align_up_host_page, is_host_page_aligned, offset_from_lower_host_page,
     u64_to_usize, usize_to_u64,
@@ -433,6 +433,90 @@ impl BusDevice for VfioDevice {
             }
         }
         None
+    }
+}
+
+// This should only serve config space
+impl PciDevice for VfioDevice {
+    fn write_config_register(
+        &mut self,
+        reg_idx: u16,
+        offset: u8,
+        data: &[u8],
+    ) -> Option<Arc<Barrier>> {
+        let mut handled: bool = false;
+        if BAR0_REG_IDX <= reg_idx && reg_idx < BAR0_REG_IDX + u16::from(NUM_BAR_REGS) {
+            // reg_idx is in [BAR0_REG, BAR0_REG+NUM_BAR_REGS), so the difference is 0..5.
+            #[allow(clippy::cast_possible_truncation)]
+            let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
+            // offset is within a 4-byte PCI config register (0..3).
+            self.bars.bars.write(bar_idx, offset, data);
+            handled = true;
+        } else if reg_idx == ROM_BAR_REG {
+            // We don's support ROM BAR
+            handled = true;
+            warn!(
+                "[{}] PciDevice::write_config_register ignoring write to the ROM BAR: offset: \
+                 {offset:#x}",
+                self.config.id
+            );
+        } else if reg_idx == u16::from(self.msix_state.register) {
+            // offset is within a 4-byte PCI config register (0..3).
+            self.msix_state.config.write_msg_ctl_register(offset, data);
+            // Don't set `handled` since we need to passthrough write
+            // to the msg_ctl register to the device, so it will enable Msix
+            // interrupts
+        } else {
+            // If we mask some registers, there is no reason to allow writing to them
+            for mask in self.masks.iter() {
+                if mask.register == reg_idx {
+                    handled = true;
+                    break;
+                }
+            }
+        }
+        let config_offset = reg_idx * 4 + u16::from(offset);
+        if !handled {
+            self.device
+                .region_write(VFIO_PCI_CONFIG_REGION_INDEX, data, u64::from(config_offset));
+        }
+        None
+    }
+    fn read_config_register(&mut self, reg_idx: u16) -> u32 {
+        let config_offset = reg_idx as u64 * 4;
+        let mut result: u32 = 0;
+        if BAR0_REG_IDX <= reg_idx && reg_idx < BAR0_REG_IDX + u16::from(NUM_BAR_REGS) {
+            // reg_idx is in [BAR0_REG, BAR0_REG+NUM_BAR_REGS), so the difference is 0..5.
+            #[allow(clippy::cast_possible_truncation)]
+            let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
+            self.bars.bars.read(bar_idx, 0, result.as_mut_bytes());
+        } else if reg_idx == ROM_BAR_REG {
+            // We don's support ROM BAR
+            warn!(
+                "[{}] PciDevice::read_config_register ignoring read to the ROM BAR",
+                self.config.id
+            );
+        } else {
+            self.device.region_read(
+                VFIO_PCI_CONFIG_REGION_INDEX,
+                result.as_mut_bytes(),
+                config_offset,
+            );
+            if reg_idx == u16::from(self.msix_state.register) {
+                // Since we emulate the MsixCap, we need to set the Mask and Msix enable bits to
+                // values we have, and not what device has.
+                let msg_ctl = self.msix_state.config.as_msg_ctl();
+                result &= 0x0000ffff;
+                result |= u32::from(msg_ctl) << 16;
+            }
+            for mask in self.masks.iter() {
+                if mask.register == reg_idx {
+                    result = (result & mask.mask) | mask.value;
+                    break;
+                }
+            }
+        }
+        result
     }
 }
 
