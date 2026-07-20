@@ -3,7 +3,8 @@
 
 use std::ops::DerefMut;
 use std::os::fd::AsRawFd;
-use std::sync::Arc;
+use std::path::Path;
+use std::sync::{Arc, Barrier, Mutex};
 
 use arrayvec::ArrayVec;
 use bitflags::bitflags;
@@ -14,6 +15,7 @@ pub use vfio_ioctls::{
     VfioRegionInfoCapSparseMmap, VfioRegionSparseMmapArea,
 };
 use vm_allocator::{AllocPolicy, RangeInclusive};
+use vmm_sys_util::eventfd::EventFd;
 use zerocopy::IntoBytes;
 
 use crate::arch::host_page_size;
@@ -21,12 +23,15 @@ use crate::logger::{debug, error, warn};
 use crate::pci::configuration::{
     Bars, NUM_BAR_REGS, decode_32_bits_bar_size, decode_64_bits_bar_size,
 };
-use crate::pci::msix::MsixCap;
-use crate::pci::{PciCapabilityId, PciExpressCapabilityId};
+use crate::pci::msix::{MsixCap, MsixConfig};
+use crate::pci::{PciCapabilityId, PciExpressCapabilityId, PciSBDF};
 use crate::utils::{
     align_down_host_page, align_up_host_page, is_host_page_aligned, offset_from_lower_host_page,
     u64_to_usize, usize_to_u64,
 };
+use crate::vmm_config::vfio::VfioConfig;
+use crate::vstate::bus::BusDevice;
+use crate::vstate::interrupts::InterruptError;
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::KvmVm;
 
@@ -50,10 +55,16 @@ pub enum VfioError {
     BarAllocation,
     /// mmap failed
     Mmap,
+    /// Failed to allocate KVM slot
+    KvmSlot,
     /// Failed to set KVM user memory region: {0}
     SetUserMemoryRegion(String),
     /// vfio-ioctls crate error: {0}
     VfioIoctls(#[from] vfio_ioctls::VfioError),
+    /// Cannot create Msix vector group: {0}
+    MsixConfig(#[from] InterruptError),
+    /// Device does not provide MSIx irq
+    NoMsixIrq,
     /// BAR{0} MSI-X table at offset {1:#x} size {2:#x} does not fit in region of size {3:#x}
     MsixTableOutOfRange(u8, u64, u64, u64),
     /// BAR{0} MSI-X PBA at offset {1:#x} size {2:#x} does not fit in region of size {3:#x}
@@ -211,6 +222,19 @@ impl Drop for VfioBarMappings {
     }
 }
 
+/// Container for everything MSIx related
+#[derive(Debug)]
+pub struct VfioMsixState {
+    /// Register idx where the capability is in the configuration space
+    pub register: u8,
+    /// The actual capability (without first 2 bytes)
+    pub cap: MsixCap,
+    /// Info about Table and Pba holes
+    pub bar_hole_infos: ArrayVec<VfioBarHoleInfo, 2>,
+    /// Config
+    pub config: MsixConfig,
+}
+
 /// Mask for specific register in the configuration space
 #[derive(Debug)]
 pub struct VfioRegisterMask {
@@ -220,6 +244,61 @@ pub struct VfioRegisterMask {
     pub mask: u32,
     /// value
     pub value: u32,
+}
+
+/// The VFIO device information
+pub struct VfioDevice {
+    /// Configuration with which the device was created
+    pub config: VfioConfig,
+    /// SBDF of the device in the configuration space
+    pub sbdf: PciSBDF,
+    /// Device
+    pub device: InternalVfioDevice,
+    /// Information about BARs
+    pub bars: VfioBars,
+    /// DMA mapped BARs
+    pub bar_mappings: VfioBarMappings,
+    /// MSIx state
+    pub msix_state: VfioMsixState,
+    /// Masks for configuration space registers
+    pub masks: Vec<VfioRegisterMask>,
+    /// Vm
+    pub vm: Arc<KvmVm>,
+}
+
+impl std::fmt::Debug for VfioDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VfioDeviceBundle")
+            .field("config", &self.config)
+            .field("sbdf", &self.sbdf)
+            .finish()
+    }
+}
+
+impl VfioDevice {
+    /// New VfioDevice
+    pub fn new(
+        container: &Arc<VfioContainer>,
+        vm: &Arc<KvmVm>,
+        config: VfioConfig,
+        sbdf: PciSBDF,
+    ) -> Result<Arc<Mutex<VfioDevice>>, VfioError> {
+        vfio_init_device(container, vm, config, sbdf)
+    }
+}
+
+impl Drop for VfioDevice {
+    fn drop(&mut self) {
+        vfio_deinit_device(self);
+    }
+}
+
+// This should only serve BARs
+impl BusDevice for VfioDevice {
+    fn read(&mut self, base: u64, offset: u64, data: &mut [u8]) {}
+    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+        None
+    }
 }
 
 #[allow(clippy::type_complexity)]
@@ -1001,6 +1080,160 @@ fn vfio_unmap_bar_mapping(container: &VfioContainer, vm: &KvmVm, mapping: &VfioB
             "Error on unmapping host memory on VFIO device creation failure: {r:?}. Continuing \
              with other regions removal."
         );
+    }
+}
+
+#[allow(clippy::type_complexity)]
+fn vfio_prepare_device(
+    container: &Arc<VfioContainer>,
+    vm: &Arc<KvmVm>,
+    sysfs_path: &Path,
+    sbdf: PciSBDF,
+) -> Result<
+    (
+        InternalVfioDevice,
+        VfioBars,
+        VfioBarMappings,
+        VfioMsixState,
+        Vec<VfioRegisterMask>,
+    ),
+    VfioError,
+> {
+    let device = InternalVfioDevice::new(
+        sysfs_path,
+        container.clone() as Arc<dyn vfio_ioctls::VfioOps>,
+    )?;
+    device.reset();
+
+    let (msix_cap_and_register, masks) = vfio_device_get_pci_capabilities(&device);
+
+    // Only devices with MSI-X cap and irqs are supported
+    let Some((msix_cap, msix_register)) = msix_cap_and_register else {
+        return Err(VfioError::NoMsixIrq);
+    };
+    let Some(msix_irq_info) = device.get_irq_info(VFIO_PCI_MSIX_IRQ_INDEX) else {
+        return Err(VfioError::NoMsixIrq);
+    };
+
+    // SAFETY: maximum msix table size is 1 << 11 = 2048 (it has 10 bits int the control register
+    // and encoded as N - 1)
+    // This fits into u16 without issues
+    #[allow(clippy::cast_possible_truncation)]
+    let msix_num = msix_irq_info.count as u16;
+    let msix_vectors =
+        KvmVm::create_msix_group(vm.clone(), msix_num).map_err(VfioError::MsixConfig)?;
+    let msix_config = MsixConfig::new(Arc::new(msix_vectors), sbdf);
+
+    // We set VFIO irqs here on device setup. There is no reason to add additional tracking
+    // for driver MSIx configuration since those are handled by the MsixState.
+    // If anything after this call fails, we don't need to do anything since the kernel will
+    // clean up these irqs when `device` file will be closed.
+    let fds: Vec<&EventFd> = msix_config
+        .vectors
+        .vectors
+        .iter()
+        .map(|v| &v.event_fd)
+        .collect();
+    device.enable_msix(fds)?;
+
+    let bars = VfioBars::new(&device, vm.clone())?;
+
+    // There is no direct access to `regions` in `VfioDevice`, so need to work around this
+    let bar_region_infos: [VfioRegionInfo; NUM_BAR_REGS as usize] = std::array::from_fn(|i| {
+        #[allow(clippy::cast_possible_truncation)]
+        VfioRegionInfo {
+            flags: device.get_region_flags(i as u32),
+            size: device.get_region_size(i as u32),
+            offset: device.get_region_offset(i as u32),
+            caps: device.get_region_caps(i as u32),
+        }
+    });
+
+    let (areas, bar_hole_infos) = vfio_calculate_bar_areas(
+        &bars.bars,
+        &bar_region_infos,
+        msix_cap_and_register.as_ref().map(|(v, _)| v),
+    )?;
+
+    let Some(first_area_slot) = vm.next_kvm_slot(
+        // SAFETY: areas.len() is bound to fit in u32
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            areas.len() as u32
+        },
+    ) else {
+        return Err(VfioError::KvmSlot);
+    };
+
+    let bar_mappings = VfioBarMappings::new(
+        container.clone(),
+        vm.clone(),
+        &areas,
+        &device,
+        first_area_slot,
+    )?;
+
+    let msix_state = VfioMsixState {
+        register: msix_register,
+        cap: msix_cap,
+        bar_hole_infos,
+        config: msix_config,
+    };
+    Ok((device, bars, bar_mappings, msix_state, masks))
+}
+
+/// This will open a VFIO device, attach it's group both to the KVM VFIO device and to the VFIO
+/// container. It will setup MSIx irqs and BAR DMAs.
+fn vfio_init_device(
+    container: &Arc<VfioContainer>,
+    vm: &Arc<KvmVm>,
+    config: VfioConfig,
+    sbdf: PciSBDF,
+) -> Result<Arc<Mutex<VfioDevice>>, VfioError> {
+    let sysfs_path = format!(
+        "/sys/bus/pci/devices/{:04x}:{:02x}:{:02x}.{:x}",
+        config.sbdf.segment(),
+        config.sbdf.bus(),
+        config.sbdf.device(),
+        config.sbdf.function()
+    );
+    debug!("Opening device at path: {}", sysfs_path);
+    let (device, bars, bar_mappings, msix_state, masks) =
+        vfio_prepare_device(container, vm, Path::new(&sysfs_path), sbdf)?;
+
+    let vfio_device = Arc::new(Mutex::new(VfioDevice {
+        config,
+        sbdf,
+        device,
+        bars,
+        bar_mappings,
+        msix_state,
+        masks,
+        vm: vm.clone(),
+    }));
+
+    for hole in vfio_device.lock().unwrap().msix_state.bar_hole_infos.iter() {
+        vm.common
+            .mmio_bus
+            .insert(vfio_device.clone(), hole.gpa, hole.size)
+            // SAFETY: the hole gpa and size were allocated from internal allocator. we must never
+            // receive overlapping regions from it.
+            .unwrap();
+    }
+    Ok(vfio_device)
+}
+
+/// Performs device reset and removes emulated regions from the mmio_bus.
+fn vfio_deinit_device(device: &VfioDevice) {
+    device.device.reset();
+
+    for hole in device.msix_state.bar_hole_infos.iter() {
+        device
+            .vm
+            .common
+            .mmio_bus
+            .remove(hole.gpa, hole.size)
+            .unwrap();
     }
 }
 
