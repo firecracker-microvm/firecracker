@@ -293,10 +293,145 @@ impl Drop for VfioDevice {
     }
 }
 
+enum HandleBarAccessResult {
+    PartialOverlap,
+    MsixTable(u64),
+    MsixPba(u64),
+    Device(u8, u64),
+}
+fn vfio_handle_bar_access(
+    bar_hole_infos: &[VfioBarHoleInfo],
+    msix_cap: &MsixCap,
+    base: u64,
+    offset: u64,
+    data_len: u64,
+) -> HandleBarAccessResult {
+    let data_start = offset;
+    let data_end = offset + data_len;
+    for hole in bar_hole_infos.iter() {
+        if hole.gpa == base {
+            if hole.usage.contains(VfioBarHoleUsageFlags::TABLE) {
+                let (t_off, t_size) = msix_cap.table_bar_offset_and_size();
+                let t_start = offset_from_lower_host_page(t_off);
+                let t_end = t_start + t_size;
+                if t_start <= data_start && data_end <= t_end {
+                    return HandleBarAccessResult::MsixTable(offset - t_start);
+                }
+                // Reject partial overlap with table.
+                // This should not happen in normal operations, but malicious
+                // driver can try this.
+                // In this case it should be fine to ignore the access all together
+                if data_start < t_end && t_start < data_end {
+                    return HandleBarAccessResult::PartialOverlap;
+                }
+            }
+
+            if hole.usage.contains(VfioBarHoleUsageFlags::PBA) {
+                let (p_off, p_size) = msix_cap.pba_bar_offset_and_size();
+                let p_start = offset_from_lower_host_page(p_off);
+                let p_end = p_start + p_size;
+                if p_start <= data_start && data_end <= p_end {
+                    return HandleBarAccessResult::MsixPba(offset - p_start);
+                }
+                // Reject partial overlap with pba.
+                // This should not happen in normal operations, but malicious
+                // driver can try this.
+                // In this case it should be fine to ignore the access all together
+                if data_start < p_end && p_start < data_end {
+                    return HandleBarAccessResult::PartialOverlap;
+                }
+            }
+
+            let (region_idx, hole_off_in_region) =
+                if hole.usage.contains(VfioBarHoleUsageFlags::TABLE) {
+                    (
+                        msix_cap.table_bir(),
+                        align_down_host_page(msix_cap.table_offset() as u64),
+                    )
+                } else {
+                    (
+                        msix_cap.pba_bir(),
+                        align_down_host_page(msix_cap.pba_offset() as u64),
+                    )
+                };
+            let in_region_off = hole_off_in_region + offset;
+            return HandleBarAccessResult::Device(region_idx, in_region_off);
+        }
+    }
+    // SAFETY: if this is ever reached it would mean we have a bug in the code that adds BarHoles
+    // as regions into the MmioBus.
+    unreachable!()
+}
+
 // This should only serve BARs
 impl BusDevice for VfioDevice {
-    fn read(&mut self, base: u64, offset: u64, data: &mut [u8]) {}
+    fn read(&mut self, base: u64, offset: u64, data: &mut [u8]) {
+        match vfio_handle_bar_access(
+            &self.msix_state.bar_hole_infos,
+            &self.msix_state.cap,
+            base,
+            offset,
+            usize_to_u64(data.len()),
+        ) {
+            HandleBarAccessResult::PartialOverlap => {
+                warn!(
+                    "[{}] BusDevice::read ignoring read with partial overlap: base: {base:#x} \
+                     offset: {offset:#x}",
+                    self.config.id
+                );
+                data.fill(0);
+            }
+            HandleBarAccessResult::MsixTable(offset) => {
+                self.msix_state.config.read_table(offset, data);
+            }
+            HandleBarAccessResult::MsixPba(offset) => {
+                self.msix_state.config.read_pba(offset, data);
+            }
+            HandleBarAccessResult::Device(region_idx, in_region_off) => {
+                let region_size = self.device.get_region_size(region_idx as u32);
+                if in_region_off + (data.len() as u64) <= region_size {
+                    self.device
+                        .region_read(region_idx as u32, data, in_region_off);
+                } else {
+                    // If access is partially out of the region boundaries
+                    // just ignore it
+                }
+            }
+        }
+    }
+
     fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+        match vfio_handle_bar_access(
+            &self.msix_state.bar_hole_infos,
+            &self.msix_state.cap,
+            base,
+            offset,
+            usize_to_u64(data.len()),
+        ) {
+            HandleBarAccessResult::PartialOverlap => {
+                warn!(
+                    "[{}] BusDevice::write ignoring write with partial overlap: base: {base:#x} \
+                     offset: {offset:#x}",
+                    self.config.id
+                );
+            }
+            HandleBarAccessResult::MsixTable(offset) => {
+                self.msix_state.config.write_table(offset, data);
+            }
+            HandleBarAccessResult::MsixPba(offset) => {
+                self.msix_state.config.write_pba(offset, data);
+            }
+            HandleBarAccessResult::Device(region_idx, in_region_off) => {
+                let region_size = self.device.get_region_size(region_idx as u32);
+                if in_region_off + (data.len() as u64) <= region_size {
+                    self.device
+                        .region_write(region_idx as u32, data, in_region_off);
+                } else {
+                    // If access is partially out of the region boundaries
+                    // just ignore it
+                }
+            }
+        }
         None
     }
 }
@@ -1983,5 +2118,133 @@ mod tests {
             err,
             VfioError::MsixPbaOutOfRange(0, 0x0, 0x2000, 0x1000)
         ));
+    }
+
+    const BAR_GPA: u64 = 0x1000;
+
+    fn holes_table_only() -> ArrayVec<VfioBarHoleInfo, 2> {
+        let mut holes = ArrayVec::new();
+        holes.push(VfioBarHoleInfo {
+            gpa: BAR_GPA,
+            size: 0x1000,
+            usage: VfioBarHoleUsageFlags::TABLE,
+        });
+        holes
+    }
+
+    fn holes_pba_only() -> ArrayVec<VfioBarHoleInfo, 2> {
+        let mut holes = ArrayVec::new();
+        holes.push(VfioBarHoleInfo {
+            gpa: BAR_GPA,
+            size: 0x1000,
+            usage: VfioBarHoleUsageFlags::PBA,
+        });
+        holes
+    }
+
+    fn holes_merged() -> ArrayVec<VfioBarHoleInfo, 2> {
+        let mut holes = ArrayVec::new();
+        holes.push(VfioBarHoleInfo {
+            gpa: BAR_GPA,
+            size: 0x1000,
+            usage: VfioBarHoleUsageFlags::TABLE | VfioBarHoleUsageFlags::PBA,
+        });
+        holes
+    }
+
+    #[test]
+    fn test_handle_bar_access_table_inside_table_range() {
+        let holes = holes_table_only();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x800);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x10, 4);
+        assert!(matches!(result, HandleBarAccessResult::MsixTable(0x10)));
+    }
+
+    #[test]
+    fn test_handle_bar_access_table_outside_table_range_forwards_to_device() {
+        let holes = holes_table_only();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x800);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x100, 4);
+        assert!(matches!(result, HandleBarAccessResult::Device(0, 0x100)));
+    }
+
+    #[test]
+    fn test_handle_bar_access_pba_inside_pba_range() {
+        let holes = holes_pba_only();
+        let cap = MsixCap::new(0, 4, 0x800, 0, 0x100);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x100, 4);
+        assert!(matches!(result, HandleBarAccessResult::MsixPba(0)));
+    }
+
+    #[test]
+    fn test_handle_bar_access_pba_outside_pba_range_forwards_to_device() {
+        let holes = holes_pba_only();
+        let cap = MsixCap::new(0, 4, 0x800, 0, 0x100);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x800, 4);
+        assert!(matches!(result, HandleBarAccessResult::Device(0, 0x800)));
+    }
+
+    #[test]
+    fn test_handle_bar_access_merged_hits_table() {
+        let holes = holes_merged();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x200);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x10, 4);
+        assert!(matches!(result, HandleBarAccessResult::MsixTable(0x10)));
+    }
+
+    #[test]
+    fn test_handle_bar_access_merged_hits_pba() {
+        let holes = holes_merged();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x200);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x200, 4);
+        assert!(matches!(result, HandleBarAccessResult::MsixPba(0)));
+    }
+
+    #[test]
+    fn test_handle_bar_access_merged_padding_forwards_to_device() {
+        let holes = holes_merged();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x200);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x800, 4);
+        assert!(matches!(result, HandleBarAccessResult::Device(0, 0x800)));
+    }
+
+    #[test]
+    fn test_handle_bar_access_partial_overlap_table_start() {
+        let holes = holes_table_only();
+        let cap = MsixCap::new(0, 4, 0x100, 0, 0x800);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0xfe, 4);
+        assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
+    }
+
+    #[test]
+    fn test_handle_bar_access_partial_overlap_table_end() {
+        let holes = holes_table_only();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x800);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x3e, 4);
+        assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
+    }
+
+    #[test]
+    fn test_handle_bar_access_partial_overlap_pba_start() {
+        let holes = holes_pba_only();
+        let cap = MsixCap::new(0, 4, 0x800, 0, 0x100);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0xfe, 4);
+        assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
+    }
+
+    #[test]
+    fn test_handle_bar_access_partial_overlap_pba_end() {
+        let holes = holes_pba_only();
+        let cap = MsixCap::new(0, 4, 0x800, 0, 0x100);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x106, 4);
+        assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
+    }
+
+    #[test]
+    #[should_panic(expected = "unreachable")]
+    fn test_handle_bar_access_unrelated_base_panics() {
+        let holes = holes_table_only();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x800);
+        let _ = vfio_handle_bar_access(&holes, &cap, BAR_GPA + 0x1000, 0, 4);
     }
 }
