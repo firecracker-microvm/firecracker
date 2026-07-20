@@ -206,27 +206,19 @@ impl Drop for VfioDevice {
     }
 }
 
-<<<<<<< HEAD
 // Internal type for distributing the emulated area accesses
 // between different components
 #[derive(Debug)]
-=======
->>>>>>> 2bce4fac3 (vfio: implement BusDevice for VfioDevice)
 enum HandleBarAccessResult {
     PartialOverlap,
     MsixTable(u64),
     MsixPba(u64),
     Device(u8, u64),
 }
-<<<<<<< HEAD
 
 // Distribute BAR acess aiming at the emulated areas
 fn vfio_distribute_bar_access(
     emulated_areas: &[VfioBarEmulatedArea],
-=======
-fn vfio_handle_bar_access(
-    bar_hole_infos: &[VfioBarEmulatedArea],
->>>>>>> 2bce4fac3 (vfio: implement BusDevice for VfioDevice)
     msix_cap: &MsixCap,
     base: u64,
     offset: u64,
@@ -234,7 +226,6 @@ fn vfio_handle_bar_access(
 ) -> HandleBarAccessResult {
     let data_start = offset;
     let data_end = offset + data_len;
-<<<<<<< HEAD
     for area in emulated_areas.iter() {
         if area.gpa == base {
             if area
@@ -245,16 +236,6 @@ fn vfio_handle_bar_access(
                 let (t_off, t_size) = (t_off as u64, t_size as u64);
                 assert!(area.in_bar_offset <= t_off);
                 let t_start = t_off - area.in_bar_offset;
-=======
-    for hole in bar_hole_infos.iter() {
-        if hole.gpa == base {
-            if hole
-                .usage
-                .contains(VfioBarEmulatedRegionUsageFlags::MSIX_TABLE)
-            {
-                let (t_off, t_size) = msix_cap.table_bar_offset_and_size();
-                let t_start = offset_from_lower_host_page(t_off);
->>>>>>> 2bce4fac3 (vfio: implement BusDevice for VfioDevice)
                 let t_end = t_start + t_size;
                 if t_start <= data_start && data_end <= t_end {
                     return HandleBarAccessResult::MsixTable(offset - t_start);
@@ -268,20 +249,11 @@ fn vfio_handle_bar_access(
                 }
             }
 
-<<<<<<< HEAD
             if area.usage.contains(VfioBarEmulatedAreaUsageFlags::MSIX_PBA) {
                 let (p_off, p_size) = msix_cap.pba_bar_offset_and_size();
                 let (p_off, p_size) = (p_off as u64, p_size as u64);
                 assert!(area.in_bar_offset <= p_off);
                 let p_start = p_off - area.in_bar_offset;
-=======
-            if hole
-                .usage
-                .contains(VfioBarEmulatedRegionUsageFlags::MSIX_PBA)
-            {
-                let (p_off, p_size) = msix_cap.pba_bar_offset_and_size();
-                let p_start = offset_from_lower_host_page(p_off);
->>>>>>> 2bce4fac3 (vfio: implement BusDevice for VfioDevice)
                 let p_end = p_start + p_size;
                 if p_start <= data_start && data_end <= p_end {
                     return HandleBarAccessResult::MsixPba(offset - p_start);
@@ -295,46 +267,18 @@ fn vfio_handle_bar_access(
                 }
             }
 
-<<<<<<< HEAD
             return HandleBarAccessResult::Device(area.bar_idx, area.in_bar_offset + offset);
         }
     }
     // SAFETY: if this is ever reached it would mean we have a bug in the code which adds
     // VfioBarEmulatedArea into the MmioBus.
-=======
-            let (region_idx, hole_off_in_region) = if hole
-                .usage
-                .contains(VfioBarEmulatedRegionUsageFlags::MSIX_TABLE)
-            {
-                (
-                    msix_cap.table_bir(),
-                    align_down_host_page(msix_cap.table_offset() as u64),
-                )
-            } else {
-                (
-                    msix_cap.pba_bir(),
-                    align_down_host_page(msix_cap.pba_offset() as u64),
-                )
-            };
-            let in_region_off = hole_off_in_region + offset;
-            return HandleBarAccessResult::Device(region_idx, in_region_off);
-        }
-    }
-    // SAFETY: if this is ever reached it would mean we have a bug in the code that adds BarHoles
-    // as regions into the MmioBus.
->>>>>>> 2bce4fac3 (vfio: implement BusDevice for VfioDevice)
     unreachable!()
 }
 
 impl BusDevice for VfioDevice {
     fn read(&mut self, base: u64, offset: u64, data: &mut [u8]) {
-<<<<<<< HEAD
         match vfio_distribute_bar_access(
             &self.msix_state.emulated_areas,
-=======
-        match vfio_handle_bar_access(
-            &self.msix_state.bar_hole_infos,
->>>>>>> 2bce4fac3 (vfio: implement BusDevice for VfioDevice)
             &self.msix_state.cap,
             base,
             offset,
@@ -368,13 +312,8 @@ impl BusDevice for VfioDevice {
     }
 
     fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
-<<<<<<< HEAD
         match vfio_distribute_bar_access(
             &self.msix_state.emulated_areas,
-=======
-        match vfio_handle_bar_access(
-            &self.msix_state.bar_hole_infos,
->>>>>>> 2bce4fac3 (vfio: implement BusDevice for VfioDevice)
             &self.msix_state.cap,
             base,
             offset,
