@@ -239,6 +239,9 @@ where
                         // by self.peer_avail_credit(), a u32 internally.
                         pkt.hdr.set_op(uapi::VSOCK_OP_RW).set_len(read_cnt);
                         METRICS.rx_bytes_count.add(read_cnt as u64);
+                        // There may be more data to read, so keep `Rw` pending to stay
+                        // scheduled for another read.
+                        self.pending_rx.insert(PendingRx::Rw);
                     }
                     self.rx_cnt += Wrapping(pkt.hdr.len());
                     self.last_fwd_cnt_to_peer = self.fwd_cnt;
@@ -247,13 +250,7 @@ where
                 Err(VsockError::GuestMemoryMmap(GuestMemoryError::IOError(err)))
                     if err.kind() == ErrorKind::WouldBlock =>
                 {
-                    // This shouldn't actually happen (receiving EWOULDBLOCK after EPOLLIN), but
-                    // apparently it does, so we need to handle it gracefully.
-                    warn!(
-                        "vsock: unexpected EWOULDBLOCK while reading from backing stream: lp={}, \
-                         pp={}, err={:?}",
-                        self.local_port, self.peer_port, err
-                    );
+                    // Host stream drained: `Rw` stays cleared.
                 }
                 Err(err) => {
                     // We are not expecting any other errors when reading from the underlying
@@ -1057,9 +1054,46 @@ mod tests {
         // With an undeliverable Rw queued, IN must be suppressed.
         assert!(!ctx.conn.get_polled_evset().contains(EventSet::IN));
 
-        // Draining the pending packet (guest posted an RX buffer) clears Rw and re-arms IN.
+        // The guest posts an RX buffer: the packet is delivered, but `Rw` stays pending for
+        // another read, so IN remains suppressed.
         ctx.recv();
         assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RW);
+        assert!(ctx.conn.has_pending_rx());
+        assert!(!ctx.conn.get_polled_evset().contains(EventSet::IN));
+
+        // Once the stream drains (read returns `WouldBlock`), `Rw` is cleared and IN re-armed.
+        ctx.conn.recv_pkt(&mut ctx.rx_pkt).unwrap_err();
+        assert!(!ctx.conn.has_pending_rx());
+        assert!(ctx.conn.get_polled_evset().contains(EventSet::IN));
+    }
+
+    #[test]
+    fn test_rx_drains_multiple_packets_per_notification() {
+        // A single EPOLLIN notification must drain the whole host stream: `recv_pkt`
+        // keeps yielding RW packets across calls until a read would block.
+        let mut ctx = CsmTestContext::new_established();
+        let pkt_buf_size = ctx.rx_pkt.buf_size() as usize;
+        // More than one packet's worth of data, so draining needs several reads.
+        let data = vec![0xab_u8; pkt_buf_size + 1];
+        ctx.set_stream(TestStream::new_with_read_buf(&data));
+
+        // A single notification schedules the connection.
+        ctx.notify_epollin();
+
+        // First read fills a whole packet; `Rw` stays pending for the rest.
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RW);
+        assert_eq!(ctx.rx_pkt.hdr.len() as usize, pkt_buf_size);
+        assert!(ctx.conn.has_pending_rx());
+
+        // Second read drains the remaining byte, without another notification.
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RW);
+        assert_eq!(ctx.rx_pkt.hdr.len() as usize, 1);
+        assert!(ctx.conn.has_pending_rx());
+
+        // Stream now empty: the next read would block, clearing `Rw` and re-arming IN.
+        ctx.conn.recv_pkt(&mut ctx.rx_pkt).unwrap_err();
         assert!(!ctx.conn.has_pending_rx());
         assert!(ctx.conn.get_polled_evset().contains(EventSet::IN));
     }
