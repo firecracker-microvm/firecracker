@@ -1160,6 +1160,8 @@ mod tests {
         let buf = test_utils::read_packet_data(&ctx.tx_pkt, 4);
         assert_eq!(&buf, &data);
 
+        // The connection stays scheduled until the stream drains, then has no more pending RX.
+        ctx.muxer.recv_pkt(&mut ctx.rx_pkt).unwrap_err();
         assert!(!ctx.muxer.has_pending_rx());
     }
 
@@ -1227,10 +1229,14 @@ mod tests {
         assert!(!ctx.muxer.listener_map.contains_key(&conn_fd));
         assert_eq!(ctx.count_epoll_listeners().1, 0);
 
-        // The guest posts an RX buffer: recv drains the packet, clearing the pending RX
-        // and re-arming the epoll listener.
+        // The guest posts an RX buffer: recv delivers the packet, but the connection stays
+        // scheduled (and its listener dropped) while the stream may still hold data.
         ctx.recv();
         assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RW);
+        assert!(!ctx.muxer.listener_map.contains_key(&conn_fd));
+
+        // Draining the stream clears the pending RX and re-arms the epoll listener.
+        ctx.muxer.recv_pkt(&mut ctx.rx_pkt).unwrap_err();
         assert!(ctx.muxer.listener_map.contains_key(&conn_fd));
         assert_eq!(ctx.count_epoll_listeners().1, 1);
     }
