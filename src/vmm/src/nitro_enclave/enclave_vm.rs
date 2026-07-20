@@ -8,7 +8,10 @@
 use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
 
-use vm_memory::{Bytes, GuestAddress, GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion};
+use vm_memory::{
+    Bytes, GuestAddress, GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion,
+    GuestRegionCollectionError,
+};
 
 use crate::logger::info;
 use crate::nitro_enclave::cpu_accounting::AccountingThreads;
@@ -56,9 +59,7 @@ pub enum EnclaveVmError {
     /// Failed to write the EIF image into guest memory: {0}
     WriteImage(GuestMemoryError),
     /// Failed to build guest memory mapping: {0}
-    // FIXME: temporary String; retyped to GuestRegionCollectionError in the
-    // following commit.
-    BuildGuestMemory(String),
+    BuildGuestMemory(GuestRegionCollectionError),
 }
 
 /// The donated enclave RAM, retained for the `EnclaveVm`'s lifetime so its
@@ -296,8 +297,8 @@ impl EnclaveVm {
             })
             .collect::<Result<Vec<_>, EnclaveVmError>>()?;
 
-        let guest_mem = GuestMemoryMmap::from_regions(regions)
-            .map_err(|e| EnclaveVmError::BuildGuestMemory(format!("{e}")))?;
+        let guest_mem =
+            GuestMemoryMmap::from_regions(regions).map_err(EnclaveVmError::BuildGuestMemory)?;
 
         let load_info = self
             .enclave_fd
@@ -431,7 +432,7 @@ impl EnclaveVm {
             )
             .map_err(EnclaveVmError::CmaAlloc)?;
         GuestMemoryMmap::from_regions(vec![GuestRegionMmapExt::dram_from_mmap_region(region, 0)])
-            .map_err(|e| EnclaveVmError::BuildGuestMemory(format!("{e}")))
+            .map_err(EnclaveVmError::BuildGuestMemory)
     }
 }
 
