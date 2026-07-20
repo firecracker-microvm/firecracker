@@ -853,6 +853,101 @@ fn vfio_calculate_bar_areas(
     Ok((mmappable_areas, emulated_areas))
 }
 
+/// Mmaps the area of the device BAR and creates a sets the KVM memory region for it, giving guest
+/// direct access to that memory.
+fn vfio_map_bar_mapping(
+    device: &InternalVfioDevice,
+    vm: &KvmVm,
+    area: &VfioBarMappableArea,
+    slot: u32,
+) -> Result<VfioBarMapping, VfioError> {
+    // SAFETY: FFI call to mmap with valid fd and offset. The returned pointer is checked
+    // against MAP_FAILED before use.
+    let hva_ptr = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            u64_to_usize(area.size),
+            area.prot,
+            libc::MAP_SHARED,
+            device.as_raw_fd(),
+            #[allow(clippy::cast_possible_wrap)]
+            {
+                area.device_offset as libc::off_t
+            },
+        )
+    };
+
+    if hva_ptr == libc::MAP_FAILED {
+        return Err(VfioError::Mmap(std::io::Error::last_os_error()));
+    }
+
+    let gpa = area.gpa;
+    let size = area.size;
+    let hva = hva_ptr as u64;
+
+    let kvm_flags = if (area.prot & libc::PROT_WRITE) == 0 {
+        KVM_MEM_READONLY
+    } else {
+        0
+    };
+    let kvm_memory_region = kvm_userspace_memory_region {
+        slot,
+        flags: kvm_flags,
+        guest_phys_addr: gpa,
+        memory_size: size,
+        userspace_addr: hva,
+    };
+    if let Err(e) = vm.set_user_memory_region(kvm_memory_region) {
+        // SAFETY: hva_ptr was returned by a successful mmap call above with the given size.
+        let r = unsafe { libc::munmap(hva_ptr.cast(), u64_to_usize(size)) };
+        if r < 0 {
+            error!(
+                "Error on unmapping host memory on VFIO device creation failure: {:?}. Continuing \
+                 with other regions removal.",
+                std::io::Error::last_os_error()
+            );
+        }
+        return Err(VfioError::SetUserMemoryRegion(e));
+    }
+
+    // We don't establish DMA mappings for BARs yet since we don't support PTP yet. Device can
+    // access their own memory without DMA.
+
+    Ok(VfioBarMapping {
+        kvm_slot: slot,
+        gpa,
+        size,
+        hva,
+    })
+}
+
+/// Removes the KVM memory region and unmaps the correspoinding virtual address space
+fn vfio_unmap_bar_mapping(vm: &KvmVm, mapping: &VfioBarMapping) {
+    let kvm_memory_region = kvm_userspace_memory_region {
+        slot: mapping.kvm_slot,
+        flags: 0,
+        guest_phys_addr: mapping.gpa,
+        memory_size: 0,
+        userspace_addr: mapping.hva,
+    };
+    if let Err(ee) = vm.set_user_memory_region(kvm_memory_region) {
+        error!(
+            "Error on removing KVM region for BAR in a VFIO device: {ee:?}. Continuing with other \
+             regions removal."
+        );
+    }
+
+    // SAFETY: host_addr was obtained from a successful mmap call with the given size.
+    let r = unsafe { libc::munmap(mapping.hva as *mut libc::c_void, u64_to_usize(mapping.size)) };
+    if r < 0 {
+        error!(
+            "Error on unmapping host memory for BAR in a VFIO device: {:?}. Continuing with other \
+             regions removal.",
+            std::io::Error::last_os_error()
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
