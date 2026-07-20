@@ -132,8 +132,9 @@ impl RawGuestRegionMmap {
         requested_size: usize,
         hugetlb_flags: libc::c_int,
     ) -> Result<Self, MemoryError> {
-        // Strategy: over-allocate by 2 MiB, then trim the unaligned head and tail via munmap,
-        // leaving a 2 MiB-aligned region of `size_page_multiple` bytes.
+        // Strategy: over-allocate by up to `GUEST_MEMORY_ALIGNMENT - page_size`, then trim
+        // the unaligned head and tail via munmap, leaving a 2 MiB-aligned region of
+        // `size_page_multiple` bytes.
         //
         //         ptr                          ptr + alloc_size
         //          |                                  |
@@ -147,10 +148,17 @@ impl RawGuestRegionMmap {
         //          (2 MiB-aligned)
         //
         //  1. Round requested_size up to page size -> `size_page_multiple`.
-        //  2. mmap(`size_page_multiple + 2 MiB`) -> `ptr` (page-aligned, not necessarily 2 MiB-aligned).
+        //  2. mmap(`size_page_multiple + GUEST_MEMORY_ALIGNMENT - page_size`) -> `ptr`.
+        //     `ptr` is page-aligned, so the worst-case distance to the next 2 MiB boundary
+        //     is `GUEST_MEMORY_ALIGNMENT - page_size` bytes. This guarantees the allocation
+        //     contains at least one 2 MiB-aligned region of `size_page_multiple` bytes.
         //  3. Compute `aligned_ptr` = first 2 MiB boundary ≥ `ptr`.
         //  4. munmap the head (`ptr..aligned_ptr`) and tail (`aligned_ptr + size_page_multiple..end`).
         //  5. Return the 2 MiB-aligned region of `size_page_multiple` bytes.
+        //
+        // Note: when `hugetlb_flags` is set, `page_size` equals `GUEST_MEMORY_ALIGNMENT` (2 MiB),
+        // so `alloc_size == size_page_multiple` (no over-allocation). This is correct because the
+        // kernel guarantees hugetlb mappings are already aligned to the huge page size.
         if requested_size == 0 {
             return Err(MemoryError::ZeroSize);
         }
@@ -162,7 +170,11 @@ impl RawGuestRegionMmap {
         let size_page_multiple = align_up!(requested_size, page_size);
 
         // Over-allocate to guarantee we can find a 2 MiB-aligned sub-region of the desired size.
-        let alloc_size = size_page_multiple + GUEST_MEMORY_ALIGNMENT;
+        // The over-allocation is `GUEST_MEMORY_ALIGNMENT - page_size` because the mmap return
+        // address is page-aligned, so we need at most that many extra bytes to reach the next
+        // 2 MiB boundary. For hugetlb (page_size == 2 MiB), this is zero — no over-allocation
+        // needed since the kernel already returns 2 MiB-aligned addresses.
+        let alloc_size = size_page_multiple + GUEST_MEMORY_ALIGNMENT - page_size;
 
         // SAFETY: anonymous private mapping with no fd; does not alias existing memory.
         // The returned region is PROT_NONE (inaccessible) until the caller re-maps it.
