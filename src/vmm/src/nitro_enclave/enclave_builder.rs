@@ -214,12 +214,7 @@ pub fn build_and_boot_enclave(
     #[allow(clippy::cast_possible_truncation)]
     let create_flags = create_flags as u32;
 
-    let mut enclave_vm = EnclaveVm::new(
-        dev_fd,
-        create_flags,
-        enclave_config.hotplug_mode,
-        enclave_config.dmb_size_mib(),
-    )?;
+    let mut enclave_vm = EnclaveVm::new(dev_fd, create_flags, enclave_config.clone())?;
     info!(
         "Enclave VM created: slot_uid={}, direct_mode={}, cpu_overcommit={}, \
          cpu_accounting={}, create_flags=0x{:x}",
@@ -330,7 +325,6 @@ pub fn build_and_boot_enclave(
         shutdown_exit_code: None,
         vm: Vm::Enclave(enclave_vm),
         device_manager,
-        enclave_config: vm_resources.enclave.clone(),
     };
     let vmm = Arc::new(Mutex::new(vmm));
     // Enclave VMs are already running after the NE start ioctl — there is no
