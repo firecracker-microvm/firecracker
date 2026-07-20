@@ -5,10 +5,12 @@
 #![allow(dead_code)]
 
 use std::ops::DerefMut;
+use std::os::fd::AsRawFd;
 use std::sync::Arc;
 
 use arrayvec::ArrayVec;
 use bitflags::bitflags;
+use kvm_bindings::{KVM_MEM_READONLY, kvm_userspace_memory_region};
 use vfio_bindings::bindings::vfio::*;
 pub use vfio_ioctls::{
     VfioContainer, VfioDevice as InternalVfioDevice, VfioDeviceFd, VfioRegionInfoCap,
@@ -18,7 +20,7 @@ use vm_allocator::{AllocPolicy, RangeInclusive};
 use zerocopy::IntoBytes;
 
 use crate::arch::host_page_size;
-use crate::logger::{debug, warn};
+use crate::logger::{debug, error, warn};
 use crate::pci::configuration::{
     Bars, NUM_BAR_REGS, decode_32_bits_bar_size, decode_64_bits_bar_size,
 };
@@ -29,7 +31,7 @@ use crate::utils::{
     u64_to_usize, usize_to_u64,
 };
 use crate::vstate::resources::ResourceAllocator;
-use crate::vstate::vm::KvmVm;
+use crate::vstate::vm::{KvmVm, VmError};
 
 // Number of 4 byte registers in the config space
 const PCI_CONFIG_SPACE_REGS: u16 = 1024;
@@ -51,6 +53,12 @@ const PCI_CONFIG_BAR_PREFETCHABLE: u32 = 1 << 3;
 pub enum VfioError {
     /// Failed to allocate guest address for BAR
     BarAllocation,
+    /// Mmap failed: {0:?}
+    Mmap(std::io::Error),
+    /// Failed to set KVM user memory region: {0}
+    SetUserMemoryRegion(VmError),
+    /// vfio-ioctls crate error: {0}
+    VfioIoctls(#[from] vfio_ioctls::VfioError),
     /// BAR{0} MSI-X table at offset {1:#x} size {2:#x} does not fit in region of size {3:#x}
     MsixTableOutOfRange(u8, u64, u64, u64),
     /// BAR{0} MSI-X PBA at offset {1:#x} size {2:#x} does not fit in region of size {3:#x}
@@ -109,6 +117,64 @@ impl Drop for VfioBars {
         let mut resource_allocator_lock = self.vm.resource_allocator();
         let resource_allocator = resource_allocator_lock.deref_mut();
         vfio_dellocate_memory_ranges_for_bars(resource_allocator, &self.bars);
+    }
+}
+
+/// Information about the bar mapping
+#[derive(Debug, Copy, Clone)]
+struct VfioBarMapping {
+    kvm_slot: u32,
+    gpa: u64,
+    size: u64,
+    hva: u64,
+}
+
+/// Wrapper type to automate dropping
+struct VfioBarMappings {
+    mappings: Vec<VfioBarMapping>,
+    vm: Arc<KvmVm>,
+}
+
+impl VfioBarMappings {
+    /// Create new VfioBarMappings
+    fn new(
+        vm: Arc<KvmVm>,
+        areas: &[VfioBarMappableArea],
+        device: &InternalVfioDevice,
+        first_area_slot: u32,
+    ) -> Result<VfioBarMappings, VfioError> {
+        let mut mappings = Vec::with_capacity(areas.len());
+        for (i, area) in areas.iter().enumerate() {
+            // `areas` length is bound by `u32`. See `vfio_calculate_bar_areas` comment.
+            #[allow(clippy::cast_possible_truncation)]
+            let i = i as u32;
+            match vfio_map_bar_mapping(device, vm.as_ref(), area, first_area_slot + i) {
+                Ok(mapping) => {
+                    debug!(
+                        "BAR area{} kvm gpa: [{:#x} ..{:#x}]",
+                        i,
+                        mapping.gpa,
+                        mapping.gpa + mapping.size
+                    );
+                    mappings.push(mapping);
+                }
+                Err(e) => {
+                    for mapping in mappings.iter() {
+                        vfio_unmap_bar_mapping(vm.as_ref(), mapping);
+                    }
+                    return Err(e);
+                }
+            }
+        }
+        Ok(Self { mappings, vm })
+    }
+}
+
+impl Drop for VfioBarMappings {
+    fn drop(&mut self) {
+        for mapping in self.mappings.iter() {
+            vfio_unmap_bar_mapping(self.vm.as_ref(), mapping);
+        }
     }
 }
 
@@ -785,6 +851,101 @@ fn vfio_calculate_bar_areas(
         bar_idx += 1;
     }
     Ok((mmappable_areas, emulated_areas))
+}
+
+/// Mmaps the area of the device BAR and creates a sets the KVM memory region for it, giving guest
+/// direct access to that memory.
+fn vfio_map_bar_mapping(
+    device: &InternalVfioDevice,
+    vm: &KvmVm,
+    area: &VfioBarMappableArea,
+    slot: u32,
+) -> Result<VfioBarMapping, VfioError> {
+    // SAFETY: FFI call to mmap with valid fd and offset. The returned pointer is checked
+    // against MAP_FAILED before use.
+    let hva_ptr = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            u64_to_usize(area.size),
+            area.prot,
+            libc::MAP_SHARED,
+            device.as_raw_fd(),
+            #[allow(clippy::cast_possible_wrap)]
+            {
+                area.vfio_fd_offset as libc::off_t
+            },
+        )
+    };
+
+    if hva_ptr == libc::MAP_FAILED {
+        return Err(VfioError::Mmap(std::io::Error::last_os_error()));
+    }
+
+    let gpa = area.gpa;
+    let size = area.size;
+    let hva = hva_ptr as u64;
+
+    let kvm_flags = if (area.prot & libc::PROT_WRITE) == 0 {
+        KVM_MEM_READONLY
+    } else {
+        0
+    };
+    let kvm_memory_region = kvm_userspace_memory_region {
+        slot,
+        flags: kvm_flags,
+        guest_phys_addr: gpa,
+        memory_size: size,
+        userspace_addr: hva,
+    };
+    if let Err(e) = vm.set_user_memory_region(kvm_memory_region) {
+        // SAFETY: hva_ptr was returned by a successful mmap call above with the given size.
+        let r = unsafe { libc::munmap(hva_ptr.cast(), u64_to_usize(size)) };
+        if r < 0 {
+            error!(
+                "Error on unmapping host memory on VFIO device creation failure: {:?}. Continuing \
+                 with other regions removal.",
+                std::io::Error::last_os_error()
+            );
+        }
+        return Err(VfioError::SetUserMemoryRegion(e));
+    }
+
+    // We don't establish DMA mappings for BARs yet since we don't support PTP yet. Device can
+    // access their own memory without DMA.
+
+    Ok(VfioBarMapping {
+        kvm_slot: slot,
+        gpa,
+        size,
+        hva,
+    })
+}
+
+/// Removes the KVM memory region and unmaps the corresponding virtual address space
+fn vfio_unmap_bar_mapping(vm: &KvmVm, mapping: &VfioBarMapping) {
+    let kvm_memory_region = kvm_userspace_memory_region {
+        slot: mapping.kvm_slot,
+        flags: 0,
+        guest_phys_addr: mapping.gpa,
+        memory_size: 0,
+        userspace_addr: mapping.hva,
+    };
+    if let Err(ee) = vm.set_user_memory_region(kvm_memory_region) {
+        error!(
+            "Error on removing KVM region for BAR in a VFIO device: {ee:?}. Continuing with other \
+             regions removal."
+        );
+    }
+
+    // SAFETY: host_addr was obtained from a successful mmap call with the given size.
+    let r = unsafe { libc::munmap(mapping.hva as *mut libc::c_void, u64_to_usize(mapping.size)) };
+    if r < 0 {
+        error!(
+            "Error on unmapping host memory for BAR in a VFIO device: {:?}. Continuing with other \
+             regions removal.",
+            std::io::Error::last_os_error()
+        );
+    }
 }
 
 #[cfg(test)]
