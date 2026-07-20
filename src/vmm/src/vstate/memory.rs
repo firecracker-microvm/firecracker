@@ -40,6 +40,8 @@ pub type GuestMemoryMmap = vm_memory::GuestRegionCollection<GuestRegionMmapExt>;
 /// The alignment used to allocate guest memory.
 /// Chosen to enable optimizations on host kernel, e.g. allow huge pages at the beginning of the memory space.
 const GUEST_MEMORY_ALIGNMENT: usize = mib_to_bytes(2);
+/// A mask to extract mmap's flags related to HUGETLB
+const HUGETLB_FLAG_MASK: libc::c_int = libc::MAP_HUGETLB | (0x3F << libc::MAP_HUGE_SHIFT);
 
 /// Errors associated with dumping guest memory to file.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -119,12 +121,17 @@ impl RawGuestRegionMmap {
     /// # Size rounding
     ///
     /// The returned `mmap_size` may be **larger** than `requested_size`: it is rounded up to the
-    /// nearest multiple of the host page size (typically 4 KiB). This is because `mmap`/`munmap`
-    /// operate at page granularity — the kernel cannot map or protect a partial page. For example,
-    /// requesting 5000 bytes on a 4 KiB-page host yields an `mmap_size` of 8192 bytes (2 pages).
+    /// nearest multiple of the page size used for the mapping. For regular mappings this is the
+    /// host page size (typically 4 KiB); for hugetlb mappings it is the huge page size (2 MiB).
+    /// This is because `mmap`/`munmap` operate at page granularity — the kernel cannot map or
+    /// protect a partial page. For example, requesting 5000 bytes on a 4 KiB-page host yields
+    /// an `mmap_size` of 8192 bytes (2 pages).
     ///
     /// The invariant is: `mmap_size == align_up!(requested_size, page_size)`.
-    fn allocate_protected(requested_size: usize) -> Result<Self, MemoryError> {
+    fn allocate_protected(
+        requested_size: usize,
+        hugetlb_flags: libc::c_int,
+    ) -> Result<Self, MemoryError> {
         // Strategy: over-allocate by 2 MiB, then trim the unaligned head and tail via munmap,
         // leaving a 2 MiB-aligned region of `size_page_multiple` bytes.
         //
@@ -147,7 +154,11 @@ impl RawGuestRegionMmap {
         if requested_size == 0 {
             return Err(MemoryError::ZeroSize);
         }
-        let page_size = host_page_size();
+        let page_size = match hugetlb_flags {
+            0 => host_page_size(),
+            flags if flags == libc::MAP_HUGETLB | libc::MAP_HUGE_2MB => mib_to_bytes(2),
+            _ => unreachable!("Only 2MiB hugetlb pages are supported"),
+        };
         let size_page_multiple = align_up!(requested_size, page_size);
 
         // Over-allocate to guarantee we can find a 2 MiB-aligned sub-region of the desired size.
@@ -160,7 +171,7 @@ impl RawGuestRegionMmap {
                 std::ptr::null_mut(),
                 alloc_size,
                 libc::PROT_NONE,
-                libc::MAP_PRIVATE | libc::MAP_NORESERVE | libc::MAP_ANONYMOUS,
+                hugetlb_flags | libc::MAP_PRIVATE | libc::MAP_NORESERVE | libc::MAP_ANONYMOUS,
                 -1,
                 0,
             )
@@ -242,8 +253,10 @@ impl RawGuestRegionMmap {
         fd: libc::c_int,
         offset: libc::off_t,
     ) -> Result<Self, MemoryError> {
+        let hugetlb_flags = Self::extract_huge_tlb_mmap_flags(flags);
+
         // This function works by doing a mmap fixed over a GuestMmapRegion allocated with PROT_NONE.
-        let ret = Self::allocate_protected(size)?;
+        let ret = Self::allocate_protected(size, hugetlb_flags)?;
 
         // SAFETY: this mmap is performed over the same memory region we just allocated, so it's
         // guarantee it's not in use elsewhere.
@@ -270,6 +283,11 @@ impl RawGuestRegionMmap {
 
         Ok(ret)
     }
+
+    /// Given some mmap flags, extracts the ones related to hugetlb
+    fn extract_huge_tlb_mmap_flags(flags: libc::c_int) -> libc::c_int {
+        flags & HUGETLB_FLAG_MASK
+    }
 }
 
 impl Drop for RawGuestRegionMmap {
@@ -277,7 +295,12 @@ impl Drop for RawGuestRegionMmap {
         // SAFETY: All memory access is done via GuestRegionMmap, and at this point there are no references to that.
         let ret = unsafe { libc::munmap(self.mmap_address.cast::<c_void>(), self.mmap_size) };
         // Panicking if unmapping failed: otherwise the guest memory might still be accessible after drop!
-        assert_eq!(ret, 0, "munmap of guest region failed");
+        assert_eq!(
+            ret,
+            0,
+            "munmap of guest region failed: {}",
+            std::io::Error::last_os_error()
+        );
     }
 }
 
@@ -2196,15 +2219,75 @@ mod tests {
     #[test]
     fn test_guest_region_errors_when_empty_size() {
         assert!(matches!(
-            RawGuestRegionMmap::allocate_protected(0),
+            RawGuestRegionMmap::allocate_protected(0, 0),
             Err(MemoryError::ZeroSize)
         ));
     }
 
     #[test]
-    fn test_guest_region_alignment_and_size() {
-        let page_size = host_page_size();
-        let huge_page_size = GUEST_MEMORY_ALIGNMENT;
+    fn test_extract_huge_tlb_mmap_flags() {
+        let cases = [
+            (0, 0),
+            (
+                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_NORESERVE,
+                0,
+            ),
+            (libc::MAP_HUGETLB, libc::MAP_HUGETLB),
+            (
+                libc::MAP_PRIVATE
+                    | libc::MAP_ANONYMOUS
+                    | libc::MAP_NORESERVE
+                    | libc::MAP_HUGETLB
+                    | libc::MAP_HUGE_2MB,
+                libc::MAP_HUGETLB | libc::MAP_HUGE_2MB,
+            ),
+            (
+                libc::MAP_SHARED | libc::MAP_HUGETLB | libc::MAP_HUGE_1GB,
+                libc::MAP_HUGETLB | libc::MAP_HUGE_1GB,
+            ),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(
+                RawGuestRegionMmap::extract_huge_tlb_mmap_flags(input),
+                expected,
+                "input={input:#x}"
+            );
+        }
+    }
+
+    /// Returns the number of free 2 MiB hugepages on the system.
+    fn free_hugepages_2m() -> usize {
+        let meminfo = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
+        meminfo
+            .lines()
+            .find(|line| line.starts_with("HugePages_Free:"))
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn test_guest_region_alignment_and_size_normal() {
+        // Note: this covers both the huge_pages = None and THP cases. That's because both allocate the underlying
+        // memory using the host page size (e.g. 4KiB).
+        test_guest_region_alignment_and_size(host_page_size(), 0);
+    }
+
+    #[test]
+    fn test_guest_region_alignment_and_size_huge() {
+        if free_hugepages_2m() == 0 {
+            println!("Skipping: no free 2 MiB hugepages available");
+            return;
+        }
+        test_guest_region_alignment_and_size(
+            mib_to_bytes(2),
+            libc::MAP_HUGETLB | libc::MAP_HUGE_2MB,
+        );
+    }
+
+    fn test_guest_region_alignment_and_size(page_size: usize, mmap_hugetlb_flags: libc::c_int) {
+        let expected_alignment = GUEST_MEMORY_ALIGNMENT;
 
         // Base sizes: powers of two from 1 KiB to 16 MiB.
         let base_sizes: Vec<usize> = (10..=24).map(|shift| 1usize << shift).collect();
@@ -2217,12 +2300,13 @@ mod tests {
             for offset in offsets {
                 let size = base.checked_add_signed(*offset).unwrap();
 
-                let region = RawGuestRegionMmap::allocate_protected(size).unwrap();
+                let region =
+                    RawGuestRegionMmap::allocate_protected(size, mmap_hugetlb_flags).unwrap();
                 let addr = region.mmap_address as usize;
 
                 // Returned address is 2MB-aligned.
                 assert_eq!(
-                    addr % huge_page_size,
+                    addr % expected_alignment,
                     0,
                     "Address not 2MB-aligned for base={base:#x} offset={offset}"
                 );
@@ -2264,7 +2348,7 @@ mod tests {
     #[test]
     fn test_guest_region_drop_reclaims_memory() {
         let size = mib_to_bytes(4);
-        let region = RawGuestRegionMmap::allocate_protected(size).unwrap();
+        let region = RawGuestRegionMmap::allocate_protected(size, 0).unwrap();
         let addr = region.mmap_address as usize;
 
         // The region should be mapped before drop.
