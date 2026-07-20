@@ -173,30 +173,32 @@ where
         while let Some(head) = queue.pop_or_enable_notification()? {
             let index = head.index;
             let used_len = match self.rx_packet.parse(mem, head) {
-                Ok(()) => {
-                    if self.backend.recv_pkt(&mut self.rx_packet).is_ok() {
-                        match self.rx_packet.commit_hdr() {
-                            // This addition cannot overflow, because packet length
-                            // is previously validated against `MAX_PKT_BUF_SIZE`
-                            // bound as part of `commit_hdr()`.
-                            Ok(()) => VSOCK_PKT_HDR_SIZE + self.rx_packet.hdr.len(),
-                            Err(err) => {
-                                warn!(
-                                    "vsock: Error writing packet header to guest memory: \
-                                     {:?}.Discarding the package.",
-                                    err
-                                );
-                                0
-                            }
+                Ok(()) => match self.backend.recv_pkt(&mut self.rx_packet) {
+                    Ok(()) => match self.rx_packet.commit_hdr() {
+                        // This addition cannot overflow, because packet length
+                        // is previously validated against `MAX_PKT_BUF_SIZE`
+                        // bound as part of `commit_hdr()`.
+                        Ok(()) => VSOCK_PKT_HDR_SIZE + self.rx_packet.hdr.len(),
+                        Err(err) => {
+                            warn!(
+                                "vsock: Error writing packet header to guest memory: \
+                                 {:?}.Discarding the package.",
+                                err
+                            );
+                            0
                         }
-                    } else {
-                        // We are using a consuming iterator over the virtio buffers, so, if we
-                        // can't fill in this buffer, we'll need to undo the
-                        // last iterator step.
+                    },
+                    Err(VsockError::NoData) => {
+                        // No more data to deliver. Return the unused buffer to the queue.
                         queue.undo_pop();
                         break;
                     }
-                }
+                    Err(err) => {
+                        error!("vsock: error receiving packet from backend: {:?}", err);
+                        queue.undo_pop();
+                        break;
+                    }
+                },
                 Err(err) => {
                     warn!("vsock: RX queue error: {:?}. Discarding the package.", err);
                     0
