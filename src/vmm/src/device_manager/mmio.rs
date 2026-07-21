@@ -201,7 +201,10 @@ impl MMIOVirtioDevices {
             let mmio_device = device.inner.lock().expect("Poisoned lock");
             let locked_device = mmio_device.locked_device();
             identifier = (locked_device.device_type(), device_id);
-            for (i, queue_evt) in locked_device.queue_events().iter().enumerate() {
+            for i in 0..locked_device.num_queues() {
+                let queue_evt = locked_device
+                    .queue_event(i)
+                    .expect("queue event must exist for each advertised queue");
                 let io_addr = IoEventAddress::Mmio(
                     device.resources.addr + u64::from(crate::devices::virtio::NOTIFY_REG_OFFSET),
                 );
@@ -519,7 +522,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::devices::virtio::ActivateError;
     use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
-    use crate::devices::virtio::queue::Queue;
+    use crate::devices::virtio::queue::{Queue, QueueConfig, QueueError};
     use crate::devices::virtio::transport::VirtioInterrupt;
     use crate::devices::virtio::transport::mmio::IrqTrigger;
     use crate::test_utils::multi_region_mem_raw;
@@ -607,16 +610,20 @@ pub(crate) mod tests {
 
         fn set_acked_features(&mut self, _: u64) {}
 
-        fn queues(&self) -> &[Queue] {
-            &self.queues
+        fn num_queues(&self) -> usize {
+            self.queues.len()
         }
 
-        fn queues_mut(&mut self) -> &mut [Queue] {
-            &mut self.queues
+        fn queue_config(&self, index: usize) -> Option<&QueueConfig> {
+            self.queues.get(index).map(|queue| &queue.config)
         }
 
-        fn queue_events(&self) -> &[EventFd] {
-            &self.queue_evts
+        fn queue_config_mut(&mut self, index: usize) -> Option<&mut QueueConfig> {
+            self.queues.get_mut(index).map(|queue| &mut queue.config)
+        }
+
+        fn queue_event(&self, index: usize) -> Option<&EventFd> {
+            self.queue_evts.get(index)
         }
 
         fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
@@ -653,6 +660,17 @@ pub(crate) mod tests {
 
         fn _reset(&mut self) -> bool {
             false
+        }
+
+        fn reset_queues(&mut self) {
+            self.queues.iter_mut().for_each(Queue::reset);
+        }
+
+        fn mark_queue_memory_dirty(&mut self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
+            for queue in &mut self.queues {
+                queue.initialize(mem)?;
+            }
+            Ok(())
         }
     }
 
@@ -763,7 +781,7 @@ pub(crate) mod tests {
     fn test_dummy_device() {
         let dummy = DummyDevice::new();
         assert_eq!(dummy.device_type(), VirtioDeviceType::Net);
-        assert_eq!(dummy.queues().len(), QUEUE_SIZES.len());
+        assert_eq!(dummy.num_queues(), QUEUE_SIZES.len());
     }
 
     #[test]

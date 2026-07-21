@@ -91,7 +91,7 @@ where
     fn save(&self) -> Self::State {
         VsockFrontendState {
             cid: self.cid(),
-            virtio_state: VirtioDeviceState::from_device(self),
+            virtio_state: VirtioDeviceState::from_device(self, &self.queues),
         }
     }
 

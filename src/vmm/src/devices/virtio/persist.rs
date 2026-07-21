@@ -13,7 +13,7 @@ use super::queue::{InvalidAvailIdx, QueueError};
 use super::transport::mmio::IrqTrigger;
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::queue::{Queue, QueueConfig};
 use crate::devices::virtio::transport::mmio::MmioTransport;
 use crate::snapshot::Persist;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
@@ -73,12 +73,12 @@ impl Persist<'_> for Queue {
 
     fn save(&self) -> Self::State {
         QueueState {
-            max_size: self.max_size,
-            size: self.size,
-            ready: self.ready,
-            desc_table: self.desc_table_address.0,
-            avail_ring: self.avail_ring_address.0,
-            used_ring: self.used_ring_address.0,
+            max_size: self.config.max_size,
+            size: self.config.size,
+            ready: self.config.ready,
+            desc_table: self.config.desc_table_address.0,
+            avail_ring: self.config.avail_ring_address.0,
+            used_ring: self.config.used_ring_address.0,
             next_avail: self.next_avail,
             next_used: self.next_used,
             num_added: self.num_added,
@@ -90,12 +90,14 @@ impl Persist<'_> for Queue {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let mut queue = Queue {
-            max_size: state.max_size,
-            size: state.size,
-            ready: state.ready,
-            desc_table_address: GuestAddress(state.desc_table),
-            avail_ring_address: GuestAddress(state.avail_ring),
-            used_ring_address: GuestAddress(state.used_ring),
+            config: QueueConfig {
+                max_size: state.max_size,
+                size: state.size,
+                ready: state.ready,
+                desc_table_address: GuestAddress(state.desc_table),
+                avail_ring_address: GuestAddress(state.avail_ring),
+                used_ring_address: GuestAddress(state.used_ring),
+            },
 
             desc_table_ptr: std::ptr::null(),
             avail_ring_ptr: std::ptr::null_mut(),
@@ -130,12 +132,15 @@ pub struct VirtioDeviceState {
 
 impl VirtioDeviceState {
     /// Construct the virtio state of a device.
-    pub fn from_device(device: &dyn VirtioDevice) -> Self {
+    pub fn from_device<'a>(
+        device: &dyn VirtioDevice,
+        queues: impl IntoIterator<Item = &'a Queue>,
+    ) -> Self {
         VirtioDeviceState {
             device_type: device.device_type(),
             avail_features: device.avail_features(),
             acked_features: device.acked_features(),
-            queues: device.queues().iter().map(Persist::save).collect(),
+            queues: queues.into_iter().map(Persist::save).collect(),
             activated: device.is_activated(),
         }
     }
@@ -182,7 +187,7 @@ impl VirtioDeviceState {
 
         for q in &queues {
             // Sanity check queue size and queue max size.
-            if q.max_size != expected_queue_max_size {
+            if q.config.max_size != expected_queue_max_size {
                 return Err(PersistError::InvalidInput);
             }
         }
@@ -365,8 +370,8 @@ mod tests {
         let mem = default_mem();
 
         let mut queue = Queue::new(128);
-        queue.ready = true;
-        queue.size = queue.max_size;
+        queue.config.ready = true;
+        queue.config.size = queue.config.max_size;
         queue.initialize(&mem).unwrap();
 
         let queue_state = queue.save();
@@ -385,8 +390,9 @@ mod tests {
     #[test]
     fn test_virtio_device_state_serde() {
         let dummy = DummyDevice::new();
+        let queues = [Queue::new(16), Queue::new(32)];
 
-        let state = VirtioDeviceState::from_device(&dummy);
+        let state = VirtioDeviceState::from_device(&dummy, &queues);
         let serialized_data = bitcode::serialize(&state).unwrap();
 
         let restored_state: VirtioDeviceState = bitcode::deserialize(&serialized_data).unwrap();

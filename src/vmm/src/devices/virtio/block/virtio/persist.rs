@@ -75,7 +75,7 @@ impl Persist<'_> for VirtioBlock {
             cache_type: self.cache_type,
             root_device: self.root_device,
             disk_path: self.disk.file_path.clone(),
-            virtio_state: VirtioDeviceState::from_device(self),
+            virtio_state: VirtioDeviceState::from_device(self, &self.queues),
             rate_limiter_state: self.rate_limiter.save(),
             file_engine_type: FileEngineTypeState::from(self.file_engine_type()),
         }
@@ -221,7 +221,7 @@ mod tests {
         assert_eq!(restored_block.device_type(), VirtioDeviceType::Block);
         assert_eq!(restored_block.avail_features(), block.avail_features());
         assert_eq!(restored_block.acked_features(), block.acked_features());
-        assert_eq!(restored_block.queues(), block.queues());
+        assert_eq!(restored_block.queues, block.queues);
         assert!(!block.is_activated());
         assert!(!restored_block.is_activated());
 

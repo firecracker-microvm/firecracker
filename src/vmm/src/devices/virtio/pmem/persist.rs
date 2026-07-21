@@ -50,7 +50,7 @@ impl<'a> Persist<'a> for Pmem {
 
     fn save(&self) -> Self::State {
         PmemState {
-            virtio_state: VirtioDeviceState::from_device(self),
+            virtio_state: VirtioDeviceState::from_device(self, &self.queues),
             config_space: self.guest_region.config_space,
             config: self.config.clone(),
             rate_limiter_state: self.rate_limiter.save(),

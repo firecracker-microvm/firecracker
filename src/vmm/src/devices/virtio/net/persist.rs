@@ -85,7 +85,7 @@ impl Persist<'_> for Net {
                 guest_mac: self.guest_mac,
                 mtu: self.mtu(),
             },
-            virtio_state: VirtioDeviceState::from_device(self),
+            virtio_state: VirtioDeviceState::from_device(self, &self.queues),
         }
     }
 
@@ -163,7 +163,7 @@ mod tests {
             tap_if_name = net.iface_name();
             has_mmds_ns = net.mmds_ns.is_some();
             allow_mmds_requests = has_mmds_ns && mmds_ds.is_some();
-            virtio_state = VirtioDeviceState::from_device(&net);
+            virtio_state = VirtioDeviceState::from_device(&net, &net.queues);
         }
 
         // Drop the initial net device so that we don't get an error when trying to recreate the

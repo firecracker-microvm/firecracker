@@ -80,7 +80,7 @@ pub fn rate_limiter(blk: &mut VirtioBlock) -> &RateLimiter {
 pub fn simulate_queue_event(b: &mut VirtioBlock, maybe_expected_irq: Option<bool>) {
     // Trigger the queue event.
 
-    b.queue_evts[0].write(1).unwrap();
+    b.queue_event(0).unwrap().write(1).unwrap();
     // Handle event.
     b.process_queue_event();
     // Validate the queue operation finished successfully.

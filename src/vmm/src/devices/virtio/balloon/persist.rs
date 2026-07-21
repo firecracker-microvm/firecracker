@@ -129,7 +129,7 @@ impl Persist<'_> for Balloon {
                 num_pages: self.config_space.num_pages,
                 actual_pages: self.config_space.actual_pages,
             },
-            virtio_state: VirtioDeviceState::from_device(self),
+            virtio_state: VirtioDeviceState::from_device(self, &self.queues),
         }
     }
 
@@ -238,7 +238,7 @@ mod tests {
             restored_balloon.config_space.free_page_hint_cmd_id,
             FREE_PAGE_HINT_DONE
         );
-        assert_eq!(restored_balloon.queues(), balloon.queues());
+        assert_eq!(restored_balloon.queues, balloon.queues);
         assert!(!restored_balloon.is_activated());
         assert!(!balloon.is_activated());
 
