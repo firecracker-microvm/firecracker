@@ -16,20 +16,20 @@ impl VirtioBlock {
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::with_data(
-            &self.queue_evts[0],
+            &self.resources().queue_evts[0],
             Self::PROCESS_QUEUE,
             EventSet::IN,
         )) {
             error!("Failed to register queue event: {}", err);
         }
         if let Err(err) = ops.add(Events::with_data(
-            &self.rate_limiter,
+            &self.resources().rate_limiter,
             Self::PROCESS_RATE_LIMITER,
             EventSet::IN,
         )) {
             error!("Failed to register ratelimiter event: {}", err);
         }
-        if let FileEngine::Async(ref engine) = self.disk.file_engine
+        if let FileEngine::Async(ref engine) = self.resources().disk.file_engine
             && let Err(err) = ops.add(Events::with_data(
                 engine.completion_evt(),
                 Self::PROCESS_ASYNC_COMPLETION,
@@ -98,10 +98,10 @@ impl MutEventSubscriber for VirtioBlock {
             match source {
                 Self::PROCESS_QUEUE => self.drain_queue_events(),
                 Self::PROCESS_RATE_LIMITER => {
-                    self.rate_limiter.event_handler();
+                    self.resources_mut().rate_limiter.event_handler();
                 }
                 Self::PROCESS_ASYNC_COMPLETION => {
-                    if let FileEngine::Async(ref engine) = self.disk.file_engine {
+                    if let FileEngine::Async(ref engine) = self.resources().disk.file_engine {
                         engine.completion_evt().read();
                     }
                 }

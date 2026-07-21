@@ -65,15 +65,15 @@ pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -
 }
 
 pub fn set_queue(blk: &mut VirtioBlock, idx: usize, q: Queue) {
-    blk.queues[idx] = q;
+    blk.resources_mut().queues[idx] = q;
 }
 
 pub fn set_rate_limiter(blk: &mut VirtioBlock, rl: RateLimiter) {
-    blk.rate_limiter = rl;
+    blk.resources_mut().rate_limiter = rl;
 }
 
 pub fn rate_limiter(blk: &mut VirtioBlock) -> &RateLimiter {
-    &blk.rate_limiter
+    blk.rate_limiter()
 }
 
 #[cfg(test)]
@@ -95,7 +95,7 @@ pub fn simulate_queue_event(b: &mut VirtioBlock, maybe_expected_irq: Option<bool
 
 #[cfg(test)]
 pub fn simulate_async_completion_event(b: &mut VirtioBlock, expected_irq: bool) {
-    if let FileEngine::Async(ref mut engine) = b.disk.file_engine {
+    if let FileEngine::Async(ref mut engine) = b.resources_mut().disk.file_engine {
         // Wait for all the async operations to complete.
         engine.drain(false).unwrap();
         // Wait for the async completion event to be sent.
@@ -114,7 +114,7 @@ pub fn simulate_async_completion_event(b: &mut VirtioBlock, expected_irq: bool) 
 
 #[cfg(test)]
 pub fn simulate_queue_and_async_completion_events(b: &mut VirtioBlock, expected_irq: bool) {
-    match b.disk.file_engine {
+    match b.resources().disk.file_engine {
         FileEngine::Async(_) => {
             simulate_queue_event(b, None);
             simulate_async_completion_event(b, expected_irq);
