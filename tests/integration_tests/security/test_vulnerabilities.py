@@ -27,6 +27,17 @@ REMOTE_CHECKER_COMMAND = f"sh {REMOTE_CHECKER_PATH} --no-intel-db --batch json"
 
 VULN_DIR = "/sys/devices/system/cpu/vulnerabilities"
 
+# spectre-meltdown-checker does not recognise Neoverse V3 (MIDR part 0xd84), so it
+# falls back to reporting Spectre v2 and Variant 3a as vulnerable. The kernel itself
+# reports the CPU as mitigated (spectre_v2: "Mitigation: CSV2, BHB"), and Graviton4
+# (Neoverse V2, which the checker does recognise) passes the same tests.
+# TODO: remove this skip once the following issue is resolved:
+# https://github.com/speed47/spectre-meltdown-checker/issues/582
+SKIP_SMC_UNRECOGNISED_CPU = pytest.mark.skipif(
+    global_props.cpu_codename == "ARM_NEOVERSE_V3",
+    reason="spectre-meltdown-checker does not recognise Neoverse V3 (0xd84)",
+)
+
 
 class SpectreMeltdownChecker:
     """Helper class to use Spectre & Meltdown Checker"""
@@ -109,6 +120,7 @@ def download_spectre_meltdown_checker(tmp_path_factory):
 
 
 # Nothing can be sensibly tested in a PR context here
+@SKIP_SMC_UNRECOGNISED_CPU
 @pytest.mark.skipif(
     global_props.buildkite_pr or global_props.is_dev_env,
     reason="Test depends solely on factors external to GitHub repository",
@@ -241,6 +253,7 @@ def test_check_vulnerability_files_ab(request, uvm_any):
         assert not [x for x in res_b if "Vulnerable" in x["stdout"]]
 
 
+@SKIP_SMC_UNRECOGNISED_CPU
 @pin_pci(False)
 @pin_cpu_template(ALL_CPU_TEMPLATES)
 def test_spectre_meltdown_checker_on_guest(
