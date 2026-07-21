@@ -578,7 +578,7 @@ mod tests {
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let mut q = vq.create_queue();
-        q.ready = true;
+        q.config.ready = true;
 
         let flags = if is_write_only {
             VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE

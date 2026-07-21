@@ -125,9 +125,9 @@ impl TestContext {
         const MEM_SIZE: usize = 1024 * 1024 * 128;
         let mem = single_region_mem(MEM_SIZE);
         let mut device = Vsock::new(CID, TestBackend::new()).unwrap();
-        for q in device.queues_mut() {
-            q.ready = true;
-            q.size = q.max_size;
+        for q in &mut device.queues {
+            q.config.ready = true;
+            q.config.size = q.config.max_size;
         }
         Self {
             cid: CID,

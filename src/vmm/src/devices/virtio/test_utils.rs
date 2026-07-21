@@ -295,11 +295,11 @@ impl<'a> VirtQueue<'a> {
     pub fn create_queue(&self) -> Queue {
         let mut q = Queue::new(self.size());
 
-        q.size = self.size();
-        q.ready = true;
-        q.desc_table_address = self.dtable_start();
-        q.avail_ring_address = self.avail_start();
-        q.used_ring_address = self.used_start();
+        q.config.size = self.size();
+        q.config.ready = true;
+        q.config.desc_table_address = self.dtable_start();
+        q.config.avail_ring_address = self.avail_start();
+        q.config.used_ring_address = self.used_start();
 
         q.initialize(self.memory()).unwrap();
 
@@ -346,7 +346,7 @@ pub(crate) mod test {
         /// Replace the queues used by the device
         fn set_queues(&mut self, queues: Vec<Queue>);
         /// Number of queues this device supports
-        fn num_queues(&self) -> usize;
+        fn num_queues_supported(&self) -> usize;
     }
 
     /// A helper type to allow testing VirtIO devices
@@ -402,7 +402,7 @@ pub(crate) mod test {
         pub fn new(mem: &'a GuestMemoryMmap, mut device: T) -> VirtioTestHelper<'a, T> {
             let mut event_manager = EventManager::new().unwrap();
 
-            let virtqueues = Self::create_virtqueues(mem, device.num_queues());
+            let virtqueues = Self::create_virtqueues(mem, device.num_queues_supported());
             let queues = virtqueues.iter().map(|vq| vq.create_queue()).collect();
             device.set_queues(queues);
             let device = Arc::new(Mutex::new(device));
@@ -466,7 +466,7 @@ pub(crate) mod test {
         ) {
             let device = self.device.lock().unwrap();
 
-            let event_fd = &device.queue_events()[queue];
+            let event_fd = device.queue_event(queue).unwrap();
             let vq = &self.virtqueues[queue];
 
             // Create the descriptor chain
@@ -518,7 +518,7 @@ pub(crate) mod test {
         ) {
             let device = self.device.lock().unwrap();
 
-            let event_fd = &device.queue_events()[queue];
+            let event_fd = device.queue_event(queue).unwrap();
             let vq = &self.virtqueues[queue];
 
             // Create the descriptor chain
