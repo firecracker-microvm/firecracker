@@ -1129,6 +1129,7 @@ pub(crate) mod tests {
         use crate::arch::host_page_size;
         use vm_memory::GuestMemoryBackend;
 
+        use crate::devices::virtio::block::device::Block;
         use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt};
         use crate::test_utils::single_region_mem_dirty_tracking;
         use crate::utils::{u64_to_usize, usize_to_u64};
@@ -1153,10 +1154,13 @@ pub(crate) mod tests {
             .virtio_device();
         {
             let mut device = device.lock().unwrap();
-            device.queues_mut()[0] = vq.create_queue();
+            *device.queue_config_mut(0).unwrap() = vq.create_queue().config;
             device.activate(mem.clone(), default_interrupt()).unwrap();
             mem.reset_dirty();
-            device.queues_mut()[0].add_used(0, 0).unwrap();
+            let Block::Virtio(block) = device.as_mut_any().downcast_mut::<Block>().unwrap() else {
+                unreachable!("block0 is a virtio block device");
+            };
+            block.queues[0].add_used(0, 0).unwrap();
         }
         drop(device);
         let used_ring = u64_to_usize(vq.used_start().raw_value());

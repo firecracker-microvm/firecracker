@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::ActivateError;
-use super::queue::Queue;
+use super::queue::QueueConfig;
 use super::transport::VirtioInterrupt;
 use crate::MutEventSubscriber;
 use crate::devices::virtio::AsAny;
@@ -78,8 +78,7 @@ pub type VirtioDeviceId = (VirtioDeviceType, String);
 ///
 /// The lifecycle of a virtio device is to be moved to a virtio transport, which will then query the
 /// device. The virtio devices needs to create queues, events and event fds for interrupts and
-/// expose them to the transport via get_queues/get_queue_events/get_interrupt/get_interrupt_status
-/// fns.
+/// expose their queue configuration, events, and interrupt state to the transport.
 pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     /// Get the available features offered by device.
     fn avail_features(&self) -> u64;
@@ -110,14 +109,23 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     /// Returns unique device id
     fn id(&self) -> &str;
 
-    /// Returns the device queues.
-    fn queues(&self) -> &[Queue];
+    /// Returns the number of queues offered by the device.
+    fn num_queues(&self) -> usize;
 
-    /// Returns a mutable reference to the device queues.
-    fn queues_mut(&mut self) -> &mut [Queue];
+    /// Returns the transport-visible configuration for the selected queue.
+    ///
+    /// This must return `Some` exactly for indices below [`Self::num_queues`].
+    fn queue_config(&self, index: usize) -> Option<&QueueConfig>;
 
-    /// Returns the device queues event fds.
-    fn queue_events(&self) -> &[EventFd];
+    /// Returns the mutable transport-visible configuration for the selected queue.
+    ///
+    /// This must return `Some` exactly for indices below [`Self::num_queues`].
+    fn queue_config_mut(&mut self, index: usize) -> Option<&mut QueueConfig>;
+
+    /// Returns the event fd for the selected queue.
+    ///
+    /// This must return `Some` exactly for indices below [`Self::num_queues`].
+    fn queue_event(&self, index: usize) -> Option<&EventFd>;
 
     /// Returns the current device interrupt status.
     fn interrupt_status(&self) -> Arc<AtomicU32> {
@@ -207,9 +215,7 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
         self.set_acked_features(0);
         // The queues go with the reset; commit the used ring pages written since the last snapshot
         self.commit_dirty();
-        for queue in self.queues_mut() {
-            *queue = Queue::new(queue.max_size);
-        }
+        self.reset_queues();
         true
     }
 
@@ -230,17 +236,19 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     /// https://github.com/firecracker-microvm/firecracker/issues/6281
     fn _reset(&mut self) -> bool;
 
+    /// Resets device-owned queue configuration and runtime state.
+    fn reset_queues(&mut self);
+
     /// Marks dirty the queue pages written since the last call.
-    fn commit_dirty(&self) {
-        for queue in self.queues() {
-            queue.commit_dirty();
-        }
-    }
+    fn commit_dirty(&self);
 
     /// Notify all queues by writing to the eventfds.
     fn notify_queue_events(&mut self) {
         info!("[{:?}:{}] notifying queues", self.device_type(), self.id());
-        for (i, eventfd) in self.queue_events().iter().enumerate() {
+        for i in 0..self.num_queues() {
+            let eventfd = self
+                .queue_event(i)
+                .expect("queue event must exist for each advertised queue");
             if let Err(err) = eventfd.write(1) {
                 error!(
                     "[{:?}:{}] error notifying queue {}: {}",
@@ -257,7 +265,10 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     /// notifications. This is used if a notification arrives while a device
     /// is being reset and before it's activated again.
     fn drain_queue_events(&self) {
-        for event in self.queue_events() {
+        for i in 0..self.num_queues() {
+            let event = self
+                .queue_event(i)
+                .expect("queue event must exist for each advertised queue");
             let _ = event.read();
         }
     }
@@ -330,15 +341,19 @@ pub(crate) mod tests {
             self.acked_features = acked_features
         }
 
-        fn queues(&self) -> &[Queue] {
+        fn num_queues(&self) -> usize {
             todo!()
         }
 
-        fn queues_mut(&mut self) -> &mut [Queue] {
+        fn queue_config(&self, _index: usize) -> Option<&QueueConfig> {
             todo!()
         }
 
-        fn queue_events(&self) -> &[EventFd] {
+        fn queue_config_mut(&mut self, _index: usize) -> Option<&mut QueueConfig> {
+            todo!()
+        }
+
+        fn queue_event(&self, _index: usize) -> Option<&EventFd> {
             todo!()
         }
 
@@ -371,6 +386,14 @@ pub(crate) mod tests {
         }
 
         fn _reset(&mut self) -> bool {
+            todo!()
+        }
+
+        fn reset_queues(&mut self) {
+            todo!()
+        }
+
+        fn commit_dirty(&self) {
             todo!()
         }
     }

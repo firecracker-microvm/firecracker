@@ -627,7 +627,7 @@ mod tests {
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let mut q = vq.create_queue();
-        q.ready = true;
+        q.config.ready = true;
 
         let flags = if is_write_only {
             VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE
@@ -715,7 +715,7 @@ mod tests {
         // chain of one descriptor on page 6.
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         let mut q = vq.create_queue();
-        q.ready = true;
+        q.config.ready = true;
         let flags = VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE;
         vq.dtable[0].set((4 * page_size) as u64, 64, flags, 1);
         vq.dtable[1].set((5 * page_size) as u64, 64, VIRTQ_DESC_F_WRITE, 0);
@@ -824,7 +824,7 @@ mod tests {
         let mem = multi_region_mem(&[(GuestAddress(0), 0x10000), (GuestAddress(0x10000), 0x10000)]);
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         let mut q = vq.create_queue();
-        q.ready = true;
+        q.config.ready = true;
         // A one-descriptor chain, then a chain whose second descriptor crosses the boundary.
         vq.dtable[0].set(0x8000, 64, VIRTQ_DESC_F_WRITE, 0);
         vq.dtable[1].set(0x8100, 64, VIRTQ_DESC_F_WRITE | VIRTQ_DESC_F_NEXT, 2);
