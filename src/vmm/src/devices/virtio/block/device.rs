@@ -12,7 +12,7 @@ use super::vhost_user::device::{VhostUserBlock, VhostUserBlockConfig};
 use super::virtio::device::{VirtioBlock, VirtioBlockConfig};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
-use crate::devices::virtio::queue::{InvalidAvailIdx, Queue};
+use crate::devices::virtio::queue::{InvalidAvailIdx, QueueConfig, QueueError};
 use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::impl_device_type;
 use crate::rate_limiter::BucketUpdate;
@@ -147,24 +147,31 @@ impl VirtioDevice for Block {
         }
     }
 
-    fn queues(&self) -> &[Queue] {
+    fn num_queues(&self) -> usize {
         match self {
-            Self::Virtio(b) => &b.queues,
-            Self::VhostUser(b) => &b.queues,
+            Self::Virtio(b) => b.num_queues(),
+            Self::VhostUser(b) => b.num_queues(),
         }
     }
 
-    fn queues_mut(&mut self) -> &mut [Queue] {
+    fn queue_config(&self, index: usize) -> Option<&QueueConfig> {
         match self {
-            Self::Virtio(b) => &mut b.queues,
-            Self::VhostUser(b) => &mut b.queues,
+            Self::Virtio(b) => b.queue_config(index),
+            Self::VhostUser(b) => b.queue_config(index),
         }
     }
 
-    fn queue_events(&self) -> &[EventFd] {
+    fn queue_config_mut(&mut self, index: usize) -> Option<&mut QueueConfig> {
         match self {
-            Self::Virtio(b) => &b.queue_evts,
-            Self::VhostUser(b) => &b.queue_evts,
+            Self::Virtio(b) => b.queue_config_mut(index),
+            Self::VhostUser(b) => b.queue_config_mut(index),
+        }
+    }
+
+    fn queue_event(&self, index: usize) -> Option<&EventFd> {
+        match self {
+            Self::Virtio(b) => b.queue_event(index),
+            Self::VhostUser(b) => b.queue_event(index),
         }
     }
 
@@ -218,6 +225,20 @@ impl VirtioDevice for Block {
         match self {
             Self::Virtio(b) => b._reset(),
             Self::VhostUser(b) => b._reset(),
+        }
+    }
+
+    fn reset_queues(&mut self) {
+        match self {
+            Self::Virtio(b) => b.reset_queues(),
+            Self::VhostUser(b) => b.reset_queues(),
+        }
+    }
+
+    fn mark_queue_memory_dirty(&mut self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
+        match self {
+            Self::Virtio(b) => b.mark_queue_memory_dirty(mem),
+            Self::VhostUser(b) => b.mark_queue_memory_dirty(mem),
         }
     }
 

@@ -408,24 +408,24 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
         // at early stage.
         for (queue_index, queue, _) in queues.iter() {
             self.vu
-                .set_vring_num(*queue_index, queue.size)
+                .set_vring_num(*queue_index, queue.config.size)
                 .map_err(VhostUserError::VhostUserSetVringNum)?;
         }
 
         for (queue_index, queue, queue_evt) in queues.iter() {
             let config_data = VringConfigData {
-                queue_max_size: queue.max_size,
-                queue_size: queue.size,
+                queue_max_size: queue.config.max_size,
+                queue_size: queue.config.size,
                 flags: 0u32,
                 desc_table_addr: mem
-                    .get_host_address(queue.desc_table_address)
+                    .get_host_address(queue.config.desc_table_address)
                     .map_err(VhostUserError::DescriptorTableAddress)?
                     as u64,
                 used_ring_addr: mem
-                    .get_host_address(queue.used_ring_address)
+                    .get_host_address(queue.config.used_ring_address)
                     .map_err(VhostUserError::UsedAddress)? as u64,
                 avail_ring_addr: mem
-                    .get_host_address(queue.avail_ring_address)
+                    .get_host_address(queue.config.avail_ring_address)
                     .map_err(VhostUserError::AvailAddress)? as u64,
                 log_addr: None,
             };
@@ -909,8 +909,8 @@ pub(crate) mod tests {
         let guest_memory = create_mem(file, &regions);
 
         let mut queue = Queue::new(128);
-        queue.ready = true;
-        queue.size = queue.max_size;
+        queue.config.ready = true;
+        queue.config.size = queue.config.max_size;
         queue.initialize(&guest_memory).unwrap();
 
         let event_fd = EventFd::new(0).unwrap();
@@ -931,13 +931,13 @@ pub(crate) mod tests {
                 queue_size: 128,
                 flags: 0,
                 desc_table_addr: guest_memory
-                    .get_host_address(queue.desc_table_address)
+                    .get_host_address(queue.config.desc_table_address)
                     .unwrap() as u64,
                 used_ring_addr: guest_memory
-                    .get_host_address(queue.used_ring_address)
+                    .get_host_address(queue.config.used_ring_address)
                     .unwrap() as u64,
                 avail_ring_addr: guest_memory
-                    .get_host_address(queue.avail_ring_address)
+                    .get_host_address(queue.config.avail_ring_address)
                     .unwrap() as u64,
                 log_addr: None,
             },

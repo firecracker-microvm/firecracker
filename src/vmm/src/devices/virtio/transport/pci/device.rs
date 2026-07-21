@@ -393,7 +393,7 @@ impl VirtioPciDevice {
         msix_vectors: Arc<MsixVectorGroup>,
         sbdf: PciSBDF,
     ) -> Self {
-        let num_queues = device.lock().expect("Poisoned lock").queues().len();
+        let num_queues = device.lock().expect("Poisoned lock").num_queues();
         assert_eq!(msix_vectors.vectors.len(), num_queues + 1);
 
         let msix_config = Arc::new(Mutex::new(MsixConfig::new(msix_vectors.clone(), sbdf)));
@@ -444,7 +444,7 @@ impl VirtioPciDevice {
         let vectors = msix_config.vectors.clone();
 
         // Expecting one vector per queue, plus one for the configuration
-        let expected_num_vectors = device.lock().expect("Poisoned lock").queues().len() + 1;
+        let expected_num_vectors = device.lock().expect("Poisoned lock").num_queues() + 1;
         if vectors.vectors.len() != expected_num_vectors {
             return Err(VirtioPciDeviceError::UnexpectedMsixVectorCount(
                 vectors.vectors.len(),
@@ -684,14 +684,11 @@ impl VirtioPciDevice {
         bar_addr: u64,
         assign: bool,
     ) -> Result<(), errno::Error> {
-        for (i, queue_evt) in self
-            .device
-            .lock()
-            .expect("Poisoned lock")
-            .queue_events()
-            .iter()
-            .enumerate()
-        {
+        let device = self.device.lock().expect("Poisoned lock");
+        for i in 0..device.num_queues() {
+            let queue_evt = device
+                .queue_event(i)
+                .expect("queue event must exist for each advertised queue");
             let notify_base = bar_addr + u64::from(NOTIFICATION_BAR_OFFSET);
             let io_addr =
                 IoEventAddress::Mmio(notify_base + i as u64 * u64::from(NOTIFY_OFF_MULTIPLIER));
