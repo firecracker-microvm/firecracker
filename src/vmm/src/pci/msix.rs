@@ -21,7 +21,7 @@ use crate::vstate::vm::KvmVm;
 const MAX_MSIX_VECTORS_PER_DEVICE: u16 = 2048;
 const MSIX_TABLE_ENTRIES_MODULO: u64 = 16;
 const MSIX_PBA_ENTRIES_MODULO: u64 = 8;
-const BITS_PER_PBA_ENTRY: usize = 64;
+const BITS_PER_PBA_ENTRY: u16 = 64;
 const FUNCTION_MASK_BIT: u8 = 14;
 const MSIX_ENABLE_BIT: u8 = 15;
 
@@ -102,7 +102,7 @@ impl MsixConfig {
         let mut table_entries: Vec<MsixTableEntry> = Vec::new();
         table_entries.resize_with(vectors.num_vectors() as usize, Default::default);
         let mut pba_entries: Vec<u64> = Vec::new();
-        let num_pba_entries: usize = (vectors.num_vectors() as usize).div_ceil(BITS_PER_PBA_ENTRY);
+        let num_pba_entries: usize = (vectors.num_vectors()).div_ceil(BITS_PER_PBA_ENTRY) as usize;
         pba_entries.resize_with(num_pba_entries, Default::default);
 
         MsixConfig {
@@ -425,15 +425,15 @@ impl MsixConfig {
             return;
         }
 
-        let index: usize = (vector as usize) / BITS_PER_PBA_ENTRY;
-        let shift: usize = (vector as usize) % BITS_PER_PBA_ENTRY;
+        let index = vector / BITS_PER_PBA_ENTRY;
+        let shift = vector % BITS_PER_PBA_ENTRY;
         let mut mask: u64 = 1u64 << shift;
 
         if reset {
             mask = !mask;
-            self.pba_entries[index] &= mask;
+            self.pba_entries[index as usize] &= mask;
         } else {
-            self.pba_entries[index] |= mask;
+            self.pba_entries[index as usize] |= mask;
         }
     }
 
@@ -445,10 +445,10 @@ impl MsixConfig {
             return 0xff;
         }
 
-        let index: usize = (vector as usize) / BITS_PER_PBA_ENTRY;
-        let shift: usize = (vector as usize) % BITS_PER_PBA_ENTRY;
+        let index = vector / BITS_PER_PBA_ENTRY;
+        let shift = vector % BITS_PER_PBA_ENTRY;
 
-        ((self.pba_entries[index] >> shift) & 0x0000_0001u64) as u8
+        ((self.pba_entries[index as usize] >> shift) & 0x0000_0001u64) as u8
     }
 
     /// Inject an MSI-X interrupt and clear the PBA bit for a vector
