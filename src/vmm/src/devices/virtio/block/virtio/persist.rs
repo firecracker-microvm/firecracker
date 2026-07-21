@@ -7,17 +7,18 @@ use device::ConfigSpace;
 use serde::{Deserialize, Serialize};
 use vmm_sys_util::eventfd::EventFd;
 
-use super::device::DiskProperties;
+use super::device::{BlockResources, DiskProperties};
 use super::*;
 use crate::devices::virtio::block::persist::BlockConstructorArgs;
-use crate::devices::virtio::block::virtio::device::FileEngineType;
+use crate::devices::virtio::block::virtio::device::{FileEngineType, VirtioBlockConfig};
 use crate::devices::virtio::block::virtio::metrics::BlockMetricsPerDevice;
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDeviceType};
+use crate::devices::virtio::device::{DeviceState, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::VIRTIO_BLK_F_RO;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::rate_limiter::RateLimiter;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::snapshot::Persist;
+use crate::vmm_config::RateLimiterConfig;
 
 /// Holds info about block's file engine type. Gets saved in snapshot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,13 +71,13 @@ impl Persist<'_> for VirtioBlock {
     fn save(&self) -> Self::State {
         // Save device state.
         VirtioBlockState {
-            id: self.id.clone(),
-            partuuid: self.partuuid.clone(),
-            cache_type: self.cache_type,
-            root_device: self.root_device,
-            disk_path: self.disk.file_path.clone(),
-            virtio_state: VirtioDeviceState::from_device(self, &self.queues),
-            rate_limiter_state: self.rate_limiter.save(),
+            id: self.config.drive_id.clone(),
+            partuuid: self.config.partuuid.clone(),
+            cache_type: self.config.cache_type,
+            root_device: self.config.is_root_device,
+            disk_path: self.disk().file_path.clone(),
+            virtio_state: VirtioDeviceState::from_device(self, &self.resources().queues),
+            rate_limiter_state: self.rate_limiter().save(),
             file_engine_type: FileEngineTypeState::from(self.file_engine_type()),
         }
     }
@@ -88,6 +89,17 @@ impl Persist<'_> for VirtioBlock {
         let is_read_only = state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_RO) != 0;
         let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)
             .map_err(VirtioBlockError::RateLimiter)?;
+        let rate_limiter_config: RateLimiterConfig = (&rate_limiter).into();
+        let config = VirtioBlockConfig {
+            drive_id: state.id.clone(),
+            partuuid: state.partuuid.clone(),
+            is_root_device: state.root_device,
+            cache_type: state.cache_type,
+            is_read_only,
+            path_on_host: state.disk_path.clone(),
+            rate_limiter: rate_limiter_config.into_option(),
+            file_engine_type: state.file_engine_type.into(),
+        };
 
         let disk_properties = DiskProperties::new(
             state.disk_path.clone(),
@@ -113,6 +125,13 @@ impl Persist<'_> for VirtioBlock {
         let config_space = ConfigSpace {
             capacity: disk_properties.nsectors.to_le(),
         };
+        let resources = BlockResources {
+            queues,
+            queue_evts,
+            disk: disk_properties,
+            rate_limiter,
+            is_io_engine_throttled: false,
+        };
 
         Ok(VirtioBlock {
             avail_features,
@@ -120,19 +139,9 @@ impl Persist<'_> for VirtioBlock {
             config_space,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
 
-            queues,
-            queue_evts,
             device_state: DeviceState::Inactive,
-
-            id: state.id.clone(),
-            partuuid: state.partuuid.clone(),
-            cache_type: state.cache_type,
-            root_device: state.root_device,
-            read_only: is_read_only,
-
-            disk: disk_properties,
-            rate_limiter,
-            is_io_engine_throttled: false,
+            config,
+            resources,
             metrics: BlockMetricsPerDevice::alloc(state.id.clone()),
         })
     }
@@ -143,7 +152,6 @@ mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
-    use crate::devices::virtio::block::virtio::device::VirtioBlockConfig;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::{default_interrupt, default_mem};
 
@@ -221,11 +229,11 @@ mod tests {
         assert_eq!(restored_block.device_type(), VirtioDeviceType::Block);
         assert_eq!(restored_block.avail_features(), block.avail_features());
         assert_eq!(restored_block.acked_features(), block.acked_features());
-        assert_eq!(restored_block.queues, block.queues);
+        assert_eq!(restored_block.resources().queues, block.resources().queues);
         assert!(!block.is_activated());
         assert!(!restored_block.is_activated());
 
         // Test that block specific fields are the same.
-        assert_eq!(restored_block.disk.file_path, block.disk.file_path);
+        assert_eq!(restored_block.disk().file_path, block.disk().file_path);
     }
 }
