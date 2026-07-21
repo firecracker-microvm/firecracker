@@ -61,7 +61,7 @@ pub const fn bytes_to_mib(bytes: usize) -> usize {
 #[macro_export]
 macro_rules! align_up {
     ($addr:expr, $align:expr) => {{
-        debug_assert!($align != 0);
+        assert!($align.is_power_of_two());
         ($addr.wrapping_add($align - 1)) & !($align - 1)
     }};
 }
@@ -73,7 +73,7 @@ macro_rules! align_up {
 #[macro_export]
 macro_rules! align_down {
     ($addr:expr, $align:expr) => {{
-        debug_assert!($align != 0);
+        assert!($align.is_power_of_two());
         $addr & !($align - 1)
     }};
 }
