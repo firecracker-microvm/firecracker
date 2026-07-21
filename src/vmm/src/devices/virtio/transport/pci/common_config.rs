@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use vm_memory::GuestAddress;
 
 use crate::devices::virtio::device::VirtioDevice;
-use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::queue::QueueConfig;
 use crate::devices::virtio::transport::pci::common_config_offset::*;
 use crate::devices::virtio::transport::pci::device::VIRTQ_MSI_NO_VECTOR;
 use crate::devices::virtio::transport::pci::device_status::*;
@@ -74,6 +74,7 @@ impl VirtioPciCommonConfig {
 
     pub fn read(&mut self, offset: u64, data: &mut [u8], device: Arc<Mutex<dyn VirtioDevice>>) {
         assert!(data.len() <= 8);
+        let queue_index = self.queue_select as usize;
 
         match data.len() {
             1 => {
@@ -81,11 +82,21 @@ impl VirtioPciCommonConfig {
                 data[0] = v;
             }
             2 => {
-                let v = self.read_common_config_word(offset, device.lock().unwrap().queues());
+                let locked_device = device.lock().unwrap();
+                let v = self.read_common_config_word(
+                    offset,
+                    locked_device.num_queues(),
+                    locked_device.queue_config(queue_index),
+                );
                 LittleEndian::write_u16(data, v);
             }
             4 => {
-                let v = self.read_common_config_dword(offset, device);
+                let locked_device = device.lock().unwrap();
+                let v = self.read_common_config_dword(
+                    offset,
+                    locked_device.avail_features(),
+                    locked_device.queue_config(queue_index),
+                );
                 LittleEndian::write_u32(data, v);
             }
             _ => warn!(
@@ -103,15 +114,31 @@ impl VirtioPciCommonConfig {
         device_activated: bool,
     ) {
         assert!(data.len() <= 8);
+        let queue_index = self.queue_select as usize;
 
         match data.len() {
             1 => self.write_common_config_byte(offset, data[0], device_activated),
-            2 => self.write_common_config_word(
-                offset,
-                LittleEndian::read_u16(data),
-                device.lock().unwrap().queues_mut(),
-            ),
-            4 => self.write_common_config_dword(offset, LittleEndian::read_u32(data), device),
+            2 => {
+                let mut locked_device = device.lock().unwrap();
+                self.write_common_config_word(
+                    offset,
+                    LittleEndian::read_u16(data),
+                    locked_device.queue_config_mut(queue_index),
+                );
+            }
+            4 => {
+                let value = LittleEndian::read_u32(data);
+                let mut locked_device = device.lock().unwrap();
+                if offset == DRIVER_FEATURE {
+                    self.write_driver_feature(value, &mut *locked_device);
+                } else {
+                    self.write_common_config_dword(
+                        offset,
+                        value,
+                        locked_device.queue_config_mut(queue_index),
+                    );
+                }
+            }
             _ => warn!(
                 "pci: invalid data length for virtio write: len {}",
                 data.len()
@@ -206,12 +233,17 @@ impl VirtioPciCommonConfig {
         }
     }
 
-    fn read_common_config_word(&self, offset: u64, queues: &[Queue]) -> u16 {
+    fn read_common_config_word(
+        &self,
+        offset: u64,
+        num_queues: usize,
+        queue: Option<&QueueConfig>,
+    ) -> u16 {
         match offset {
             MSIX_CONFIG => self.msix_config.load(Ordering::Acquire),
-            NUM_QUEUES => queues.len().try_into().unwrap(),
+            NUM_QUEUES => num_queues.try_into().unwrap(),
             QUEUE_SELECT => self.queue_select,
-            QUEUE_SIZE => self.with_queue(queues, |q| q.size).unwrap_or(0),
+            QUEUE_SIZE => queue.map(|q| q.size).unwrap_or(0),
             // If `queue_select` points to an invalid queue we should return NO_VECTOR.
             // Reading from here
             // https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-1280005:
@@ -225,7 +257,7 @@ impl VirtioPciCommonConfig {
                 .get(self.queue_select as usize)
                 .copied()
                 .unwrap_or(VIRTQ_MSI_NO_VECTOR),
-            QUEUE_ENABLE => u16::from(self.with_queue(queues, |q| q.ready).unwrap_or(false)),
+            QUEUE_ENABLE => u16::from(queue.map(|q| q.ready).unwrap_or(false)),
             QUEUE_NOTIFY_OFF => self.queue_select,
             _ => {
                 warn!("pci: invalid virtio register word read: 0x{:x}", offset);
@@ -241,10 +273,16 @@ impl VirtioPciCommonConfig {
     /// https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-1220001
     ///
     /// Queue configuration must only be done between FEATURES_OK and DRIVER_OK.
-    fn update_queue_field<F: FnOnce(&mut Queue)>(&mut self, queues: &mut [Queue], f: F) {
+    fn update_queue_field<F: FnOnce(&mut QueueConfig)>(
+        &mut self,
+        queue: Option<&mut QueueConfig>,
+        f: F,
+    ) {
         let status = self.driver_status;
         if status == (ACKNOWLEDGE | DRIVER | FEATURES_OK) {
-            self.with_queue_mut(queues, f);
+            if let Some(queue) = queue {
+                f(queue);
+            }
         } else {
             warn!(
                 "pci: queue config write not allowed in device status {:#x}",
@@ -253,7 +291,12 @@ impl VirtioPciCommonConfig {
         }
     }
 
-    fn write_common_config_word(&mut self, offset: u64, value: u16, queues: &mut [Queue]) {
+    fn write_common_config_word(
+        &mut self,
+        offset: u64,
+        value: u16,
+        queue: Option<&mut QueueConfig>,
+    ) {
         match offset {
             MSIX_CONFIG => {
                 // Make sure that the guest doesn't select an invalid vector. We are offering
@@ -270,7 +313,7 @@ impl VirtioPciCommonConfig {
                 }
             }
             QUEUE_SELECT => self.queue_select = value,
-            QUEUE_SIZE => self.update_queue_field(queues, |q| q.size = value),
+            QUEUE_SIZE => self.update_queue_field(queue, |q| q.size = value),
             QUEUE_MSIX_VECTOR => {
                 let mut msix_queues = self.msix_queues.lock().expect("Poisoned lock");
                 let nr_vectors = msix_queues.len() + 1;
@@ -287,7 +330,7 @@ impl VirtioPciCommonConfig {
                     }
                 }
             }
-            QUEUE_ENABLE => self.update_queue_field(queues, |q| {
+            QUEUE_ENABLE => self.update_queue_field(queue, |q| {
                 if value != 0 {
                     q.ready = value == 1;
                 }
@@ -298,63 +341,42 @@ impl VirtioPciCommonConfig {
         }
     }
 
-    fn read_common_config_dword(&self, offset: u64, device: Arc<Mutex<dyn VirtioDevice>>) -> u32 {
+    fn read_common_config_dword(
+        &self,
+        offset: u64,
+        avail_features: u64,
+        queue: Option<&QueueConfig>,
+    ) -> u32 {
         match offset {
             DEVICE_FEATURE_SELECT => self.device_feature_select,
             DEVICE_FEATURE => {
-                let locked_device = device.lock().unwrap();
                 // Only 64 bits of features (2 pages) are defined for now, so limit
                 // device_feature_select to avoid shifting by 64 or more bits.
                 if self.device_feature_select < 2 {
-                    ((locked_device.avail_features() >> (self.device_feature_select * 32))
-                        & 0xffff_ffff) as u32
+                    ((avail_features >> (self.device_feature_select * 32)) & 0xffff_ffff) as u32
                 } else {
                     0
                 }
             }
             DRIVER_FEATURE_SELECT => self.driver_feature_select,
-            QUEUE_DESC_LO => {
-                let locked_device = device.lock().unwrap();
-                self.with_queue(locked_device.queues(), |q| {
-                    (q.desc_table_address.0 & 0xffff_ffff) as u32
-                })
-                .unwrap_or_default()
-            }
-            QUEUE_DESC_HI => {
-                let locked_device = device.lock().unwrap();
-                self.with_queue(locked_device.queues(), |q| {
-                    (q.desc_table_address.0 >> 32) as u32
-                })
-                .unwrap_or_default()
-            }
-            QUEUE_AVAIL_LO => {
-                let locked_device = device.lock().unwrap();
-                self.with_queue(locked_device.queues(), |q| {
-                    (q.avail_ring_address.0 & 0xffff_ffff) as u32
-                })
-                .unwrap_or_default()
-            }
-            QUEUE_AVAIL_HI => {
-                let locked_device = device.lock().unwrap();
-                self.with_queue(locked_device.queues(), |q| {
-                    (q.avail_ring_address.0 >> 32) as u32
-                })
-                .unwrap_or_default()
-            }
-            QUEUE_USED_LO => {
-                let locked_device = device.lock().unwrap();
-                self.with_queue(locked_device.queues(), |q| {
-                    (q.used_ring_address.0 & 0xffff_ffff) as u32
-                })
-                .unwrap_or_default()
-            }
-            QUEUE_USED_HI => {
-                let locked_device = device.lock().unwrap();
-                self.with_queue(locked_device.queues(), |q| {
-                    (q.used_ring_address.0 >> 32) as u32
-                })
-                .unwrap_or_default()
-            }
+            QUEUE_DESC_LO => queue
+                .map(|q| (q.desc_table_address.0 & 0xffff_ffff) as u32)
+                .unwrap_or_default(),
+            QUEUE_DESC_HI => queue
+                .map(|q| (q.desc_table_address.0 >> 32) as u32)
+                .unwrap_or_default(),
+            QUEUE_AVAIL_LO => queue
+                .map(|q| (q.avail_ring_address.0 & 0xffff_ffff) as u32)
+                .unwrap_or_default(),
+            QUEUE_AVAIL_HI => queue
+                .map(|q| (q.avail_ring_address.0 >> 32) as u32)
+                .unwrap_or_default(),
+            QUEUE_USED_LO => queue
+                .map(|q| (q.used_ring_address.0 & 0xffff_ffff) as u32)
+                .unwrap_or_default(),
+            QUEUE_USED_HI => queue
+                .map(|q| (q.used_ring_address.0 >> 32) as u32)
+                .unwrap_or_default(),
             _ => {
                 warn!("pci: invalid virtio register dword read: 0x{:x}", offset);
                 0
@@ -366,7 +388,7 @@ impl VirtioPciCommonConfig {
         &mut self,
         offset: u64,
         value: u32,
-        device: Arc<Mutex<dyn VirtioDevice>>,
+        queue: Option<&mut QueueConfig>,
     ) {
         fn hi(v: &mut GuestAddress, x: u32) {
             *v = (*v & 0xffff_ffff) | (u64::from(x) << 32)
@@ -376,57 +398,43 @@ impl VirtioPciCommonConfig {
             *v = (*v & !0xffff_ffff) | u64::from(x)
         }
 
-        let mut locked_device = device.lock().unwrap();
-
         match offset {
             DEVICE_FEATURE_SELECT => self.device_feature_select = value,
             DRIVER_FEATURE_SELECT => self.driver_feature_select = value,
-            DRIVER_FEATURE => {
-                // Feature negotiation is only allowed in DRIVER state.
-                // https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-1220001
-                if self.driver_status == (ACKNOWLEDGE | DRIVER) {
-                    locked_device.ack_features_by_page(self.driver_feature_select, value);
-                } else {
-                    warn!(
-                        "pci: feature negotiation not allowed in device state {:#x}",
-                        self.driver_status
-                    );
-                }
+            QUEUE_DESC_LO => {
+                self.update_queue_field(queue, |q| lo(&mut q.desc_table_address, value))
             }
-            QUEUE_DESC_LO => self.update_queue_field(locked_device.queues_mut(), |q| {
-                lo(&mut q.desc_table_address, value)
-            }),
-            QUEUE_DESC_HI => self.update_queue_field(locked_device.queues_mut(), |q| {
-                hi(&mut q.desc_table_address, value)
-            }),
-            QUEUE_AVAIL_LO => self.update_queue_field(locked_device.queues_mut(), |q| {
-                lo(&mut q.avail_ring_address, value)
-            }),
-            QUEUE_AVAIL_HI => self.update_queue_field(locked_device.queues_mut(), |q| {
-                hi(&mut q.avail_ring_address, value)
-            }),
-            QUEUE_USED_LO => self.update_queue_field(locked_device.queues_mut(), |q| {
-                lo(&mut q.used_ring_address, value)
-            }),
-            QUEUE_USED_HI => self.update_queue_field(locked_device.queues_mut(), |q| {
-                hi(&mut q.used_ring_address, value)
-            }),
+            QUEUE_DESC_HI => {
+                self.update_queue_field(queue, |q| hi(&mut q.desc_table_address, value))
+            }
+            QUEUE_AVAIL_LO => {
+                self.update_queue_field(queue, |q| lo(&mut q.avail_ring_address, value))
+            }
+            QUEUE_AVAIL_HI => {
+                self.update_queue_field(queue, |q| hi(&mut q.avail_ring_address, value))
+            }
+            QUEUE_USED_LO => {
+                self.update_queue_field(queue, |q| lo(&mut q.used_ring_address, value))
+            }
+            QUEUE_USED_HI => {
+                self.update_queue_field(queue, |q| hi(&mut q.used_ring_address, value))
+            }
             _ => {
                 warn!("pci: invalid virtio register dword write: 0x{:x}", offset);
             }
         }
     }
 
-    fn with_queue<U, F>(&self, queues: &[Queue], f: F) -> Option<U>
-    where
-        F: FnOnce(&Queue) -> U,
-    {
-        queues.get(self.queue_select as usize).map(f)
-    }
-
-    fn with_queue_mut<F: FnOnce(&mut Queue)>(&self, queues: &mut [Queue], f: F) {
-        if let Some(queue) = queues.get_mut(self.queue_select as usize) {
-            f(queue);
+    fn write_driver_feature(&self, value: u32, device: &mut dyn VirtioDevice) {
+        // Feature negotiation is only allowed in DRIVER state.
+        // https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-1220001
+        if self.driver_status == (ACKNOWLEDGE | DRIVER) {
+            device.ack_features_by_page(self.driver_feature_select, value);
+        } else {
+            warn!(
+                "pci: feature negotiation not allowed in device state {:#x}",
+                self.driver_status
+            );
         }
     }
 }
@@ -779,7 +787,12 @@ mod tests {
             config.read(QUEUE_SIZE, len.as_mut_slice(), device.clone());
             assert_eq!(
                 len,
-                device.lock().unwrap().queues()[queue_id as usize].max_size
+                device
+                    .lock()
+                    .unwrap()
+                    .queue_config(queue_id as usize)
+                    .unwrap()
+                    .max_size
             );
             max_size[queue_id as usize] = len;
         }
@@ -1006,8 +1019,12 @@ mod tests {
         // > MAY access each of the high and low 32-bit parts of the field independently.
 
         // 64-bit fields
-        device.lock().unwrap().queues_mut()[0].desc_table_address =
-            GuestAddress(0x0000_1312_0000_1110);
+        device
+            .lock()
+            .unwrap()
+            .queue_config_mut(0)
+            .unwrap()
+            .desc_table_address = GuestAddress(0x0000_1312_0000_1110);
         let mut buffer = [0u8; 8];
         config.read(QUEUE_DESC_LO, &mut buffer[..1], device.clone());
         assert_eq!(buffer, [0u8; 8]);

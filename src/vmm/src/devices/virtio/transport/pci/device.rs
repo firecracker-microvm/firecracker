@@ -370,7 +370,7 @@ impl VirtioPciDevice {
         msix_vectors: Arc<MsixVectorGroup>,
         sbdf: PciSBDF,
     ) -> Result<Self, VirtioPciDeviceError> {
-        let num_queues = device.lock().expect("Poisoned lock").queues().len();
+        let num_queues = device.lock().expect("Poisoned lock").num_queues();
 
         let msix_config = Arc::new(Mutex::new(MsixConfig::new(msix_vectors.clone(), sbdf)));
         let pci_config = Self::pci_configuration(
@@ -621,14 +621,11 @@ impl VirtioPciDevice {
 
     fn set_notification_ioevents(&self, vm: &KvmVm, assign: bool) -> Result<(), errno::Error> {
         let bar_addr = self.config_bar_addr();
-        for (i, queue_evt) in self
-            .device
-            .lock()
-            .expect("Poisoned lock")
-            .queue_events()
-            .iter()
-            .enumerate()
-        {
+        let device = self.device.lock().expect("Poisoned lock");
+        for i in 0..device.num_queues() {
+            let queue_evt = device
+                .queue_event(i)
+                .expect("queue event must exist for each advertised queue");
             let notify_base = bar_addr + u64::from(NOTIFICATION_BAR_OFFSET);
             let io_addr =
                 IoEventAddress::Mmio(notify_base + i as u64 * u64::from(NOTIFY_OFF_MULTIPLIER));

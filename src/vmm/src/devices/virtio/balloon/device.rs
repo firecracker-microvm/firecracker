@@ -11,7 +11,7 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::super::ActivateError;
 use super::super::device::{DeviceState, VirtioDevice};
-use super::super::queue::Queue;
+use super::super::queue::{Queue, QueueConfig, QueueError};
 use super::metrics::METRICS;
 use super::util::compact_page_frame_numbers;
 use super::{
@@ -907,16 +907,20 @@ impl VirtioDevice for Balloon {
         self.acked_features = acked_features;
     }
 
-    fn queues(&self) -> &[Queue] {
-        &self.queues
+    fn num_queues(&self) -> usize {
+        self.queues.len()
     }
 
-    fn queues_mut(&mut self) -> &mut [Queue] {
-        &mut self.queues
+    fn queue_config(&self, index: usize) -> Option<&QueueConfig> {
+        self.queues.get(index).map(|queue| &queue.config)
     }
 
-    fn queue_events(&self) -> &[EventFd] {
-        &self.queue_evts
+    fn queue_config_mut(&mut self, index: usize) -> Option<&mut QueueConfig> {
+        self.queues.get_mut(index).map(|queue| &mut queue.config)
+    }
+
+    fn queue_event(&self, index: usize) -> Option<&EventFd> {
+        self.queue_evts.get(index)
     }
 
     fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
@@ -995,6 +999,17 @@ impl VirtioDevice for Balloon {
         true
     }
 
+    fn reset_queues(&mut self) {
+        self.queues.iter_mut().for_each(Queue::reset);
+    }
+
+    fn mark_queue_memory_dirty(&mut self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
+        for queue in &mut self.queues {
+            queue.initialize(mem)?;
+        }
+        Ok(())
+    }
+
     fn kick(&mut self) {
         if self.is_activated() {
             if self.free_page_hinting() {
@@ -1035,7 +1050,7 @@ pub(crate) mod tests {
             self.queues = queues;
         }
 
-        fn num_queues(&self) -> usize {
+        fn num_queues_supported(&self) -> usize {
             let mut idx = STATS_INDEX;
 
             if self.stats_polling_interval_s > 0 {
@@ -1543,7 +1558,7 @@ pub(crate) mod tests {
             );
             check_metric_after_block!(METRICS.stats_updates_count, 1, {
                 // Trigger the queue event.
-                balloon.queue_events()[STATS_INDEX].write(1).unwrap();
+                balloon.queue_event(STATS_INDEX).unwrap().write(1).unwrap();
                 balloon.process_stats_queue_event().unwrap();
                 // Don't check for completion yet.
             });
@@ -2017,7 +2032,7 @@ pub(crate) mod tests {
             }
 
             set_request(&statsq, 0, stat_addr, tc.desc_len, VIRTQ_DESC_F_NEXT);
-            balloon.queue_events()[STATS_INDEX].write(1).unwrap();
+            balloon.queue_event(STATS_INDEX).unwrap().write(1).unwrap();
             balloon.process_stats_queue_event().unwrap();
 
             // The descriptor should always be held (stats protocol preserved)

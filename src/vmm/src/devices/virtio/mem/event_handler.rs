@@ -15,7 +15,7 @@ impl VirtioMem {
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::with_data(
-            &self.queue_events()[MEM_QUEUE],
+            self.queue_event(MEM_QUEUE).unwrap(),
             Self::PROCESS_MEM_QUEUE,
             EventSet::IN,
         )) {
@@ -114,7 +114,7 @@ mod tests {
 
         // Set up queue
         let virtq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        mem_device.queues_mut()[MEM_QUEUE] = virtq.create_queue();
+        mem_device.queues[MEM_QUEUE] = virtq.create_queue();
 
         let mem_device = Arc::new(Mutex::new(mem_device));
         let _id = event_manager.add_subscriber(mem_device.clone());
@@ -154,7 +154,7 @@ mod tests {
 
         // Set up queue
         let virtq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        mem_device.queues_mut()[MEM_QUEUE] = virtq.create_queue();
+        mem_device.queues[MEM_QUEUE] = virtq.create_queue();
         mem_device.set_acked_features(mem_device.avail_features());
 
         let mem_device = Arc::new(Mutex::new(mem_device));
@@ -165,7 +165,11 @@ mod tests {
         event_manager.run_with_timeout(50).unwrap(); // Process activation
 
         // Trigger queue event
-        mem_device.lock().unwrap().queue_events()[MEM_QUEUE]
+        mem_device
+            .lock()
+            .unwrap()
+            .queue_event(MEM_QUEUE)
+            .unwrap()
             .write(1)
             .unwrap();
 
@@ -182,7 +186,11 @@ mod tests {
         let _id = event_manager.add_subscriber(mem_device.clone());
 
         // Try to trigger queue event before activation
-        mem_device.lock().unwrap().queue_events()[MEM_QUEUE]
+        mem_device
+            .lock()
+            .unwrap()
+            .queue_event(MEM_QUEUE)
+            .unwrap()
             .write(1)
             .unwrap();
 
