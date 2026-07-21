@@ -623,24 +623,12 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
-        let config_space_bytes = self.config_space.as_mut_slice();
-        let start = usize::try_from(offset).ok();
-        let end = start.and_then(|s| s.checked_add(data.len()));
-        let Some(dst) = start
-            .zip(end)
-            .and_then(|(start, end)| config_space_bytes.get_mut(start..end))
-        else {
-            self.metrics.cfg_fails.inc();
-            warn!(
-                "virtio-block: guest driver attempted to write device config out of bounds \
-                 (offset={:#x}, len={:#x})",
-                offset,
-                data.len()
-            );
-            return;
-        };
-
-        dst.copy_from_slice(data);
+        self.metrics.cfg_fails.inc();
+        warn!(
+            "virtio-block: guest driver attempted to write device config (offset={:#x}, len={:#x})",
+            offset,
+            data.len()
+        );
     }
 
     fn activate(
@@ -839,42 +827,25 @@ mod tests {
     }
 
     #[test]
-    fn test_virtio_write_config() {
+    fn test_virtio_device_config_space_is_read_only() {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
 
-            let expected_config_space = ConfigSpace { capacity: 696969 };
-            block.write_config(0, expected_config_space.as_slice());
+            // Snapshot the config space before any write attempt.
+            let initial_config = block.config_as_bytes().to_vec();
 
-            let mut actual_config_space = ConfigSpace::default();
-            block.read_config(0, actual_config_space.as_mut_slice());
-            assert_eq!(actual_config_space, expected_config_space);
-
-            // If privileged user writes to `/dev/mem`, in block config space - byte by byte.
-            let expected_config_space = ConfigSpace {
-                capacity: 0x1122334455667788,
-            };
-            let expected_config_space_slice = expected_config_space.as_slice();
-            for (i, b) in expected_config_space_slice.iter().enumerate() {
-                block.write_config(i as u64, &[*b]);
-            }
-            block.read_config(0, actual_config_space.as_mut_slice());
-            assert_eq!(actual_config_space, expected_config_space);
-
-            // Invalid write.
-            let new_config_space = ConfigSpace {
-                capacity: 0xDEADBEEF,
-            };
-            block.write_config(5, new_config_space.as_slice());
-            // Make sure nothing got written.
-            block.read_config(0, actual_config_space.as_mut_slice());
-            assert_eq!(actual_config_space, expected_config_space);
-
-            // Large offset that may cause an overflow.
-            block.write_config(u64::MAX, new_config_space.as_slice());
-            // Make sure nothing got written.
-            block.read_config(0, actual_config_space.as_mut_slice());
-            assert_eq!(actual_config_space, expected_config_space);
+            // A guest write must be rejected: the config space is left unchanged
+            // and the attempt is counted under cfg_fails.
+            let cfg_fails_before = block.metrics.cfg_fails.count();
+            block.write_config(
+                0,
+                ConfigSpace {
+                    capacity: 0x1122334455667788,
+                }
+                .as_slice(),
+            );
+            assert_eq!(block.config_as_bytes(), initial_config);
+            assert_eq!(block.metrics.cfg_fails.count(), cfg_fails_before + 1);
         }
     }
 
