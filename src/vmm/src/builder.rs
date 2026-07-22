@@ -43,7 +43,7 @@ use crate::logger::debug;
 #[cfg(target_arch = "aarch64")]
 use crate::logger::warn;
 use crate::persist::{MicrovmState, MicrovmStateError};
-use crate::resources::VmResources;
+use crate::resources::{ResourcesError, VmResources};
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
 use crate::utils::mib_to_bytes;
@@ -54,6 +54,7 @@ use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::pmem::PmemConfig;
+use crate::vmm_config::vfio::VfioConfig;
 use crate::vstate::kvm::{Kvm, KvmError};
 use crate::vstate::memory::GuestRegionMmap;
 #[cfg(target_arch = "aarch64")]
@@ -65,6 +66,8 @@ use crate::{EventManager, Vmm, VmmError};
 /// Errors associated with starting the instance.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum StartMicrovmError {
+    /// Incompatible device configuration: {0}
+    IncompatibleDeviceConfiguration(#[from] ResourcesError),
     /// Unable to attach block device to Vmm: {0}
     AttachBlockDevice(io::Error),
     /// Could not attach device: {0}
@@ -148,6 +151,7 @@ pub fn build_microvm_for_boot(
 ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     // Timestamp for measuring microVM boot duration.
     let request_ts = TimestampUs::default();
+    vm_resources.validate()?;
 
     let boot_config = vm_resources
         .boot_source
@@ -286,6 +290,8 @@ pub fn build_microvm_for_boot(
         )?;
     }
 
+    attach_vfio_devices(&mut device_manager, &vm, &vm_resources.vfio.configs)?;
+
     #[cfg(target_arch = "aarch64")]
     device_manager.attach_legacy_devices_aarch64(
         &kvm_vm,
@@ -386,6 +392,8 @@ pub fn build_and_boot_microvm(
 /// Error type for [`build_microvm_from_snapshot`].
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BuildMicrovmFromSnapshotError {
+    /// Incompatible device configuration: {0}
+    IncompatibleDeviceConfiguration(#[from] ResourcesError),
     /// Failed to create microVM and vCPUs: {0}
     CreateMicrovmAndVcpus(#[from] StartMicrovmError),
     /// Could not access KVM: {0}
@@ -433,6 +441,7 @@ pub fn build_microvm_from_snapshot(
 ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
     // Build Vmm.
     debug!("event_start: build microvm from snapshot");
+    vm_resources.validate()?;
 
     let kvm = Kvm::new(microvm_state.kvm_state.kvm_cap_modifiers.clone())
         .map_err(StartMicrovmError::Kvm)?;
@@ -616,6 +625,18 @@ fn allocate_virtio_mem_address(
         )?
         .start();
     Ok(GuestAddress(addr))
+}
+
+fn attach_vfio_devices(
+    device_manager: &mut DeviceManager,
+    vm: &Vm,
+    configs: &[VfioConfig],
+) -> Result<(), StartMicrovmError> {
+    let kvm_vm = vm.as_kvm().ok_or(AttachDeviceError::NotSupported)?;
+    for config in configs.iter() {
+        device_manager.attach_vfio_device(kvm_vm, config.clone())?;
+    }
+    Ok(())
 }
 
 fn attach_virtio_mem_device(

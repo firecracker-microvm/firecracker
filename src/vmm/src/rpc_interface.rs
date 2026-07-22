@@ -9,7 +9,7 @@ use utils::time::{ClockType, get_time_us};
 
 use super::builder::build_and_boot_microvm;
 use super::persist::{create_snapshot, restore_from_snapshot};
-use super::resources::VmResources;
+use super::resources::{ResourcesError, VmResources};
 use super::{Vmm, VmmError};
 use crate::EventManager;
 use crate::builder::StartMicrovmError;
@@ -23,7 +23,6 @@ use crate::mmds::data_store::{self, Mmds, MmdsDatastoreError};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
 use crate::seccomp::BpfThreadMap;
-use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::{
     BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
     BalloonUpdateStatsConfig,
@@ -44,8 +43,9 @@ use crate::vmm_config::net::{
 use crate::vmm_config::pmem::{PmemConfig, PmemConfigError, PmemDeviceUpdateConfig};
 use crate::vmm_config::serial::SerialConfig;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
+use crate::vmm_config::vfio::{VfioConfig, VfioConfigError};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
-use crate::vmm_config::{self, RateLimiterUpdate};
+use crate::vmm_config::{self, HotplugDeviceConfig, RateLimiterUpdate};
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
@@ -119,6 +119,9 @@ pub enum VmmAction {
     /// Set the entropy device using `EntropyDeviceConfig` as input. This action can only be called
     /// before the microVM has booted.
     SetEntropyDevice(EntropyDeviceConfig),
+    /// Add a VFIO passthrough device using `VfioConfig` as input. This action can only be called
+    /// before the microVM has booted.
+    InsertVfioDevice(VfioConfig),
     /// Get the memory hotplug device configuration and status.
     GetMemoryHotplugStatus,
     /// Set the memory hotplug device using `MemoryHotplugConfig` as input. This action can only be
@@ -153,6 +156,8 @@ pub enum VmmAction {
     UpdateMachineConfiguration(MachineConfigUpdate),
     /// Hot-unplug a device.
     HotUnplugDevice(VirtioDeviceId),
+    /// Hot-unplug a VFIO device.
+    HotUnplugVfioDevice(String),
 }
 
 /// Wrapper for all errors associated with VMM actions.
@@ -218,6 +223,10 @@ pub enum VmmActionError {
     PciNotEnabled,
     /// PCI manager error: {0}
     PciManager(#[from] PciManagerError),
+    /// VFIO config error: {0}
+    VfioConfig(#[from] VfioConfigError),
+    /// Incompatible device configuration: {0}
+    IncompatibleDeviceConfiguration(#[from] ResourcesError),
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
@@ -498,6 +507,7 @@ impl<'a> PrebootApiController<'a> {
             StartMicroVm => self.start_microvm(),
             UpdateMachineConfiguration(config) => self.update_machine_config(config),
             SetEntropyDevice(config) => self.set_entropy_device(config),
+            InsertVfioDevice(config) => self.insert_vfio_device(config),
             SetMemoryHotplugDevice(config) => self.set_memory_hotplug_device(config),
             // Operations not allowed pre-boot.
             CreateSnapshot(_)
@@ -516,6 +526,7 @@ impl<'a> PrebootApiController<'a> {
             | GetFreePageHintingStatus
             | StopFreePageHinting
             | HotUnplugDevice(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
+            HotUnplugVfioDevice(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
@@ -557,11 +568,16 @@ impl<'a> PrebootApiController<'a> {
     }
 
     fn set_balloon_device(&mut self, cfg: BalloonDeviceConfig) -> Result<VmmData, VmmActionError> {
+        if !self.vm_resources.vfio.configs.is_empty() {
+            return Err(VmmActionError::IncompatibleDeviceConfiguration(
+                ResourcesError::VfioWithBalloon,
+            ));
+        }
         self.boot_path = true;
         self.vm_resources
             .set_balloon_device(cfg)
-            .map(|()| VmmData::Empty)
-            .map_err(VmmActionError::BalloonConfig)
+            .map_err(VmmActionError::BalloonConfig)?;
+        Ok(VmmData::Empty)
     }
 
     fn set_boot_source(&mut self, cfg: BootSourceConfig) -> Result<VmmData, VmmActionError> {
@@ -613,10 +629,40 @@ impl<'a> PrebootApiController<'a> {
         Ok(VmmData::Empty)
     }
 
+    fn insert_vfio_device(&mut self, cfg: VfioConfig) -> Result<VmmData, VmmActionError> {
+        if !self.vm_resources.pci_enabled {
+            return Err(VmmActionError::IncompatibleDeviceConfiguration(
+                ResourcesError::VfioWithoutPci,
+            ));
+        }
+        if self.vm_resources.memory_hotplug.is_some() {
+            return Err(VmmActionError::IncompatibleDeviceConfiguration(
+                ResourcesError::VfioWithMemHotplug,
+            ));
+        }
+        if self.vm_resources.balloon.get().is_some() {
+            return Err(VmmActionError::IncompatibleDeviceConfiguration(
+                ResourcesError::VfioWithBalloon,
+            ));
+        }
+
+        log_dev_preview_warning("VFIO", None);
+        self.boot_path = true;
+        self.vm_resources
+            .set_vfio_device(cfg)
+            .map_err(VmmActionError::VfioConfig)?;
+        Ok(VmmData::Empty)
+    }
+
     fn set_memory_hotplug_device(
         &mut self,
         cfg: MemoryHotplugConfig,
     ) -> Result<VmmData, VmmActionError> {
+        if !self.vm_resources.vfio.configs.is_empty() {
+            return Err(VmmActionError::IncompatibleDeviceConfiguration(
+                ResourcesError::VfioWithMemHotplug,
+            ));
+        }
         self.boot_path = true;
         self.vm_resources.set_memory_hotplug_config(cfg)?;
         Ok(VmmData::Empty)
@@ -779,11 +825,23 @@ impl RuntimeApiController {
                 .expect("Poisoned lock")
                 .hotplug_device(HotplugDeviceConfig::Net(config), event_manager)
                 .map(|()| VmmData::Empty),
+            InsertVfioDevice(config) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hotplug_device_vfio(config)
+                .map(|()| VmmData::Empty),
             HotUnplugDevice(device_id) => self
                 .vmm
                 .lock()
                 .expect("Poisoned lock")
                 .hot_unplug_device(device_id, event_manager)
+                .map(|()| VmmData::Empty),
+            HotUnplugVfioDevice(id) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hot_unplug_vfio_device(id)
                 .map(|()| VmmData::Empty),
             Pause => self.pause(),
             PutMMDS(value) => mmds_put_data(

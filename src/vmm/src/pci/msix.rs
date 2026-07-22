@@ -21,7 +21,7 @@ use crate::vstate::vm::KvmVm;
 const MAX_MSIX_VECTORS_PER_DEVICE: u16 = 2048;
 const MSIX_TABLE_ENTRIES_MODULO: u64 = 16;
 const MSIX_PBA_ENTRIES_MODULO: u64 = 8;
-const BITS_PER_PBA_ENTRY: usize = 64;
+const BITS_PER_PBA_ENTRY: u16 = 64;
 const FUNCTION_MASK_BIT: u8 = 14;
 const MSIX_ENABLE_BIT: u8 = 15;
 
@@ -102,7 +102,7 @@ impl MsixConfig {
         let mut table_entries: Vec<MsixTableEntry> = Vec::new();
         table_entries.resize_with(vectors.num_vectors() as usize, Default::default);
         let mut pba_entries: Vec<u64> = Vec::new();
-        let num_pba_entries: usize = (vectors.num_vectors() as usize).div_ceil(BITS_PER_PBA_ENTRY);
+        let num_pba_entries: usize = (vectors.num_vectors()).div_ceil(BITS_PER_PBA_ENTRY) as usize;
         pba_entries.resize_with(num_pba_entries, Default::default);
 
         MsixConfig {
@@ -159,6 +159,19 @@ impl MsixConfig {
             enabled: self.enabled,
             vectors: self.vectors.save(),
         }
+    }
+
+    /// Create a u16 value represeting msg_ctl register
+    pub fn as_msg_ctl(&self) -> u16 {
+        assert!(!self.table_entries.is_empty());
+        assert!(self.table_entries.len() <= MAX_MSIX_VECTORS_PER_DEVICE as usize);
+        #[allow(clippy::cast_possible_truncation)]
+        let table_size: u16 = self.table_entries.len() as u16 - 1;
+        let function_mask = u16::from(self.masked);
+        let msix_enable = u16::from(self.enabled);
+        (msix_enable << u16::from(MSIX_ENABLE_BIT))
+            | (function_mask << u16::from(FUNCTION_MASK_BIT))
+            | table_size
     }
 
     /// Set the MSI-X control message (enable/disable, (un)mask)
@@ -425,15 +438,15 @@ impl MsixConfig {
             return;
         }
 
-        let index: usize = (vector as usize) / BITS_PER_PBA_ENTRY;
-        let shift: usize = (vector as usize) % BITS_PER_PBA_ENTRY;
+        let index = vector / BITS_PER_PBA_ENTRY;
+        let shift = vector % BITS_PER_PBA_ENTRY;
         let mut mask: u64 = 1u64 << shift;
 
         if reset {
             mask = !mask;
-            self.pba_entries[index] &= mask;
+            self.pba_entries[index as usize] &= mask;
         } else {
-            self.pba_entries[index] |= mask;
+            self.pba_entries[index as usize] |= mask;
         }
     }
 
@@ -445,10 +458,10 @@ impl MsixConfig {
             return 0xff;
         }
 
-        let index: usize = (vector as usize) / BITS_PER_PBA_ENTRY;
-        let shift: usize = (vector as usize) % BITS_PER_PBA_ENTRY;
+        let index = vector / BITS_PER_PBA_ENTRY;
+        let shift = vector % BITS_PER_PBA_ENTRY;
 
-        ((self.pba_entries[index] >> shift) & 0x0000_0001u64) as u8
+        ((self.pba_entries[index as usize] >> shift) & 0x0000_0001u64) as u8
     }
 
     /// Inject an MSI-X interrupt and clear the PBA bit for a vector
@@ -466,7 +479,7 @@ impl MsixConfig {
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
-/// MSI-X PCI capability
+/// PCIe spec revision 6.0: 7.7.2 MSI-X Capability and Table Structure
 pub struct MsixCap {
     /// Message Control Register
     ///   10-0:  MSI-X Table size
@@ -516,6 +529,56 @@ impl MsixCap {
             table: (table_off & 0xffff_fff8u32) | u32::from(table_pci_bar & 0x7u8),
             pba: (pba_off & 0xffff_fff8u32) | u32::from(pba_pci_bar & 0x7u8),
         }
+    }
+
+    /// Is MASKED bit set
+    pub fn masked(&self) -> bool {
+        (self.msg_ctl >> FUNCTION_MASK_BIT) & 0x1 == 0x1
+    }
+
+    /// Is ENABLED bit set
+    pub fn enabled(&self) -> bool {
+        (self.msg_ctl >> MSIX_ENABLE_BIT) & 0x1 == 0x1
+    }
+
+    /// Table offset
+    pub fn table_offset(&self) -> u32 {
+        self.table & 0xffff_fff8
+    }
+
+    /// Pba offset
+    pub fn pba_offset(&self) -> u32 {
+        self.pba & 0xffff_fff8
+    }
+
+    /// Table BAR idx
+    pub fn table_bir(&self) -> u8 {
+        (self.table & 0x7) as u8
+    }
+
+    /// PBA BAR idx
+    pub fn pba_bir(&self) -> u8 {
+        (self.pba & 0x7) as u8
+    }
+
+    /// Table size
+    pub fn table_size(&self) -> u16 {
+        (self.msg_ctl & 0x7ff) + 1
+    }
+
+    /// Table BAR offset and size in bytes
+    pub fn table_bar_offset_and_size(&self) -> (u64, u64) {
+        // The table takes 16 bytes per entry.
+        let size = self.table_size() as u64 * MSIX_TABLE_ENTRIES_MODULO;
+        (self.table_offset() as u64, size)
+    }
+
+    /// PBA BAR offset and size in bytes
+    pub fn pba_bar_offset_and_size(&self) -> (u64, u64) {
+        // The pba takes 1 bit per entry and is stored in chunks of 8 bytes.
+        let chunks = self.table_size().div_ceil(BITS_PER_PBA_ENTRY);
+        let size = u64::from(chunks) * MSIX_PBA_ENTRIES_MODULO;
+        (self.pba_offset() as u64, size)
     }
 }
 

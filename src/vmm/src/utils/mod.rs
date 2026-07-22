@@ -17,6 +17,8 @@ use std::path::Path;
 
 use libc::O_NONBLOCK;
 
+use crate::arch::host_page_size;
+
 /// How many bits to left-shift by to convert MiB to bytes
 const MIB_TO_BYTES_SHIFT: usize = 20;
 
@@ -61,7 +63,7 @@ pub const fn bytes_to_mib(bytes: usize) -> usize {
 #[macro_export]
 macro_rules! align_up {
     ($addr:expr, $align:expr) => {{
-        debug_assert!($align != 0);
+        assert!($align.is_power_of_two());
         ($addr.wrapping_add($align - 1)) & !($align - 1)
     }};
 }
@@ -73,9 +75,50 @@ macro_rules! align_up {
 #[macro_export]
 macro_rules! align_down {
     ($addr:expr, $align:expr) => {{
-        debug_assert!($align != 0);
+        assert!($align.is_power_of_two());
         $addr & !($align - 1)
     }};
+}
+
+/// Is the address aligned to the specified boundary.
+///
+/// Works with any integer type (`u64`, `usize`, etc.).
+/// `$align` must be a power of two.
+#[macro_export]
+macro_rules! is_aligned {
+    ($addr:expr, $align:expr) => {{
+        assert!($align.is_power_of_two());
+        // Doing AND with 0 is valid, but no-one told clippy that
+        #[allow(clippy::bad_bit_mask)]
+        {
+            ($addr & ($align - 1)) == 0
+        }
+    }};
+}
+
+/// Calculate the difference between the current address
+/// and the nearest lower page boundary.
+pub fn offset_from_lower_host_page(addr: u64) -> u64 {
+    let align = usize_to_u64(host_page_size());
+    addr & (align - 1)
+}
+
+/// Align address up to the host page boundary.
+pub fn align_up_host_page(addr: u64) -> u64 {
+    let align = usize_to_u64(host_page_size());
+    align_up!(addr, align)
+}
+
+/// Align address down to the host page boundary.
+pub fn align_down_host_page(addr: u64) -> u64 {
+    let align = usize_to_u64(host_page_size());
+    align_down!(addr, align)
+}
+
+/// Is address host page aligned
+pub fn is_host_page_aligned(addr: u64) -> bool {
+    let align = usize_to_u64(host_page_size());
+    is_aligned!(addr, align)
 }
 
 /// Create and open a file for both reading and writing to it with a O_NONBLOCK flag.
@@ -203,5 +246,51 @@ mod tests {
                 assert_eq!(align_up!(addr, align), align * 2);
             }
         }
+    }
+
+    #[test]
+    fn test_is_aligned() {
+        assert!(is_aligned!(8_u32, 1_u32));
+        assert!(is_aligned!(8_u32, 2_u32));
+        assert!(is_aligned!(8_u32, 4_u32));
+        assert!(is_aligned!(8_u32, 8_u32));
+        assert!(!is_aligned!(8_u32, 16_u32));
+    }
+
+    #[test]
+    fn test_offset_from_lower_host_page() {
+        let host_page_size = usize_to_u64(host_page_size());
+        let offset = host_page_size - 0x100;
+        assert_eq!(offset_from_lower_host_page(offset), offset);
+        let offset = host_page_size + 0x100;
+        assert_eq!(offset_from_lower_host_page(offset), 0x100);
+    }
+
+    #[test]
+    fn test_align_up_host_page() {
+        let host_page_size = usize_to_u64(host_page_size());
+        let offset = host_page_size - 0x100;
+        assert_eq!(align_up_host_page(offset), host_page_size);
+        let offset = host_page_size + 0x100;
+        assert_eq!(align_up_host_page(offset), host_page_size * 2);
+    }
+
+    #[test]
+    fn test_align_down_host_page() {
+        let host_page_size = usize_to_u64(host_page_size());
+        let offset = host_page_size - 0x100;
+        assert_eq!(align_down_host_page(offset), 0);
+        let offset = host_page_size + 0x100;
+        assert_eq!(align_down_host_page(offset), host_page_size);
+    }
+
+    #[test]
+    fn test_is_host_page_aligned() {
+        let host_page_size = usize_to_u64(host_page_size());
+        assert!(is_host_page_aligned(host_page_size));
+        let offset = host_page_size - 0x100;
+        assert!(!is_host_page_aligned(offset));
+        let offset = host_page_size + 0x100;
+        assert!(!is_host_page_aligned(offset));
     }
 }

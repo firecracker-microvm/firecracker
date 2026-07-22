@@ -49,7 +49,7 @@ use crate::devices::virtio::rng::persist::EntropyPersistError;
 use crate::devices::virtio::vsock::{VsockError, VsockUnixBackendError};
 use crate::logger::{error, info};
 use crate::rate_limiter::TokenBucket;
-use crate::resources::VmResources;
+use crate::resources::{ResourcesError, VmResources};
 use crate::rpc_interface::VmmActionError;
 use crate::snapshot::Persist;
 use crate::utils::open_file_nonblock;
@@ -58,6 +58,7 @@ use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfaceError};
 use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
+use crate::vmm_config::vfio::VfioConfig;
 use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::{KvmVm, Vm};
@@ -317,6 +318,19 @@ impl DeviceManager {
         Ok(())
     }
 
+    pub fn attach_vfio_device(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        config: VfioConfig,
+    ) -> Result<(), AttachDeviceError> {
+        match &mut self.virtio_devices {
+            VirtioDevices::Mmio(_) => Err(AttachDeviceError::NotSupported),
+            VirtioDevices::Pci(devices) => devices
+                .attach_vfio_device(vm, config)
+                .map_err(AttachDeviceError::from),
+        }
+    }
+
     #[cfg(target_arch = "x86_64")]
     pub(crate) fn append_aml_bytes(
         &self,
@@ -338,7 +352,6 @@ impl DeviceManager {
         }
     }
 
-    #[cfg(target_arch = "aarch64")]
     pub(crate) fn pci_devices(&self) -> Option<&PciDevices> {
         match &self.virtio_devices {
             VirtioDevices::Pci(pci_devices) => Some(pci_devices),
@@ -460,6 +473,26 @@ impl DeviceManager {
         event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
         let dev_type = config.device_type();
+        match dev_type {
+            VirtioDeviceType::Balloon
+                if let Some(pci_devices) = self.pci_devices()
+                    && !pci_devices.vfio_devices.is_empty() =>
+            {
+                return Err(VmmActionError::IncompatibleDeviceConfiguration(
+                    ResourcesError::VfioWithBalloon,
+                ));
+            }
+            VirtioDeviceType::Mem
+                if let Some(pci_devices) = self.pci_devices()
+                    && !pci_devices.vfio_devices.is_empty() =>
+            {
+                return Err(VmmActionError::IncompatibleDeviceConfiguration(
+                    ResourcesError::VfioWithMemHotplug,
+                ));
+            }
+            _ => {}
+        }
+
         let dev_id = config.device_id().to_string();
         let device_id = (dev_type, dev_id.clone());
 
@@ -483,6 +516,34 @@ impl DeviceManager {
                 .attach_pci_virtio_device(&vm, dev_id, device, event_manager)
                 .map_err(VmmActionError::PciManager),
             VirtioDevices::Mmio(_) => Err(VmmActionError::PciNotEnabled),
+        }
+    }
+
+    /// Attaches a device after VM start
+    pub fn hotplug_device_vfio(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        config: VfioConfig,
+    ) -> Result<(), VmmActionError> {
+        match &mut self.virtio_devices {
+            VirtioDevices::Mmio(_) => Err(VmmActionError::PciNotEnabled),
+            VirtioDevices::Pci(pci_devices) => {
+                for (virtio_type, _) in pci_devices.virtio_devices.keys() {
+                    if *virtio_type == VirtioDeviceType::Balloon {
+                        return Err(VmmActionError::IncompatibleDeviceConfiguration(
+                            ResourcesError::VfioWithBalloon,
+                        ));
+                    }
+                    if *virtio_type == VirtioDeviceType::Mem {
+                        return Err(VmmActionError::IncompatibleDeviceConfiguration(
+                            ResourcesError::VfioWithMemHotplug,
+                        ));
+                    }
+                }
+
+                pci_devices.attach_vfio_device(vm, config)?;
+                Ok(())
+            }
         }
     }
 
@@ -553,6 +614,17 @@ impl DeviceManager {
                     .map_err(VmmActionError::PciManager)
             }
             VirtioDevices::Mmio(_) => Err(VmmActionError::PciNotEnabled),
+        }
+    }
+
+    /// Detaches a device after VM start
+    pub fn hot_unplug_vfio_device(&mut self, vm: &KvmVm, id: String) -> Result<(), VmmActionError> {
+        match &mut self.virtio_devices {
+            VirtioDevices::Mmio(_) => Err(VmmActionError::PciNotEnabled),
+            VirtioDevices::Pci(pci_devices) => {
+                pci_devices.detach_vfio_device(vm, id)?;
+                Ok(())
+            }
         }
     }
 
@@ -776,9 +848,9 @@ impl<'a> Persist<'a> for DeviceManager {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
     use vmm_sys_util::tempfile::TempFile;
 
+    use super::*;
     use crate::builder::tests::{
         CustomBlockConfig, default_kernel_cmdline, default_vmm, default_vmm_with_pci,
         insert_block_devices,
