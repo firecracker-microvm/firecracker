@@ -328,3 +328,137 @@ impl PciDevice for PciRootPort {
         None
     }
 }
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::builder::tests::default_vmm;
+    use crate::pci::pcie_cap::{
+        PCI_EXP_FLAGS, PCI_EXP_FLAGS_SLOT, PCI_EXP_SLTCAP, PCI_EXP_SLTCAP_HPC,
+    };
+    use crate::vstate::vm::KvmVm;
+
+    fn new_root_port() -> PciRootPort {
+        let vmm = default_vmm();
+        let vectors = Arc::new(
+            KvmVm::create_msix_group(vmm.vm.as_kvm().unwrap().clone(), ROOT_PORT_MSIX_VECTORS)
+                .unwrap(),
+        );
+        PciRootPort::new(PciSBDF::new(0, 0, 1, 0), 1, vectors, 0x1_0000_0000)
+    }
+
+    #[test]
+    fn test_root_port_config_header() {
+        let mut rp = new_root_port();
+        // Vendor/device IDs.
+        assert_eq!(
+            rp.read_config_register(0) & 0xffff,
+            u32::from(VENDOR_ID_AMAZON)
+        );
+        // Header type 1 (bridge).
+        assert_eq!((rp.read_config_register(3) >> 16) & 0xff, 0x01);
+        // Class code is Bridge / PCI-to-PCI.
+        let reg2 = rp.read_config_register(2);
+        assert_eq!((reg2 >> 24) & 0xff, PciClassCode::Bridge as u32);
+        assert_eq!(
+            (reg2 >> 16) & 0xff,
+            PciBridgeSubclass::PciToPciBridge as u32
+        );
+        // Secondary and subordinate bus numbers both equal 1.
+        let bus_reg = rp.read_config_register(6);
+        assert_eq!((bus_reg >> 8) & 0xff, 1);
+        assert_eq!((bus_reg >> 16) & 0xff, 1);
+    }
+
+    #[test]
+    fn test_root_port_pcie_cap() {
+        let mut rp = new_root_port();
+        let cap_off = rp.pcie_cap_offset;
+
+        // The PCI Express Capabilities register advertises Slot Implemented.
+        let flags_reg = (cap_off + PCI_EXP_FLAGS - 2) / 4;
+        let flags = (rp.read_config_register(flags_reg) >> 16) as u16;
+        assert_ne!(flags & PCI_EXP_FLAGS_SLOT, 0);
+
+        // Slot Capabilities advertise Hot-Plug Capable.
+        let sltcap_reg = (cap_off + PCI_EXP_SLTCAP) / 4;
+        let sltcap = rp.read_config_register(sltcap_reg);
+        assert_ne!(sltcap & PCI_EXP_SLTCAP_HPC, 0);
+    }
+
+    #[test]
+    fn test_hotplug_irq_gating() {
+        let mut rp = new_root_port();
+
+        // No enables set: not armed.
+        assert!(!rp.must_inject_irq(PCI_EXP_SLTSTA_PDC));
+
+        // HPIE alone is not enough without the per-event enable.
+        rp.slot_control = PCI_EXP_SLTCTL_HPIE;
+        assert!(!rp.must_inject_irq(PCI_EXP_SLTSTA_PDC));
+
+        // HPIE + PDCE arms a presence-detect-change interrupt.
+        rp.slot_control = PCI_EXP_SLTCTL_HPIE | PCI_EXP_SLTCTL_PDCE;
+        assert!(rp.must_inject_irq(PCI_EXP_SLTSTA_PDC));
+
+        // PDCE without HPIE is not armed.
+        rp.slot_control = PCI_EXP_SLTCTL_PDCE;
+        assert!(!rp.must_inject_irq(PCI_EXP_SLTSTA_PDC));
+    }
+
+    #[test]
+    fn test_power_indicator_off_ack() {
+        let mut rp = new_root_port();
+
+        // The indicator blinking (value 0x0200) while the guest quiesces the
+        // device is not an ack.
+        assert!(!rp.write_slot_dword(0, &0x0200u16.to_le_bytes()));
+        // Switching it off is the managed-removal acknowledgement.
+        assert!(rp.write_slot_dword(0, &PCI_EXP_SLTCTL_PWR_IND_OFF.to_le_bytes()));
+        // Staying off is not a new transition.
+        assert!(!rp.write_slot_dword(0, &PCI_EXP_SLTCTL_PWR_IND_OFF.to_le_bytes()));
+    }
+
+    #[test]
+    fn test_boot_time_plug_is_silent() {
+        let mut rp = new_root_port();
+        let reg = rp.slot_reg_idx();
+
+        // Arm every hot-plug notification the port supports.
+        let ctl = PCI_EXP_SLTCTL_HPIE | PCI_EXP_SLTCTL_PDCE | PCI_EXP_SLTCTL_DLLSCE;
+        rp.write_config_register(reg, 0, &ctl.to_le_bytes());
+
+        // A device present from boot is found by ordinary enumeration, so the
+        // slot reports it as present but latches no change bits.
+        rp.plug(false);
+        let status = (rp.read_config_register(reg) >> 16) as u16;
+        assert_ne!(status & PCI_EXP_SLTSTA_PDS, 0);
+        assert_eq!(status & PCI_EXP_SLTSTA_PDC, 0);
+        assert_eq!(status & PCI_EXP_SLTSTA_DLLSC, 0);
+    }
+
+    #[test]
+    fn test_link_status_reflects_presence() {
+        let mut rp = new_root_port();
+        let link_reg = rp.link_reg_idx();
+
+        // Empty slot: link is down.
+        assert_eq!(
+            (rp.read_config_register(link_reg) >> 16) as u16 & PCI_EXP_LNKSTA_DLLLA,
+            0
+        );
+        // After plug, Data Link Layer Link Active is set.
+        rp.plug(true);
+        assert_ne!(
+            (rp.read_config_register(link_reg) >> 16) as u16 & PCI_EXP_LNKSTA_DLLLA,
+            0
+        );
+        // After eject, link goes down again.
+        rp.eject();
+        assert_eq!(
+            (rp.read_config_register(link_reg) >> 16) as u16 & PCI_EXP_LNKSTA_DLLLA,
+            0
+        );
+    }
+}
