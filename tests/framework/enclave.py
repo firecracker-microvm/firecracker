@@ -6,6 +6,7 @@ import dataclasses
 import fcntl
 import functools
 import os
+import platform
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from framework.vm_lifecycle import VmLifecycle
 
 NE_DEV_PATH = Path("/dev/nitro_enclaves")
 NE_CPUS_PATH = Path("/sys/module/nitro_enclaves/parameters/ne_cpus")
+CPU0_SIBLINGS_PATH = Path("/sys/devices/system/cpu/cpu0/topology/thread_siblings_list")
 
 NE_ENCLAVE_PCIE_MODE = 1 << 6
 NE_ENCLAVE_PCIE_VIRTIO_MODE = 1 << 9
@@ -102,6 +104,14 @@ def get_enclave_info():
     return EnclaveInfo.probe()
 
 
+def _has_smt(path: Path = CPU0_SIBLINGS_PATH):
+    """Check whether the host has SMT (hyperthreading) enabled."""
+    try:
+        return len(parse_cpu_list(path.read_text(encoding="ascii").strip())) >= 2
+    except (FileNotFoundError, OSError, ValueError):
+        return False
+
+
 def enclave_host_available():
     """Whether this host can run Nitro Enclave microVMs.
 
@@ -130,6 +140,21 @@ def enclave_host_available():
     if errors:
         raise EnclaveConfigError("; ".join(errors))
     return True
+
+
+def enclave_probe_details():
+    """Return Nitro Enclave probe details for pytest diagnostics."""
+    info = get_enclave_info()
+    return {
+        "ne_device": NE_DEV_PATH.exists(),
+        "ne_available": info is not None,
+        "ne_cpus": list(info.cpu_pool) if info else None,
+        "ne_dynamic": info.dynamic_cpu_pool if info else None,
+        "ne_static_cpu_count": len(info.cpu_pool) if info else None,
+        "kernel_release": platform.release(),
+        "ne_supported_flags": f"0x{info.supported_flags:04x}" if info else None,
+        "smt": _has_smt(),
+    }
 
 
 # The functions below implement the basic_config / start verbs for the enclave
