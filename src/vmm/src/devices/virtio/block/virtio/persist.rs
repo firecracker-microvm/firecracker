@@ -9,14 +9,14 @@ use std::iter;
 use std::sync::{Arc, Mutex};
 use vmm_sys_util::eventfd::EventFd;
 
-use super::device::{BlockResources, DiskProperties};
+use super::device::{BlockResources, BlockRuntimeState, DiskProperties};
 use super::*;
 use crate::devices::virtio::block::persist::BlockConstructorArgs;
 use crate::devices::virtio::block::virtio::device::{
     FileEngineType, VirtioBlkTopology, VirtioBlockConfig,
 };
 use crate::devices::virtio::block::virtio::metrics::BlockMetricsPerDevice;
-use crate::devices::virtio::device::{DeviceState, VirtioDeviceType};
+use crate::devices::virtio::device::VirtioDeviceType;
 use crate::devices::virtio::generated::virtio_blk::{VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_RO};
 use crate::devices::virtio::persist::{PersistError, VirtioDeviceState};
 use crate::rate_limiter::RateLimiter;
@@ -76,7 +76,6 @@ impl Persist<'_> for VirtioBlock {
     type Error = VirtioBlockError;
 
     fn save(&self) -> Self::State {
-        // Save device state.
         VirtioBlockState {
             id: self.config.drive_id.clone(),
             partuuid: self.config.partuuid.clone(),
@@ -159,10 +158,9 @@ impl Persist<'_> for VirtioBlock {
             config_space,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
 
-            device_state: DeviceState::Inactive,
             config,
             rate_limiter: Arc::new(Mutex::new(rate_limiter)),
-            resources,
+            state: BlockRuntimeState::Configuring(resources),
             metrics: BlockMetricsPerDevice::alloc(state.id.clone()),
         })
     }
