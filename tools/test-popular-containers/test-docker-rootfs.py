@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.append(os.path.join(os.getcwd(), "tests"))
 
 # pylint: disable=wrong-import-position
-from framework.artifacts import kernels
+from framework.artifacts import GuestKernel, kernels
 from framework.defs import DEFAULT_BINARY_DIR
 from framework.microvm import MicroVMFactory
 
@@ -24,7 +24,7 @@ from framework.microvm import MicroVMFactory
 
 kernels = list(kernels("vmlinux-*"))
 # Use the latest guest kernel
-kernel = kernels[-1]
+kernel = GuestKernel.from_vmlinux(kernels[-1])
 
 vmfcty = MicroVMFactory(DEFAULT_BINARY_DIR)
 # (may take a while to compile Firecracker...)

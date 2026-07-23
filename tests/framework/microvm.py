@@ -32,6 +32,7 @@ from tenacity import Retrying, retry, stop_after_attempt, stop_after_delay, wait
 import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
 from framework import utils
+from framework.artifacts import GuestKernel
 from framework.defs import DEFAULT_BINARY_DIR, MAX_API_CALL_DURATION_MS
 from framework.guest import GuestDistro
 from framework.http_api import Api
@@ -213,7 +214,7 @@ class Microvm:
         assert microvm_id is not None
         self._microvm_id = microvm_id
 
-        self.kernel_file = None
+        self.guest_kernel = None
         self.rootfs_file = None
         self.distro = None
         self.ssh_key = None
@@ -513,12 +514,19 @@ class Microvm:
             "instance": global_props.instance,
             "cpu_model": global_props.cpu_model,
             "host_kernel": f"linux-{global_props.host_linux_version}",
-            "guest_kernel": self.kernel_file.stem[2:],
+            "guest_kernel": self.guest_kernel.metric_id,
             "rootfs": self.rootfs_file.name,
             "vcpus": str(self.vcpus_count),
             "guest_memory": f"{self.mem_size_bytes / (1024 * 1024)}MB",
             "pci": f"{self.pci_enabled}",
         }
+
+    @property
+    def kernel_file(self):
+        """Concrete boot image this VM boots, derived from `guest_kernel`."""
+        if self.guest_kernel is None:
+            return None
+        return self.guest_kernel.vmlinux
 
     @property
     def guest_kernel_version(self):
@@ -1128,9 +1136,18 @@ class Microvm:
             }
 
         for key, value in jailed_snapshot.meta.items():
+            if key == "kernel_file":
+                # Meta records the concrete boot image; recover the logical
+                # kernel it came from, which is what the VM tracks.
+                try:
+                    self.guest_kernel = GuestKernel.from_vmlinux(Path(value))
+                except ValueError as exc:
+                    raise ValueError(
+                        f"snapshot {snapshot.vmstate.parent} records guest kernel "
+                        f"{value!r}, which is not a recognised artifact"
+                    ) from exc
+                continue
             setattr(self, key, value)
-        # Adjust things just in case
-        self.kernel_file = Path(self.kernel_file)
         if self.rootfs_file:
             self.rootfs_file = Path(self.rootfs_file)
             self.distro = GuestDistro.from_rootfs(self.rootfs_file)
@@ -1296,7 +1313,7 @@ class MicroVMFactory:
         """The path to the jailer binary using which this factory will build VMs"""
         return self.binary_path / "jailer"
 
-    def build(self, kernel=None, rootfs=None, **kwargs):
+    def build(self, kernel: GuestKernel = None, rootfs=None, **kwargs):
         """Build a microvm"""
         kwargs = self.kwargs | kwargs
         microvm_id = kwargs.pop("microvm_id", str(uuid.uuid4()))
@@ -1312,7 +1329,7 @@ class MicroVMFactory:
         vm.netns.setup()
         self.vms.append(vm)
         if kernel is not None:
-            vm.kernel_file = kernel
+            vm.guest_kernel = kernel
         if rootfs is not None:
             ssh_key = rootfs.with_suffix(".id_rsa")
             # copy only iff not a read-only rootfs

@@ -15,7 +15,7 @@ import re
 from pathlib import Path
 
 import host_tools.cargo_build as build_tools
-from framework.artifacts import disks, kernels
+from framework.artifacts import GuestKernel, disks, kernels
 from framework.defs import DEFAULT_BINARY_DIR, FC_WORKSPACE_DIR
 from framework.microvm import MicroVMFactory
 
@@ -129,11 +129,11 @@ if args.cpu_template_path is not None:
 vmfcty = MicroVMFactory(binary_dir)
 
 if args.debug or args.gdb:
-    kernel = args.kernel.parent / "debug" / args.kernel.name
+    kernel = GuestKernel.from_vmlinux(args.kernel.parent / "debug" / args.kernel.name)
 else:
-    kernel = args.kernel
+    kernel = GuestKernel.from_vmlinux(args.kernel)
 
-print(f"uvm with kernel {kernel} ...")
+print(f"uvm with kernel {kernel.vmlinux} ...")
 uvm = vmfcty.build(kernel, args.rootfs)
 uvm.help.enable_console()
 uvm.help.resize_disk(uvm.rootfs_file, args.rootfs_size)
