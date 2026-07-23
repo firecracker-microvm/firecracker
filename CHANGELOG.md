@@ -17,6 +17,11 @@ and this project adheres to
   emits the microVM instance id under a top-level `id` field, and `properties`
   emits operator-defined key-value pairs under a top-level `properties` field.
   Each is opt-in and independent. See [metrics documentation](docs/metrics.md).
+- [#6003](https://github.com/firecracker-microvm/firecracker/pull/6003): Added a
+  new option `Transparent` for the `huge_pages` setting. If set, Firecracker
+  will use transparent huge pages for the guest memory via
+  `madvise(MADV_HUGEPAGE)`. Guest memory must be a multiple of 2MB when using
+  this option.
 
 ### Changed
 
@@ -29,6 +34,17 @@ and this project adheres to
 - [#5956](https://github.com/firecracker-microvm/firecracker/pull/5956): Fixed a
   TOCTOU race in the aarch64 jailer when setting ownership of the CPU cache and
   `MIDR_EL1` information files copied into the chroot.
+- [#6031](https://github.com/firecracker-microvm/firecracker/pull/6031),
+  [#6041](https://github.com/firecracker-microvm/firecracker/pull/6041): Fixed
+  the vsock device re-arming its host-stream `EPOLLIN` interest while received
+  data was still awaiting a guest RX buffer, which could busy-spin the event
+  thread until the guest posted buffers. The device now drains the host stream
+  fully across successive RX operations instead of one packet per event loop
+  iteration, reducing the host-side CPU cost per gigabit of host-to-guest
+  traffic by up to ~50% and improving host-to-guest throughput by ~44% (median)
+  in most configurations. On single-vcpu microVMs on the newest Intel hosts
+  (m7i, m8i), host-to-guest throughput may instead decrease by ~15% (median),
+  where the single guest vCPU rather than the host becomes the bottleneck.
 
 ## [1.16.1]
 

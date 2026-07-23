@@ -24,7 +24,6 @@ use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{GetCpuTemplate, GetCpuTemplateError, GuestConfigError};
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager;
-use crate::device_manager::pci_mngr::PciManagerError;
 use crate::device_manager::{
     AttachDeviceError, DeviceManager, DeviceManagerCreateError, DeviceManagerPersistError,
     DeviceRestoreArgs,
@@ -83,8 +82,6 @@ pub enum StartMicrovmError {
     /// Error creating legacy device: {0}
     #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
-    /// Error enabling PCIe support: {0}
-    EnablePciDevices(#[from] PciManagerError),
     /// Error enabling pvtime on vcpu: {0}
     #[cfg(target_arch = "aarch64")]
     EnablePVTime(crate::arch::VcpuArchError),
@@ -207,15 +204,14 @@ pub fn build_microvm_for_boot(
         &kvm_vm,
         vm_resources.serial_out_path.as_ref(),
         vm_resources.serial_rate_limiter(),
+        vm_resources.pci_enabled,
     )?;
 
     let guest_memory = kvm_vm.guest_memory();
     let entry_point = load_kernel(&boot_config.kernel_file, guest_memory)?;
     let initrd = InitrdConfig::from_config(boot_config, guest_memory)?;
 
-    if vm_resources.pci_enabled {
-        device_manager.enable_pci(&kvm_vm)?;
-    } else {
+    if !vm_resources.pci_enabled {
         boot_cmdline.insert("pci", "off")?;
     }
 
@@ -596,7 +592,7 @@ fn attach_entropy_device(
         .id()
         .to_string();
 
-    device_manager.attach_virtio_device(
+    device_manager.attach_boot_virtio_device(
         vm,
         id,
         entropy_device.clone(),
@@ -646,7 +642,7 @@ fn attach_virtio_mem_device(
     ));
 
     let id = virtio_mem.lock().expect("Poisoned lock").id().to_string();
-    device_manager.attach_virtio_device(
+    device_manager.attach_boot_virtio_device(
         vm,
         id,
         virtio_mem.clone(),
@@ -677,7 +673,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
             (locked.id().to_string(), locked.is_vhost_user())
         };
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        device_manager.attach_virtio_device(
+        device_manager.attach_boot_virtio_device(
             vm,
             id,
             block.clone(),
@@ -699,7 +695,7 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     for net_device in net_devices {
         let id = net_device.lock().expect("Poisoned lock").id().to_string();
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        device_manager.attach_virtio_device(
+        device_manager.attach_boot_virtio_device(
             vm,
             id,
             net_device.clone(),
@@ -731,7 +727,7 @@ fn attach_pmem_devices(
         let pmem = Pmem::new(kvm_vm.clone(), config.clone())?;
         let device = Arc::new(Mutex::new(pmem));
 
-        device_manager.attach_virtio_device(vm, id, device, cmdline, event_manager, false)?;
+        device_manager.attach_boot_virtio_device(vm, id, device, cmdline, event_manager, false)?;
     }
     Ok(())
 }
@@ -745,7 +741,14 @@ fn attach_unixsock_vsock_device(
 ) -> Result<(), AttachDeviceError> {
     let id = String::from(unix_vsock.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    device_manager.attach_virtio_device(vm, id, unix_vsock.clone(), cmdline, event_manager, false)
+    device_manager.attach_boot_virtio_device(
+        vm,
+        id,
+        unix_vsock.clone(),
+        cmdline,
+        event_manager,
+        false,
+    )
 }
 
 fn attach_balloon_device(
@@ -758,7 +761,7 @@ fn attach_balloon_device(
     let _kvm_vm = vm.as_kvm().ok_or(AttachDeviceError::NotSupported)?;
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    device_manager.attach_virtio_device(vm, id, balloon.clone(), cmdline, event_manager, false)
+    device_manager.attach_boot_virtio_device(vm, id, balloon.clone(), cmdline, event_manager, false)
 }
 
 #[cfg(test)]
@@ -768,7 +771,7 @@ pub(crate) mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
-    use crate::device_manager::tests::default_device_manager;
+    use crate::device_manager::tests::{default_device_manager, default_device_manager_with_pci};
     use crate::devices::virtio::block::CacheType;
     use crate::devices::virtio::device::VirtioDeviceType;
     use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
@@ -849,6 +852,24 @@ pub(crate) mod tests {
             shutdown_exit_code: None,
             vm: Vm::Kvm(Arc::new(vm)),
             device_manager: default_device_manager(),
+        }
+    }
+
+    pub(crate) fn default_vmm_with_pci() -> Vmm {
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
+
+        let _ = vm.create_vcpus(1).unwrap();
+
+        let vm = Arc::new(vm);
+        let device_manager = default_device_manager_with_pci(&vm);
+
+        Vmm {
+            instance_info: InstanceInfo::default(),
+            machine_config: MachineConfig::default(),
+            boot_source_config: BootSourceConfig::default(),
+            shutdown_exit_code: None,
+            vm: Vm::Kvm(vm),
+            device_manager,
         }
     }
 
@@ -1313,7 +1334,12 @@ pub(crate) mod tests {
             .device_manager
             .attach_boot_timer_device(vmm.vm.as_kvm().unwrap(), request_ts);
         res.unwrap();
-        assert!(vmm.device_manager.mmio_devices.boot_timer.is_some());
+        assert!(
+            vmm.device_manager
+                .mmio_platform_devices
+                .boot_timer
+                .is_some()
+        );
     }
 
     #[test]

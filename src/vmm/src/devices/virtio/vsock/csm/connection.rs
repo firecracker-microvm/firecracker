@@ -239,6 +239,9 @@ where
                         // by self.peer_avail_credit(), a u32 internally.
                         pkt.hdr.set_op(uapi::VSOCK_OP_RW).set_len(read_cnt);
                         METRICS.rx_bytes_count.add(read_cnt as u64);
+                        // There may be more data to read, so keep `Rw` pending to stay
+                        // scheduled for another read.
+                        self.pending_rx.insert(PendingRx::Rw);
                     }
                     self.rx_cnt += Wrapping(pkt.hdr.len());
                     self.last_fwd_cnt_to_peer = self.fwd_cnt;
@@ -247,13 +250,7 @@ where
                 Err(VsockError::GuestMemoryMmap(GuestMemoryError::IOError(err)))
                     if err.kind() == ErrorKind::WouldBlock =>
                 {
-                    // This shouldn't actually happen (receiving EWOULDBLOCK after EPOLLIN), but
-                    // apparently it does, so we need to handle it gracefully.
-                    warn!(
-                        "vsock: unexpected EWOULDBLOCK while reading from backing stream: lp={}, \
-                         pp={}, err={:?}",
-                        self.local_port, self.peer_port, err
-                    );
+                    // Host stream drained: `Rw` stays cleared.
                 }
                 Err(err) => {
                     // We are not expecting any other errors when reading from the underlying
@@ -438,6 +435,12 @@ where
         match self.state {
             ConnState::Killed | ConnState::LocalClosed | ConnState::PeerClosed(true, _) => (),
             _ if self.need_credit_update_from_peer() => (),
+            // An `Rw` indication means the host stream is readable and its data is waiting to
+            // be delivered to the guest by `recv_pkt`, which needs a guest RX buffer. While
+            // that data is undeliverable, re-arming IN would just busy-spin the event thread
+            // on the level-triggered muxer epoll fd. IN is re-armed once `recv_pkt` clears
+            // the `Rw` (on RX-queue refill).
+            _ if self.pending_rx.contains(PendingRx::Rw) => (),
             _ => evset.insert(EventSet::IN),
         }
         evset
@@ -1033,6 +1036,81 @@ mod tests {
         ctx.notify_epollin();
         ctx.recv();
         assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
+    }
+
+    #[test]
+    fn test_polled_evset_drops_in_while_rw_pending() {
+        // Regression test for the guest-RX-starvation busy-spin.
+        // An Established connection with an undeliverable RW indication (host wrote data,
+        // guest has not provided RX buffers) must NOT keep advertising EPOLLIN, or the
+        // level-triggered muxer epoll fd busy-spins the event thread. IN must be re-armed
+        // once the guest posts an RX buffer and the pending packet is delivered.
+        let mut ctx = CsmTestContext::new_established();
+        // Fresh Established connection is interested in IN.
+        assert!(ctx.conn.get_polled_evset().contains(EventSet::IN));
+
+        ctx.set_stream(TestStream::new_with_read_buf(&[1, 2, 3, 4]));
+        ctx.notify_epollin(); // sets PendingRx::Rw
+        // With an undeliverable Rw queued, IN must be suppressed.
+        assert!(!ctx.conn.get_polled_evset().contains(EventSet::IN));
+
+        // The guest posts an RX buffer: the packet is delivered, but `Rw` stays pending for
+        // another read, so IN remains suppressed.
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RW);
+        assert!(ctx.conn.has_pending_rx());
+        assert!(!ctx.conn.get_polled_evset().contains(EventSet::IN));
+
+        // Once the stream drains (read returns `WouldBlock`), `Rw` is cleared and IN re-armed.
+        ctx.conn.recv_pkt(&mut ctx.rx_pkt).unwrap_err();
+        assert!(!ctx.conn.has_pending_rx());
+        assert!(ctx.conn.get_polled_evset().contains(EventSet::IN));
+    }
+
+    #[test]
+    fn test_rx_drains_multiple_packets_per_notification() {
+        // A single EPOLLIN notification must drain the whole host stream: `recv_pkt`
+        // keeps yielding RW packets across calls until a read would block.
+        let mut ctx = CsmTestContext::new_established();
+        let pkt_buf_size = ctx.rx_pkt.buf_size() as usize;
+        // More than one packet's worth of data, so draining needs several reads.
+        let data = vec![0xab_u8; pkt_buf_size + 1];
+        ctx.set_stream(TestStream::new_with_read_buf(&data));
+
+        // A single notification schedules the connection.
+        ctx.notify_epollin();
+
+        // First read fills a whole packet; `Rw` stays pending for the rest.
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RW);
+        assert_eq!(ctx.rx_pkt.hdr.len() as usize, pkt_buf_size);
+        assert!(ctx.conn.has_pending_rx());
+
+        // Second read drains the remaining byte, without another notification.
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RW);
+        assert_eq!(ctx.rx_pkt.hdr.len() as usize, 1);
+        assert!(ctx.conn.has_pending_rx());
+
+        // Stream now empty: the next read would block, clearing `Rw` and re-arming IN.
+        ctx.conn.recv_pkt(&mut ctx.rx_pkt).unwrap_err();
+        assert!(!ctx.conn.has_pending_rx());
+        assert!(ctx.conn.get_polled_evset().contains(EventSet::IN));
+    }
+
+    #[test]
+    fn test_polled_evset_drops_in_on_host_eof() {
+        // Same as `test_polled_evset_drops_in_while_rw_pending`, but the host closed its
+        // end (EOF) instead of writing data. The resulting undeliverable RW indication must
+        // still suppress EPOLLIN so the muxer epoll fd does not busy-spin the event thread.
+        let mut ctx = CsmTestContext::new_established();
+        assert!(ctx.conn.get_polled_evset().contains(EventSet::IN));
+
+        let mut stream = TestStream::new();
+        stream.read_state = StreamState::Closed;
+        ctx.set_stream(stream);
+        ctx.notify_epollin(); // sets PendingRx::Rw
+        assert!(!ctx.conn.get_polled_evset().contains(EventSet::IN));
     }
 
     #[test]

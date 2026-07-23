@@ -37,10 +37,6 @@ pub struct PciSegment {
     #[cfg(target_arch = "x86_64")]
     pub(crate) pci_config_io: Option<Arc<Mutex<PciConfigIo>>>,
 
-    // Bitmap of PCI devices to hotplug.
-    pub(crate) pci_devices_up: u32,
-    // Bitmap of PCI devices to hotunplug.
-    pub(crate) pci_devices_down: u32,
     // List of allocated IRQs for each PCI slot.
     pub(crate) pci_irq_slots: [u8; 32],
 
@@ -58,8 +54,6 @@ impl std::fmt::Debug for PciSegment {
             .field("id", &self.id)
             .field("mmio_config_address", &self.mmio_config_address)
             .field("proximity_domain", &self.proximity_domain)
-            .field("pci_devices_up", &self.pci_devices_up)
-            .field("pci_devices_down", &self.pci_devices_down)
             .field("pci_irq_slots", &self.pci_irq_slots)
             .field("start_of_mem32_area", &self.start_of_mem32_area)
             .field("end_of_mem32_area", &self.end_of_mem32_area)
@@ -97,8 +91,6 @@ impl PciSegment {
             pci_config_mmio,
             mmio_config_address,
             proximity_domain: 0,
-            pci_devices_up: 0,
-            pci_devices_down: 0,
             #[cfg(target_arch = "x86_64")]
             pci_config_io: None,
             start_of_mem32_area,
@@ -491,8 +483,6 @@ mod tests {
         );
         assert_eq!(pci_segment.mmio_config_address, arch::PCI_MMCONFIG_START);
         assert_eq!(pci_segment.proximity_domain, 0);
-        assert_eq!(pci_segment.pci_devices_up, 0);
-        assert_eq!(pci_segment.pci_devices_down, 0);
         assert_eq!(pci_segment.pci_irq_slots, [0u8; 32]);
     }
 

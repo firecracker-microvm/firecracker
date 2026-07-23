@@ -1160,6 +1160,8 @@ mod tests {
         let buf = test_utils::read_packet_data(&ctx.tx_pkt, 4);
         assert_eq!(&buf, &data);
 
+        // The connection stays scheduled until the stream drains, then has no more pending RX.
+        ctx.muxer.recv_pkt(&mut ctx.rx_pkt).unwrap_err();
         assert!(!ctx.muxer.has_pending_rx());
     }
 
@@ -1195,6 +1197,73 @@ mod tests {
 
         let buf = test_utils::read_packet_data(&ctx.tx_pkt, 4);
         assert_eq!(&buf, &data);
+    }
+
+    #[test]
+    fn test_starvation_drops_and_rearms_epoll_listener() {
+        // End-to-end regression test for the guest-RX-starvation busy-spin at the muxer
+        // layer. When a connection has host data pending but the guest provides no RX
+        // buffer to drain it, the muxer must drop the connection's epoll listener (so the
+        // nested epoll fd goes quiet instead of re-firing IN forever), and re-arm it once
+        // the pending packet is delivered on RX-queue refill.
+        let mut ctx = MuxerTestContext::new("starvation_data");
+        let peer_port = 1025;
+        let (mut stream, local_port) = ctx.local_connect(peer_port);
+        let key = ConnMapKey {
+            local_port,
+            peer_port,
+        };
+        let conn_fd = ctx.muxer.conn_map.get(&key).unwrap().as_raw_fd();
+
+        // Established connection is registered with an epoll listener.
+        assert!(ctx.muxer.listener_map.contains_key(&conn_fd));
+        assert_eq!(ctx.count_epoll_listeners().1, 1);
+
+        // Host writes data; drive the muxer without providing a guest RX buffer.
+        stream.write_all(&[1, 2, 3, 4]).unwrap();
+        ctx.notify_muxer();
+
+        // The connection now has an undeliverable pending RX, so its epoll listener
+        // must have been dropped - the nested epoll fd goes quiet.
+        assert!(ctx.muxer.has_pending_rx());
+        assert!(!ctx.muxer.listener_map.contains_key(&conn_fd));
+        assert_eq!(ctx.count_epoll_listeners().1, 0);
+
+        // The guest posts an RX buffer: recv delivers the packet, but the connection stays
+        // scheduled (and its listener dropped) while the stream may still hold data.
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RW);
+        assert!(!ctx.muxer.listener_map.contains_key(&conn_fd));
+
+        // Draining the stream clears the pending RX and re-arms the epoll listener.
+        ctx.muxer.recv_pkt(&mut ctx.rx_pkt).unwrap_err();
+        assert!(ctx.muxer.listener_map.contains_key(&conn_fd));
+        assert_eq!(ctx.count_epoll_listeners().1, 1);
+    }
+
+    #[test]
+    fn test_starvation_drops_epoll_listener_on_host_eof() {
+        // Same as `test_starvation_drops_and_rearms_epoll_listener`, but the host closes
+        // its end (EOF) instead of writing data. No host-side entity can break the loop,
+        // so dropping the listener is what makes the nested epoll fd quiet.
+        let mut ctx = MuxerTestContext::new("starvation_eof");
+        let peer_port = 1025;
+        let (stream, local_port) = ctx.local_connect(peer_port);
+        let key = ConnMapKey {
+            local_port,
+            peer_port,
+        };
+        let conn_fd = ctx.muxer.conn_map.get(&key).unwrap().as_raw_fd();
+        assert!(ctx.muxer.listener_map.contains_key(&conn_fd));
+
+        // Close the host end and drive the muxer without a guest RX buffer.
+        drop(stream);
+        ctx.notify_muxer();
+
+        // The pending EOF (SHUTDOWN) is undeliverable, so the listener must be dropped.
+        assert!(ctx.muxer.has_pending_rx());
+        assert!(!ctx.muxer.listener_map.contains_key(&conn_fd));
+        assert_eq!(ctx.count_epoll_listeners().1, 0);
     }
 
     #[test]

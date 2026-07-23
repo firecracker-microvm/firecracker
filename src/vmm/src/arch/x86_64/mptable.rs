@@ -11,13 +11,12 @@ use std::mem::{self, size_of};
 
 use libc::c_char;
 use vm_allocator::AllocPolicy;
+use vm_memory::GuestMemoryBackend;
 
 use crate::arch::GSI_LEGACY_END;
 use crate::arch::x86_64::generated::mpspec;
 use crate::logger::debug;
-use crate::vstate::memory::{
-    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap,
-};
+use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 use crate::vstate::resources::ResourceAllocator;
 
 // These `mpspec` wrapper types are only data, reading them from data is a safe initialization.

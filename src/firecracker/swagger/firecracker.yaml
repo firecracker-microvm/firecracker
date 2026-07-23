@@ -1450,8 +1450,13 @@ definitions:
         type: string
         enum:
           - None
+          - Transparent
           - 2M
-        description: Which huge pages configuration (if any) should be used to back guest memory.
+        default: None
+        description: >-
+          Which huge pages configuration should be used to back guest memory.
+          "None" uses regular 4K pages. "Transparent" enables THP via
+          madvise(MADV_HUGEPAGE). "2M" uses explicit hugetlbfs 2MB pages.
 
   MemoryBackend:
     type: object

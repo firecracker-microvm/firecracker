@@ -9,7 +9,8 @@ use std::sync::atomic::AtomicU32;
 use bitvec::vec::BitVec;
 use serde::{Deserialize, Serialize};
 use vm_memory::{
-    Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryRegion, GuestUsize,
+    Address, Bytes, GuestAddress, GuestMemory, GuestMemoryBackend, GuestMemoryError,
+    GuestMemoryRegion, GuestUsize,
 };
 use vmm_sys_util::eventfd::EventFd;
 

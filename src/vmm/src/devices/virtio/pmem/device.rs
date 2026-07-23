@@ -20,14 +20,14 @@ use crate::devices::virtio::pmem::PMEM_QUEUE_SIZE;
 use crate::devices::virtio::pmem::metrics::{PmemMetrics, PmemMetricsPerDevice};
 use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue, QueueError};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
-use crate::impl_device_type;
 use crate::logger::{IncMetric, error, info, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
-use crate::utils::{align_up, u64_to_usize};
+use crate::utils::u64_to_usize;
 use crate::vmm_config::RateLimiterConfig;
 use crate::vmm_config::pmem::PmemConfig;
-use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap, GuestMmapRegion};
+use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};
 use crate::vstate::vm::{KvmVm, VmError};
+use crate::{align_up, impl_device_type};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum PmemError {
@@ -41,6 +41,8 @@ pub enum PmemError {
     BackingFile(std::io::Error),
     /// Error backing file size is 0
     BackingFileZeroSize,
+    /// Restored pmem size {0} does not match backing file mapping size {1}
+    RestoredSizeMismatch(u64, u64),
     /// Error with EventFd: {0}
     EventFd(std::io::Error),
     /// Unexpected read-only descriptor
@@ -194,7 +196,7 @@ impl PmemMmap {
             prot |= libc::PROT_WRITE;
         }
 
-        let mmap_len = align_up(file_len, Self::ALIGNMENT);
+        let mmap_len = align_up!(file_len, Self::ALIGNMENT);
         let mmap_ptr = if (mmap_len == file_len) {
             // SAFETY: We are calling the system call with valid arguments and checking the returned
             // value
@@ -314,7 +316,12 @@ impl Pmem {
         let mmap = PmemMmap::new(&config.path_on_host, config.read_only)?;
 
         let guest_region = match config_space {
-            Some(cs) => GuestPmemRegion::from_state(vm.clone(), cs),
+            Some(cs) => {
+                if cs.size != mmap.mmap_len {
+                    return Err(PmemError::RestoredSizeMismatch(cs.size, mmap.mmap_len));
+                }
+                GuestPmemRegion::from_state(vm.clone(), cs)
+            }
             None => GuestPmemRegion::new(vm.clone(), mmap.mmap_len)?,
         };
 

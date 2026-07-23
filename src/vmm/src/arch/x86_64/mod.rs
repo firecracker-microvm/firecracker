@@ -42,14 +42,14 @@ use crate::cpu_config::x86_64::CpuConfiguration;
 use crate::device_manager::DeviceManager;
 use crate::initrd::InitrdConfig;
 use crate::logger::debug;
-use crate::utils::{align_down, u64_to_usize, usize_to_u64};
+use crate::utils::{u64_to_usize, usize_to_u64};
 use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{
-    Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionType,
+    Address, GuestAddress, GuestMemoryMmap, GuestMemoryRegion, GuestRegionType,
 };
 use crate::vstate::vcpu::KvmVcpuConfigureError;
 use crate::vstate::vm::KvmVm;
-use crate::{Vcpu, VcpuConfig, logger};
+use crate::{Vcpu, VcpuConfig, align_down, logger};
 use kvm::Kvm;
 use layout::{
     CMDLINE_START, MMIO32_MEM_SIZE, MMIO32_MEM_START, MMIO64_MEM_SIZE, MMIO64_MEM_START,
@@ -64,6 +64,7 @@ use linux_loader::loader::elf::start_info::{
     hvm_memmap_table_entry, hvm_modlist_entry, hvm_start_info,
 };
 use linux_loader::loader::{Cmdline, KernelLoader, PvhBootCapability, load_cmdline};
+use vm_memory::GuestMemoryBackend;
 
 // Value taken from https://elixir.bootlin.com/linux/v5.10.68/source/arch/x86/include/uapi/asm/e820.h#L31
 // Usable normal RAM
@@ -165,9 +166,9 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Opti
         return None;
     }
 
-    Some(align_down(
+    Some(align_down!(
         usize_to_u64(lowmem_size - initrd_size),
-        usize_to_u64(super::GUEST_PAGE_SIZE),
+        usize_to_u64(super::GUEST_PAGE_SIZE)
     ))
 }
 
@@ -422,7 +423,7 @@ fn add_e820_entry(
 
     params.e820_table[params.e820_entries as usize].addr = addr;
     params.e820_table[params.e820_entries as usize].size = size;
-    params.e820_table[params.e820_entries as usize].type_ = mem_type;
+    params.e820_table[params.e820_entries as usize].r#type = mem_type;
     params.e820_entries += 1;
 
     Ok(())
@@ -608,7 +609,7 @@ mod tests {
         let e820_map = [(boot_e820_entry {
             addr: 0x1,
             size: 4,
-            type_: 1,
+            r#type: 1,
         }); 128];
 
         let expected_params = boot_params {
@@ -622,7 +623,7 @@ mod tests {
             &mut params,
             e820_map[0].addr,
             e820_map[0].size,
-            e820_map[0].type_,
+            e820_map[0].r#type,
         )
         .unwrap();
         assert_eq!(
@@ -639,7 +640,7 @@ mod tests {
                 &mut params,
                 e820_map[0].addr,
                 e820_map[0].size,
-                e820_map[0].type_
+                e820_map[0].r#type
             )
             .is_err()
         );

@@ -5,9 +5,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::ffi::c_void;
 use std::fs::File;
+use std::io;
 use std::io::SeekFrom;
 use std::ops::Deref;
+use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
 
 use bitvec::vec::BitVec;
@@ -17,24 +20,28 @@ pub use vm_memory::bitmap::{AtomicBitmap, BS, Bitmap, BitmapSlice};
 pub use vm_memory::mmap::MmapRegionBuilder;
 use vm_memory::mmap::{MmapRegionError, NewBitmap};
 pub use vm_memory::{
-    Address, ByteValued, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion,
-    GuestUsize, MemoryRegionAddress, MmapRegion, address,
+    Address, ByteValued, Bytes, FileOffset, GuestAddress, GuestMemoryRegion, GuestUsize,
+    MemoryRegionAddress, MmapRegion, address,
 };
-use vm_memory::{GuestMemoryError, GuestMemoryRegionBytes, VolatileSlice, WriteVolatile};
+use vm_memory::{
+    GuestMemoryBackend, GuestMemoryError, GuestMemoryRegionBytes, VolatileSlice, WriteVolatile,
+};
 
-use crate::DirtyBitmap;
 use crate::arch::host_page_size;
 use crate::logger::error;
-use crate::utils::u64_to_usize;
+use crate::utils::{mib_to_bytes, u64_to_usize};
 use crate::vmm_config::machine_config::HugePageConfig;
 use crate::vstate::vm::{KvmVm, VmError};
+use crate::{DirtyBitmap, align_up, warn_unrestricted};
 
-/// Type of GuestRegionMmap.
-pub type GuestRegionMmap = vm_memory::GuestRegionMmap<Option<AtomicBitmap>>;
 /// Type of GuestMemoryMmap.
 pub type GuestMemoryMmap = vm_memory::GuestRegionCollection<GuestRegionMmapExt>;
-/// Type of GuestMmapRegion.
-pub type GuestMmapRegion = vm_memory::MmapRegion<Option<AtomicBitmap>>;
+
+/// The alignment used to allocate guest memory.
+/// Chosen to enable optimizations on host kernel, e.g. allow huge pages at the beginning of the memory space.
+const GUEST_MEMORY_ALIGNMENT: usize = mib_to_bytes(2);
+/// A mask to extract mmap's flags related to HUGETLB
+const HUGETLB_FLAG_MASK: libc::c_int = libc::MAP_HUGETLB | (0x3F << libc::MAP_HUGE_SHIFT);
 
 /// Errors associated with dumping guest memory to file.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -53,6 +60,8 @@ pub enum MemoryError {
     OffsetTooLarge,
     /// Cannot retrieve snapshot file metadata: {0}
     FileMetadata(std::io::Error),
+    /// Memory region has zero size
+    ZeroSize,
     /// Memory region has zero slots
     ZeroSlots,
     /// Memory region of {region_size} bytes is not evenly divisible into {slot_count} slots
@@ -64,6 +73,8 @@ pub enum MemoryError {
     },
     /// Error protecting memory slot: {0}
     Mprotect(std::io::Error),
+    /// Error calling madvise: {0}
+    Madvise(std::io::Error),
     /// Size too large for i64 conversion
     SlotSizeTooLarge,
     /// Dirty bitmap not found for memory slot {0}
@@ -91,6 +102,295 @@ pub enum GuestRegionType {
     Dram,
     /// Hotpluggable memory
     Hotpluggable,
+}
+
+/// A region of guest memory. Unmapped on drop.
+/// This struct doesn't provide any facility to access the memory or read its properties, see [GuestRegionMmap].
+#[derive(Debug)]
+struct RawGuestRegionMmap {
+    mmap_address: *mut u8,
+    mmap_size: usize,
+}
+
+impl RawGuestRegionMmap {
+    /// Allocates a `PROT_NONE` region of memory, aligned to [`GUEST_MEMORY_ALIGNMENT`] (2 MiB).
+    ///
+    /// To actually use the memory, callers must either re-map it (e.g. with `MAP_FIXED`) or use
+    /// [`Self::allocate`] which does this automatically.
+    ///
+    /// # Size rounding
+    ///
+    /// The returned `mmap_size` may be **larger** than `requested_size`: it is rounded up to the
+    /// nearest multiple of the page size used for the mapping. For regular mappings this is the
+    /// host page size (typically 4 KiB); for hugetlb mappings it is the huge page size (2 MiB).
+    /// This is because `mmap`/`munmap` operate at page granularity — the kernel cannot map or
+    /// protect a partial page. For example, requesting 5000 bytes on a 4 KiB-page host yields
+    /// an `mmap_size` of 8192 bytes (2 pages).
+    ///
+    /// The invariant is: `mmap_size == align_up!(requested_size, page_size)`.
+    fn allocate_protected(
+        requested_size: usize,
+        hugetlb_flags: libc::c_int,
+    ) -> Result<Self, MemoryError> {
+        // Strategy: over-allocate by up to `GUEST_MEMORY_ALIGNMENT - page_size`, then trim
+        // the unaligned head and tail via munmap, leaving a 2 MiB-aligned region of
+        // `size_page_multiple` bytes.
+        //
+        //         ptr                          ptr + alloc_size
+        //          |                                  |
+        //          v                                  v
+        //          +------+------------------+--------+
+        //          | head |   guest memory   |  tail  |
+        //          +------+------------------+--------+
+        //                 ^                  ^
+        //                 |                  |
+        //           aligned_ptr       aligned_ptr + size_page_multiple
+        //          (2 MiB-aligned)
+        //
+        //  1. Round requested_size up to page size -> `size_page_multiple`.
+        //  2. mmap(`size_page_multiple + GUEST_MEMORY_ALIGNMENT - page_size`) -> `ptr`.
+        //     `ptr` is page-aligned, so the worst-case distance to the next 2 MiB boundary
+        //     is `GUEST_MEMORY_ALIGNMENT - page_size` bytes. This guarantees the allocation
+        //     contains at least one 2 MiB-aligned region of `size_page_multiple` bytes.
+        //  3. Compute `aligned_ptr` = first 2 MiB boundary ≥ `ptr`.
+        //  4. munmap the head (`ptr..aligned_ptr`) and tail (`aligned_ptr + size_page_multiple..end`).
+        //  5. Return the 2 MiB-aligned region of `size_page_multiple` bytes.
+        //
+        // Note: when `hugetlb_flags` is set, `page_size` equals `GUEST_MEMORY_ALIGNMENT` (2 MiB),
+        // so `alloc_size == size_page_multiple` (no over-allocation). This is correct because the
+        // kernel guarantees hugetlb mappings are already aligned to the huge page size.
+        if requested_size == 0 {
+            return Err(MemoryError::ZeroSize);
+        }
+        let page_size = match hugetlb_flags {
+            0 => host_page_size(),
+            flags if flags == libc::MAP_HUGETLB | libc::MAP_HUGE_2MB => mib_to_bytes(2),
+            _ => unreachable!("Only 2MiB hugetlb pages are supported"),
+        };
+        let size_page_multiple = align_up!(requested_size, page_size);
+
+        // Over-allocate to guarantee we can find a 2 MiB-aligned sub-region of the desired size.
+        // The over-allocation is `GUEST_MEMORY_ALIGNMENT - page_size` because the mmap return
+        // address is page-aligned, so we need at most that many extra bytes to reach the next
+        // 2 MiB boundary. For hugetlb (page_size == 2 MiB), this is zero — no over-allocation
+        // needed since the kernel already returns 2 MiB-aligned addresses.
+        let alloc_size = size_page_multiple + GUEST_MEMORY_ALIGNMENT - page_size;
+
+        // SAFETY: anonymous private mapping with no fd; does not alias existing memory.
+        // The returned region is PROT_NONE (inaccessible) until the caller re-maps it.
+        let ptr = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                alloc_size,
+                libc::PROT_NONE,
+                hugetlb_flags | libc::MAP_PRIVATE | libc::MAP_NORESERVE | libc::MAP_ANONYMOUS,
+                -1,
+                0,
+            )
+        };
+        if ptr == libc::MAP_FAILED {
+            return Err(MemoryError::MmapRegionError(MmapRegionError::Mmap(
+                std::io::Error::last_os_error(),
+            )));
+        }
+
+        // Find the first 2 MiB-aligned address within the allocation.
+        let aligned_ptr = align_up!(ptr as usize, GUEST_MEMORY_ALIGNMENT);
+
+        // Compute head/tail sizes to trim. Both are guaranteed to be page-aligned because
+        // `ptr` is page-aligned (from mmap), `aligned_ptr` is 2 MiB-aligned (a multiple of
+        // page size), and `size_page_multiple` is a page multiple by construction.
+        let head_size = aligned_ptr - ptr as usize;
+        let tail_size = alloc_size - head_size - size_page_multiple;
+
+        // Sanity checks: the three parts must exactly partition the allocation.
+        assert_eq!(
+            head_size + size_page_multiple + tail_size,
+            alloc_size,
+            "Allocated memory is not fully partitioned"
+        );
+        assert_eq!(
+            ptr as usize + head_size,
+            aligned_ptr,
+            "Head and aligned portion aren't adjacent"
+        );
+        assert_eq!(
+            aligned_ptr + size_page_multiple,
+            ptr as usize + alloc_size - tail_size,
+            "Tail and aligned portion aren't adjacent"
+        );
+        assert_eq!(
+            head_size % page_size,
+            0,
+            "head size is not a multiple of page-size"
+        );
+        assert_eq!(
+            tail_size % page_size,
+            0,
+            "tail size is not a multiple of page-size"
+        );
+
+        // Unmap the head and tail to release them back to the kernel.
+        // Failures are non-critical (at worst we leak a `PROT_NONE` VMA slot), so we only print a warning.
+        if head_size > 0 {
+            // SAFETY: `ptr` is page-aligned and `head_size` is a page multiple within our mapping.
+            let ret = unsafe { libc::munmap(ptr, head_size) };
+            if ret != 0 {
+                warn_unrestricted!("munmap failed: {}", std::io::Error::last_os_error(),);
+            }
+        }
+        if tail_size > 0 {
+            // SAFETY: address is page-aligned and `tail_size` is a page multiple within our mapping.
+            let ret = unsafe {
+                libc::munmap((aligned_ptr + size_page_multiple) as *mut c_void, tail_size)
+            };
+            if ret != 0 {
+                warn_unrestricted!("munmap failed: {}", std::io::Error::last_os_error(),);
+            }
+        }
+
+        Ok(Self {
+            mmap_address: aligned_ptr as *mut u8,
+            mmap_size: size_page_multiple,
+        })
+    }
+
+    /// Allocates a region of memory of the given size, aligned with [GUEST_MEMORY_ALIGNMENT].
+    ///
+    /// Note: the returned region of memory might be bigger than the requested size, as it is aligned to page-size.
+    fn allocate(
+        size: usize,
+        prot: libc::c_int,
+        flags: libc::c_int,
+        fd: libc::c_int,
+        offset: libc::off_t,
+    ) -> Result<Self, MemoryError> {
+        let hugetlb_flags = Self::extract_huge_tlb_mmap_flags(flags);
+
+        // This function works by doing a mmap fixed over a GuestMmapRegion allocated with PROT_NONE.
+        let ret = Self::allocate_protected(size, hugetlb_flags)?;
+
+        // SAFETY: this mmap is performed over the same memory region we just allocated, so it's
+        // guarantee it's not in use elsewhere.
+        let addr = unsafe {
+            libc::mmap(
+                ret.mmap_address.cast::<c_void>(),
+                ret.mmap_size,
+                prot,
+                flags | libc::MAP_FIXED,
+                fd,
+                offset,
+            )
+        };
+        if addr == libc::MAP_FAILED {
+            return Err(MemoryError::MmapRegionError(MmapRegionError::Mmap(
+                std::io::Error::last_os_error(),
+            )));
+        }
+        assert_eq!(
+            addr.cast::<u8>(),
+            ret.mmap_address,
+            "mmap fixed returned a different address"
+        );
+
+        Ok(ret)
+    }
+
+    /// Given some mmap flags, extracts the ones related to hugetlb
+    fn extract_huge_tlb_mmap_flags(flags: libc::c_int) -> libc::c_int {
+        flags & HUGETLB_FLAG_MASK
+    }
+}
+
+impl Drop for RawGuestRegionMmap {
+    fn drop(&mut self) {
+        // SAFETY: All memory access is done via GuestRegionMmap, and at this point there are no references to that.
+        let ret = unsafe { libc::munmap(self.mmap_address.cast::<c_void>(), self.mmap_size) };
+        // Panicking if unmapping failed: otherwise the guest memory might still be accessible after drop!
+        assert_eq!(
+            ret,
+            0,
+            "munmap of guest region failed: {}",
+            std::io::Error::last_os_error()
+        );
+    }
+}
+
+/// SAFETY: Send and Sync aren't automatically inherited for the raw address pointer.
+/// RawGuestRegionMmap exclusively owns the memory region and doesn't expose the raw pointer for concurrent mutation.
+unsafe impl Send for RawGuestRegionMmap {}
+/// SAFETY: See comment above.
+unsafe impl Sync for RawGuestRegionMmap {}
+
+/// A region of guest memory. Unmapped on drop.
+/// Note: this implements automatic defer for vm_memory::GuestRegionMmap, so it can be used in its place.
+#[derive(Debug)]
+pub struct GuestRegionMmap {
+    /// Held for its `Drop` impl which unmaps the guest memory region.
+    _region: RawGuestRegionMmap,
+    proxy: vm_memory::GuestRegionMmap<Option<AtomicBitmap>>,
+}
+
+impl Deref for GuestRegionMmap {
+    type Target = vm_memory::GuestRegionMmap<Option<AtomicBitmap>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.proxy
+    }
+}
+
+impl GuestRegionMmap {
+    /// Creates a new [GuestRegionMmap], by actually allocating the guest memory with the given properties.
+    fn allocate(
+        guest_base: GuestAddress,
+        size: usize,
+        prot: libc::c_int,
+        flags: libc::c_int,
+        file_offset: Option<FileOffset>,
+        track_dirty_pages: bool,
+    ) -> Result<Self, MemoryError> {
+        let (fd, offset) = if let Some(ref f_off) = file_offset {
+            let fd = f_off.file().as_raw_fd();
+            let offset = f_off
+                .start()
+                .try_into()
+                .map_err(|_| MemoryError::OffsetTooLarge)?;
+            (fd, offset)
+        } else {
+            (-1, 0)
+        };
+        let region = RawGuestRegionMmap::allocate(size, prot, flags, fd, offset)?;
+
+        let mut builder = MmapRegionBuilder::new_with_bitmap(
+            size,
+            track_dirty_pages.then(|| AtomicBitmap::with_len(size)),
+        )
+        .with_mmap_prot(prot)
+        .with_mmap_flags(flags);
+
+        if let Some(file_offset) = file_offset {
+            builder = builder.with_file_offset(file_offset);
+        }
+
+        // SAFETY: the memory mapping is valid, and has the same flags passed to builder.
+        unsafe {
+            builder = builder.with_raw_mmap_pointer(region.mmap_address);
+        }
+
+        let mmap_region = builder.build().map_err(MemoryError::MmapRegionError)?;
+        // The memory cannot be double-owned: OwnedRegionMmap should be responsible for deallocation
+        assert!(!mmap_region.owned());
+        // `region` and `mapping` need to point to the same address.
+        assert_eq!(region.mmap_address, mmap_region.as_ptr());
+        // Size might differ, as region.mmap_size is page-aligned. But it for sure cannot be smaller.
+        assert!(region.mmap_size >= mmap_region.size());
+
+        Ok(GuestRegionMmap {
+            _region: region,
+            proxy: vm_memory::GuestRegionMmap::new(mmap_region, guest_base)
+                .ok_or(MemoryError::VmMemoryError)?,
+        })
+    }
 }
 
 /// An extension to GuestMemoryRegion that can be split into multiple KVM slots of
@@ -528,37 +828,38 @@ pub fn create(
     mmap_flags: libc::c_int,
     file: Option<File>,
     track_dirty_pages: bool,
+    madvise_flags: libc::c_int,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
     let mut offset = 0;
     let file = file.map(Arc::new);
     regions
         .map(|(start, size)| {
-            let mut builder = MmapRegionBuilder::new_with_bitmap(
-                size,
-                track_dirty_pages.then(|| AtomicBitmap::with_len(size)),
-            )
-            .with_mmap_prot(libc::PROT_READ | libc::PROT_WRITE)
-            .with_mmap_flags(libc::MAP_NORESERVE | mmap_flags);
-
-            if let Some(ref file) = file {
-                let file_offset = FileOffset::from_arc(Arc::clone(file), offset);
-
-                builder = builder.with_file_offset(file_offset);
-            }
-
-            offset = match offset.checked_add(size as u64) {
-                None => return Err(MemoryError::OffsetTooLarge),
-                Some(new_off) if new_off >= i64::MAX as u64 => {
-                    return Err(MemoryError::OffsetTooLarge);
-                }
-                Some(new_off) => new_off,
-            };
-
-            GuestRegionMmap::new(
-                builder.build().map_err(MemoryError::MmapRegionError)?,
+            let guest_memory = GuestRegionMmap::allocate(
                 start,
-            )
-            .ok_or(MemoryError::VmMemoryError)
+                size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_NORESERVE | mmap_flags,
+                file.as_ref()
+                    .map(|file| FileOffset::from_arc(Arc::clone(file), offset)),
+                track_dirty_pages,
+            )?;
+            offset = offset
+                .checked_add(size as u64)
+                .ok_or(MemoryError::OffsetTooLarge)?;
+            if madvise_flags != libc::MADV_NORMAL {
+                // SAFETY: The referenced memory was just mapped.
+                let ret = unsafe {
+                    libc::madvise(
+                        guest_memory.as_ptr().cast(),
+                        guest_memory.size(),
+                        madvise_flags,
+                    )
+                };
+                if ret != 0 {
+                    return Err(MemoryError::Madvise(io::Error::last_os_error()));
+                }
+            }
+            Ok(guest_memory)
         })
         .collect::<Result<Vec<_>, _>>()
 }
@@ -577,6 +878,7 @@ pub fn memfd_backed(
         libc::MAP_SHARED | huge_pages.mmap_flags(),
         Some(memfd_file),
         track_dirty_pages,
+        huge_pages.madvise_flags(),
     )
 }
 
@@ -591,6 +893,7 @@ pub fn anonymous(
         libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | huge_pages.mmap_flags(),
         None,
         track_dirty_pages,
+        huge_pages.madvise_flags(),
     )
 }
 
@@ -600,6 +903,7 @@ pub fn snapshot_file(
     file: File,
     regions: impl Iterator<Item = (GuestAddress, usize)>,
     track_dirty_pages: bool,
+    huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
     let regions: Vec<_> = regions.collect();
     let memory_size = regions
@@ -619,6 +923,7 @@ pub fn snapshot_file(
         libc::MAP_PRIVATE,
         Some(file),
         track_dirty_pages,
+        huge_pages.madvise_flags(),
     )
 }
 
@@ -951,8 +1256,13 @@ mod tests {
             file.write_all(&vec![0x42u8; page_size]).unwrap();
 
             let regions = vec![(GuestAddress(0), page_size)];
-            let guest_regions =
-                snapshot_file(file, regions.into_iter(), dirty_page_tracking).unwrap();
+            let guest_regions = snapshot_file(
+                file,
+                regions.into_iter(),
+                dirty_page_tracking,
+                HugePageConfig::None,
+            )
+            .unwrap();
             assert_eq!(guest_regions.len(), 1);
             guest_regions.iter().for_each(|region| {
                 assert_eq!(region.bitmap().is_some(), dirty_page_tracking);
@@ -973,7 +1283,8 @@ mod tests {
             (GuestAddress(0x10000), page_size),
             (GuestAddress(0x20000), page_size),
         ];
-        let guest_regions = snapshot_file(file, regions.into_iter(), false).unwrap();
+        let guest_regions =
+            snapshot_file(file, regions.into_iter(), false, HugePageConfig::None).unwrap();
         assert_eq!(guest_regions.len(), 3);
     }
 
@@ -985,7 +1296,7 @@ mod tests {
         file.write_all(&vec![0x42u8; page_size]).unwrap();
 
         let regions = vec![(GuestAddress(0), 2 * page_size)];
-        let result = snapshot_file(file, regions.into_iter(), false);
+        let result = snapshot_file(file, regions.into_iter(), false, HugePageConfig::None);
         assert!(matches!(result.unwrap_err(), MemoryError::OffsetTooLarge));
     }
 
@@ -1175,8 +1486,15 @@ mod tests {
         let mut memory_file = TempFile::new().unwrap().into_file();
         guest_memory.dump(&mut memory_file).unwrap();
 
-        let restored_guest_memory =
-            into_region_ext(snapshot_file(memory_file, memory_state.regions(), false).unwrap());
+        let restored_guest_memory = into_region_ext(
+            snapshot_file(
+                memory_file,
+                memory_state.regions(),
+                false,
+                HugePageConfig::None,
+            )
+            .unwrap(),
+        );
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; page_size * 2];
@@ -1240,8 +1558,9 @@ mod tests {
             .unwrap();
 
         // We can restore from this because this is the first dirty dump.
-        let restored_guest_memory =
-            into_region_ext(snapshot_file(file, memory_state.regions(), false).unwrap());
+        let restored_guest_memory = into_region_ext(
+            snapshot_file(file, memory_state.regions(), false, HugePageConfig::None).unwrap(),
+        );
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; region_size];
@@ -1465,6 +1784,7 @@ mod tests {
                 memory_file,
                 std::iter::once((GuestAddress(0), 2 * page_size)),
                 false,
+                HugePageConfig::None,
             )
             .unwrap(),
         );
@@ -1889,5 +2209,170 @@ mod tests {
         // Zero length: always ok
         ext.check_range_plugged(MemoryRegionAddress(0x2000), 0)
             .unwrap();
+    }
+
+    /// Returns the (start, end) of the VMA containing `addr` in `/proc/self/maps`, if any.
+    fn find_vma_containing(addr: usize) -> Option<(usize, usize)> {
+        use std::io::BufRead;
+        let maps = std::fs::File::open("/proc/self/maps").unwrap();
+        for line in std::io::BufReader::new(maps).lines() {
+            let line = line.unwrap();
+            let range = line.split_whitespace().next().unwrap_or("");
+            let mut parts = range.split('-');
+            let start = usize::from_str_radix(parts.next().unwrap_or("0"), 16).unwrap_or(0);
+            let end = usize::from_str_radix(parts.next().unwrap_or("0"), 16).unwrap_or(0);
+            if addr >= start && addr < end {
+                return Some((start, end));
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn test_guest_region_errors_when_empty_size() {
+        assert!(matches!(
+            RawGuestRegionMmap::allocate_protected(0, 0),
+            Err(MemoryError::ZeroSize)
+        ));
+    }
+
+    #[test]
+    fn test_extract_huge_tlb_mmap_flags() {
+        let cases = [
+            (0, 0),
+            (
+                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_NORESERVE,
+                0,
+            ),
+            (libc::MAP_HUGETLB, libc::MAP_HUGETLB),
+            (
+                libc::MAP_PRIVATE
+                    | libc::MAP_ANONYMOUS
+                    | libc::MAP_NORESERVE
+                    | libc::MAP_HUGETLB
+                    | libc::MAP_HUGE_2MB,
+                libc::MAP_HUGETLB | libc::MAP_HUGE_2MB,
+            ),
+            (
+                libc::MAP_SHARED | libc::MAP_HUGETLB | libc::MAP_HUGE_1GB,
+                libc::MAP_HUGETLB | libc::MAP_HUGE_1GB,
+            ),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(
+                RawGuestRegionMmap::extract_huge_tlb_mmap_flags(input),
+                expected,
+                "input={input:#x}"
+            );
+        }
+    }
+
+    /// Returns the number of free 2 MiB hugepages on the system.
+    fn free_hugepages_2m() -> usize {
+        let meminfo = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
+        meminfo
+            .lines()
+            .find(|line| line.starts_with("HugePages_Free:"))
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn test_guest_region_alignment_and_size_normal() {
+        // Note: this covers both the huge_pages = None and THP cases. That's because both allocate the underlying
+        // memory using the host page size (e.g. 4KiB).
+        test_guest_region_alignment_and_size(host_page_size(), 0);
+    }
+
+    #[test]
+    fn test_guest_region_alignment_and_size_huge() {
+        if free_hugepages_2m() == 0 {
+            println!("Skipping: no free 2 MiB hugepages available");
+            return;
+        }
+        test_guest_region_alignment_and_size(
+            mib_to_bytes(2),
+            libc::MAP_HUGETLB | libc::MAP_HUGE_2MB,
+        );
+    }
+
+    fn test_guest_region_alignment_and_size(page_size: usize, mmap_hugetlb_flags: libc::c_int) {
+        let expected_alignment = GUEST_MEMORY_ALIGNMENT;
+
+        // Base sizes: powers of two from 1 KiB to 16 MiB.
+        let base_sizes: Vec<usize> = (10..=24).map(|shift| 1usize << shift).collect();
+
+        // Offsets to apply to each base size.
+        // The idea is to test memory allocation for sizes that aren't necessarily page multiples.
+        let offsets: &[isize] = &[-1, 0, 1, 1023, 1024, 1025];
+
+        for base in base_sizes {
+            for offset in offsets {
+                let size = base.checked_add_signed(*offset).unwrap();
+
+                let region =
+                    RawGuestRegionMmap::allocate_protected(size, mmap_hugetlb_flags).unwrap();
+                let addr = region.mmap_address as usize;
+
+                // Returned address is 2MB-aligned.
+                assert_eq!(
+                    addr % expected_alignment,
+                    0,
+                    "Address not 2MB-aligned for base={base:#x} offset={offset}"
+                );
+
+                // Returned size is the requested size rounded up to page alignment.
+                assert!(
+                    region.mmap_size >= size && region.mmap_size < size + page_size,
+                    "mmap_size {mmap_size} unexpected for size={size} (base={base:#x} \
+                     offset={offset})",
+                    mmap_size = region.mmap_size
+                );
+                assert_eq!(
+                    region.mmap_size % page_size,
+                    0,
+                    "mmap_size not page-aligned for base={base:#x} offset={offset}"
+                );
+
+                // Verify the VMA spans exactly the page-aligned size (head/tail unmapped).
+                let (vma_start, vma_end) = find_vma_containing(addr).unwrap_or_else(|| {
+                    panic!(
+                        "Aligned region not in /proc/self/maps for base={base:#x} offset={offset}"
+                    )
+                });
+                let vma_size = vma_end - vma_start;
+                // Note: the kernel might merge our VMA with a neighbor, we can only check that our region is
+                // contained within the (larger) merged VMA.
+                assert!(
+                    vma_start <= addr,
+                    "VMA start mismatch for base={base:#x} offset={offset}"
+                );
+                assert!(
+                    vma_size >= region.mmap_size,
+                    "VMA size mismatch for base={base:#x} offset={offset}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_guest_region_drop_reclaims_memory() {
+        let size = mib_to_bytes(4);
+        let region = RawGuestRegionMmap::allocate_protected(size, 0).unwrap();
+        let addr = region.mmap_address as usize;
+
+        // The region should be mapped before drop.
+        assert!(find_vma_containing(addr).is_some());
+
+        // Drop the region.
+        drop(region);
+
+        // After drop, the memory should no longer be mapped.
+        assert!(
+            find_vma_containing(addr).is_none(),
+            "Memory was not reclaimed after drop"
+        );
     }
 }

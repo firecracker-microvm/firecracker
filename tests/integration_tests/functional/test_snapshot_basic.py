@@ -20,6 +20,7 @@ import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_rootfs_mode
+from framework.microvm import HugePagesConfig
 from framework.properties import global_props
 from framework.utils import check_filesystem, check_output
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
@@ -60,7 +61,12 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pytest.mark.parametrize("resume_at_restore", [True, False])
-def test_resume(uvm_configured, microvm_factory, resume_at_restore):
+@pytest.mark.parametrize(
+    "huge_pages",
+    [HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT],
+    indirect=True,
+)
+def test_resume(uvm_configured, microvm_factory, resume_at_restore, huge_pages):
     """Tests snapshot is resumable at or after restoration.
 
     Check that a restored microVM is resumable by either
@@ -68,6 +74,7 @@ def test_resume(uvm_configured, microvm_factory, resume_at_restore):
     b. PUT /snapshot/load with `resume_vm=True`
     """
     vm = uvm_configured
+    assert vm.huge_pages == huge_pages
     vm.add_net_iface()
     vm.start()
     snapshot = vm.snapshot_full()

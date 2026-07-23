@@ -10,10 +10,11 @@ use std::mem;
 
 use kvm_bindings::{kvm_fpu, kvm_regs, kvm_sregs};
 use kvm_ioctls::VcpuFd;
+use vm_memory::GuestMemoryBackend;
 
 use super::super::{BootProtocol, EntryPoint};
 use super::gdt::{gdt_entry, kvm_segment_from_gdt};
-use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
 // Initial pagetables.
 const PML4_START: u64 = 0x9000;
