@@ -209,7 +209,7 @@ impl VirtioDevice for Block {
 
     fn is_activated(&self) -> bool {
         match self {
-            Self::Virtio(b) => b.device_state.is_activated(),
+            Self::Virtio(b) => b.is_activated(),
             Self::VhostUser(b) => b.device_state.is_activated(),
         }
     }
