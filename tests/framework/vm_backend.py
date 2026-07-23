@@ -18,6 +18,7 @@ from framework.enclave import (
     enclave_deselect_reason,
     enclave_host_available,
     enclave_prepare_start,
+    enclave_probe_details,
 )
 from framework.kvm import has_kvm, kvm_basic_config, kvm_probe_details
 
@@ -86,7 +87,7 @@ class VmBackend(str, Enum):
             case VmBackend.KVM:
                 return kvm_probe_details()
             case VmBackend.ENCLAVE_DIRECT | VmBackend.ENCLAVE_CONFIDENTIAL:
-                return {}
+                return enclave_probe_details()
             case _:
                 raise AssertionError(f"Unhandled VM backend: {self!r}")
 

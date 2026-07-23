@@ -130,7 +130,11 @@ def pytest_collection_modifyitems(config, items):
     if not available_backends and any(
         "vm_backend" in getattr(item, "fixturenames", ()) for item in items
     ):
-        pytest.exit("No VM backends are available on this host", returncode=5)
+        pytest.exit(
+            "No VM backends are available on this host\n"
+            + "\n".join(vm_backend_probe_report()),
+            returncode=5,
+        )
 
     selected = []
     deselected = []
