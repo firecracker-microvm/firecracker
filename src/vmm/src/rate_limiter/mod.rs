@@ -456,6 +456,11 @@ impl RateLimiter {
         self.timer_active.load(Ordering::Relaxed)
     }
 
+    /// Clones the shared blocked-state flag for lock free checks
+    pub(crate) fn clone_blocked_flag(&self) -> Arc<AtomicBool> {
+        self.timer_active.clone()
+    }
+
     /// This function needs to be called every time there is an event on the
     /// FD provided by this object's `AsRawFd` trait implementation.
     ///
