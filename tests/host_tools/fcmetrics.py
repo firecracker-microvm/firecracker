@@ -564,11 +564,13 @@ class FCMetricsMonitor(Thread):
         self.running = False
 
         self.metrics_logger = get_metrics_logger()
+        # Read the dimension from the logical GuestKernel so it matches
+        # `Microvm.dimensions` and is independent of the boot image path.
         self.metrics_logger.set_dimensions(
             {
                 "instance": global_props.instance,
                 "host_kernel": "linux-" + global_props.host_linux_version,
-                "guest_kernel": vm.kernel_file.stem[2:],
+                "guest_kernel": vm.guest_kernel.metric_id,
             }
         )
         self.start()

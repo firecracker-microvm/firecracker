@@ -32,7 +32,7 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
-from framework.artifacts import ALL_GUEST_KERNELS, GuestKernel, disks
+from framework.artifacts import ALL_GUEST_KERNELS, disks
 from framework.defs import ARTIFACT_DIR, DEFAULT_BINARY_DIR
 from framework.microvm import MicroVMFactory, SnapshotType
 from framework.properties import global_props
@@ -578,7 +578,7 @@ def huge_pages(request):
 # per-test parametrize on the same argname raises "duplicate parametrization".
 #
 # Dimensions:
-#   guest_kernel  Path to a guest kernel artifact              auto-multiplied
+#   guest_kernel  Logical guest kernel variant                 auto-multiplied
 #                                                              over ALL_GUEST_KERNELS
 #   rootfs_mode   "ro" | "rw"                                  default "ro"
 #   rootfs        Path to a rootfs disk, composed from         (composed)
@@ -592,12 +592,12 @@ def huge_pages(request):
 
 @pytest.fixture(params=ALL_GUEST_KERNELS)
 def guest_kernel(request, record_property):
-    """Path to the guest kernel artifact.
+    """Logical guest kernel variant.
 
     Default: parametrized over every supported kernel, so every test that
     requests this fixture (directly or via `uvm` etc.) runs once per kernel.
 
-    Override with `@pin_guest_kernel(<Path or catalogue>)` (from
+    Override with `@pin_guest_kernel(<catalogue or pytest.param>)` (from
     `framework.artifacts`) to restrict to one kernel or a smaller subset —
     e.g. for tests of Firecracker functionality that don't depend on the
     guest kernel, use `@pin_guest_kernel(GUEST_KERNEL_DEFAULT)`.
@@ -605,10 +605,8 @@ def guest_kernel(request, record_property):
     kernel = request.param
     if kernel is None:
         pytest.fail(f"No kernel artifacts found in {ARTIFACT_DIR}")
-    if not isinstance(kernel, GuestKernel):
-        kernel = GuestKernel.from_vmlinux(kernel)
     record_property("guest_kernel", kernel.metric_id)
-    return kernel.vmlinux
+    return kernel
 
 
 @pytest.fixture
@@ -626,7 +624,7 @@ def rootfs(guest_kernel, rootfs_mode):
 
     Ubuntu for 5.10, AL2023 otherwise (AL2023 does not officially support 5.10).
     """
-    distro = "ubuntu" if guest_kernel.stem[2:] == "linux-5.10" else "amazonlinux"
+    distro = "ubuntu" if guest_kernel.version.startswith("5.10") else "amazonlinux"
     suffix = {"ro": "squashfs", "rw": "ext4"}[rootfs_mode]
     disk_list = disks(f"{distro}*.{suffix}")
     if not disk_list:

@@ -174,7 +174,7 @@ GUEST_KERNEL_DEFAULT_DEBUG = (
 )
 
 
-def pin_guest_kernel(kernels_or_path):
+def pin_guest_kernel(kernels_or_param):
     """Convenience marker for pinning the `guest_kernel` dim.
 
     The default `guest_kernel` fixture parametrizes over ALL_GUEST_KERNELS;
@@ -187,15 +187,15 @@ def pin_guest_kernel(kernels_or_path):
         @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
         def test_foo(uvm): ...
 
-    Accepts a kernel catalogue (e.g. ACPI_GUEST_KERNELS), a single
-    `pytest.param`, or a single Path.
+    Accepts a kernel catalogue (e.g. ACPI_GUEST_KERNELS) or a single
+    `pytest.param`.
     """
-    # Wrap a single Path or pytest.param into a list. A bare ParameterSet
-    # passed to `parametrize` would be treated as a sequence of args and
-    # produce broken parameterizations.
-    if not isinstance(kernels_or_path, list):
-        kernels_or_path = [kernels_or_path]
-    return pytest.mark.parametrize("guest_kernel", kernels_or_path, indirect=True)
+    # Wrap a single pytest.param into a list. A bare ParameterSet passed to
+    # `parametrize` would be treated as a sequence of args and produce broken
+    # parameterizations.
+    if not isinstance(kernels_or_param, list):
+        kernels_or_param = [kernels_or_param]
+    return pytest.mark.parametrize("guest_kernel", kernels_or_param, indirect=True)
 
 
 def pin_rootfs_mode(mode):
