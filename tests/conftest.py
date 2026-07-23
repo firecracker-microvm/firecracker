@@ -38,6 +38,11 @@ from framework.microvm import MicroVMFactory, SnapshotType
 from framework.properties import global_props
 from framework.utils_cpu_templates import get_cpu_template_name
 from framework.utils_hugepages import HugePagesConfig
+from framework.vm_backend import (
+    available_vm_backend_params,
+    available_vm_backends,
+    get_vm_backend,
+)
 from host_tools.metrics import get_metrics_logger
 from host_tools.network import NetNs
 
@@ -107,6 +112,15 @@ def pytest_report_header():
             f"EC2 Instance ID: {global_props.instance_id}",
         ]
     )
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(items):
+    """Fail only when the selected tests require an unavailable VM backend."""
+    if not available_vm_backends() and any(
+        "vm_backend" in getattr(item, "fixturenames", ()) for item in items
+    ):
+        pytest.exit("No VM backends are available on this host", returncode=5)
 
 
 @pytest.hookimpl(wrapper=True, tryfirst=True)
@@ -390,7 +404,9 @@ def netns_factory(worker_id):
 
 @pytest.fixture()
 # pylint: disable=unused-argument
-def microvm_factory(request, record_property, results_dir, netns_factory, reap_orphans):
+def microvm_factory(
+    request, record_property, results_dir, netns_factory, reap_orphans, vm_backend
+):
     """Fixture to create microvms simply.
 
     `reap_orphans` is requested only for teardown ordering (reaping runs
@@ -421,6 +437,7 @@ def microvm_factory(request, record_property, results_dir, netns_factory, reap_o
         binary_dir,
         netns_factory=netns_factory,
         custom_cpu_template=custom_cpu_template,
+        backend=vm_backend,
     )
     yield uvm_factory
 
@@ -555,6 +572,20 @@ def huge_pages(request):
     return getattr(request, "param", HugePagesConfig.NONE)
 
 
+@pytest.fixture(params=available_vm_backend_params())
+def vm_backend(request, record_property):
+    """Backend used by the `uvm*` fixtures.
+
+    Tests are auto-multiplied over the backends this host can actually run
+    (`available_vm_backends`).
+    """
+    if request.param not in available_vm_backends():
+        pytest.fail(f"Backend {request.param!r} not available on this host")
+    backend = get_vm_backend(request.param)
+    record_property("vm_backend", str(backend))
+    return backend
+
+
 # =============================================================================
 # Composable uvm fixture system
 # =============================================================================
@@ -571,7 +602,7 @@ def huge_pages(request):
 # defaults baked into their bodies. Override a dim with
 # `@pytest.mark.parametrize(<dim>, [...], indirect=True)` or use the helpers
 # from `framework.artifacts` (`pin_guest_kernel`, `pin_rootfs_mode`,
-# `pin_pci`, `pin_cpu_template`).
+# `pin_pci`) and `framework.utils_cpu_templates` (`pin_cpu_template`).
 #
 # Module-level `pytestmark` works for tests that don't override that same
 # dim per-test — pytest's parametrize markers do NOT merge: a pytestmark +
@@ -584,6 +615,7 @@ def huge_pages(request):
 #   rootfs        Path to a rootfs disk, composed from         (composed)
 #                 guest_kernel + rootfs_mode (Ubuntu for 5.10, AL2023 otherwise)
 #   pci_enabled   True / False                                 auto-multiplied
+#   vm_backend    "kvm"                                        auto-multiplied
 #   cpu_template  None | static name | custom dict             default None
 #   huge_pages    HugePagesConfig                              default NONE
 #   vcpu_count    int                                          default 2
@@ -633,10 +665,14 @@ def rootfs(guest_kernel, rootfs_mode):
 
 
 @pytest.fixture
-def uvm(microvm_factory, guest_kernel, rootfs, pci_enabled):
+def uvm(microvm_factory, vm_backend, guest_kernel, rootfs, pci_enabled):
     """Built microVM (chroot only). Caller drives spawn/basic_config/start."""
-    vm = microvm_factory.build(guest_kernel, rootfs, pci=pci_enabled)
-    return vm
+    return microvm_factory.build(
+        guest_kernel,
+        rootfs,
+        pci=pci_enabled,
+        backend=vm_backend,
+    )
 
 
 @pytest.fixture
@@ -647,9 +683,8 @@ def uvm_configured(uvm, vcpu_count, mem_size_mib, huge_pages, cpu_template):
         vcpu_count=vcpu_count,
         mem_size_mib=mem_size_mib,
         huge_pages=huge_pages,
+        cpu_template=cpu_template,
     )
-    if cpu_template is not None:
-        uvm.set_cpu_template(cpu_template)
     return uvm
 
 
@@ -687,6 +722,7 @@ def uvm_lifecycle(request):
 def uvm_any(
     uvm_lifecycle,
     request,
+    vm_backend,
     guest_kernel,
     rootfs,
     pci_enabled,

@@ -19,6 +19,7 @@ sys.path.append(os.path.join(os.getcwd(), "tests"))
 from framework.artifacts import GuestKernel, kernels
 from framework.defs import DEFAULT_BINARY_DIR
 from framework.microvm import MicroVMFactory
+from framework.vm_backend import VM_BACKEND_KVM
 
 # pylint: enable=wrong-import-position
 
@@ -26,7 +27,7 @@ kernels = list(kernels("vmlinux-*"))
 # Use the latest guest kernel
 kernel = GuestKernel.from_vmlinux(kernels[-1])
 
-vmfcty = MicroVMFactory(DEFAULT_BINARY_DIR)
+vmfcty = MicroVMFactory(DEFAULT_BINARY_DIR, backend=VM_BACKEND_KVM)
 # (may take a while to compile Firecracker...)
 
 for rootfs in Path(".").glob("*.squashfs"):
