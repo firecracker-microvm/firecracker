@@ -267,5 +267,5 @@ class MicrovmHelpers:
                 echo 'waiting for {chroot_gdb_socket}';
                 sleep 1;
             done;
-            gdb {self.vm.kernel_file} -x {gdb_script}
+            gdb {self.vm.guest_kernel.vmlinux} -x {gdb_script}
             """)

@@ -56,7 +56,7 @@ def test_gdb_connects(guest_kernel, rootfs):
             echo 'waiting for {chroot_gdb_socket}';
             sleep 1;
         done;
-        gdb {guest_kernel} -batch -x {gdb_script}
+        gdb {guest_kernel.vmlinux} -batch -x {gdb_script}
         """,
         shell=True,
         stdout=subprocess.PIPE,
