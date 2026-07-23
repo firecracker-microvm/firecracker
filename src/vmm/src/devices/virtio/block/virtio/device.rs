@@ -14,18 +14,17 @@ use std::os::linux::fs::MetadataExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use block_io::FileEngine;
 use serde::{Deserialize, Serialize};
 use vm_memory::ByteValued;
 use vmm_sys_util::eventfd::EventFd;
 
-use super::io::async_io;
-use super::request::*;
-use super::{BLOCK_QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
+use super::io::FileEngine;
+use super::worker::{BlockWorker, FlushMode};
+use super::{BLOCK_QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
+use crate::devices::virtio::device::{ActiveState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES,
 };
@@ -36,7 +35,6 @@ use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::impl_device_type;
 use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
-use crate::utils::u64_to_usize;
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vmm_config::RateLimiterConfig;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -248,11 +246,20 @@ pub struct VirtioBlock {
     pub config_space: ConfigSpace,
     pub activate_evt: EventFd,
 
-    pub device_state: DeviceState,
-
     pub(crate) config: VirtioBlockConfig,
-    pub(crate) resources: BlockResources,
+    pub(crate) state: BlockState,
     pub metrics: Arc<BlockDeviceMetrics>,
+}
+
+/// State of the block data-path resources.
+#[derive(Debug)]
+pub(crate) enum BlockState {
+    // Transport layer sets configuration inplace before activation
+    Configuring(BlockResources),
+    // Active state, worker owns data-path resources
+    Active(BlockWorker),
+    // Placeholder to hold state when activating
+    Placeholder,
 }
 
 /// Runtime resources used by the block data path.
@@ -263,18 +270,6 @@ pub(crate) struct BlockResources {
     pub(crate) disk: DiskProperties,
     pub(crate) rate_limiter: RateLimiter,
     pub(crate) is_io_engine_throttled: bool,
-}
-
-macro_rules! unwrap_async_file_engine_or_return {
-    ($file_engine: expr) => {
-        match $file_engine {
-            FileEngine::Async(engine) => engine,
-            FileEngine::Sync(_) => {
-                error!("The block device doesn't use an async IO engine");
-                return;
-            }
-        }
-    };
 }
 
 impl VirtioBlock {
@@ -316,15 +311,14 @@ impl VirtioBlock {
             config_space,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
 
-            device_state: DeviceState::Inactive,
             config,
-            resources: BlockResources {
+            state: BlockState::Configuring(BlockResources {
                 queues: BLOCK_QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect(),
                 queue_evts: [EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?],
                 disk: disk_properties,
                 rate_limiter,
                 is_io_engine_throttled: false,
-            },
+            }),
             metrics,
         })
     }
@@ -335,19 +329,35 @@ impl VirtioBlock {
     }
 
     pub(crate) fn resources(&self) -> &BlockResources {
-        &self.resources
+        match &self.state {
+            BlockState::Configuring(resources) => resources,
+            BlockState::Active(worker) => &worker.resources,
+            BlockState::Placeholder => unreachable!("not a runtime state"),
+        }
     }
 
     pub(crate) fn resources_mut(&mut self) -> &mut BlockResources {
-        &mut self.resources
+        match &mut self.state {
+            BlockState::Configuring(resources) => resources,
+            BlockState::Active(worker) => &mut worker.resources,
+            BlockState::Placeholder => unreachable!("not a runtime state"),
+        }
     }
 
     pub(crate) fn disk(&self) -> &DiskProperties {
-        &self.resources.disk
+        &self.resources().disk
     }
 
     pub(crate) fn rate_limiter(&self) -> &RateLimiter {
-        &self.resources.rate_limiter
+        &self.resources().rate_limiter
+    }
+
+    fn worker_mut(&mut self) -> &mut BlockWorker {
+        match &mut self.state {
+            BlockState::Active(worker) => worker,
+            BlockState::Configuring(_) => panic!("Device is not activated"),
+            BlockState::Placeholder => unreachable!("not a runtime state"),
+        }
     }
 
     /// Process a single event in the Virtio queue.
@@ -355,188 +365,36 @@ impl VirtioBlock {
     /// This function is called by the event manager when the guest notifies us
     /// about new buffers in the queue.
     pub(crate) fn process_queue_event(&mut self) {
-        self.metrics.queue_event_count.inc();
-        if let Err(err) = self.resources.queue_evts[0].read() {
-            error!("Failed to get queue event: {:?}", err);
-            self.metrics.event_fails.inc();
-        } else if self.resources.rate_limiter.is_blocked() {
-            self.metrics.rate_limiter_throttled_events.inc();
-        } else if self.resources.is_io_engine_throttled {
-            self.metrics.io_engine_throttled_events.inc();
-        } else {
-            self.process_virtio_queues().unwrap()
-        }
+        self.worker_mut().process_queue_event();
     }
 
     /// Process device virtio queue(s).
     pub fn process_virtio_queues(&mut self) -> Result<(), InvalidAvailIdx> {
-        self.process_queue(0)
+        self.worker_mut().process_virtio_queues()
     }
 
     pub(crate) fn process_rate_limiter_event(&mut self) {
-        self.metrics.rate_limiter_event_count.inc();
-        // Upon rate limiter event, call the rate limiter handler
-        // and restart processing the queue.
-        if self.resources.rate_limiter.event_handler().is_ok() {
-            self.process_queue(0).unwrap()
-        }
-    }
-
-    /// Device specific function for peaking inside a queue and processing descriptors.
-    pub fn process_queue(&mut self, queue_index: usize) -> Result<(), InvalidAvailIdx> {
-        // This is safe since we checked in the event handler that the device is activated.
-        let active_state = self.device_state.active_state().unwrap();
-
-        let queue = &mut self.resources.queues[queue_index];
-        let mut used_any = false;
-
-        while let Some(head) = queue.pop_or_enable_notification()? {
-            self.metrics.remaining_reqs_count.add(queue.len().into());
-            let processing_result =
-                match Request::parse(&head, &active_state.mem, self.resources.disk.nsectors) {
-                    Ok(request) => {
-                        if request.rate_limit(&mut self.resources.rate_limiter) {
-                            // Stop processing the queue and return this descriptor chain to the
-                            // avail ring, for later processing.
-                            queue.undo_pop();
-                            self.metrics.rate_limiter_throttled_events.inc();
-                            break;
-                        }
-
-                        request.process(
-                            &mut self.resources.disk,
-                            head.index,
-                            &active_state.mem,
-                            &self.metrics,
-                        )
-                    }
-                    Err(err) => {
-                        error!("Failed to parse available descriptor chain: {:?}", err);
-                        self.metrics.execute_fails.inc();
-                        ProcessingResult::Executed(FinishedRequest {
-                            num_bytes_to_mem: 0,
-                            desc_idx: head.index,
-                        })
-                    }
-                };
-
-            match processing_result {
-                ProcessingResult::Submitted => {}
-                ProcessingResult::Throttled => {
-                    queue.undo_pop();
-                    self.resources.is_io_engine_throttled = true;
-                    break;
-                }
-                ProcessingResult::Executed(finished) => {
-                    used_any = true;
-                    queue
-                        .add_used(head.index, finished.num_bytes_to_mem)
-                        .unwrap_or_else(|err| {
-                            error!(
-                                "Failed to add available descriptor head {}: {}",
-                                head.index, err
-                            )
-                        });
-                }
-            }
-        }
-        queue.advance_used_ring_idx();
-
-        if used_any && queue.prepare_kick() {
-            active_state
-                .interrupt
-                .trigger(VirtioInterruptType::Queue(0))
-                .unwrap_or_else(|_| {
-                    self.metrics.event_fails.inc();
-                });
-        }
-
-        if let FileEngine::Async(ref mut engine) = self.resources.disk.file_engine
-            && let Err(err) = engine.kick_submission_queue()
-        {
-            error!("BlockError submitting pending block requests: {:?}", err);
-        }
-
-        if !used_any {
-            self.metrics.no_avail_buffer.inc();
-        }
-
-        Ok(())
-    }
-
-    fn process_async_completion_queue(&mut self) {
-        let engine = unwrap_async_file_engine_or_return!(&mut self.resources.disk.file_engine);
-
-        // This is safe since we checked in the event handler that the device is activated.
-        let active_state = self.device_state.active_state().unwrap();
-        let queue = &mut self.resources.queues[0];
-
-        loop {
-            match engine.pop(&active_state.mem) {
-                Err(error) => {
-                    error!("Failed to read completed io_uring entry: {:?}", error);
-                    break;
-                }
-                Ok(None) => break,
-                Ok(Some(cqe)) => {
-                    let res = cqe.result();
-                    let user_data = cqe.user_data();
-
-                    let (pending, res) = match res {
-                        Ok(count) => (user_data, Ok(count)),
-                        Err(error) => (
-                            user_data,
-                            Err(IoErr::FileEngine(block_io::BlockIoError::Async(
-                                async_io::AsyncIoError::IO(error),
-                            ))),
-                        ),
-                    };
-                    let finished = pending.finish(&active_state.mem, res, &self.metrics);
-                    queue
-                        .add_used(finished.desc_idx, finished.num_bytes_to_mem)
-                        .unwrap_or_else(|err| {
-                            error!(
-                                "Failed to add available descriptor head {}: {}",
-                                finished.desc_idx, err
-                            )
-                        });
-                }
-            }
-        }
-        queue.advance_used_ring_idx();
-
-        if queue.prepare_kick() {
-            active_state
-                .interrupt
-                .trigger(VirtioInterruptType::Queue(0))
-                .unwrap_or_else(|_| {
-                    self.metrics.event_fails.inc();
-                });
-        }
+        self.worker_mut().process_rate_limiter_event();
     }
 
     pub fn process_async_completion_event(&mut self) {
-        let engine = unwrap_async_file_engine_or_return!(&mut self.resources.disk.file_engine);
-
-        if let Err(err) = engine.completion_evt().read() {
-            error!("Failed to get async completion event: {:?}", err);
-        } else {
-            self.process_async_completion_queue();
-
-            if self.resources.is_io_engine_throttled {
-                self.resources.is_io_engine_throttled = false;
-                self.process_queue(0).unwrap()
-            }
-        }
+        self.worker_mut().process_async_completion_event();
     }
 
     /// Update the backing file and the config space of the block device.
     pub fn update_disk_image(&mut self, disk_image_path: String) -> Result<(), VirtioBlockError> {
-        self.resources
-            .disk
-            .update(disk_image_path.clone(), self.config.is_read_only)?;
-        self.config_space.capacity = self.resources.disk.nsectors.to_le();
-        self.config.path_on_host = disk_image_path;
+        let config_path = disk_image_path.clone();
+        let read_only = self.config.is_read_only;
+        let nsectors = match &mut self.state {
+            BlockState::Configuring(resources) => {
+                resources.disk.update(disk_image_path, read_only)?;
+                resources.disk.nsectors
+            }
+            BlockState::Active(worker) => worker.update_disk_image(disk_image_path, read_only)?,
+            BlockState::Placeholder => unreachable!("not a runtime state"),
+        };
+        self.config_space.capacity = nsectors.to_le();
+        self.config.path_on_host = config_path;
 
         // Kick the driver to pick up the changes. (But only if the device is already activated).
         if self.is_activated() {
@@ -551,33 +409,28 @@ impl VirtioBlock {
 
     /// Updates the parameters for the rate limiter
     pub fn update_rate_limiter(&mut self, bytes: BucketUpdate, ops: BucketUpdate) {
-        self.resources.rate_limiter.update_buckets(bytes, ops);
+        match &mut self.state {
+            BlockState::Configuring(resources) => {
+                resources.rate_limiter.update_buckets(bytes, ops);
+            }
+            BlockState::Active(worker) => worker.update_rate_limiter(bytes, ops),
+            BlockState::Placeholder => unreachable!("not a runtime state"),
+        }
         self.config.rate_limiter = RateLimiterConfig::from(self.rate_limiter()).into_option();
     }
 
     /// Retrieve the file engine type.
     pub fn file_engine_type(&self) -> FileEngineType {
-        match self.resources.disk.file_engine {
+        match self.disk().file_engine {
             FileEngine::Sync(_) => FileEngineType::Sync,
             FileEngine::Async(_) => FileEngineType::Async,
         }
     }
 
-    fn drain_and_flush(&mut self, discard: bool) {
-        if let Err(err) = self.resources.disk.file_engine.drain_and_flush(discard) {
-            error!("Failed to drain ops and flush block data: {:?}", err);
-        }
-    }
-
     /// Prepare device for being snapshotted.
     pub fn prepare_save(&mut self) {
-        if !self.is_activated() {
-            return;
-        }
-
-        self.drain_and_flush(false);
-        if let FileEngine::Async(ref _engine) = self.resources.disk.file_engine {
-            self.process_async_completion_queue();
+        if let BlockState::Active(worker) = &mut self.state {
+            worker.prepare_save();
         }
     }
 }
@@ -602,30 +455,33 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn num_queues(&self) -> usize {
-        self.resources.queues.len()
+        self.resources().queues.len()
     }
 
     fn queue_config(&self, index: usize) -> Option<&QueueConfig> {
-        self.resources.queues.get(index).map(|queue| &queue.config)
+        self.resources()
+            .queues
+            .get(index)
+            .map(|queue| &queue.config)
     }
 
     fn queue_config_mut(&mut self, index: usize) -> Option<&mut QueueConfig> {
-        self.resources
+        self.resources_mut()
             .queues
             .get_mut(index)
             .map(|queue| &mut queue.config)
     }
 
     fn queue_event(&self, index: usize) -> Option<&EventFd> {
-        self.resources.queue_evts.get(index)
+        self.resources().queue_evts.get(index)
     }
 
     fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
-        self.device_state
-            .active_state()
-            .expect("Device is not initialized")
-            .interrupt
-            .deref()
+        match &self.state {
+            BlockState::Active(worker) => worker.active_state.interrupt.deref(),
+            BlockState::Configuring(_) => panic!("Device is not initialized"),
+            BlockState::Placeholder => unreachable!("not a runtime state"),
+        }
     }
 
     fn config_as_bytes(&self) -> &[u8] {
@@ -648,14 +504,19 @@ impl VirtioDevice for VirtioBlock {
     ) -> Result<(), ActivateError> {
         assert!(!self.is_activated());
 
-        for q in self.resources.queues.iter_mut() {
+        let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
+
+        let BlockState::Configuring(resources) = &mut self.state else {
+            unreachable!("device caught in a transition state");
+        };
+
+        for q in &mut resources.queues {
             q.initialize(&mem)
                 .map_err(ActivateError::QueueMemoryError)?;
         }
 
-        let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
         if event_idx {
-            for queue in &mut self.resources.queues {
+            for queue in &mut resources.queues {
                 queue.enable_notif_suppression();
             }
         }
@@ -664,33 +525,56 @@ impl VirtioDevice for VirtioBlock {
             self.metrics.activate_fails.inc();
             return Err(ActivateError::EventFd);
         }
-        self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
+
+        let BlockState::Configuring(resources) =
+            std::mem::replace(&mut self.state, BlockState::Placeholder)
+        else {
+            unreachable!("state checked before activation");
+        };
+        self.state = BlockState::Active(BlockWorker {
+            resources,
+            active_state: ActiveState { mem, interrupt },
+            metrics: self.metrics.clone(),
+        });
         Ok(())
     }
 
     fn is_activated(&self) -> bool {
-        self.device_state.is_activated()
+        matches!(&self.state, BlockState::Active(_))
     }
 
     fn deactivate(&mut self) {
-        self.device_state = DeviceState::Inactive;
+        let state = std::mem::replace(&mut self.state, BlockState::Placeholder);
+        self.state = match state {
+            BlockState::Active(worker) => BlockState::Configuring(worker.resources),
+            state => state,
+        };
     }
 
     fn _reset(&mut self) -> bool {
-        if let Err(err) = self.resources.disk.file_engine.drain(true) {
-            error!("Failed to reset block IO engine: {:?}", err);
-            return false;
+        match &mut self.state {
+            BlockState::Active(worker) => worker.reset(),
+            BlockState::Configuring(resources) => {
+                if let Err(err) = resources.disk.file_engine.drain(true) {
+                    error!("Failed to reset block IO engine: {:?}", err);
+                    return false;
+                }
+                resources.is_io_engine_throttled = false;
+                true
+            }
+            BlockState::Placeholder => unreachable!("not a runtime state"),
         }
-        self.resources.is_io_engine_throttled = false;
-        true
     }
 
     fn reset_queues(&mut self) {
-        self.resources.queues.iter_mut().for_each(Queue::reset);
+        self.resources_mut()
+            .queues
+            .iter_mut()
+            .for_each(Queue::reset);
     }
 
     fn mark_queue_memory_dirty(&mut self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
-        for queue in &mut self.resources.queues {
+        for queue in &mut self.resources_mut().queues {
             queue.initialize(mem)?;
         }
         Ok(())
@@ -699,15 +583,29 @@ impl VirtioDevice for VirtioBlock {
 
 impl Drop for VirtioBlock {
     fn drop(&mut self) {
-        match self.config.cache_type {
-            CacheType::Unsafe => {
-                if let Err(err) = self.resources.disk.file_engine.drain(true) {
-                    error!("Failed to drain ops on drop: {:?}", err);
+        let flush_mode = match self.config.cache_type {
+            CacheType::Unsafe => FlushMode::Drain,
+            CacheType::Writeback => FlushMode::DrainAndFlush,
+        };
+
+        match std::mem::replace(&mut self.state, BlockState::Placeholder) {
+            BlockState::Active(mut worker) => match flush_mode {
+                FlushMode::Drain => worker.drain(true),
+                FlushMode::DrainAndFlush => worker.drain_and_flush(true),
+            },
+            BlockState::Configuring(mut resources) => match flush_mode {
+                FlushMode::Drain => {
+                    if let Err(err) = resources.disk.file_engine.drain(true) {
+                        error!("Failed to drain ops on drop: {:?}", err);
+                    }
                 }
-            }
-            CacheType::Writeback => {
-                self.drain_and_flush(true);
-            }
+                FlushMode::DrainAndFlush => {
+                    if let Err(err) = resources.disk.file_engine.drain_and_flush(true) {
+                        error!("Failed to drain ops and flush block data: {:?}", err);
+                    }
+                }
+            },
+            BlockState::Placeholder => {}
         };
     }
 }
@@ -725,6 +623,7 @@ mod tests {
     use super::*;
     use crate::check_metric_after_block;
     use crate::devices::virtio::block::virtio::IO_URING_NUM_ENTRIES;
+    use crate::devices::virtio::block::virtio::request::*;
     use crate::devices::virtio::block::virtio::test_utils::{
         default_block, read_blk_req_descriptors, set_queue, set_rate_limiter,
         simulate_async_completion_event, simulate_queue_and_async_completion_events,
