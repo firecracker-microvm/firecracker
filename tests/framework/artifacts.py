@@ -16,7 +16,7 @@ def select_supported_kernels():
     """Select guest kernels supported by the current combination of kernel and
     instance type.
     """
-    supported_kernels = [r"vmlinux-5.10.\d+", r"vmlinux-6.1.\d+"]
+    supported_kernels = [r"vmlinux-5.10.\d+", r"vmlinux-6.1.\d+", r"vmlinux-6.18.\d+"]
 
     # Booting with MPTable is deprecated but we still want to test
     # for it. Until we drop support for it we will be building a 5.10 guest
@@ -60,6 +60,10 @@ GUEST_KERNELS_5_10 = list(kernel_params("vmlinux-5.10*"))
 GUEST_KERNELS_6_1 = list(kernel_params("vmlinux-6.1*"))
 GUEST_KERNELS_6_1_DEBUG = list(
     kernel_params("vmlinux-6.1*", artifact_dir=ARTIFACT_DIR / "debug")
+)
+GUEST_KERNELS_6_18 = list(kernel_params("vmlinux-6.18*"))
+GUEST_KERNELS_6_18_DEBUG = list(
+    kernel_params("vmlinux-6.18*", artifact_dir=ARTIFACT_DIR / "debug")
 )
 # The single canonical kernel used when a test pins to one specific kernel
 # (e.g. tests of Firecracker functionality that don't depend on guest kernel).

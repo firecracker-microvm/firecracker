@@ -509,7 +509,7 @@ fn create_pci_nodes(fdt: &mut FdtWriter, segment: &PciSegment) -> Result<(), Fdt
         (MEM_64BIT_DEVICES_START & 0xffff_ffff) as u32,
         // Range size
         (MEM_64BIT_DEVICES_SIZE >> 32) as u32, // Range size
-        ((MEM_64BIT_DEVICES_SIZE & 0xffff_ffff) >> 32) as u32,
+        (MEM_64BIT_DEVICES_SIZE & 0xffff_ffff) as u32,
     ];
 
     // See kernel document Documentation/devicetree/bindings/pci/pci-msi.txt

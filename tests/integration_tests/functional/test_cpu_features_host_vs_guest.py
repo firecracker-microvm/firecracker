@@ -142,7 +142,7 @@ AMD_MILAN_HOST_ONLY_FEATS_6_1 = AMD_MILAN_HOST_ONLY_FEATS - {
 # https://github.com/torvalds/linux/commit/78ce84b9e0a54a0c91a7449f321c1f852c0cd3fc
 AMD_MILAN_HOST_ONLY_FEATS_6_18 = AMD_MILAN_HOST_ONLY_FEATS_6_1 - {
     "ibpb_exit_to_user",
-} | {"xtopology", "debug_swap"}
+}
 
 AMD_GENOA_HOST_ONLY_FEATS = AMD_MILAN_HOST_ONLY_FEATS | {
     "avic",
@@ -174,7 +174,7 @@ AMD_GENOA_HOST_ONLY_FEATS_6_18 = AMD_GENOA_HOST_ONLY_FEATS_6_1 - {
     # https://github.com/torvalds/linux/commit/45cf86f26148 (KVM advertises FLUSH_L1D, v6.2)
     # https://github.com/torvalds/linux/commit/da3db168fb67 (KVM virtualises MSR_IA32_FLUSH_CMD on SVM, v6.4)
     "flush_l1d",
-} | {"debug_swap", "cpuid_fault", "xtopology", "la57", "vnmi"}
+} | {"cpuid_fault", "la57", "vnmi"}
 
 INTEL_SPR_GNR_HOST_ONLY_FEATS_6_18_REMOVED = {
     # Since v6.11, flags declared in cpufeatures.h without a quoted /proc/cpuinfo name
@@ -273,26 +273,58 @@ def test_host_vs_guest_cpu_features(uvm):
         case CpuModel.AMD_MILAN:
             host_version = global_props.host_linux_version_tpl
             if host_version < (6, 1):
-                assert host_feats - guest_feats == AMD_MILAN_HOST_ONLY_FEATS
+                expected_host_minus_guest = AMD_MILAN_HOST_ONLY_FEATS.copy()
             elif host_version < (6, 18):
-                assert host_feats - guest_feats == AMD_MILAN_HOST_ONLY_FEATS_6_1
+                expected_host_minus_guest = AMD_MILAN_HOST_ONLY_FEATS_6_1.copy()
             else:
-                assert host_feats - guest_feats == AMD_MILAN_HOST_ONLY_FEATS_6_18
+                expected_host_minus_guest = AMD_MILAN_HOST_ONLY_FEATS_6_18.copy()
 
-            expected_guest_minus_host = AMD_GUEST_ONLY_FEATS
-            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit, but our guest
-            # kernels (< 6.6) still synthesize it, so a v6.18 host (>= 6.6) sees it as guest-only.
+            expected_guest_minus_host = AMD_GUEST_ONLY_FEATS.copy()
+
+            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit.
             # https://github.com/torvalds/linux/commit/54e3d9434ef61b97fd3263c141b928dc5635e50d
-            if host_version >= (6, 6) and vm.guest_kernel_version < (6, 6):
-                expected_guest_minus_host = AMD_GUEST_ONLY_FEATS | {"invpcid_single"}
+            host_has_invpcid_single = host_version < (6, 6)
+            guest_has_invpcid_single = vm.guest_kernel_version < (6, 6)
+            if host_has_invpcid_single and not guest_has_invpcid_single:
+                expected_host_minus_guest |= {"invpcid_single"}
+            if not host_has_invpcid_single and guest_has_invpcid_single:
+                expected_guest_minus_host |= {"invpcid_single"}
+
+            # Since v6.9, xtopology is reported in /proc/cpuinfo on AMD/HYGON CPUs.
+            # https://github.com/torvalds/linux/commit/3d41009425225ca5e09016c634ecee513b4713bb
+            # https://github.com/torvalds/linux/commit/f7fb3b2dd92c633871b7037773b89531c488a371
+            host_has_xtopology = host_version >= (6, 9)
+            guest_has_xtopology = vm.guest_kernel_version >= (6, 9)
+
+            if host_has_xtopology and not guest_has_xtopology:
+                expected_host_minus_guest |= {"xtopology"}
+            if not host_has_xtopology and guest_has_xtopology:
+                expected_guest_minus_host |= {"xtopology"}
+
+            # Since v6.6, debug_swap is reported in /proc/cpuinfo.
+            # https://github.com/torvalds/linux/commit/d1f85fbe836e
+            # Starting v5.13, KVM masks it out via cpuid_entry_override.
+            # https://github.com/torvalds/linux/commit/d9db0fd6c5c9fa7c9a462a2c54d5e91455a74fca
+            # Therefore, on older kernels KVM passes the raw CPUID bit through to guests unfiltered.
+            host_has_debug_swap = host_version >= (6, 6)
+            guest_has_debug_swap = host_version < (
+                5,
+                13,
+            ) and vm.guest_kernel_version >= (6, 6)
+            if host_has_debug_swap and not guest_has_debug_swap:
+                expected_host_minus_guest |= {"debug_swap"}
+            if not host_has_debug_swap and guest_has_debug_swap:
+                expected_guest_minus_host |= {"debug_swap"}
+
+            assert host_feats - guest_feats == expected_host_minus_guest
             assert guest_feats - host_feats == expected_guest_minus_host
 
         case CpuModel.AMD_GENOA:
             host_version = global_props.host_linux_version_tpl
             if host_version < (6, 1):
-                assert host_feats - guest_feats == AMD_GENOA_HOST_ONLY_FEATS
+                expected_host_minus_guest = AMD_GENOA_HOST_ONLY_FEATS.copy()
             elif host_version < (6, 18):
-                assert host_feats - guest_feats == AMD_GENOA_HOST_ONLY_FEATS_6_1
+                expected_host_minus_guest = AMD_GENOA_HOST_ONLY_FEATS_6_1.copy()
             else:
                 # KVM advertises AMD PerfMonV2 to guests since v6.5, so a v6.18 host
                 # (KVM >= 6.5) passes it through. The guest only reports "perfmon_v2" if its
@@ -302,19 +334,50 @@ def test_host_vs_guest_cpu_features(uvm):
                 expected_host_minus_guest = AMD_GENOA_HOST_ONLY_FEATS_6_18.copy()
                 if vm.guest_kernel_version >= (5, 19):
                     expected_host_minus_guest -= {"perfmon_v2"}
-                assert host_feats - guest_feats == expected_host_minus_guest
 
-            expected_guest_minus_host = AMD_GUEST_ONLY_FEATS
-            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit, but our guest
-            # kernels (< 6.6) still synthesize it, so a v6.18 host (>= 6.6) sees it as guest-only.
+            expected_guest_minus_host = AMD_GUEST_ONLY_FEATS.copy()
+
+            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit.
             # https://github.com/torvalds/linux/commit/54e3d9434ef61b97fd3263c141b928dc5635e50d
-            if host_version >= (6, 6) and vm.guest_kernel_version < (6, 6):
-                expected_guest_minus_host = AMD_GUEST_ONLY_FEATS | {"invpcid_single"}
+            host_has_invpcid_single = host_version < (6, 6)
+            guest_has_invpcid_single = vm.guest_kernel_version < (6, 6)
+            if host_has_invpcid_single and not guest_has_invpcid_single:
+                expected_host_minus_guest |= {"invpcid_single"}
+            if not host_has_invpcid_single and guest_has_invpcid_single:
+                expected_guest_minus_host |= {"invpcid_single"}
+
+            # Since v6.9, xtopology is reported in /proc/cpuinfo on AMD/HYGON CPUs.
+            # https://github.com/torvalds/linux/commit/3d41009425225ca5e09016c634ecee513b4713bb
+            # https://github.com/torvalds/linux/commit/f7fb3b2dd92c633871b7037773b89531c488a371
+            host_has_xtopology = host_version >= (6, 9)
+            guest_has_xtopology = vm.guest_kernel_version >= (6, 9)
+
+            if host_has_xtopology and not guest_has_xtopology:
+                expected_host_minus_guest |= {"xtopology"}
+            if not host_has_xtopology and guest_has_xtopology:
+                expected_guest_minus_host |= {"xtopology"}
+
+            # Since v6.6, debug_swap is reported in /proc/cpuinfo.
+            # https://github.com/torvalds/linux/commit/d1f85fbe836e
+            # Starting v5.13, KVM masks it out via cpuid_entry_override.
+            # https://github.com/torvalds/linux/commit/d9db0fd6c5c9fa7c9a462a2c54d5e91455a74fca
+            # Therefore, on older kernels KVM passes the raw CPUID bit through to guests unfiltered.
+            host_has_debug_swap = host_version >= (6, 6)
+            guest_has_debug_swap = host_version < (
+                5,
+                13,
+            ) and vm.guest_kernel_version >= (6, 6)
+            if host_has_debug_swap and not guest_has_debug_swap:
+                expected_host_minus_guest |= {"debug_swap"}
+            if not host_has_debug_swap and guest_has_debug_swap:
+                expected_guest_minus_host |= {"debug_swap"}
+
+            assert host_feats - guest_feats == expected_host_minus_guest
             assert guest_feats - host_feats == expected_guest_minus_host
 
         case CpuModel.INTEL_CASCADELAKE:
-            expected_host_minus_guest = INTEL_HOST_ONLY_FEATS
-            expected_guest_minus_host = INTEL_GUEST_ONLY_FEATS
+            expected_host_minus_guest = INTEL_HOST_ONLY_FEATS.copy()
+            expected_guest_minus_host = INTEL_GUEST_ONLY_FEATS.copy()
 
             # Ubuntu hasn't backported the patch for VMScape yet.
             # This is only requried for Intel Cascade Lake since we only run
@@ -337,7 +400,7 @@ def test_host_vs_guest_cpu_features(uvm):
             # https://github.com/torvalds/linux/commit/54e3d9434ef61b97fd3263c141b928dc5635e50d
             #
             # Our test ubuntu host kernel is v6.14 and has the commit.
-            host_has_invpcid_single = global_props.host_linux_version_tpl < (6, 6)
+            host_has_invpcid_single = host_version < (6, 6)
             guest_has_invpcid_single = vm.guest_kernel_version < (6, 6)
             if host_has_invpcid_single and not guest_has_invpcid_single:
                 expected_host_minus_guest |= {"invpcid_single"}
@@ -350,18 +413,24 @@ def test_host_vs_guest_cpu_features(uvm):
         case CpuModel.INTEL_ICELAKE:
             host_version = global_props.host_linux_version_tpl
             if host_version < (6, 1):
-                assert host_feats - guest_feats == INTEL_ICELAKE_HOST_ONLY_FEATS_5_10
+                expected_host_minus_guest = INTEL_ICELAKE_HOST_ONLY_FEATS_5_10.copy()
             elif host_version < (6, 18):
-                assert host_feats - guest_feats == INTEL_ICELAKE_HOST_ONLY_FEATS_6_1
+                expected_host_minus_guest = INTEL_ICELAKE_HOST_ONLY_FEATS_6_1.copy()
             else:
-                assert host_feats - guest_feats == INTEL_ICELAKE_HOST_ONLY_FEATS_6_18
+                expected_host_minus_guest = INTEL_ICELAKE_HOST_ONLY_FEATS_6_18.copy()
 
             expected_guest_minus_host = INTEL_GUEST_ONLY_FEATS - {"umip"}
-            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit, but our guest
-            # kernels (< 6.6) still synthesize it, so a v6.18 host (>= 6.6) sees it as guest-only.
+
+            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit.
             # https://github.com/torvalds/linux/commit/54e3d9434ef61b97fd3263c141b928dc5635e50d
-            if host_version >= (6, 6) and vm.guest_kernel_version < (6, 6):
+            host_has_invpcid_single = host_version < (6, 6)
+            guest_has_invpcid_single = vm.guest_kernel_version < (6, 6)
+            if host_has_invpcid_single and not guest_has_invpcid_single:
+                expected_host_minus_guest |= {"invpcid_single"}
+            if not host_has_invpcid_single and guest_has_invpcid_single:
                 expected_guest_minus_host |= {"invpcid_single"}
+
+            assert host_feats - guest_feats == expected_host_minus_guest
             assert guest_feats - host_feats == expected_guest_minus_host
         case CpuModel.INTEL_SAPPHIRE_RAPIDS | CpuModel.INTEL_GRANITE_RAPIDS:
             expected_host_minus_guest = INTEL_HOST_ONLY_FEATS.copy()
@@ -484,10 +553,13 @@ def test_host_vs_guest_cpu_features(uvm):
                 "tsc_known_freq",
             }
 
-            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit, but our guest
-            # kernels (< 6.6) still synthesize it, so a v6.18 host (>= 6.6) sees it as guest-only.
+            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit.
             # https://github.com/torvalds/linux/commit/54e3d9434ef61b97fd3263c141b928dc5635e50d
-            if host_version >= (6, 6) and guest_version < (6, 6):
+            host_has_invpcid_single = host_version < (6, 6)
+            guest_has_invpcid_single = guest_version < (6, 6)
+            if host_has_invpcid_single and not guest_has_invpcid_single:
+                expected_host_minus_guest |= {"invpcid_single"}
+            if not host_has_invpcid_single and guest_has_invpcid_single:
                 expected_guest_minus_host |= {"invpcid_single"}
 
             if host_version >= (6, 18):
@@ -516,23 +588,23 @@ def test_host_vs_guest_cpu_features(uvm):
             expected_guest_minus_host = set()
             expected_host_minus_guest = set()
 
-            # Upstream kernel v6.11+ hides "ssbs" from "lscpu" on Neoverse-N1 and Neoverse-V1 since
-            # they have an errata whereby an MSR to the SSBS special-purpose register does not
-            # affect subsequent speculative instructions, permitting speculative store bypassing for
-            # a window of time.
+            # Upstream kernel v6.11+ hides "ssbs" from "lscpu" on CPUs affected by errata
             # https://github.com/torvalds/linux/commit/adeec61a4723fd3e39da68db4cc4d924e6d7f641
+            # that may prevent SSBS register writes from immediately affecting subsequent
+            # speculative instructions, potentially allowing speculative store bypass.
             #
-            # While Amazon Linux kernels (v5.10 and v6.1) backported the above commit, our test
-            # ubuntu kernel (v6.8) and our guest kernels (v5.10 and v6.1) don't pick it.
+            # Amazon Linux kernels v5.10 and v6.1 backported the above commit
+            # https://github.com/amazonlinux/linux/commit/706f18a (v5.10)
+            # https://github.com/amazonlinux/linux/commit/fce3458 (v6.1)
+            #
+            # TODO: Our CI microvm kernel configs do not apply the errata yet, thus
+            # the guests still expose "ssbs". We should remove CONFIG_ARM64_ERRATUM_3194386
+            # from ci.config and trigger a CI kernel rebuild.
             host_has_ssbs = global_props.host_os not in {
                 "amzn2",
                 "amzn2023",
             } and global_props.host_linux_version_tpl < (6, 11)
-            guest_has_ssbs = vm.guest_kernel_version < (6, 11)
-
-            if host_has_ssbs and not guest_has_ssbs:
-                expected_host_minus_guest |= {"ssbs"}
-            if not host_has_ssbs and guest_has_ssbs:
+            if not host_has_ssbs:
                 expected_guest_minus_host |= {"ssbs"}
 
             assert host_feats - guest_feats == expected_host_minus_guest
@@ -553,23 +625,58 @@ def test_host_vs_guest_cpu_features(uvm):
                     "svepmull",
                 }
 
-            # Upstream kernel v6.11+ hides "ssbs" from "lscpu" on Neoverse-N1 and Neoverse-V1 since
-            # they have an errata whereby an MSR to the SSBS special-purpose register does not
-            # affect subsequent speculative instructions, permitting speculative store bypassing for
-            # a window of time.
+            # Upstream kernel v6.11+ hides "ssbs" from "lscpu" on CPUs affected by errata
             # https://github.com/torvalds/linux/commit/adeec61a4723fd3e39da68db4cc4d924e6d7f641
+            # that may prevent SSBS register writes from immediately affecting subsequent
+            # speculative instructions, potentially allowing speculative store bypass.
             #
-            # While Amazon Linux kernels (v5.10 and v6.1) backported the above commit, our test
-            # ubuntu kernel (v6.8) and our guest kernels (v5.10 and v6.1) don't pick it.
+            # Amazon Linux kernels v5.10 and v6.1 backported the above commit
+            # https://github.com/amazonlinux/linux/commit/706f18a (v5.10)
+            # https://github.com/amazonlinux/linux/commit/fce3458 (v6.1)
+            #
+            # TODO: Our CI microvm kernel configs do not apply the errata yet, thus
+            # the guests still expose "ssbs". We should remove CONFIG_ARM64_ERRATUM_3194386
+            # from ci.config and trigger a CI kernel rebuild.
             host_has_ssbs = global_props.host_os not in {
                 "amzn2",
                 "amzn2023",
             } and global_props.host_linux_version_tpl < (6, 11)
-            guest_has_ssbs = vm.guest_kernel_version < (6, 11)
+            if not host_has_ssbs:
+                expected_guest_minus_host |= {"ssbs"}
 
-            if host_has_ssbs and not guest_has_ssbs:
-                expected_host_minus_guest |= {"ssbs"}
-            if not host_has_ssbs and guest_has_ssbs:
+            assert host_feats - guest_feats == expected_host_minus_guest
+            assert guest_feats - host_feats == expected_guest_minus_host
+
+        case CpuModel.ARM_NEOVERSE_V3:
+            expected_guest_minus_host = set()
+            expected_host_minus_guest = {
+                "paca",
+                "pacg",
+                "sve",
+                "sve2",
+                "sveaes",
+                "svebf16",
+                "svebitperm",
+                "svei8mm",
+                "svepmull",
+                "svesha3",
+            }
+
+            # The "wfxt" (FEAT_WFxT) hwcap is exposed to userspace from kernel
+            # v6.1 (absent in v5.10, including Amazon Linux 5.10).
+            host_has_wfxt = global_props.host_linux_version_tpl >= (6, 1)
+            guest_has_wfxt = vm.guest_kernel_version >= (6, 1)
+
+            if host_has_wfxt and not guest_has_wfxt:
+                expected_host_minus_guest |= {"wfxt"}
+            if not host_has_wfxt and guest_has_wfxt:
+                expected_guest_minus_host |= {"wfxt"}
+
+            host_has_ssbs = global_props.host_os not in {
+                "amzn2",
+                "amzn2023",
+            } and global_props.host_linux_version_tpl < (6, 11)
+            if not host_has_ssbs:
                 expected_guest_minus_host |= {"ssbs"}
 
             assert host_feats - guest_feats == expected_host_minus_guest
