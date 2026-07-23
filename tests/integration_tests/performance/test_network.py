@@ -53,7 +53,6 @@ def network_microvm(request, uvm):
     vm.basic_config(vcpu_count=guest_vcpus, mem_size_mib=guest_mem_mib)
     vm.add_net_iface()
     vm.start()
-    vm.pin_threads(0)
 
     return vm
 
@@ -64,6 +63,7 @@ def test_network_latency(network_microvm, metrics):
     """
     Test network latency by sending pings from the guest to the host.
     """
+    network_microvm.pin_threads(0)
 
     target_datapoints = 500
     delay = 0.0
@@ -104,6 +104,7 @@ def test_network_tcp_throughput(
     """
     Iperf between guest and host in both directions for TCP workload.
     """
+    first_free_cpu = network_microvm.pin_threads(0)
 
     base_port = 5000
     # Time (in seconds) for which iperf "warms up"
@@ -130,7 +131,7 @@ def test_network_tcp_throughput(
         connect_to=network_microvm.iface["eth0"]["iface"].host_ip,
         payload_length=payload_length,
     )
-    data = test.run_test(network_microvm.vcpus_count + 2)
+    data = test.run_test(first_free_cpu)
 
     for i, g2h in enumerate(data["g2h"]):
         Path(results_dir / f"g2h_{i}.json").write_text(
