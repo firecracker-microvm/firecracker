@@ -1,6 +1,11 @@
 # Copyright 2026 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""KVM-specific configuration helpers for the microVM test framework."""
+"""KVM support for the microVM backend dimension.
+
+``Microvm.basic_config`` delegates to this module via ``VmBackend.KVM``
+(:mod:`framework.vm_backend`). Starting and spawning the Firecracker process
+are backend-agnostic and live on ``Microvm`` itself.
+"""
 
 from pathlib import Path
 

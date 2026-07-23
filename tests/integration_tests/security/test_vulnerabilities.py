@@ -291,12 +291,12 @@ def check_vulnerabilities_files_on_guest(microvm):
 
 
 @pytest.fixture
-def microvm_factory_a(record_property):
+def microvm_factory_a(record_property, vm_backend):
     """MicroVMFactory using revision A binaries"""
     revision_a = global_props.buildkite_revision_a
     bin_dir = git_clone(Path("../build") / revision_a, revision_a).resolve()
     record_property("firecracker_bin", str(bin_dir / "firecracker"))
-    uvm_factory = MicroVMFactory(bin_dir)
+    uvm_factory = MicroVMFactory(bin_dir, backend=vm_backend)
     yield uvm_factory
     uvm_factory.kill()
 
