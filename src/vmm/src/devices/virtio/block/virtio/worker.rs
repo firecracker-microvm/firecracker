@@ -56,8 +56,6 @@ enum ControlMsg {
 }
 
 /// VMM-side handle for controlling and joining a block worker thread.
-// Handle gets connected to VirtioBlock in follow-up commits
-#[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct WorkerHandle {
     to_worker: Sender<ControlMsg>,
@@ -284,8 +282,6 @@ impl BlockWorker {
     }
 }
 
-// Handle gets connected to VirtioBlock in follow-up commits
-#[allow(dead_code)]
 impl WorkerHandle {
     /// Spawn a parked block worker thread.
     pub(crate) fn spawn(queue_evt: EventFd, name: String) -> Result<Self, std::io::Error> {
