@@ -12,7 +12,7 @@ from functools import lru_cache
 import pytest
 
 from framework.artifacts import GuestKernel
-from framework.kvm import has_kvm, kvm_basic_config
+from framework.kvm import has_kvm, kvm_basic_config, kvm_probe_details
 
 
 class VmBackend(str, Enum):
@@ -29,6 +29,14 @@ class VmBackend(str, Enum):
         match self:
             case VmBackend.KVM:
                 return has_kvm()
+            case _:
+                raise AssertionError(f"Unhandled VM backend: {self!r}")
+
+    def probe_details(self):
+        """Host probe details for diagnostics."""
+        match self:
+            case VmBackend.KVM:
+                return kvm_probe_details()
             case _:
                 raise AssertionError(f"Unhandled VM backend: {self!r}")
 
@@ -76,6 +84,35 @@ def available_vm_backend_params():
     are auto-multiplied only over backends that actually exist on the host.
     """
     return [pytest.param(backend) for backend in available_vm_backends()]
+
+
+def _format_probe_value(value):
+    """Format backend probe values for pytest header output."""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    return str(value)
+
+
+def _format_probe_details(details):
+    """Format a backend probe-details dict as a single line."""
+    return ", ".join(
+        f"{key}={_format_probe_value(value)}" for key, value in sorted(details.items())
+    )
+
+
+def vm_backend_probe_report():
+    """Return human-readable backend probe lines for pytest logs."""
+    available = available_vm_backends()
+    lines = [
+        "VM Backends Available: " + (", ".join(available) if available else "none")
+    ]
+    for backend in VmBackend:
+        details = {
+            "available": backend in available,
+            **backend.probe_details(),
+        }
+        lines.append(f"VM Backend {backend}: {_format_probe_details(details)}")
+    return lines
 
 
 def get_vm_backend(backend):
