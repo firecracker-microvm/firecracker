@@ -6,7 +6,6 @@ import dataclasses
 import fcntl
 import functools
 import os
-from enum import Enum
 from pathlib import Path
 
 import pytest
@@ -113,18 +112,11 @@ def enclave_host_available():
 
 
 # The functions below implement the basic_config / start verbs for the enclave
-# backend, mirroring the KVM helpers in framework/kvm.py. Spawning the
-# Firecracker process is backend-agnostic and stays on `Microvm`.
-
-
-class EnclaveMode(str, Enum):
-    """Memory-isolation mode of a Nitro Enclave microVM."""
-
-    DIRECT = "direct"
-    CONFIDENTIAL = "confidential"
-
-    def __str__(self):
-        return self.value
+# backend, mirroring the KVM helpers in framework/kvm.py; `Microvm` delegates
+# to them via `VmBackend` (framework.vm_backend). Spawning the Firecracker
+# process is backend-agnostic and stays on `Microvm`; `spawn` honors the
+# spawn-time policies (`validates_api`, `enforces_api_timing`) declared on
+# `VmBackend`.
 
 
 class EnclaveConfigError(AssertionError):
@@ -149,8 +141,6 @@ def enclave_basic_config(
     cpu_template=None,
     enable_entropy_device=False,
     cpu_ids: list[int] | None = None,
-    *,
-    enclave_mode: EnclaveMode = EnclaveMode.CONFIDENTIAL,
 ):
     """Configure an enclave microVM up to the pre-start state.
 
@@ -203,7 +193,6 @@ def enclave_basic_config(
 
     vm.mem_size_bytes = mem_size_mib * 2**20
 
-    vm.enclave_mode = enclave_mode
     # None means the NE kernel auto-selects CPUs; tests that explicitly cover
     # fixed allocation pass a full-core CPU ID list here.
     vm.enclave_cpu_ids = cpu_ids
@@ -247,6 +236,7 @@ def enclave_basic_config(
 def enclave_prepare_start(
     vm,
     *,
+    direct_mode,
     debug_mode=True,
     cpu_overcommit=True,
     cpu_accounting=False,
@@ -260,7 +250,7 @@ def enclave_prepare_start(
     """
     vm.api.enclave.put(
         debug_mode=debug_mode,
-        direct_mode=vm.enclave_mode is EnclaveMode.DIRECT,
+        direct_mode=direct_mode,
         cpu_ids=vm.enclave_cpu_ids,
         cpu_overcommit=cpu_overcommit,
         cpu_accounting=cpu_accounting,

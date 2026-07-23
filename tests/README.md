@@ -397,22 +397,28 @@ of Firecracker processes. There are two layers:
   - `rootfs` — the rootfs disk path, composed from `guest_kernel` +
     `rootfs_mode` (Ubuntu 24.04 for 5.10, Amazon Linux 2023 otherwise).
   - `pci_enabled` — auto-parametrized over `True`/`False`.
-  - `vm_backend` — auto-parametrized over `"kvm"`.
+  - `vm_backend` — auto-parametrized over `"kvm"`, `"enclave-direct"`, and
+    `"enclave-confidential"` unless the test restricts the backend explicitly.
   - `cpu_template` — `None` by default.
   - `huge_pages` — `HugePagesConfig.NONE` by default. See note below.
   - `vcpu_count`, `mem_size_mib` — `2` and `256` by default.
 
 To restrict a dimension to a specific value or subset, use the helpers from
-`framework.artifacts` and `framework.utils_cpu_templates`:
+`framework.artifacts`, `framework.vm_backend`, and
+`framework.utils_cpu_templates`:
 
 ```python
 from framework.artifacts import pin_guest_kernel, GUEST_KERNEL_DEFAULT, ACPI_GUEST_KERNELS
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)  # single kernel, e.g. for non-guest-dependent tests
 def test_foo(uvm): ...
 
 @pin_guest_kernel(ACPI_GUEST_KERNELS)    # subset
 def test_bar(uvm): ...
+
+@pin_vm_backend(VM_BACKEND_KVM)         # restrict a KVM-only test/file
+def test_baz(uvm_booted): ...
 ```
 
 The same pattern works at module level via `pytestmark = pin_guest_kernel(...)`,
