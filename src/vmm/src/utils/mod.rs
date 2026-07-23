@@ -7,8 +7,6 @@ pub mod byte_order;
 pub mod net;
 /// Module with external libc functions
 pub mod signal;
-/// Module with state machine
-pub mod sm;
 
 use std::fs::{File, OpenOptions};
 use std::num::Wrapping;
