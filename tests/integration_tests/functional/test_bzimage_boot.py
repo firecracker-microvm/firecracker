@@ -14,10 +14,10 @@ pytestmark = pytest.mark.skipif(
 
 def test_bzimage_boots_to_userspace(uvm):
     """Boot the bzImage built from the same source as the guest's vmlinux."""
-    # Every x86_64 vmlinux artifact has a bzImage sibling.
-    uvm.kernel_file = uvm.kernel_file.with_name(
-        uvm.kernel_file.name.replace("vmlinux-", "bzImage-", 1)
-    )
+    assert (
+        uvm.guest_kernel.bzimage is not None
+    ), f"Missing bzImage sibling for {uvm.guest_kernel.vmlinux}"
+    uvm.boot_image = uvm.guest_kernel.bzimage
 
     uvm.spawn(log_level="Debug")
     uvm.basic_config()
