@@ -59,7 +59,7 @@ use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::pvh::PvhBootConfigurator;
 use linux_loader::configurator::{BootConfigurator, BootParams};
 use linux_loader::loader::bootparam::boot_params;
-use linux_loader::loader::elf::Elf as Loader;
+use linux_loader::loader::elf::Elf as ElfLoader;
 use linux_loader::loader::elf::start_info::{
     hvm_memmap_table_entry, hvm_modlist_entry, hvm_start_info,
 };
@@ -440,7 +440,7 @@ pub fn load_kernel(
         .try_clone()
         .map_err(|_| ConfigurationError::KernelFile)?;
 
-    let entry_addr = Loader::load(
+    let entry_addr = ElfLoader::load(
         guest_memory,
         None,
         &mut kernel_file,
