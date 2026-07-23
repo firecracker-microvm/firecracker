@@ -639,25 +639,23 @@ class Microvm:
 
     def pin_threads(self, first_cpu):
         """
-        Pins all microvm threads (VMM, API and vCPUs) to consecutive physical cpu core, starting with "first_cpu"
+        Pins parent Firecracker threads (VMM, API and KVM vCPUs) to consecutive physical cpu core, starting with "first_cpu"
 
         Return next "free" cpu core.
         """
-        for vcpu, pcpu in enumerate(range(first_cpu, first_cpu + self.vcpus_count)):
-            assert self.pin_vcpu(
-                vcpu, pcpu
-            ), f"Failed to pin fc_vcpu {vcpu} thread to core {pcpu}."
-        # The cores first_cpu,...,first_cpu + self.vcpus_count - 1 are assigned to the individual vCPU threads,
-        # So the remaining two threads (VMM and API) get first_cpu + self.vcpus_count
-        # and first_cpu + self.vcpus_count + 1
-        assert self.pin_vmm(
-            first_cpu + self.vcpus_count
-        ), "Failed to pin firecracker thread."
-        assert self.pin_api(
-            first_cpu + self.vcpus_count + 1
-        ), "Failed to pin fc_api thread."
+        next_cpu = first_cpu
+        if self.backend.has_parent_vcpu_threads:
+            for vcpu, pcpu in enumerate(range(first_cpu, first_cpu + self.vcpus_count)):
+                assert self.pin_vcpu(
+                    vcpu, pcpu
+                ), f"Failed to pin fc_vcpu {vcpu} thread to core {pcpu}."
+            next_cpu = first_cpu + self.vcpus_count
 
-        return first_cpu + self.vcpus_count + 2
+        # The cores first_cpu,...,next_cpu - 1 are assigned to individual vCPU threads when the backend exposes them.
+        # So the remaining two threads (VMM and API) get next_cpu and next_cpu + 1.
+        assert self.pin_vmm(next_cpu), "Failed to pin firecracker thread."
+        assert self.pin_api(next_cpu + 1), "Failed to pin fc_api thread."
+        return next_cpu + 2
 
     def add_pre_cmd(self, pre_cmd):
         """Prepends commands to the command line to launch the microVM

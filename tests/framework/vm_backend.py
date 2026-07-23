@@ -59,6 +59,17 @@ class VmBackend(str, Enum):
         """
         return not self.is_enclave
 
+    @property
+    def has_parent_vcpu_threads(self):
+        """Whether guest vCPUs are threads of the parent Firecracker process.
+
+        Enclave vCPUs are donated from the parent VM to the enclave, so they
+        are not parent threads and there is nothing for pin_threads() to pin.
+        Phrased as a capability rather than an is_enclave check at the call
+        site, so `Microvm` never branches on which backend it is running.
+        """
+        return not self.is_enclave
+
     def available(self):
         """Whether this host can run the backend."""
         match self:
