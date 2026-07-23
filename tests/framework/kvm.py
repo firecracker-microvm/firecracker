@@ -7,6 +7,8 @@
 are backend-agnostic and live on ``Microvm`` itself.
 """
 
+import os
+import stat
 from pathlib import Path
 
 from framework.utils_hugepages import HugePagesConfig
@@ -17,6 +19,21 @@ KVM_PATH = Path("/dev/kvm")
 def has_kvm():
     """Whether this host can run KVM microVMs (i.e. /dev/kvm exists)."""
     return KVM_PATH.exists()
+
+
+def kvm_probe_details():
+    """Return host KVM probe details for pytest diagnostics."""
+    details = {
+        "device": str(KVM_PATH),
+        "exists": KVM_PATH.exists(),
+        "readable": os.access(KVM_PATH, os.R_OK),
+        "writable": os.access(KVM_PATH, os.W_OK),
+    }
+    try:
+        details["mode"] = oct(stat.S_IMODE(KVM_PATH.stat().st_mode))
+    except OSError as exc:
+        details["stat_error"] = f"{type(exc).__name__}: {exc}"
+    return details
 
 
 def kvm_basic_config(

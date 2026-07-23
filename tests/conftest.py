@@ -42,6 +42,7 @@ from framework.vm_backend import (
     available_vm_backend_params,
     available_vm_backends,
     get_vm_backend,
+    vm_backend_probe_report,
 )
 from framework.vm_lifecycle import VmLifecycle
 from host_tools.metrics import get_metrics_logger
@@ -111,6 +112,7 @@ def pytest_report_header():
         [
             f"EC2 AMI: {global_props.ami}",
             f"EC2 Instance ID: {global_props.instance_id}",
+            *vm_backend_probe_report(),
         ]
     )
 
