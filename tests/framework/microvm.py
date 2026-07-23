@@ -279,6 +279,9 @@ class Microvm:
 
         # The spawn/basic_config/start verbs delegate to the configured backend.
         self.backend = backend
+        # Enclave CPU allocation, populated by basic_config() and consumed in
+        # start(). Unused on KVM.
+        self.enclave_cpu_ids = None
 
         # device dictionaries
         self.iface = {}
@@ -550,7 +553,8 @@ class Microvm:
         """Concrete boot image this VM boots.
 
         Uses `boot_image` when explicitly selected; otherwise the backend
-        derives the image from the logical `guest_kernel`.
+        derives the image from the logical `guest_kernel`: KVM boots the
+        vmlinux, the enclave backend the EFI image.
         """
         if self.boot_image is not None:
             return Path(self.boot_image)
@@ -709,12 +713,26 @@ class Microvm:
         Set `expect_failure` when Firecracker is meant to exit during startup:
         no readiness check is then performed, and it is up to the caller to
         assert on the failure.
+
+        Spawning is backend-agnostic apart from two policies the backend
+        declares (a KVM VM and a Nitro Enclave start the same parent process;
+        an enclave diverges later, in ``start``):
+
+        * ``backend.validates_api`` — whether to validate API calls against the
+          swagger spec (the ``/enclave`` route is not in the spec yet).
+        * ``backend.enforces_api_timing`` — whether API call durations are
+          asserted against ``MAX_API_CALL_DURATION_MS``.
         """
         # pylint: disable=subprocess-run-check
         # pylint: disable=too-many-branches
         # Firecracker matches `--level` case-insensitively, so normalise the
         # value to the one spelling the comparisons below are written against.
         log_level = log_level.capitalize()
+        if not self.backend.validates_api:
+            validate_api = False
+        if not self.backend.enforces_api_timing:
+            self.time_api_requests = False
+
         self.jailer.setup()
         self.api = Api(
             self.jailer.api_socket_path(),
@@ -1091,6 +1109,7 @@ class Microvm:
         uffd_handler_name: str = None,
     ):
         """Restore a snapshot"""
+        self.backend.require_restore_support()
 
         jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
 
@@ -1378,7 +1397,11 @@ class MicroVMFactory:
     def build_from_snapshot(
         self, snapshot: Snapshot, uffd_handler_name=None, clock_realtime=False
     ):
-        """Build a microvm from a snapshot"""
+        """Build a microvm from a snapshot
+
+        Backends that cannot restore raise here before anything is spawned.
+        """
+        self.backend.require_restore_support()
         vm = self.build()
         vm.spawn()
         vm.restore_from_snapshot(
@@ -1408,8 +1431,10 @@ class MicroVMFactory:
     def build_restored(self, kernel, rootfs, *, pci=False, **basic_config_kwargs):
         """build_booted, then snapshot + kill + restore.
 
+        Raises before booting on backends that cannot restore.
         Extra keyword arguments are forwarded to `Microvm.basic_config`.
         """
+        self.backend.require_restore_support()
         booted = self.build_booted(kernel, rootfs, pci=pci, **basic_config_kwargs)
         snapshot = booted.snapshot_full()
         booted.kill()
@@ -1430,6 +1455,8 @@ class MicroVMFactory:
         """A generator of `n` microvms restored, either all restored from the same given snapshot
         (incremental=False), or created by taking successive snapshots of restored VMs
         """
+        self.backend.require_restore_support()
+
         last_snapshot = None
         for _ in range(nr_vms):
             microvm = self.build(

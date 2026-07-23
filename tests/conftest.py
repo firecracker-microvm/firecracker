@@ -591,8 +591,10 @@ def huge_pages(request):
 def vm_backend(request, record_property):
     """Backend used by the `uvm*` fixtures.
 
-    Tests are auto-multiplied over the backends this host can actually run
-    (`available_vm_backends`).
+    By default a test is auto-multiplied only over the backends this host can
+    actually run (`available_vm_backends`), so e.g. a KVM-only host generates no
+    enclave variants. A test pinned with `pin_vm_backend` to a backend the host
+    lacks fails at fixture setup.
     """
     if request.param not in available_vm_backends():
         pytest.fail(f"Backend {request.param!r} not available on this host")
@@ -617,7 +619,8 @@ def vm_backend(request, record_property):
 # defaults baked into their bodies. Override a dim with
 # `@pytest.mark.parametrize(<dim>, [...], indirect=True)` or use the helpers
 # from `framework.artifacts` (`pin_guest_kernel`, `pin_rootfs_mode`,
-# `pin_pci`) and `framework.utils_cpu_templates` (`pin_cpu_template`).
+# `pin_pci`), `framework.vm_backend` (`pin_vm_backend`), and
+# `framework.utils_cpu_templates` (`pin_cpu_template`).
 #
 # Module-level `pytestmark` works for tests that don't override that same
 # dim per-test — pytest's parametrize markers do NOT merge: a pytestmark +
@@ -640,14 +643,20 @@ def vm_backend(request, record_property):
 # (stage overrides), `test_sysgenid.py` (stage decoration) and
 # `test_fips.py` (custom boot args via a `uvm_configured` override).
 #
+# Backend ownership is local to the test file or test case: by default tests run
+# on every VM backend, and KVM-only coverage should opt out with
+# `pin_vm_backend(VM_BACKEND_KVM)`.
+#
 # Dimensions:
 #   guest_kernel  Logical guest kernel variant                 auto-multiplied
 #                                                              over ALL_GUEST_KERNELS
 #   rootfs_mode   "ro" | "rw"                                  default "ro"
 #   rootfs        Path to a rootfs disk, composed from         (composed)
 #                 guest_kernel + rootfs_mode (Ubuntu for 5.10, AL2023 otherwise)
-#   pci_enabled   True / False                                 auto-multiplied
-#   vm_backend    "kvm"                                        auto-multiplied
+#   pci_enabled   True / False                                 auto-multiplied;
+#                                                              enclaves PCI_ON only
+#   vm_backend    "kvm" | "enclave-direct" |                   auto-multiplied
+#                 "enclave-confidential"
 #   pcie_hotplug_ports  int                                    default 0
 #   cpu_template  None | static name | custom dict             default None
 #   huge_pages    HugePagesConfig                              default NONE
@@ -699,7 +708,11 @@ def rootfs(guest_kernel, rootfs_mode):
 
 @pytest.fixture
 def uvm(microvm_factory, vm_backend, guest_kernel, rootfs, pci_enabled):
-    """Built microVM (chroot only). Caller drives spawn/basic_config/start."""
+    """Built microVM (chroot only). Caller drives spawn/basic_config/start.
+
+    The VM is bound to `vm_backend`, so its spawn/basic_config/start verbs drive
+    either the KVM or the Nitro Enclave lifecycle transparently.
+    """
     return microvm_factory.build(
         guest_kernel,
         rootfs,
@@ -733,8 +746,14 @@ def uvm_booted(uvm_configured):
 
 
 @pytest.fixture
-def uvm_restored(uvm_booted, microvm_factory):
-    """Booted microVM, snapshotted, restored from the snapshot."""
+def uvm_restored(vm_backend, uvm_booted, microvm_factory):
+    """Booted microVM, snapshotted, restored from the snapshot.
+
+    Enclave `uvm_any` restored variants are deselected at collection. Keep the
+    backend guard for direct `uvm_restored` consumers, which should fail loudly
+    rather than be silently skipped.
+    """
+    vm_backend.require_restore_support()
     snapshot = uvm_booted.snapshot_full()
     uvm_booted.kill()
     restored = microvm_factory.build_from_snapshot(snapshot)

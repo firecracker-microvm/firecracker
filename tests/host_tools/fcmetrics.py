@@ -579,7 +579,8 @@ class FCMetricsMonitor(Thread):
 
         self.metrics_logger = get_metrics_logger()
         # Read the dimension from the logical GuestKernel so it matches
-        # `Microvm.dimensions` and is independent of the boot image path.
+        # `Microvm.dimensions` and is independent of the backend boot image
+        # (on enclave `kernel_file` is the EFI image, not a kernel version).
         self.metrics_logger.set_dimensions(
             {
                 "instance": global_props.instance,
