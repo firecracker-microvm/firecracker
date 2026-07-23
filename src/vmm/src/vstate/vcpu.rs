@@ -26,7 +26,6 @@ use crate::gdb::target::{GdbTargetError, get_raw_tid};
 use crate::logger::{IncMetric, METRICS, error, info, warn};
 use crate::seccomp::{BpfProgram, BpfProgramRef};
 use crate::utils::signal::{Killable, register_signal_handler, sigrtmin};
-use crate::utils::sm::StateMachine;
 use crate::vstate::bus::Bus;
 use crate::vstate::vm::KvmVm;
 
@@ -106,6 +105,17 @@ pub struct Vcpu {
     response_receiver: Option<Receiver<VcpuResponse>>,
     /// The transmitting end of the responses channel owned by the vcpu side.
     response_sender: Sender<VcpuResponse>,
+}
+
+/// States of the vCPU thread's run loop.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum VcpuRunState {
+    /// The vCPU is executing guest code via `KVM_RUN`.
+    Running,
+    /// The vCPU is paused, waiting for events.
+    Paused,
+    /// The vCPU thread's run loop has finished; the thread will exit.
+    Finished,
 }
 
 impl Vcpu {
@@ -216,11 +226,18 @@ impl Vcpu {
         }
 
         // Start running the machine state in the `Paused` state.
-        StateMachine::run(self, Self::paused);
+        let mut state = VcpuRunState::Paused;
+        loop {
+            state = match state {
+                VcpuRunState::Running => self.running(),
+                VcpuRunState::Paused => self.paused(),
+                VcpuRunState::Finished => break,
+            };
+        }
     }
 
     // This is the main loop of the `Running` state.
-    fn running(&mut self) -> StateMachine<Self> {
+    fn running(&mut self) -> VcpuRunState {
         // This loop is here just for optimizing the emulation path.
         // No point in ticking the state machine if there are no external events.
         loop {
@@ -238,7 +255,7 @@ impl Vcpu {
                 Ok(VcpuEmulation::Paused) => {
                     #[cfg(target_arch = "x86_64")]
                     self.kvm_vcpu.kvmclock_ctrl();
-                    return StateMachine::next(Self::paused);
+                    return VcpuRunState::Paused;
                 }
                 // Emulation errors lead to vCPU exit.
                 Err(_) => return self.exit(FcExitCode::GenericError),
@@ -246,7 +263,7 @@ impl Vcpu {
         }
 
         // By default don't change state.
-        let mut state = StateMachine::next(Self::running);
+        let mut state = VcpuRunState::Running;
 
         // Break this emulation loop on any transition request/external event.
         match self.event_receiver.try_recv() {
@@ -261,7 +278,7 @@ impl Vcpu {
                 self.kvm_vcpu.kvmclock_ctrl();
 
                 // Move to 'paused' state.
-                state = StateMachine::next(Self::paused);
+                state = VcpuRunState::Paused;
             }
             Ok(VcpuEvent::Resume) => {
                 self.response_sender
@@ -284,7 +301,7 @@ impl Vcpu {
                     )))
                     .expect("vcpu channel unexpectedly closed");
             }
-            Ok(VcpuEvent::Finish) => return StateMachine::finish(),
+            Ok(VcpuEvent::Finish) => return VcpuRunState::Finished,
             // Unhandled exit of the other end.
             Err(TryRecvError::Disconnected) => {
                 // Move to 'exited' state.
@@ -298,7 +315,7 @@ impl Vcpu {
     }
 
     // This is the main loop of the `Paused` state.
-    fn paused(&mut self) -> StateMachine<Self> {
+    fn paused(&mut self) -> VcpuRunState {
         match self.event_receiver.recv() {
             // Paused ---- Resume ----> Running
             Ok(VcpuEvent::Resume) => {
@@ -313,13 +330,13 @@ impl Vcpu {
                     .send(VcpuResponse::Resumed)
                     .expect("vcpu channel unexpectedly closed");
                 // Move to 'running' state.
-                StateMachine::next(Self::running)
+                VcpuRunState::Running
             }
             Ok(VcpuEvent::Pause) => {
                 self.response_sender
                     .send(VcpuResponse::Paused)
                     .expect("vcpu channel unexpectedly closed");
-                StateMachine::next(Self::paused)
+                VcpuRunState::Paused
             }
             Ok(VcpuEvent::SaveState) => {
                 // Save vcpu state.
@@ -336,7 +353,7 @@ impl Vcpu {
                             .expect("vcpu channel unexpectedly closed");
                     });
 
-                StateMachine::next(Self::paused)
+                VcpuRunState::Paused
             }
             Ok(VcpuEvent::DumpCpuConfig) => {
                 self.kvm_vcpu
@@ -352,9 +369,9 @@ impl Vcpu {
                             .expect("vcpu channel unexpectedly closed");
                     });
 
-                StateMachine::next(Self::paused)
+                VcpuRunState::Paused
             }
-            Ok(VcpuEvent::Finish) => StateMachine::finish(),
+            Ok(VcpuEvent::Finish) => VcpuRunState::Finished,
             // Unhandled exit of the other end.
             Err(_) => {
                 // Move to 'exited' state.
@@ -366,7 +383,7 @@ impl Vcpu {
     // Transition to the exited state and finish on command.
     // Note that this function isn't called when the guest asks for a CPU
     // reset via the i8042 controller on x86.
-    fn exit(&mut self, exit_code: FcExitCode) -> StateMachine<Self> {
+    fn exit(&mut self, exit_code: FcExitCode) -> VcpuRunState {
         if let Err(err) = self.exit_evt.write(1) {
             METRICS.vcpu.failures.inc();
             error!("Failed signaling vcpu exit event: {}", err);
@@ -381,7 +398,7 @@ impl Vcpu {
                 break;
             }
         }
-        StateMachine::finish()
+        VcpuRunState::Finished
     }
 
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
