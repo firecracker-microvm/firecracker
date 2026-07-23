@@ -455,7 +455,7 @@ impl RateLimiter {
     pub fn is_blocked(&self) -> bool {
         self.timer_active.load(Ordering::Relaxed)
     }
-    /// Clones the shared blocked-state flag for lock-free checks.
+    /// Clones the shared blocked-state flag for lock free checks
     pub(crate) fn clone_blocked_flag(&self) -> Arc<AtomicBool> {
         self.timer_active.clone()
     }
