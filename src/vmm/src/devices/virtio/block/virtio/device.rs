@@ -605,9 +605,7 @@ impl VirtioBlock {
             BlockState::Active(ActiveBlock::Inline(worker)) => {
                 worker.process_queue().unwrap();
             }
-            BlockState::Active(ActiveBlock::Threaded(_)) => {
-                unreachable!("worker control messages are not connected yet")
-            }
+            BlockState::Active(ActiveBlock::Threaded(active)) => active.worker_handle.kick(),
             BlockState::Configuring(_, _) => {}
             BlockState::Placeholder => unreachable!("not a runtime state"),
         }
@@ -631,9 +629,9 @@ impl VirtioBlock {
             BlockState::Active(ActiveBlock::Inline(worker)) => {
                 worker.update_disk_image(disk_image_path, read_only)?
             }
-            BlockState::Active(ActiveBlock::Threaded(_)) => {
-                unreachable!("worker control messages are not connected yet")
-            }
+            BlockState::Active(ActiveBlock::Threaded(active)) => active
+                .worker_handle
+                .update_disk_image(disk_image_path, read_only)?,
             BlockState::Placeholder => unreachable!("not a runtime state"),
         };
         self.config_space.capacity = nsectors.to_le();
