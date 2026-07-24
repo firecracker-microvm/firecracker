@@ -949,7 +949,7 @@ mod tests {
                 );
                 assert!(!t2a_res);
             }
-            cpuid::VENDOR_ID_AMD => {
+            cpuid::VENDOR_ID_AMD | cpuid::VENDOR_ID_HYGON => {
                 assert!(!t2_res);
                 assert!(!c3_res);
                 assert!(!t2s_res);
