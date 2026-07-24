@@ -213,7 +213,6 @@ impl AsyncFileEngine {
     pub fn drain(&mut self, discard_cqes: bool) -> Result<(), AsyncIoError> {
         self.ring
             .submit_and_wait_all()
-            .map(|_| ())
             .map_err(AsyncIoError::IoUring)?;
 
         if discard_cqes {

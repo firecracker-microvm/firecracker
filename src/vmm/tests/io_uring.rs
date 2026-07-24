@@ -3,12 +3,19 @@
 
 #![allow(clippy::cast_possible_truncation, clippy::tests_outside_test_module)]
 
+use std::fs::File;
+use std::io::Write;
+use std::os::fd::OwnedFd;
 use std::os::unix::fs::FileExt;
 use std::os::unix::io::AsRawFd;
+use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
 use vm_memory::VolatileMemory;
+use vmm::utils::signal::{Killable, register_signal_handler, sigrtmin};
 use vmm::vstate::memory::{Bytes, MmapRegion};
 use vmm_sys_util::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 use vmm_sys_util::eventfd::EventFd;
@@ -328,6 +335,65 @@ fn test_submit_and_wait_all() {
     assert!(ring.pop().unwrap().is_some());
     assert!(ring.pop().unwrap().is_none());
     assert_eq!(ring.num_ops(), 0);
+}
+
+/// Block until the thread at `task` sleeps in an `io_uring_enter` called with `to_submit` SQEs.
+fn wait_in_enter(task: &Path, to_submit: u32) {
+    let path = task.join("syscall");
+    let nr = libc::SYS_io_uring_enter.to_string();
+    let to_submit = format!("{to_submit:#x}");
+    loop {
+        // "<nr> <fd> <to_submit> ..." while blocked, "running" otherwise.
+        let state = std::fs::read_to_string(&path).unwrap();
+        let mut fields = state.split_whitespace();
+        if fields.next() == Some(nr.as_str()) && fields.nth(1) == Some(to_submit.as_str()) {
+            return;
+        }
+        thread::yield_now();
+    }
+}
+
+#[test]
+fn test_submit_and_wait_all_interrupted() {
+    // Counts handler runs of the waiter
+    static SIGNALS: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn count(_: libc::c_int, _: *mut libc::siginfo_t, _: *mut libc::c_void) {
+        SIGNALS.fetch_add(1, Ordering::Release);
+    }
+    register_signal_handler(sigrtmin(), count).unwrap();
+
+    let (reader, mut writer) = std::io::pipe().unwrap();
+    let (task_tx, task_rx) = mpsc::channel();
+    let waiter = thread::spawn(move || {
+        let task = std::fs::read_link("/proc/thread-self").unwrap();
+        task_tx.send(Path::new("/proc").join(task)).unwrap();
+        let file = File::from(OwnedFd::from(reader));
+        let mut ring = IoUring::new(NUM_ENTRIES, vec![&file], vec![], None).unwrap();
+        let buf = [0u8; 4];
+
+        // The read stays in flight until the pipe has data.
+        ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 1))
+            .unwrap();
+        assert_eq!(ring.submit_and_wait_all().unwrap(), 1);
+        assert_eq!(ring.pop().unwrap().unwrap().result().unwrap(), 4);
+        assert_eq!(ring.num_ops(), 0);
+    });
+    let task = task_rx.recv().unwrap();
+
+    // First enter submits and waits: interrupted, submitted = 1, CQ still empty.
+    // Second one only waits: interrupted with an empty CQ, fails with EINTR.
+    for to_submit in [1, 0] {
+        wait_in_enter(&task, to_submit);
+        waiter.kill(sigrtmin()).unwrap();
+    }
+    // ensures both handlers have run, so retry already returned EINTR
+    while SIGNALS.load(Ordering::Acquire) < 2 {
+        thread::yield_now();
+    }
+
+    // finally writes into the pipe and read can be processed.
+    writer.write_all(b"done").unwrap();
+    waiter.join().unwrap();
 }
 
 #[test]
