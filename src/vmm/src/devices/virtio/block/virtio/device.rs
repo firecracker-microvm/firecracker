@@ -421,25 +421,12 @@ pub(crate) struct BlockResources {
 
 impl BlockResources {
     /// Drain pending I/O and clear engine throttling
-    fn reset(&mut self) -> bool {
-        // TODO: decide how a failure to wait for the in-flight operations should be
-        // handled. Giving up leaves the device activated, so completions that arrive
-        // afterwards are written into guest memory. The guest may have freed and reused
-        // those pages by then.
-        //
-        // The representative failure is EINTR, when a signal lands while we wait, and
-        // the I/O itself is fine in that case. Retrying would recover from it, but note
-        // that the signal has been consumed by then, so the next wait is not cut short:
-        // it lasts until every outstanding operation has completed, however long the
-        // backing file takes. The vCPU is held in the guest's status write for all of
-        // it, which delays whatever the signal was kicking it for.
-        // https://github.com/firecracker-microvm/firecracker/issues/6278
-        if let Err(err) = self.disk.file_engine.drain(true) {
-            error!("Failed to reset block IO engine: {:?}", err);
-            return false;
-        }
+    fn reset(&mut self) {
+        self.disk
+            .file_engine
+            .drain(true)
+            .expect("Failed to reset block IO engine");
         self.is_io_engine_throttled = false;
-        true
     }
 }
 
@@ -857,28 +844,29 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn deactivate(&mut self) {
-        let state = std::mem::replace(&mut self.state, BlockRuntimeState::Placeholder);
-        self.state = match state {
-            BlockRuntimeState::Inline(worker) => {
-                BlockRuntimeState::Configuring(worker.resources, None)
-            }
-            state => state,
-        };
+        // `_reset` moves data-path resources back into the configuring state.
     }
 
     fn _reset(&mut self) -> bool {
-        if self.is_threaded_active() {
-            return false;
-        }
-        self.resources_mut().reset()
+        let state = std::mem::replace(&mut self.state, BlockRuntimeState::Placeholder);
+        let (mut resources, worker_handle) = match state {
+            BlockRuntimeState::Threaded(active) => {
+                let resources = active.worker_handle.reset();
+                (resources, Some(active.worker_handle))
+            }
+            BlockRuntimeState::Inline(worker) => (worker.resources, None),
+            BlockRuntimeState::Configuring(resources, worker_handle) => (resources, worker_handle),
+            BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
+        };
+
+        resources.reset();
+        self.state = BlockRuntimeState::Configuring(resources, worker_handle);
+        true
     }
 
     fn reset_queues(&mut self) {
-        match &mut self.state {
-            BlockRuntimeState::Configuring(resources, _) => resources.queue.reset(),
-            BlockRuntimeState::Inline(worker) => worker.resources.queue.reset(),
-            BlockRuntimeState::Threaded(_) => {}
-            BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
+        if let BlockRuntimeState::Configuring(resources, _) = &mut self.state {
+            resources.queue.reset();
         }
     }
 
@@ -904,8 +892,9 @@ impl Drop for VirtioBlock {
                 FlushMode::Drain => worker.drain(true),
                 FlushMode::DrainAndFlush => worker.drain_and_flush(true),
             },
-            // Worker teardown is connected in the follow-up lifecycle commit.
-            BlockRuntimeState::Threaded(_) => {}
+            BlockRuntimeState::Threaded(active) => {
+                active.worker_handle.finish(flush_mode);
+            }
             BlockRuntimeState::Configuring(mut resources, worker_handle) => {
                 match flush_mode {
                     FlushMode::Drain => {
@@ -2240,6 +2229,40 @@ mod tests {
                 mdata.st_ino()
             );
             assert_eq!(block.disk().image_id, id.as_slice());
+        }
+    }
+
+    #[test]
+    fn test_reset_and_reactivation() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            for threaded in [false, true] {
+                let mut block = default_block(engine);
+                if threaded {
+                    block.spawn_worker().unwrap();
+                }
+
+                let mem = default_mem();
+                let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+                set_queue(&mut block, 0, vq.create_queue());
+                block.set_acked_features(1);
+                block.activate(mem.clone(), default_interrupt()).unwrap();
+
+                assert!(block.is_activated());
+                assert_eq!(block.is_threaded_active(), threaded);
+                assert!(block.reset());
+                assert!(!block.is_activated());
+                assert_eq!(block.acked_features(), 0);
+                assert!(!block.queue_config(0).unwrap().ready);
+                let BlockRuntimeState::Configuring(_, worker_handle) = &block.state else {
+                    panic!("reset must leave the block device configuring");
+                };
+                assert_eq!(worker_handle.is_some(), threaded);
+
+                set_queue(&mut block, 0, vq.create_queue());
+                block.activate(mem, default_interrupt()).unwrap();
+                assert!(block.is_activated());
+                assert_eq!(block.is_threaded_active(), threaded);
+            }
         }
     }
 }
