@@ -110,9 +110,7 @@ impl Persist<'_> for VirtioBlock {
         let avail_features = state.virtio_state.avail_features;
         let acked_features = state.virtio_state.acked_features;
 
-        let config_space = ConfigSpace {
-            capacity: disk_properties.nsectors.to_le(),
-        };
+        let config_space = ConfigSpace::new(disk_properties.nsectors);
 
         Ok(VirtioBlock {
             avail_features,
@@ -159,6 +157,7 @@ mod tests {
             is_root_device: false,
             partuuid: None,
             is_read_only: false,
+            discard: false,
             cache_type: CacheType::Writeback,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
@@ -200,6 +199,7 @@ mod tests {
             is_root_device: false,
             partuuid: None,
             is_read_only: false,
+            discard: false,
             cache_type: CacheType::Unsafe,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),

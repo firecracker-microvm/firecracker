@@ -6,24 +6,27 @@
 // found in the THIRD-PARTY file.
 
 use std::convert::From;
+use std::mem::size_of;
 
 use vm_memory::GuestMemoryError;
 
-use super::{SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
+use super::{MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
 use crate::devices::virtio::block::virtio::device::DiskProperties;
 use crate::devices::virtio::block::virtio::metrics::BlockDeviceMetrics;
 pub use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
-    VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
+    VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN,
+    VIRTIO_BLK_T_OUT,
 };
 use crate::devices::virtio::queue::DescriptorChain;
 use crate::logger::{IncMetric, error};
 use crate::rate_limiter::{RateLimiter, TokenType};
-use crate::vstate::memory::{ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
+use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
-#[derive(Debug, derive_more::From)]
+#[derive(Debug)]
 pub enum IoErr {
     GetId(GuestMemoryError),
+    UnsupportedRequest(u32),
     PartialTransfer { completed: u32, expected: u32 },
     FileEngine(block_io::BlockIoError),
 }
@@ -32,6 +35,7 @@ pub enum IoErr {
 pub enum RequestType {
     In,
     Out,
+    Discard,
     Flush,
     GetDeviceID,
     Unsupported(u32),
@@ -42,6 +46,7 @@ impl From<u32> for RequestType {
         match value {
             VIRTIO_BLK_T_IN => RequestType::In,
             VIRTIO_BLK_T_OUT => RequestType::Out,
+            VIRTIO_BLK_T_DISCARD => RequestType::Discard,
             VIRTIO_BLK_T_FLUSH => RequestType::Flush,
             VIRTIO_BLK_T_GET_ID => RequestType::GetDeviceID,
             t => RequestType::Unsupported(t),
@@ -167,6 +172,9 @@ impl PendingRequest {
                 }
                 status
             }
+            (Ok(_), RequestType::Discard) => Status::Ok {
+                num_bytes_to_mem: 0,
+            },
             (Ok(_), RequestType::Flush) => {
                 block_metrics.flush_count.inc();
                 Status::Ok {
@@ -176,7 +184,9 @@ impl PendingRequest {
             (Ok(transferred_data_len), RequestType::GetDeviceID) => {
                 Status::from_data(self.data_len, transferred_data_len, true)
             }
-            (_, RequestType::Unsupported(op)) => Status::Unsupported { op },
+            (Err(IoErr::UnsupportedRequest(op)), _) | (_, RequestType::Unsupported(op)) => {
+                Status::Unsupported { op }
+            }
             (Err(err), _) => Status::IoErr {
                 num_bytes_to_mem: 0,
                 err,
@@ -206,6 +216,21 @@ pub struct RequestHeader {
 
 // SAFETY: Safe because RequestHeader only contains plain data.
 unsafe impl ByteValued for RequestHeader {}
+
+#[derive(Debug, Copy, Clone, Default)]
+#[repr(C)]
+pub struct DiscardWriteZeroes {
+    sector: u64,
+    num_sectors: u32,
+    flags: u32,
+}
+
+// SAFETY: Safe because DiscardWriteZeroes only contains plain data and has no padding.
+unsafe impl ByteValued for DiscardWriteZeroes {}
+
+fn discard_range_size() -> u32 {
+    u32::try_from(size_of::<DiscardWriteZeroes>()).expect("discard range size fits in u32")
+}
 
 impl RequestHeader {
     pub fn new(request_type: u32, sector: u64) -> RequestHeader {
@@ -278,7 +303,9 @@ impl Request {
                 .next_descriptor()
                 .ok_or(VirtioBlockError::DescriptorChainTooShort)?;
 
-            if data_desc.is_write_only() && req.r#type == RequestType::Out {
+            if data_desc.is_write_only()
+                && (req.r#type == RequestType::Out || req.r#type == RequestType::Discard)
+            {
                 return Err(VirtioBlockError::UnexpectedWriteOnlyDescriptor);
             }
             if !data_desc.is_write_only() && req.r#type == RequestType::In {
@@ -311,6 +338,9 @@ impl Request {
             RequestType::GetDeviceID if req.data_len < VIRTIO_BLK_ID_BYTES => {
                 return Err(VirtioBlockError::InvalidDataLength);
             }
+            RequestType::Discard => {
+                req.validate_discard_ranges(mem, num_disk_sectors)?;
+            }
             _ => {}
         }
 
@@ -326,6 +356,44 @@ impl Request {
         req.status_addr = status_desc.addr;
 
         Ok(req)
+    }
+
+    fn validate_discard_ranges(
+        &mut self,
+        mem: &GuestMemoryMmap,
+        num_disk_sectors: u64,
+    ) -> Result<(), VirtioBlockError> {
+        if self.data_len != discard_range_size() {
+            return Err(VirtioBlockError::InvalidDataLength);
+        }
+
+        let range: DiscardWriteZeroes = mem
+            .read_obj(self.data_addr)
+            .map_err(VirtioBlockError::GuestMemory)?;
+        if range.num_sectors == 0 || range.num_sectors > MAX_DISCARD_SECTORS || range.flags != 0 {
+            return Err(VirtioBlockError::InvalidDataLength);
+        }
+        let top_sector = range
+            .sector
+            .checked_add(u64::from(range.num_sectors))
+            .ok_or(VirtioBlockError::InvalidOffset)?;
+        if top_sector > num_disk_sectors {
+            return Err(VirtioBlockError::InvalidOffset);
+        }
+
+        let byte_offset = range
+            .sector
+            .checked_mul(u64::from(SECTOR_SIZE))
+            .ok_or(VirtioBlockError::InvalidOffset)?;
+        let byte_len = u64::from(range.num_sectors)
+            .checked_mul(u64::from(SECTOR_SIZE))
+            .ok_or(VirtioBlockError::InvalidDataLength)?;
+        let byte_len = u32::try_from(byte_len).map_err(|_| VirtioBlockError::InvalidDataLength)?;
+
+        self.sector = byte_offset;
+        self.data_len = byte_len;
+
+        Ok(())
     }
 
     pub(crate) fn rate_limit(&self, rate_limiter: &mut RateLimiter) -> bool {
@@ -367,6 +435,7 @@ impl Request {
         desc_idx: u16,
         mem: &GuestMemoryMmap,
         block_metrics: &BlockDeviceMetrics,
+        discard_supported: bool,
     ) -> ProcessingResult {
         let pending = self.to_pending_request(desc_idx);
         let res = match self.r#type {
@@ -379,6 +448,18 @@ impl Request {
                 let _metric = block_metrics.write_agg.record_latency_metrics();
                 disk.file_engine
                     .write(self.offset(), mem, self.data_addr, self.data_len, pending)
+            }
+            RequestType::Discard => {
+                if !discard_supported {
+                    return ProcessingResult::Executed(pending.finish(
+                        mem,
+                        Err(IoErr::UnsupportedRequest(VIRTIO_BLK_T_DISCARD)),
+                        block_metrics,
+                    ));
+                }
+
+                disk.file_engine
+                    .discard((self.sector, self.data_len), pending)
             }
             RequestType::Flush => disk.file_engine.flush(pending),
             RequestType::GetDeviceID => {
@@ -447,6 +528,7 @@ mod tests {
         let supported_request_types = vec![
             VIRTIO_BLK_T_IN,
             VIRTIO_BLK_T_OUT,
+            VIRTIO_BLK_T_DISCARD,
             VIRTIO_BLK_T_FLUSH,
             VIRTIO_BLK_T_GET_ID,
         ];
@@ -470,6 +552,10 @@ mod tests {
     fn test_request_type_from() {
         assert_eq!(RequestType::from(VIRTIO_BLK_T_IN), RequestType::In);
         assert_eq!(RequestType::from(VIRTIO_BLK_T_OUT), RequestType::Out);
+        assert_eq!(
+            RequestType::from(VIRTIO_BLK_T_DISCARD),
+            RequestType::Discard
+        );
         assert_eq!(RequestType::from(VIRTIO_BLK_T_FLUSH), RequestType::Flush);
         assert_eq!(
             RequestType::from(VIRTIO_BLK_T_GET_ID),
@@ -500,9 +586,17 @@ mod tests {
                 request.r#type,
                 RequestType::from(expected_header.request_type)
             );
-            assert_eq!(request.sector, expected_header.sector);
+            if request.r#type == RequestType::Discard {
+                let range: DiscardWriteZeroes = memory
+                    .read_obj(GuestAddress(self.data_desc.addr.get()))
+                    .unwrap();
+                assert_eq!(request.sector, range.sector * u64::from(SECTOR_SIZE));
+                assert_eq!(request.data_len, range.num_sectors * SECTOR_SIZE);
+            } else {
+                assert_eq!(request.sector, expected_header.sector);
+            }
 
-            if check_data {
+            if check_data && request.r#type != RequestType::Discard {
                 assert_eq!(request.data_addr.raw_value(), self.data_desc.addr.get());
                 assert_eq!(request.data_len, self.data_desc.len.get());
             }
@@ -646,6 +740,74 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_discard() {
+        let mem = &default_mem();
+        let queue = VirtQueue::new(GuestAddress(0), mem, 16);
+        let chain = RequestDescriptorChain::new(&queue);
+
+        let request_header = RequestHeader::new(VIRTIO_BLK_T_DISCARD, 0);
+        chain.set_header(request_header);
+
+        // Write only data descriptor for Discard.
+        chain
+            .data_desc
+            .flags
+            .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+        chain.check_parse_err(VirtioBlockError::UnexpectedWriteOnlyDescriptor);
+
+        chain.data_desc.flags.set(VIRTQ_DESC_F_NEXT);
+        chain.data_desc.len.set(15);
+        chain.check_parse_err(VirtioBlockError::InvalidDataLength);
+
+        let range = DiscardWriteZeroes {
+            sector: 0,
+            num_sectors: 0,
+            flags: 0,
+        };
+        chain.data_desc.len.set(discard_range_size());
+        mem.write_obj(range, GuestAddress(chain.data_desc.addr.get()))
+            .unwrap();
+        chain.check_parse_err(VirtioBlockError::InvalidDataLength);
+
+        let range = DiscardWriteZeroes {
+            sector: 0,
+            num_sectors: 1,
+            flags: 1,
+        };
+        mem.write_obj(range, GuestAddress(chain.data_desc.addr.get()))
+            .unwrap();
+        chain.check_parse_err(VirtioBlockError::InvalidDataLength);
+
+        let range = DiscardWriteZeroes {
+            sector: 0,
+            num_sectors: MAX_DISCARD_SECTORS + 1,
+            flags: 0,
+        };
+        mem.write_obj(range, GuestAddress(chain.data_desc.addr.get()))
+            .unwrap();
+        chain.check_parse_err(VirtioBlockError::InvalidDataLength);
+
+        let range = DiscardWriteZeroes {
+            sector: NUM_DISK_SECTORS - 1,
+            num_sectors: 2,
+            flags: 0,
+        };
+        chain.data_desc.len.set(discard_range_size());
+        mem.write_obj(range, GuestAddress(chain.data_desc.addr.get()))
+            .unwrap();
+        chain.check_parse_err(VirtioBlockError::InvalidOffset);
+
+        let range = DiscardWriteZeroes {
+            sector: NUM_DISK_SECTORS - 1,
+            num_sectors: 1,
+            flags: 0,
+        };
+        mem.write_obj(range, GuestAddress(chain.data_desc.addr.get()))
+            .unwrap();
+        chain.check_parse(true);
+    }
+
+    #[test]
     fn test_parse_get_id() {
         let mem = &default_mem();
         let queue = VirtQueue::new(GuestAddress(0), mem, 16);
@@ -697,6 +859,7 @@ mod tests {
             (u32, std::sync::Arc<fn() -> Self>),
             (u32, std::sync::Arc<fn() -> Self>),
             (u32, std::sync::Arc<fn() -> Self>),
+            (u32, std::sync::Arc<fn() -> Self>),
             (
                 u32,
                 std::sync::Arc<Map<<u32 as Arbitrary>::Strategy, fn(u32) -> Self>>,
@@ -704,20 +867,25 @@ mod tests {
         )>;
 
         fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            const FIRST_UNSUPPORTED_REQUEST_ID: u32 = VIRTIO_BLK_T_DISCARD + 1;
+
             // All strategies have the same weight, there is no reson currently to skew
             // the rations to increase the odds of a specific request type.
             TupleUnion::new((
                 (1u32, std::sync::Arc::new(|| RequestType::In {})),
                 (1u32, std::sync::Arc::new(|| RequestType::Out {})),
+                (1u32, std::sync::Arc::new(|| RequestType::Discard {})),
                 (1u32, std::sync::Arc::new(|| RequestType::Flush {})),
                 (1u32, std::sync::Arc::new(|| RequestType::GetDeviceID {})),
                 (
                     1u32,
                     std::sync::Arc::new(Strategy::prop_map(any::<u32>(), |id| {
-                        // Random unsupported requests for our implementation start at
-                        // VIRTIO_BLK_T_GET_ID + 1 = 9.
-                        // This can be further refined to include unsupported requests ids < 9.
-                        RequestType::Unsupported(id.checked_add(9).unwrap_or(9))
+                        // Random unsupported requests for our implementation start above the
+                        // highest request id we support.
+                        RequestType::Unsupported(
+                            id.checked_add(FIRST_UNSUPPORTED_REQUEST_ID)
+                                .unwrap_or(FIRST_UNSUPPORTED_REQUEST_ID),
+                        )
                     })),
                 ),
             ))
@@ -729,6 +897,7 @@ mod tests {
             match request_type {
                 RequestType::In => VIRTIO_BLK_T_IN,
                 RequestType::Out => VIRTIO_BLK_T_OUT,
+                RequestType::Discard => VIRTIO_BLK_T_DISCARD,
                 RequestType::Flush => VIRTIO_BLK_T_FLUSH,
                 RequestType::GetDeviceID => VIRTIO_BLK_T_GET_ID,
                 RequestType::Unsupported(id) => id,
@@ -740,7 +909,7 @@ mod tests {
     fn request_type_flags(request_type: RequestType) -> u16 {
         match request_type {
             RequestType::In => VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
-            RequestType::Out => VIRTQ_DESC_F_NEXT,
+            RequestType::Out | RequestType::Discard => VIRTQ_DESC_F_NEXT,
             RequestType::Flush => VIRTQ_DESC_F_NEXT,
             RequestType::GetDeviceID => VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
             RequestType::Unsupported(_) => VIRTQ_DESC_F_NEXT,
@@ -825,7 +994,11 @@ mod tests {
 
         // Make sure that data_len is a multiple of 512
         // and that 512 <= data_len <= (4096 + 512).
-        let valid_data_len = ((data_len & 4096) | (SECTOR_SIZE - 1)) + 1;
+        let valid_data_len = if request_type == RequestType::Discard {
+            discard_range_size()
+        } else {
+            ((data_len & 4096) | (SECTOR_SIZE - 1)) + 1
+        };
         let sectors_len = u64::from(valid_data_len / SECTOR_SIZE);
         // Craft a random request with the randomized parameters.
         let mut request = Request {
@@ -853,6 +1026,21 @@ mod tests {
                 request_type_flags(request.r#type),
                 2,
             );
+
+            if request.r#type == RequestType::Discard {
+                let discard_sector = sector % NUM_DISK_SECTORS;
+                mem.write_obj(
+                    DiscardWriteZeroes {
+                        sector: discard_sector,
+                        num_sectors: 1,
+                        flags: 0,
+                    },
+                    request.data_addr,
+                )
+                .unwrap();
+                request.sector = discard_sector * u64::from(SECTOR_SIZE);
+                request.data_len = SECTOR_SIZE;
+            }
         }
 
         chain
@@ -891,7 +1079,7 @@ mod tests {
         if *coins.next().unwrap() {
             match request.r#type {
                 // Readonly buffer is writable.
-                RequestType::Out => {
+                RequestType::Out | RequestType::Discard => {
                     data_desc_flags.set(data_desc_flags.get() | VIRTQ_DESC_F_WRITE);
                     return (Err(VirtioBlockError::UnexpectedWriteOnlyDescriptor), mem, q);
                 }
@@ -915,6 +1103,11 @@ mod tests {
                         .set(valid_data_len + (data_len % 511) + 1);
                     return (Err(VirtioBlockError::InvalidDataLength), mem, q);
                 }
+                RequestType::Discard => {
+                    // data_len is not a multiple of discard range size.
+                    chain.data_desc.len.set(valid_data_len + 1);
+                    return (Err(VirtioBlockError::InvalidDataLength), mem, q);
+                }
                 RequestType::GetDeviceID => {
                     // data_len is < VIRTIO_BLK_ID_BYTES
                     chain
@@ -933,6 +1126,18 @@ mod tests {
                 RequestType::In | RequestType::Out => {
                     request_header.sector = (sector | NUM_DISK_SECTORS) + 1;
                     chain.set_header(request_header);
+                    return (Err(VirtioBlockError::InvalidOffset), mem, q);
+                }
+                RequestType::Discard => {
+                    mem.write_obj(
+                        DiscardWriteZeroes {
+                            sector: NUM_DISK_SECTORS,
+                            num_sectors: 1,
+                            flags: 0,
+                        },
+                        request.data_addr,
+                    )
+                    .unwrap();
                     return (Err(VirtioBlockError::InvalidOffset), mem, q);
                 }
                 _ => {}
