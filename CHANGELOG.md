@@ -56,6 +56,10 @@ and this project adheres to
   new VIRTIO_BLK_F_BLK_SIZE and VIRTIO_BLK_F_TOPOLOGY features to the
   virtio-block device. More information is in the new [block](docs/block.md)
   documentation.
+- [#6055](https://github.com/firecracker-microvm/firecracker/pull/6055): Add
+  basic VFIO support allowing for PCIe device passthrough into VM. See
+  [documentation][docs/device_passthrough.md] for instructions and current
+  limitations.
 
 ### Changed
 
