@@ -26,6 +26,9 @@ and this project adheres to
   support for booting `bzImage` guest kernels on x86_64, in addition to the
   existing uncompressed ELF (`vmlinux`) images. The kernel image format is
   detected automatically, so no configuration change is required.
+- [#6055](https://github.com/firecracker-microvm/firecracker/pull/6055): Add
+  basic VFIO support allowing for PCIe device passthrough into VM. See
+  [documentation][docs/vfio.md] for instructions and current limitations.
 
 ### Changed
 

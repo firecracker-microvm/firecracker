@@ -100,6 +100,15 @@ if run_all_tests(changed_files):
     )
 
     pipeline.build_group(
+        "vfio",
+        pipeline.devtool_test(
+            devtool_opts="--vfio-nvme-device /dev/sdf --first-vfio-nvme-device -c 1-10",
+            pytest_opts="-m vfio integration_tests/functional/",
+        ),
+        **DEFAULTS_PERF,
+    )
+
+    pipeline.build_group(
         "performance",
         pipeline.devtool_test(
             devtool_opts="--performance -c 1-10 -m 0",

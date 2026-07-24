@@ -12,6 +12,7 @@ running microVM without requiring a reboot. Supported device types are:
 - `virtio-block`
 - `virtio-pmem`
 - `virtio-net`
+- `vfio`
 
 ## Prerequisites
 

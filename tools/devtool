@@ -467,6 +467,14 @@ cmd_help() {
     echo "        --no-archive                 Skip archiving of 'test_result' after the test is done."
     echo "        --no-kvm-check               Skip checking for '/dev/kvm' presence."
     echo "        --no-artifacts-check         Skip checking existing artifacts."
+    echo "        --vfio-nvme-device DEVICE    Prepare an NVMe PCI device for VFIO passthrough and pass it to tests."
+    echo "                                     CI tests expect this to be an NVMe device."
+    echo "                                     DEVICE can be an NVMe block device path (e.g. /dev/nvme1n1), a SCSI"
+    echo "                                     block device path (e.g. /dev/sdf), or a PCI SBDF (e.g. 0003:16:00.0)."
+    echo "                                     Binds the device to vfio-pci and sets FC_VFIO_PCI_SBDF and"
+    echo "                                     FC_VFIO_PCI_SYSFS_PATH env vars in the container."
+    echo "        --first-vfio-nvme-device     Fallback: if --vfio-nvme-device fails to find the specified device,"
+    echo "                                     search for the first NVMe PCI device already bound to vfio-pci."
     echo ""
     echo "    build_ci_artifacts [all|rootfs|kernels]"
     echo "        Builds the rootfs and guest kernel artifacts we use for our CI."
@@ -926,6 +934,81 @@ unapply_performance_tweaks() {
 }
 
 
+# Find the first NVMe PCI device bound to vfio-pci.
+# Prints the PCI SBDF on success, returns 1 if none found.
+find_first_vfio_nvme_device() {
+    for dev in /sys/bus/pci/devices/*; do
+      local driver=$(basename "$(readlink -f "$dev/driver" 2>/dev/null)" 2>/dev/null || echo "none")
+      [ "$driver" = "vfio-pci" ] || continue
+      local class=$(cat "$dev/class" 2>/dev/null || echo "")
+      # 0x010802 is NVMe
+      [[ "$class" == "0x010802" ]] || continue
+      basename "$dev"
+      return 0
+    done
+    return 1
+}
+
+# Ensure vfio and vfio-pci kernel modules are loaded
+load_vfio_kernel_modules() {
+  for mod in vfio vfio-pci; do
+    if ! lsmod | grep -q "^${mod//-/_} "; then
+      say "Loading $mod kernel module..."
+      sudo modprobe "$mod" || die "Failed to load $mod kernel module"
+    fi
+  done
+}
+
+# Resolve an NVMe device path or PCI SBDF to a PCI device, bind it to vfio-pci,
+# and verify the binding. Sets VFIO_SBDF and VFIO_PCI_PATH on success.
+# Returns non-zero on failure since we might need to retry this
+setup_vfio_nvme_device() {
+    local vfio_device="$1"
+    VFIO_SBDF=""
+    VFIO_PCI_PATH=""
+
+    # Check if it looks like a PCI SBDF (e.g. 0003:16:00.0)
+    if [[ "$vfio_device" =~ ^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9a-fA-F]$ ]]; then
+      VFIO_SBDF="$vfio_device"
+      VFIO_PCI_PATH="/sys/bus/pci/devices/$VFIO_SBDF"
+    elif [[ "$vfio_device" == /dev/* ]]; then
+      # Resolve symlinks (e.g. /dev/sdf -> /dev/nvme1n1)
+      local resolved_dev=$(readlink -f "$vfio_device")
+      local block_name=$(basename "$resolved_dev")
+      # For NVMe namespaces (nvmeXnY), the PCI device is on the controller (nvmeX)
+      local ctrl_name=$(echo "$block_name" | sed 's/n[0-9]*$//')
+      if [ -d "/sys/class/nvme/$ctrl_name" ]; then
+        VFIO_PCI_PATH=$(readlink -f "/sys/class/nvme/$ctrl_name/device")
+      elif [ -d "/sys/block/$block_name/device" ]; then
+        VFIO_PCI_PATH=$(readlink -f "/sys/block/$block_name/device")
+      else
+        say_err "Cannot resolve $vfio_device to a PCI device"
+        return 1
+      fi
+      VFIO_SBDF=$(basename "$VFIO_PCI_PATH")
+    else
+      say_err "Invalid --vfio-device value: $vfio_device (expected /dev/... or PCI SBDF)"
+      return 1
+    fi
+
+    [ -d "$VFIO_PCI_PATH" ] || { say_err "PCI device not found: $VFIO_PCI_PATH"; return 1; }
+
+    # Bind to vfio-pci if not already bound
+    local current_driver=$(basename "$(readlink -f "$VFIO_PCI_PATH/driver" 2>/dev/null)" 2>/dev/null || echo "none")
+    if [ "$current_driver" != "vfio-pci" ]; then
+      say "Binding $VFIO_SBDF to vfio-pci (currently: $current_driver)..."
+      echo "$VFIO_SBDF" | sudo tee "$VFIO_PCI_PATH/driver/unbind" > /dev/null 2>&1 || true
+      echo "vfio-pci" | sudo tee "$VFIO_PCI_PATH/driver_override" > /dev/null
+      echo "$VFIO_SBDF" | sudo tee /sys/bus/pci/drivers/vfio-pci/bind > /dev/null
+    fi
+
+    # Verify the device is attached to vfio-pci
+    local bound_driver=$(basename "$(readlink -f "$VFIO_PCI_PATH/driver" 2>/dev/null)" 2>/dev/null || echo "none")
+    [ "$bound_driver" = "vfio-pci" ] || { say_err "Failed to bind $VFIO_SBDF to vfio-pci (driver is: $bound_driver)"; return 1; }
+
+    say "VFIO device ready: $VFIO_SBDF ($VFIO_PCI_PATH)"
+}
+
 # `$0 test` - run integration tests
 # Please see `$0 help` for more information.
 #
@@ -936,6 +1019,8 @@ cmd_test() {
     do_kvm_check=1
     do_build_dir_check=1
     do_artifacts_check=1
+    local vfio_nvme_device=""
+    local first_vfio_nvme_device=0
     # Parse any command line args.
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -972,6 +1057,13 @@ cmd_test() {
                 ;;
             "--no-artifacts-check")
                 do_artifacts_check=0
+                ;;
+            "--vfio-nvme-device")
+                shift
+                vfio_nvme_device="$1"
+                ;;
+            "--first-vfio-nvme-device")
+                first_vfio_nvme_device=1
                 ;;
             "--")               { shift; break;     } ;;
             *)
@@ -1047,6 +1139,24 @@ cmd_test() {
       test_script="./tools/ab_test.py"
     fi
 
+    # Prepare VFIO device if requested
+    local vfio_env_args=()
+    if [ -n "$vfio_nvme_device" ]; then
+      load_vfio_kernel_modules
+      if ! setup_vfio_nvme_device "$vfio_nvme_device"; then
+        if [ "$first_vfio_nvme_device" -eq 1 ]; then
+          say "Falling back to searching for first NVMe vfio-pci device..."
+          local found_sbdf
+          found_sbdf=$(find_first_vfio_nvme_device) || die "No NVMe PCI device bound to vfio-pci found"
+          say "Found NVMe vfio-pci device: $found_sbdf"
+          setup_vfio_nvme_device "$found_sbdf" || die "Failed to set up fallback VFIO device $found_sbdf"
+        else
+          die "Failed to set up VFIO device '$vfio_nvme_device' and --first-vfio-nvme-device not specified"
+        fi
+      fi
+      vfio_env_args=(--env "FC_VFIO_PCI_SBDF=$VFIO_SBDF" --env "FC_VFIO_PCI_SYSFS_PATH=$VFIO_PCI_PATH")
+    fi
+
     # Testing (running Firecracker via the jailer) needs root access,
     # in order to set-up the Firecracker jail (manipulating cgroups, net
     # namespaces, etc).
@@ -1061,6 +1171,7 @@ cmd_test() {
         --cpuset-cpus="$cpuset_cpus" \
         --cpuset-mems="$cpuset_mems" \
         --env-file env.list \
+        "${vfio_env_args[@]}" \
         -- \
         $test_script "$@"
 
