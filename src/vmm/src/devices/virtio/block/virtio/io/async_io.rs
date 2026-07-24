@@ -13,8 +13,8 @@ use crate::devices::virtio::block::virtio::io::RequestError;
 use crate::devices::virtio::block::virtio::{IO_URING_NUM_ENTRIES, PendingRequest};
 use crate::io_uring::operation::{Cqe, OpCode, Operation};
 use crate::io_uring::restriction::Restriction;
-use crate::io_uring::{IoUring, IoUringError};
-use crate::logger::log_dev_preview_warning;
+use crate::io_uring::{IoUring, IoUringError, SQueueError};
+use crate::logger::{log_dev_preview_warning, warn};
 use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -211,10 +211,20 @@ impl AsyncFileEngine {
     }
 
     pub fn drain(&mut self, discard_cqes: bool) -> Result<(), AsyncIoError> {
-        self.ring
-            .submit_and_wait_all()
-            .map(|_| ())
-            .map_err(AsyncIoError::IoUring)?;
+        match self.ring.submit_and_wait_all() {
+            Ok(_) => {}
+            // Non-critical errors are discarded,
+            // still in-flight requests may be lost.
+            Err(IoUringError::SQueue(SQueueError::Submit(err)))
+                if matches!(
+                    err.raw_os_error(),
+                    Some(libc::EINTR | libc::EAGAIN | libc::EBUSY)
+                ) =>
+            {
+                warn!("io_uring drain did not complete, in-flight requests may be lost: {err}");
+            }
+            Err(err) => return Err(AsyncIoError::IoUring(err)),
+        }
 
         if discard_cqes {
             // Drain the completion queue so that we may deallocate the user_data fields.
