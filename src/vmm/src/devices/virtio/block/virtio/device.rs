@@ -431,13 +431,12 @@ pub(crate) struct BlockResources {
 
 impl BlockResources {
     /// Drain pending I/O and clear engine throttling
-    fn reset(&mut self) -> bool {
-        if let Err(err) = self.disk.file_engine.drain(true) {
-            error!("Failed to reset block IO engine: {:?}", err);
-            return false;
-        }
+    fn reset(&mut self) {
+        self.disk
+            .file_engine
+            .drain(true)
+            .expect("Failed to reset block IO engine");
         self.is_io_engine_throttled = false;
-        true
     }
 }
 
@@ -846,28 +845,29 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn deactivate(&mut self) {
-        let state = std::mem::replace(&mut self.state, BlockState::Placeholder);
-        self.state = match state {
-            BlockState::Active(ActiveBlock::Inline(worker)) => {
-                BlockState::Configuring(worker.resources, None)
-            }
-            state => state,
-        };
+        // `_reset` moves data-path resources back into the configuring state.
     }
 
     fn _reset(&mut self) -> bool {
-        if self.is_threaded_active() {
-            return false;
-        }
-        self.resources_mut().reset()
+        let state = std::mem::replace(&mut self.state, BlockState::Placeholder);
+        let (mut resources, worker_handle) = match state {
+            BlockState::Active(ActiveBlock::Threaded(active)) => {
+                let resources = active.worker_handle.reset();
+                (resources, Some(active.worker_handle))
+            }
+            BlockState::Active(ActiveBlock::Inline(worker)) => (worker.resources, None),
+            BlockState::Configuring(resources, worker_handle) => (resources, worker_handle),
+            BlockState::Placeholder => unreachable!("not a runtime state"),
+        };
+
+        resources.reset();
+        self.state = BlockState::Configuring(resources, worker_handle);
+        true
     }
 
     fn reset_queues(&mut self) {
-        match &mut self.state {
-            BlockState::Configuring(resources, _) => resources.queue.reset(),
-            BlockState::Active(ActiveBlock::Inline(worker)) => worker.resources.queue.reset(),
-            BlockState::Active(ActiveBlock::Threaded(_)) => {}
-            BlockState::Placeholder => unreachable!("not a runtime state"),
+        if let BlockState::Configuring(resources, _) = &mut self.state {
+            resources.queue.reset();
         }
     }
 
@@ -896,8 +896,9 @@ impl Drop for VirtioBlock {
                 FlushMode::Drain => worker.drain(true),
                 FlushMode::DrainAndFlush => worker.drain_and_flush(true),
             },
-            // Worker teardown is connected in the follow-up lifecycle commit.
-            BlockState::Active(ActiveBlock::Threaded(_)) => {}
+            BlockState::Active(ActiveBlock::Threaded(active)) => {
+                active.worker_handle.finish(flush_mode);
+            }
             BlockState::Configuring(mut resources, worker_handle) => {
                 match flush_mode {
                     FlushMode::Drain => {
@@ -2232,6 +2233,40 @@ mod tests {
                 mdata.st_ino()
             );
             assert_eq!(block.disk().image_id, id.as_slice());
+        }
+    }
+
+    #[test]
+    fn test_reset_and_reactivation() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            for threaded in [false, true] {
+                let mut block = default_block(engine);
+                if threaded {
+                    block.spawn_worker().unwrap();
+                }
+
+                let mem = default_mem();
+                let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+                set_queue(&mut block, 0, vq.create_queue());
+                block.set_acked_features(1);
+                block.activate(mem.clone(), default_interrupt()).unwrap();
+
+                assert!(block.is_activated());
+                assert_eq!(block.is_threaded_active(), threaded);
+                assert!(block.reset());
+                assert!(!block.is_activated());
+                assert_eq!(block.acked_features(), 0);
+                assert!(!block.queue_config(0).unwrap().ready);
+                let BlockState::Configuring(_, worker_handle) = &block.state else {
+                    panic!("reset must leave the block device configuring");
+                };
+                assert_eq!(worker_handle.is_some(), threaded);
+
+                set_queue(&mut block, 0, vq.create_queue());
+                block.activate(mem, default_interrupt()).unwrap();
+                assert!(block.is_activated());
+                assert_eq!(block.is_threaded_active(), threaded);
+            }
         }
     }
 }
