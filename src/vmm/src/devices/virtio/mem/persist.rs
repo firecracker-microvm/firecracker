@@ -58,7 +58,7 @@ impl Persist<'_> for VirtioMem {
 
     fn save(&self) -> Self::State {
         VirtioMemState {
-            virtio_state: VirtioDeviceState::from_device(self),
+            virtio_state: VirtioDeviceState::from_device(self, &self.queues),
             addr: self.config.addr,
             region_size: self.config.region_size,
             block_size: self.config.block_size,

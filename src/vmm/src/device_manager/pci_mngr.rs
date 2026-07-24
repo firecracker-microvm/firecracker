@@ -144,7 +144,7 @@ impl PciDevices {
 
         // Allocate one MSI vector per queue, plus one for configuration
         let msix_num =
-            u16::try_from(device.lock().expect("Poisoned lock").queues().len() + 1).unwrap();
+            u16::try_from(device.lock().expect("Poisoned lock").num_queues() + 1).unwrap();
 
         let msix_vectors = KvmVm::create_msix_group(vm.clone(), msix_num)?;
 

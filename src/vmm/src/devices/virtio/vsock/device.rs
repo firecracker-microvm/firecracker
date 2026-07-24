@@ -34,7 +34,7 @@ use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::{VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1};
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
+use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue, QueueConfig, QueueError};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vsock::VsockError;
 use crate::devices::virtio::vsock::metrics::METRICS;
@@ -312,16 +312,20 @@ where
         self.acked_features = acked_features
     }
 
-    fn queues(&self) -> &[VirtQueue] {
-        &self.queues
+    fn num_queues(&self) -> usize {
+        self.queues.len()
     }
 
-    fn queues_mut(&mut self) -> &mut [VirtQueue] {
-        &mut self.queues
+    fn queue_config(&self, index: usize) -> Option<&QueueConfig> {
+        self.queues.get(index).map(|queue| &queue.config)
     }
 
-    fn queue_events(&self) -> &[EventFd] {
-        &self.queue_events
+    fn queue_config_mut(&mut self, index: usize) -> Option<&mut QueueConfig> {
+        self.queues.get_mut(index).map(|queue| &mut queue.config)
+    }
+
+    fn queue_event(&self, index: usize) -> Option<&EventFd> {
+        self.queue_events.get(index)
     }
 
     fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
@@ -408,6 +412,17 @@ where
         self.tx_packet.clear();
         self.pending_event_ack = false;
         true
+    }
+
+    fn reset_queues(&mut self) {
+        self.queues.iter_mut().for_each(VirtQueue::reset);
+    }
+
+    fn mark_queue_memory_dirty(&mut self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
+        for queue in &mut self.queues {
+            queue.initialize(mem)?;
+        }
+        Ok(())
     }
 
     fn kick(&mut self) {

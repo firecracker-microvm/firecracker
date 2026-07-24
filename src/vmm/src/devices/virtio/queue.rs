@@ -196,8 +196,8 @@ impl Iterator for DescriptorIterator {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-/// A virtio queue's parameters.
-pub struct Queue {
+/// The transport-visible configuration of a virtio queue.
+pub struct QueueConfig {
     /// The maximal size in elements offered by the device
     pub max_size: u16,
 
@@ -215,6 +215,27 @@ pub struct Queue {
 
     /// Guest physical address of the used ring
     pub used_ring_address: GuestAddress,
+}
+
+impl QueueConfig {
+    /// Constructs an unconfigured virtio queue config with the given maximum size.
+    pub fn new(max_size: u16) -> Self {
+        Self {
+            max_size,
+            size: max_size,
+            ready: false,
+            desc_table_address: GuestAddress(0),
+            avail_ring_address: GuestAddress(0),
+            used_ring_address: GuestAddress(0),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+/// A virtio queue's configuration and runtime state.
+pub struct Queue {
+    /// Configuration exposed to the virtio transport.
+    pub config: QueueConfig,
 
     /// Host virtual address pointer to the descriptor table
     /// in the guest memory .
@@ -280,12 +301,7 @@ impl Queue {
     /// Constructs an empty virtio queue with the given `max_size`.
     pub fn new(max_size: u16) -> Queue {
         Queue {
-            max_size,
-            size: max_size,
-            ready: false,
-            desc_table_address: GuestAddress(0),
-            avail_ring_address: GuestAddress(0),
-            used_ring_address: GuestAddress(0),
+            config: QueueConfig::new(max_size),
 
             desc_table_ptr: std::ptr::null(),
             avail_ring_ptr: std::ptr::null_mut(),
@@ -298,21 +314,26 @@ impl Queue {
         }
     }
 
+    /// Resets both configuration and runtime state while preserving the maximum size.
+    pub fn reset(&mut self) {
+        *self = Self::new(self.config.max_size);
+    }
+
     fn desc_table_size(&self) -> usize {
-        std::mem::size_of::<Descriptor>() * usize::from(self.size)
+        std::mem::size_of::<Descriptor>() * usize::from(self.config.size)
     }
 
     fn avail_ring_size(&self) -> usize {
         std::mem::size_of::<u16>()
             + std::mem::size_of::<u16>()
-            + std::mem::size_of::<u16>() * usize::from(self.size)
+            + std::mem::size_of::<u16>() * usize::from(self.config.size)
             + std::mem::size_of::<u16>()
     }
 
     fn used_ring_size(&self) -> usize {
         std::mem::size_of::<u16>()
             + std::mem::size_of::<u16>()
-            + std::mem::size_of::<UsedElement>() * usize::from(self.size)
+            + std::mem::size_of::<UsedElement>() * usize::from(self.config.size)
             + std::mem::size_of::<u16>()
     }
 
@@ -341,12 +362,15 @@ impl Queue {
     /// Set up pointers to the queue objects in the guest memory
     /// and mark memory dirty for those objects
     pub fn initialize<M: GuestMemoryBackend>(&mut self, mem: &M) -> Result<(), QueueError> {
-        if !self.ready {
+        if !self.config.ready {
             return Err(QueueError::NotReady);
         }
 
-        if self.size > self.max_size || self.size == 0 || (self.size & (self.size - 1)) != 0 {
-            return Err(QueueError::InvalidSize(self.size));
+        if self.config.size > self.config.max_size
+            || self.config.size == 0
+            || (self.config.size & (self.config.size - 1)) != 0
+        {
+            return Err(QueueError::InvalidSize(self.config.size));
         }
 
         // All the below pointers are verified to be aligned properly; otherwise some methods (e.g.
@@ -362,12 +386,24 @@ impl Queue {
         // > Available Ring   2
         // > Used Ring        4
         // > ================ ==========
-        self.desc_table_ptr =
-            self.get_aligned_slice_ptr(mem, self.desc_table_address, self.desc_table_size(), 16)?;
-        self.avail_ring_ptr =
-            self.get_aligned_slice_ptr(mem, self.avail_ring_address, self.avail_ring_size(), 2)?;
-        self.used_ring_ptr =
-            self.get_aligned_slice_ptr(mem, self.used_ring_address, self.used_ring_size(), 4)?;
+        self.desc_table_ptr = self.get_aligned_slice_ptr(
+            mem,
+            self.config.desc_table_address,
+            self.desc_table_size(),
+            16,
+        )?;
+        self.avail_ring_ptr = self.get_aligned_slice_ptr(
+            mem,
+            self.config.avail_ring_address,
+            self.avail_ring_size(),
+            2,
+        )?;
+        self.used_ring_ptr = self.get_aligned_slice_ptr(
+            mem,
+            self.config.used_ring_address,
+            self.used_ring_size(),
+            4,
+        )?;
 
         Ok(())
     }
@@ -394,7 +430,7 @@ impl Queue {
         // SAFETY: `used_event` is 2 + self.len u16 away from the start
         unsafe {
             self.avail_ring_ptr
-                .add(2_usize.unchecked_add(usize::from(self.size)))
+                .add(2_usize.unchecked_add(usize::from(self.config.size)))
                 .read_volatile()
         }
     }
@@ -434,7 +470,8 @@ impl Queue {
             self.used_ring_ptr
                 .add(
                     std::mem::size_of::<u16>().unchecked_mul(2)
-                        + std::mem::size_of::<UsedElement>().unchecked_mul(usize::from(self.size)),
+                        + std::mem::size_of::<UsedElement>()
+                            .unchecked_mul(usize::from(self.config.size)),
                 )
                 .cast::<u16>()
                 .read_volatile()
@@ -449,7 +486,8 @@ impl Queue {
             self.used_ring_ptr
                 .add(
                     std::mem::size_of::<u16>().unchecked_mul(2)
-                        + std::mem::size_of::<UsedElement>().unchecked_mul(usize::from(self.size)),
+                        + std::mem::size_of::<UsedElement>()
+                            .unchecked_mul(usize::from(self.config.size)),
                 )
                 .cast::<u16>()
                 .write_volatile(val)
@@ -484,9 +522,9 @@ impl Queue {
         // once. Checking and reporting such incorrect driver behavior
         // can prevent potential hanging and Denial-of-Service from
         // happening on the VMM side.
-        if self.size < len {
+        if self.config.size < len {
             return Err(InvalidAvailIdx {
-                queue_size: self.size,
+                queue_size: self.config.size,
                 reported_len: len,
             });
         }
@@ -538,15 +576,17 @@ impl Queue {
         //
         // We use `self.next_avail` to store the position, in `ring`, of the next available
         // descriptor index, with a twist: we always only increment `self.next_avail`, so the
-        // actual position will be `self.next_avail % self.size`.
-        let idx = self.next_avail.0 % self.size;
+        // actual position will be `self.next_avail % self.config.size`.
+        let idx = self.next_avail.0 % self.config.size;
         // SAFETY:
         // index is bound by the queue size
         let desc_index = unsafe { self.avail_ring_ring_get(usize::from(idx)) };
 
-        DescriptorChain::checked_new(self.desc_table_ptr, self.size, desc_index).inspect(|_| {
-            self.next_avail += Wrapping(1);
-        })
+        DescriptorChain::checked_new(self.desc_table_ptr, self.config.size, desc_index).inspect(
+            |_| {
+                self.next_avail += Wrapping(1);
+            },
+        )
     }
 
     /// Undo the effects of the last `self.pop()` call.
@@ -564,7 +604,7 @@ impl Queue {
         desc_index: u16,
         len: u32,
     ) -> Result<(), QueueError> {
-        if self.size <= desc_index {
+        if self.config.size <= desc_index {
             error!(
                 "attempted to add out of bounds descriptor to used ring: {}",
                 desc_index
@@ -572,7 +612,7 @@ impl Queue {
             return Err(QueueError::DescIndexOutOfBounds(desc_index));
         }
 
-        let next_used = (self.next_used + Wrapping(ring_index_offset)).0 % self.size;
+        let next_used = (self.next_used + Wrapping(ring_index_offset)).0 % self.config.size;
         let used_element = UsedElement {
             id: u32::from(desc_index),
             len,
@@ -621,9 +661,9 @@ impl Queue {
         if len != 0 {
             // The number of descriptor chain heads to process should always
             // be smaller or equal to the queue size.
-            if len > self.size {
+            if len > self.config.size {
                 return Err(InvalidAvailIdx {
-                    queue_size: self.size,
+                    queue_size: self.config.size,
                     reported_len: len,
                 });
             }
@@ -852,11 +892,11 @@ mod verification {
     fn less_arbitrary_queue() -> Queue {
         let mut queue = Queue::new(FIRECRACKER_MAX_QUEUE_SIZE);
 
-        queue.size = FIRECRACKER_MAX_QUEUE_SIZE;
-        queue.ready = true;
-        queue.desc_table_address = GuestAddress(QUEUE_BASE_ADDRESS);
-        queue.avail_ring_address = GuestAddress(AVAIL_RING_BASE_ADDRESS);
-        queue.used_ring_address = GuestAddress(USED_RING_BASE_ADDRESS);
+        queue.config.size = FIRECRACKER_MAX_QUEUE_SIZE;
+        queue.config.ready = true;
+        queue.config.desc_table_address = GuestAddress(QUEUE_BASE_ADDRESS);
+        queue.config.avail_ring_address = GuestAddress(AVAIL_RING_BASE_ADDRESS);
+        queue.config.used_ring_address = GuestAddress(USED_RING_BASE_ADDRESS);
         queue.next_avail = Wrapping(kani::any());
         queue.next_used = Wrapping(kani::any());
         queue.uses_notif_suppression = kani::any();
@@ -893,11 +933,11 @@ mod verification {
             // firecracker statically sets the maximal queue size to 256
             let mut queue = Queue::new(FIRECRACKER_MAX_QUEUE_SIZE);
 
-            queue.size = kani::any();
-            queue.ready = true;
-            queue.desc_table_address = GuestAddress(kani::any());
-            queue.avail_ring_address = GuestAddress(kani::any());
-            queue.used_ring_address = GuestAddress(kani::any());
+            queue.config.size = kani::any();
+            queue.config.ready = true;
+            queue.config.desc_table_address = GuestAddress(kani::any());
+            queue.config.avail_ring_address = GuestAddress(kani::any());
+            queue.config.used_ring_address = GuestAddress(kani::any());
             queue.next_avail = Wrapping(kani::any());
             queue.next_used = Wrapping(kani::any());
             queue.uses_notif_suppression = kani::any();
@@ -1034,7 +1074,7 @@ mod verification {
             // done. This is relying on implementation details of add_used, namely that
             // the check for out-of-bounds descriptor index happens at the very beginning of the
             // function.
-            assert!(used_desc_table_index >= queue.size);
+            assert!(used_desc_table_index >= queue.config.size);
         }
     }
 
@@ -1059,13 +1099,13 @@ mod verification {
                 if val == 0 { u64::MAX } else { val & (!val + 1) }
             }
 
-            assert!(alignment_of(queue.desc_table_address.0) >= 16);
-            assert!(alignment_of(queue.avail_ring_address.0) >= 2);
-            assert!(alignment_of(queue.used_ring_address.0) >= 4);
+            assert!(alignment_of(queue.config.desc_table_address.0) >= 16);
+            assert!(alignment_of(queue.config.avail_ring_address.0) >= 2);
+            assert!(alignment_of(queue.config.used_ring_address.0) >= 4);
 
             // length of queue must be power-of-two, and at most 2^15
-            assert_eq!(queue.size.count_ones(), 1);
-            assert!(queue.size <= 1u16 << 15);
+            assert_eq!(queue.config.size.count_ones(), 1);
+            assert!(queue.config.size <= 1u16 << 15);
         }
     }
 
@@ -1080,7 +1120,7 @@ mod verification {
     #[kani::unwind(0)]
     fn verify_avail_ring_ring_get() {
         let ProofContext(queue, _) = kani::any();
-        let x: usize = kani::any_where(|x| *x < usize::from(queue.size));
+        let x: usize = kani::any_where(|x| *x < usize::from(queue.config.size));
         unsafe { _ = queue.avail_ring_ring_get(x) };
     }
 
@@ -1102,7 +1142,7 @@ mod verification {
     #[kani::unwind(0)]
     fn verify_used_ring_ring_set() {
         let ProofContext(mut queue, _) = kani::any();
-        let x: usize = kani::any_where(|x| *x < usize::from(queue.size));
+        let x: usize = kani::any_where(|x| *x < usize::from(queue.config.size));
         let used_element = UsedElement {
             id: kani::any(),
             len: kani::any(),
@@ -1131,7 +1171,7 @@ mod verification {
         // is called when the queue is being initialized, e.g. empty. We compute it using
         // local variables here to make things easier on kani: One less roundtrip through vm-memory.
         let queue_len = queue.len();
-        kani::assume(queue_len <= queue.size);
+        kani::assume(queue_len <= queue.config.size);
 
         let next_avail = queue.next_avail;
 
@@ -1149,7 +1189,7 @@ mod verification {
         let ProofContext(mut queue, _) = kani::any();
 
         // See verify_pop for explanation
-        kani::assume(queue.len() <= queue.size);
+        kani::assume(queue.len() <= queue.config.size);
 
         let queue_clone = queue.clone();
         if let Some(_) = queue.pop().unwrap() {
@@ -1165,7 +1205,7 @@ mod verification {
     fn verify_try_enable_notification() {
         let ProofContext(mut queue, _) = ProofContext::bounded_queue();
 
-        kani::assume(queue.len() <= queue.size);
+        kani::assume(queue.len() <= queue.config.size);
 
         if queue.try_enable_notification().unwrap() && queue.uses_notif_suppression {
             // We only require new notifications if the queue is empty (e.g. we've processed
@@ -1183,16 +1223,17 @@ mod verification {
         let ProofContext(queue, mem) = kani::any();
 
         let index = kani::any();
-        let maybe_chain = DescriptorChain::checked_new(queue.desc_table_ptr, queue.size, index);
+        let maybe_chain =
+            DescriptorChain::checked_new(queue.desc_table_ptr, queue.config.size, index);
 
-        if index >= queue.size {
+        if index >= queue.config.size {
             assert!(maybe_chain.is_none())
         } else {
             // If the index was in-bounds for the descriptor table, we at least should be
             // able to compute the address of the descriptor table entry without going out
             // of bounds anywhere, and also read from that address.
             let desc_head = mem
-                .checked_offset(queue.desc_table_address, (index as usize) * 16)
+                .checked_offset(queue.config.desc_table_address, (index as usize) * 16)
                 .unwrap();
             mem.checked_offset(desc_head, 16).unwrap();
             let desc = mem.read_obj::<Descriptor>(desc_head).unwrap();
@@ -1200,7 +1241,7 @@ mod verification {
             match maybe_chain {
                 None => {
                     // This assert is the negation of the "is_valid" check in checked_new
-                    assert!(desc.flags & VIRTQ_DESC_F_NEXT == 1 && desc.next >= queue.size)
+                    assert!(desc.flags & VIRTQ_DESC_F_NEXT == 1 && desc.next >= queue.config.size)
                 }
                 Some(head) => {
                     assert!(head.is_valid())
@@ -1275,77 +1316,77 @@ mod tests {
         q.initialize(m).unwrap();
 
         // shouldn't be valid when not marked as ready
-        q.ready = false;
+        q.config.ready = false;
         assert!(matches!(q.initialize(m).unwrap_err(), QueueError::NotReady));
-        q.ready = true;
+        q.config.ready = true;
 
         // or when size > max_size
-        q.size = q.max_size << 1;
+        q.config.size = q.config.max_size << 1;
         assert!(matches!(
             q.initialize(m).unwrap_err(),
             QueueError::InvalidSize(_)
         ));
-        q.size = q.max_size;
+        q.config.size = q.config.max_size;
 
         // or when size is 0
-        q.size = 0;
+        q.config.size = 0;
         assert!(matches!(
             q.initialize(m).unwrap_err(),
             QueueError::InvalidSize(_)
         ));
-        q.size = q.max_size;
+        q.config.size = q.config.max_size;
 
         // or when size is not a power of 2
-        q.size = 11;
+        q.config.size = 11;
         assert!(matches!(
             q.initialize(m).unwrap_err(),
             QueueError::InvalidSize(_)
         ));
-        q.size = q.max_size;
+        q.config.size = q.config.max_size;
 
         // reset dirtied values
-        q.max_size = 16;
+        q.config.max_size = 16;
         q.next_avail = Wrapping(0);
-        m.write_obj::<u16>(0, q.avail_ring_address.unchecked_add(2))
+        m.write_obj::<u16>(0, q.config.avail_ring_address.unchecked_add(2))
             .unwrap();
 
         // or if the various addresses are off
 
-        q.desc_table_address = GuestAddress(0xffff_ff00);
+        q.config.desc_table_address = GuestAddress(0xffff_ff00);
         assert!(matches!(
             q.initialize(m).unwrap_err(),
             QueueError::MemoryError(_)
         ));
-        q.desc_table_address = GuestAddress(0x1001);
+        q.config.desc_table_address = GuestAddress(0x1001);
         assert!(matches!(
             q.initialize(m).unwrap_err(),
             QueueError::PointerNotAligned(_, _)
         ));
-        q.desc_table_address = vq.dtable_start();
+        q.config.desc_table_address = vq.dtable_start();
 
-        q.avail_ring_address = GuestAddress(0xffff_ff00);
+        q.config.avail_ring_address = GuestAddress(0xffff_ff00);
         assert!(matches!(
             q.initialize(m).unwrap_err(),
             QueueError::MemoryError(_)
         ));
-        q.avail_ring_address = GuestAddress(0x1001);
+        q.config.avail_ring_address = GuestAddress(0x1001);
         assert!(matches!(
             q.initialize(m).unwrap_err(),
             QueueError::PointerNotAligned(_, _)
         ));
-        q.avail_ring_address = vq.avail_start();
+        q.config.avail_ring_address = vq.avail_start();
 
-        q.used_ring_address = GuestAddress(0xffff_ff00);
+        q.config.used_ring_address = GuestAddress(0xffff_ff00);
         assert!(matches!(
             q.initialize(m).unwrap_err(),
             QueueError::MemoryError(_)
         ));
-        q.used_ring_address = GuestAddress(0x1001);
+        q.config.used_ring_address = GuestAddress(0x1001);
         assert!(matches!(
             q.initialize(m).unwrap_err(),
             QueueError::PointerNotAligned(_, _)
         ));
-        q.used_ring_address = vq.used_start();
+        q.config.used_ring_address = vq.used_start();
     }
 
     #[test]
@@ -1354,7 +1395,7 @@ mod tests {
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
         let mut q = vq.create_queue();
 
-        q.ready = true;
+        q.config.ready = true;
 
         // Let's create two simple descriptor chains.
 
@@ -1633,7 +1674,7 @@ mod tests {
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
         let mut q = vq.create_queue();
 
-        q.ready = true;
+        q.config.ready = true;
 
         // We create a simple descriptor chain
         vq.dtable[0].set(0x1000_u64, 0x1000, 0, 0);
@@ -1662,15 +1703,15 @@ mod tests {
     fn test_initialize_with_aligned_pointer() {
         let mut q = Queue::new(FIRECRACKER_MAX_QUEUE_SIZE);
 
-        q.ready = true;
-        q.size = q.max_size;
+        q.config.ready = true;
+        q.config.size = q.config.max_size;
 
         // Descriptor table must be 16-byte aligned.
-        q.desc_table_address = GuestAddress(16);
+        q.config.desc_table_address = GuestAddress(16);
         // Available ring must be 2-byte aligned.
-        q.avail_ring_address = GuestAddress(2);
+        q.config.avail_ring_address = GuestAddress(2);
         // Used ring must be 4-byte aligned.
-        q.avail_ring_address = GuestAddress(4);
+        q.config.avail_ring_address = GuestAddress(4);
 
         let mem = single_region_mem(0x10000);
         q.initialize(&mem).unwrap();
@@ -1679,12 +1720,12 @@ mod tests {
     #[test]
     fn test_initialize_with_misaligned_pointer() {
         let mut q = Queue::new(FIRECRACKER_MAX_QUEUE_SIZE);
-        q.ready = true;
-        q.size = q.max_size;
+        q.config.ready = true;
+        q.config.size = q.config.max_size;
         let mem = single_region_mem(0x1000);
 
         // Descriptor table must be 16-byte aligned.
-        q.desc_table_address = GuestAddress(0xb);
+        q.config.desc_table_address = GuestAddress(0xb);
         match q.initialize(&mem) {
             Ok(_) => panic!("Unexpected success"),
             Err(QueueError::PointerNotAligned(addr, alignment)) => {
@@ -1693,10 +1734,10 @@ mod tests {
             }
             Err(e) => panic!("Unexpected error {e:#?}"),
         }
-        q.desc_table_address = GuestAddress(0x0);
+        q.config.desc_table_address = GuestAddress(0x0);
 
         // Available ring must be 2-byte aligned.
-        q.avail_ring_address = GuestAddress(0x1);
+        q.config.avail_ring_address = GuestAddress(0x1);
         match q.initialize(&mem) {
             Ok(_) => panic!("Unexpected success"),
             Err(QueueError::PointerNotAligned(addr, alignment)) => {
@@ -1705,10 +1746,10 @@ mod tests {
             }
             Err(e) => panic!("Unexpected error {e:#?}"),
         }
-        q.avail_ring_address = GuestAddress(0x0);
+        q.config.avail_ring_address = GuestAddress(0x0);
 
         // Used ring must be 4-byte aligned.
-        q.used_ring_address = GuestAddress(0x3);
+        q.config.used_ring_address = GuestAddress(0x3);
         match q.initialize(&mem) {
             Ok(_) => panic!("unexpected success"),
             Err(QueueError::PointerNotAligned(addr, alignment)) => {

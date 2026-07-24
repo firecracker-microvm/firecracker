@@ -15,7 +15,7 @@ impl Entropy {
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::with_data(
-            &self.queue_events()[RNG_QUEUE],
+            self.queue_event(RNG_QUEUE).unwrap(),
             Self::PROCESS_ENTROPY_QUEUE,
             EventSet::IN,
         )) {

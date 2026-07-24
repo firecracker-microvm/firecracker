@@ -45,7 +45,7 @@ impl Persist<'_> for Entropy {
 
     fn save(&self) -> Self::State {
         EntropyState {
-            virtio_state: VirtioDeviceState::from_device(self),
+            virtio_state: VirtioDeviceState::from_device(self, &self.queues),
             rate_limiter_state: self.rate_limiter().save(),
         }
     }

@@ -14,7 +14,7 @@ use vmm_sys_util::eventfd::EventFd;
 use super::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::device_status;
-use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::queue::QueueConfig;
 use crate::logger::{IncMetric, METRICS, error, warn};
 use crate::utils::byte_order;
 use crate::vstate::bus::BusDevice;
@@ -101,24 +101,22 @@ impl MmioTransport {
 
     fn with_queue<U, F>(&self, d: U, f: F) -> U
     where
-        F: FnOnce(&Queue) -> U,
+        F: FnOnce(&QueueConfig) -> U,
         U: Debug,
     {
         match self
             .locked_device()
-            .queues()
-            .get(self.queue_select as usize)
+            .queue_config(self.queue_select as usize)
         {
             Some(queue) => f(queue),
             None => d,
         }
     }
 
-    fn with_queue_mut<F: FnOnce(&mut Queue)>(&mut self, f: F) -> bool {
+    fn with_queue_mut<F: FnOnce(&mut QueueConfig)>(&mut self, f: F) -> bool {
         if let Some(queue) = self
             .locked_device()
-            .queues_mut()
-            .get_mut(self.queue_select as usize)
+            .queue_config_mut(self.queue_select as usize)
         {
             f(queue);
             true
@@ -127,7 +125,7 @@ impl MmioTransport {
         }
     }
 
-    fn update_queue_field<F: FnOnce(&mut Queue)>(&mut self, f: F) {
+    fn update_queue_field<F: FnOnce(&mut QueueConfig)>(&mut self, f: F) {
         if self.check_device_status(
             device_status::FEATURES_OK,
             device_status::DRIVER_OK | device_status::FAILED,
@@ -479,6 +477,7 @@ pub(crate) mod tests {
     use crate::devices::virtio::ActivateError;
     use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
     use crate::devices::virtio::device_status::DEVICE_NEEDS_RESET;
+    use crate::devices::virtio::queue::{Queue, QueueError};
     use crate::impl_device_type;
     use crate::test_utils::single_region_mem;
     use crate::utils::byte_order::{read_le_u32, write_le_u32};
@@ -545,16 +544,20 @@ pub(crate) mod tests {
             self.acked_features = acked_features;
         }
 
-        fn queues(&self) -> &[Queue] {
-            &self.queues
+        fn num_queues(&self) -> usize {
+            self.queues.len()
         }
 
-        fn queues_mut(&mut self) -> &mut [Queue] {
-            &mut self.queues
+        fn queue_config(&self, index: usize) -> Option<&QueueConfig> {
+            self.queues.get(index).map(|queue| &queue.config)
         }
 
-        fn queue_events(&self) -> &[EventFd] {
-            &self.queue_evts
+        fn queue_config_mut(&mut self, index: usize) -> Option<&mut QueueConfig> {
+            self.queues.get_mut(index).map(|queue| &mut queue.config)
+        }
+
+        fn queue_event(&self, index: usize) -> Option<&EventFd> {
+            self.queue_evts.get(index)
         }
 
         fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
@@ -599,6 +602,17 @@ pub(crate) mod tests {
         fn _reset(&mut self) -> bool {
             !self.reset_should_fail
         }
+
+        fn reset_queues(&mut self) {
+            self.queues.iter_mut().for_each(Queue::reset);
+        }
+
+        fn mark_queue_memory_dirty(&mut self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
+            for queue in &mut self.queues {
+                queue.initialize(mem)?;
+            }
+            Ok(())
+        }
     }
 
     fn set_device_status(d: &mut MmioTransport, status: u32) {
@@ -618,17 +632,32 @@ pub(crate) mod tests {
         // We just make sure here that the implementation of a mmio device behaves as we expect,
         // given a known virtio device implementation (the dummy device).
 
-        assert_eq!(d.locked_device().queue_events().len(), 2);
+        assert_eq!(d.locked_device().num_queues(), 2);
+        assert!(d.locked_device().queue_event(0).is_some());
+        assert!(d.locked_device().queue_event(1).is_some());
+        assert!(d.locked_device().queue_event(2).is_none());
 
         d.queue_select = 0;
         assert_eq!(d.with_queue(0, |q| q.max_size), 16);
         assert!(d.with_queue_mut(|q| q.size = 16));
-        assert_eq!(d.locked_device().queues()[d.queue_select as usize].size, 16);
+        assert_eq!(
+            d.locked_device()
+                .queue_config(d.queue_select as usize)
+                .unwrap()
+                .size,
+            16
+        );
 
         d.queue_select = 1;
         assert_eq!(d.with_queue(0, |q| q.max_size), 32);
         assert!(d.with_queue_mut(|q| q.size = 16));
-        assert_eq!(d.locked_device().queues()[d.queue_select as usize].size, 16);
+        assert_eq!(
+            d.locked_device()
+                .queue_config(d.queue_select as usize)
+                .unwrap()
+                .size,
+            16
+        );
 
         d.queue_select = 2;
         assert_eq!(d.with_queue(0, |q| q.max_size), 0);
@@ -818,43 +847,97 @@ pub(crate) mod tests {
         assert_eq!(d.queue_select, 3);
 
         d.queue_select = 0;
-        assert_eq!(d.locked_device().queues()[0].size, 16);
+        assert_eq!(d.locked_device().queue_config(0).unwrap().size, 16);
         write_le_u32(&mut buf[..], 16);
         d.write(0x0, 0x38, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].size, 16);
+        assert_eq!(d.locked_device().queue_config(0).unwrap().size, 16);
 
-        assert!(!d.locked_device().queues()[0].ready);
+        assert!(!d.locked_device().queue_config(0).unwrap().ready);
         write_le_u32(&mut buf[..], 1);
         d.write(0x0, 0x44, &buf[..]);
-        assert!(d.locked_device().queues()[0].ready);
+        assert!(d.locked_device().queue_config(0).unwrap().ready);
 
-        assert_eq!(d.locked_device().queues()[0].desc_table_address.0, 0);
+        assert_eq!(
+            d.locked_device()
+                .queue_config(0)
+                .unwrap()
+                .desc_table_address
+                .0,
+            0
+        );
         write_le_u32(&mut buf[..], 123);
         d.write(0x0, 0x80, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].desc_table_address.0, 123);
+        assert_eq!(
+            d.locked_device()
+                .queue_config(0)
+                .unwrap()
+                .desc_table_address
+                .0,
+            123
+        );
         d.write(0x0, 0x84, &buf[..]);
         assert_eq!(
-            d.locked_device().queues()[0].desc_table_address.0,
+            d.locked_device()
+                .queue_config(0)
+                .unwrap()
+                .desc_table_address
+                .0,
             123 + (123 << 32)
         );
 
-        assert_eq!(d.locked_device().queues()[0].avail_ring_address.0, 0);
+        assert_eq!(
+            d.locked_device()
+                .queue_config(0)
+                .unwrap()
+                .avail_ring_address
+                .0,
+            0
+        );
         write_le_u32(&mut buf[..], 124);
         d.write(0x0, 0x90, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].avail_ring_address.0, 124);
+        assert_eq!(
+            d.locked_device()
+                .queue_config(0)
+                .unwrap()
+                .avail_ring_address
+                .0,
+            124
+        );
         d.write(0x0, 0x94, &buf[..]);
         assert_eq!(
-            d.locked_device().queues()[0].avail_ring_address.0,
+            d.locked_device()
+                .queue_config(0)
+                .unwrap()
+                .avail_ring_address
+                .0,
             124 + (124 << 32)
         );
 
-        assert_eq!(d.locked_device().queues()[0].used_ring_address.0, 0);
+        assert_eq!(
+            d.locked_device()
+                .queue_config(0)
+                .unwrap()
+                .used_ring_address
+                .0,
+            0
+        );
         write_le_u32(&mut buf[..], 125);
         d.write(0x0, 0xa0, &buf[..]);
-        assert_eq!(d.locked_device().queues()[0].used_ring_address.0, 125);
+        assert_eq!(
+            d.locked_device()
+                .queue_config(0)
+                .unwrap()
+                .used_ring_address
+                .0,
+            125
+        );
         d.write(0x0, 0xa4, &buf[..]);
         assert_eq!(
-            d.locked_device().queues()[0].used_ring_address.0,
+            d.locked_device()
+                .queue_config(0)
+                .unwrap()
+                .used_ring_address
+                .0,
             125 + (125 << 32)
         );
 
@@ -938,7 +1021,7 @@ pub(crate) mod tests {
         );
 
         let mut buf = [0; 4];
-        let queue_len = d.locked_device().queues().len();
+        let queue_len = d.locked_device().num_queues();
         for q in 0..queue_len {
             d.queue_select = q.try_into().unwrap();
             write_le_u32(&mut buf[..], 16);
@@ -990,7 +1073,7 @@ pub(crate) mod tests {
         );
 
         let mut buf = [0; 4];
-        let queue_len = d.locked_device().queues().len();
+        let queue_len = d.locked_device().num_queues();
         for q in 0..queue_len {
             d.queue_select = q.try_into().unwrap();
             write_le_u32(&mut buf[..], 16);
@@ -1037,7 +1120,7 @@ pub(crate) mod tests {
 
         // Setup queue data structures
         let mut buf = [0; 4];
-        let queues_count = d.locked_device().queues().len();
+        let queues_count = d.locked_device().num_queues();
         for q in 0..queues_count {
             d.queue_select = q.try_into().unwrap();
             write_le_u32(&mut buf[..], 16);
@@ -1218,11 +1301,23 @@ pub(crate) mod tests {
         dev.queue_select = 0;
 
         // Save the queue state right after activation.
-        let size_before = dev.locked_device().queues()[0].size;
-        let ready_before = dev.locked_device().queues()[0].ready;
-        let desc_before = dev.locked_device().queues()[0].desc_table_address;
-        let avail_before = dev.locked_device().queues()[0].avail_ring_address;
-        let used_before = dev.locked_device().queues()[0].used_ring_address;
+        let size_before = dev.locked_device().queue_config(0).unwrap().size;
+        let ready_before = dev.locked_device().queue_config(0).unwrap().ready;
+        let desc_before = dev
+            .locked_device()
+            .queue_config(0)
+            .unwrap()
+            .desc_table_address;
+        let avail_before = dev
+            .locked_device()
+            .queue_config(0)
+            .unwrap()
+            .avail_ring_address;
+        let used_before = dev
+            .locked_device()
+            .queue_config(0)
+            .unwrap()
+            .used_ring_address;
 
         // Attempt to poison every queue config register.
         let mut buf = [0u8; 4];
@@ -1230,19 +1325,28 @@ pub(crate) mod tests {
         // QueueNum (0x38)
         write_le_u32(&mut buf, 0);
         dev.write(0x0, 0x38, &buf);
-        assert_eq!(dev.locked_device().queues()[0].size, size_before);
+        assert_eq!(
+            dev.locked_device().queue_config(0).unwrap().size,
+            size_before
+        );
 
         // QueueReady (0x44)
         write_le_u32(&mut buf, 0);
         dev.write(0x0, 0x44, &buf);
-        assert_eq!(dev.locked_device().queues()[0].ready, ready_before);
+        assert_eq!(
+            dev.locked_device().queue_config(0).unwrap().ready,
+            ready_before
+        );
 
         // QueueDescLow/High (0x80, 0x84)
         write_le_u32(&mut buf, 0xDEADBEEF);
         dev.write(0x0, 0x80, &buf);
         dev.write(0x0, 0x84, &buf);
         assert_eq!(
-            dev.locked_device().queues()[0].desc_table_address,
+            dev.locked_device()
+                .queue_config(0)
+                .unwrap()
+                .desc_table_address,
             desc_before
         );
 
@@ -1250,7 +1354,10 @@ pub(crate) mod tests {
         dev.write(0x0, 0x90, &buf);
         dev.write(0x0, 0x94, &buf);
         assert_eq!(
-            dev.locked_device().queues()[0].avail_ring_address,
+            dev.locked_device()
+                .queue_config(0)
+                .unwrap()
+                .avail_ring_address,
             avail_before
         );
 
@@ -1258,7 +1365,10 @@ pub(crate) mod tests {
         dev.write(0x0, 0xa0, &buf);
         dev.write(0x0, 0xa4, &buf);
         assert_eq!(
-            dev.locked_device().queues()[0].used_ring_address,
+            dev.locked_device()
+                .queue_config(0)
+                .unwrap()
+                .used_ring_address,
             used_before
         );
     }

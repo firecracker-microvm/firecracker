@@ -166,7 +166,13 @@ mod tests {
             mem.write_obj::<u64>(123_456_789, data_addr).unwrap();
 
             // Trigger the queue event.
-            block.lock().unwrap().queue_evts[0].write(1).unwrap();
+            block
+                .lock()
+                .unwrap()
+                .queue_event(0)
+                .unwrap()
+                .write(1)
+                .unwrap();
         }
 
         // EventManager should report no events since block has only registered
