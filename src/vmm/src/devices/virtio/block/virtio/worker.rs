@@ -53,6 +53,8 @@ enum WorkerState {
 #[allow(clippy::large_enum_variant)]
 enum ControlMsg {
     Start(BlockWorker),
+    UpdateDiskImage { path: String, read_only: bool },
+    Kick,
     Reset,
     Finish(FlushMode),
 }
@@ -60,6 +62,7 @@ enum ControlMsg {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 enum ControlResponse {
+    DiskUpdated(Result<u64, VirtioBlockError>), // returns nsectors on success
     Reset(BlockResources),
 }
 
@@ -347,8 +350,30 @@ impl WorkerHandle {
     /// Stop processing and return the data-path resources to the VMM thread.
     /// The caller must reset the returned resources before reuse.
     pub(crate) fn reset(&self) -> BlockResources {
-        let ControlResponse::Reset(resources) = self.request_response(ControlMsg::Reset);
-        resources
+        match self.request_response(ControlMsg::Reset) {
+            ControlResponse::Reset(resources) => resources,
+            response => panic!("Unexpected block worker reset response: {response:?}"),
+        }
+    }
+
+    /// Replace the worker's backing file and return its new sector count.
+    pub(crate) fn update_disk_image(
+        &self,
+        disk_image_path: String,
+        read_only: bool,
+    ) -> Result<u64, VirtioBlockError> {
+        let msg = ControlMsg::UpdateDiskImage {
+            path: disk_image_path,
+            read_only,
+        };
+        match self.request_response(msg) {
+            ControlResponse::DiskUpdated(result) => result,
+            response => panic!("Unexpected block worker disk update response: {response:?}"),
+        }
+    }
+
+    pub(crate) fn kick(&self) {
+        self.request(ControlMsg::Kick);
     }
 
     /// Stop the worker and wait for its thread to exit.
@@ -426,6 +451,10 @@ impl ThreadedWorker {
         while let Ok(msg) = self.from_vmm.try_recv() {
             match msg {
                 ControlMsg::Start(worker) => self.start_worker(worker, ops),
+                ControlMsg::UpdateDiskImage { path, read_only } => {
+                    self.update_disk_image(path, read_only)
+                }
+                ControlMsg::Kick => self.kick_worker(),
                 ControlMsg::Reset => self.reset_worker(ops),
                 ControlMsg::Finish(flush_mode) => self.finish_worker(flush_mode, ops),
             }
@@ -452,6 +481,38 @@ impl ThreadedWorker {
         self.to_vmm
             .send(response)
             .expect("Failed to send block worker response");
+    }
+
+    fn update_disk_image(&mut self, path: String, read_only: bool) {
+        let result = match &mut self.state {
+            WorkerState::Running(worker) => worker.update_disk_image(path, read_only),
+            WorkerState::Parked => panic!("Disk image update requested while worker is parked"),
+            WorkerState::Finished => {
+                panic!("Disk image update requested after worker finished")
+            }
+        };
+
+        self.reply(ControlResponse::DiskUpdated(result));
+    }
+
+    fn kick_worker(&mut self) {
+        match std::mem::replace(&mut self.state, WorkerState::Parked) {
+            WorkerState::Running(worker) => {
+                self.state = WorkerState::Running(worker);
+            }
+            state => {
+                warn!("Kick requested while block worker is not active");
+                self.state = state;
+                return;
+            }
+        }
+
+        // process directly instead of going through epoll
+        if let WorkerState::Running(worker) = &mut self.state {
+            worker
+                .process_queue()
+                .unwrap_or_else(|err| error!("Failed to kick block worker queue: {:?}", err));
+        }
     }
 
     fn reset_worker(&mut self, ops: &mut EventOps) {
