@@ -66,7 +66,8 @@ def test_guest_cpu_features(uvm_any):
 
     if (
         global_props.cpu_model == CpuModel.ARM_NEOVERSE_V3
-        and vm.guest_kernel_version >= (6, 1)
+        and global_props.host_linux_version_tpl >= (5, 19)
+        and vm.guest_kernel_version >= (5, 19)
     ):
         expected_cpu_features = expected_cpu_features | {"wfxt"}
 
