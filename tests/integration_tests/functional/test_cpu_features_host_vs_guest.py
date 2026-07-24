@@ -662,15 +662,14 @@ def test_host_vs_guest_cpu_features(uvm):
                 "svesha3",
             }
 
-            # The "wfxt" (FEAT_WFxT) hwcap is exposed to userspace from kernel
-            # v6.1 (absent in v5.10, including Amazon Linux 5.10).
-            host_has_wfxt = global_props.host_linux_version_tpl >= (6, 1)
-            guest_has_wfxt = vm.guest_kernel_version >= (6, 1)
+            # The "wfxt" hwcap and its KVM exposure landed in kernel v5.19.
+            # https://github.com/torvalds/linux/commit/69bb02ebc38ace438c9cd7c5315cfe43862b51fe
+            # https://github.com/torvalds/linux/commit/06e0b802583d7bbc075476d90da995ee3e6053d5
+            host_has_wfxt = global_props.host_linux_version_tpl >= (5, 19)
+            guest_has_wfxt = host_has_wfxt and vm.guest_kernel_version >= (5, 19)
 
             if host_has_wfxt and not guest_has_wfxt:
                 expected_host_minus_guest |= {"wfxt"}
-            if not host_has_wfxt and guest_has_wfxt:
-                expected_guest_minus_host |= {"wfxt"}
 
             host_has_ssbs = global_props.host_os not in {
                 "amzn2",
