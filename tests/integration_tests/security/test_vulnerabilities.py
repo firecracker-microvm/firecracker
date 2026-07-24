@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 import requests
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from framework import utils
 from framework.ab_test import git_clone
@@ -139,11 +140,22 @@ class SpectreMeltdownChecker:
 @pytest.fixture(scope="session", name="spectre_meltdown_checker")
 def download_spectre_meltdown_checker(tmp_path_factory):
     """Download spectre / meltdown checker script."""
-    resp = requests.get(CHECKER_URL, timeout=5)
-    resp.raise_for_status()
+    resp = _download_checker_script()
     path = tmp_path_factory.mktemp("tmp", True) / CHECKER_FILENAME
     path.write_bytes(resp.content)
     return SpectreMeltdownChecker(path)
+
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=1),
+    reraise=True,
+)
+def _download_checker_script():
+    """Download the spectre-meltdown-checker script with retries."""
+    resp = requests.get(CHECKER_URL, timeout=30)
+    resp.raise_for_status()
+    return resp
 
 
 # Nothing can be sensibly tested in a PR context here
