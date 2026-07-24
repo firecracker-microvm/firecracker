@@ -139,6 +139,10 @@ CTR_CI_ARTIFACTS_PATH="${CTR_FC_ROOT_DIR}/resources/$(uname -m)"
 
 DEFAULT_ARTIFACTS_S3_BUCKET=s3://spec.ccfc.min/firecracker-ci
 
+# Maximum number of retries for AWS CLI S3 operations (mitigates transient
+# connection errors such as ConnectionResetError during large downloads).
+AWS_S3_MAX_ATTEMPTS=5
+
 # Lockfile used while modifying KVM modules
 KVM_MODULE_LOCKFILE="/tmp/.kvm_module_lock"
 
@@ -151,7 +155,7 @@ get_newest_s3_artifacts() {
   # sort them by the `LastModified` date, and return the last one (newest).
   # We need to do it this way as S3 doesn't store `LastModified`` date for directories,
   # so we need to list all files.
-  local newest_dir=$(aws s3api list-objects-v2 \
+  local newest_dir=$(AWS_MAX_ATTEMPTS=$AWS_S3_MAX_ATTEMPTS aws s3api list-objects-v2 \
         --bucket "$bucket" --prefix "$base_prefix" --no-sign-request \
         --query 'sort_by(Contents[?contains(Key, `vmlinux`)], &LastModified)[-1].Key' |
         tr -d '"' |
@@ -699,7 +703,7 @@ download_ci_artifacts() {
     if [ ! -d "$local_artifacts_path" ]; then
         say "Fetching artifacts from S3: " $artifacts_arch " into: " $local_artifacts_path
         mkdir -pv $local_artifacts_path
-        aws s3 sync --no-sign-request "$artifacts_arch" "$local_artifacts_path"
+        AWS_MAX_ATTEMPTS=$AWS_S3_MAX_ATTEMPTS aws s3 sync --no-sign-request "$artifacts_arch" "$local_artifacts_path"
         ok_or_die "Failed to download artifacts using awscli!"
         cmd_sh "./tools/setup-ci-artifacts.sh" $local_artifacts_path
         if [ $? != 0 ]; then
@@ -1430,7 +1434,7 @@ download_complementary_artifacts() {
 
     say "Fetching complementary artifacts from S3: $s3_arch -> $dest"
     mkdir -pv "$dest"
-    aws s3 sync --no-sign-request "$s3_arch" "$dest" --exclude "*" "${include_args[@]}"
+    AWS_MAX_ATTEMPTS=$AWS_S3_MAX_ATTEMPTS aws s3 sync --no-sign-request "$s3_arch" "$dest" --exclude "*" "${include_args[@]}"
     ok_or_die "Failed to download complementary artifacts using awscli!"
 }
 
