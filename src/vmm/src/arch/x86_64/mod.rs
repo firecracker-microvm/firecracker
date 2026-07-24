@@ -58,12 +58,16 @@ use layout::{
 use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::pvh::PvhBootConfigurator;
 use linux_loader::configurator::{BootConfigurator, BootParams};
-use linux_loader::loader::bootparam::boot_params;
-use linux_loader::loader::elf::Elf as Loader;
+use linux_loader::loader::bootparam::{XLF_KERNEL_64, boot_params, setup_header};
+use linux_loader::loader::bzimage::BzImage as BzImageLoader;
+use linux_loader::loader::elf::Elf as ElfLoader;
+use linux_loader::loader::elf::Error as ElfError;
 use linux_loader::loader::elf::start_info::{
     hvm_memmap_table_entry, hvm_modlist_entry, hvm_start_info,
 };
-use linux_loader::loader::{Cmdline, KernelLoader, PvhBootCapability, load_cmdline};
+use linux_loader::loader::{
+    Cmdline, Error as KernelLoaderError, KernelLoader, PvhBootCapability, load_cmdline,
+};
 use vm_memory::GuestMemoryBackend;
 
 // Value taken from https://elixir.bootlin.com/linux/v5.10.68/source/arch/x86/include/uapi/asm/e820.h#L31
@@ -93,6 +97,8 @@ pub enum ConfigurationError {
     KernelFile,
     /// Cannot load kernel due to invalid memory configuration or invalid kernel image: {0}
     KernelLoader(linux_loader::loader::Error),
+    /// bzImage does not provide a 64-bit entry point
+    BzImageMissing64BitEntry,
     /// Cannot load command line string: {0}
     LoadCommandline(linux_loader::loader::Error),
     /// Failed to create guest config: {0}
@@ -234,6 +240,7 @@ pub fn configure_system_for_boot(
                 GuestAddress(CMDLINE_START),
                 cmdline_size,
                 initrd,
+                entry_point.setup_header,
             )?;
         }
     }
@@ -346,6 +353,7 @@ fn configure_64bit_boot(
     cmdline_addr: GuestAddress,
     cmdline_size: usize,
     initrd: &Option<InitrdConfig>,
+    setup_header: Option<setup_header>,
 ) -> Result<(), ConfigurationError> {
     const KERNEL_BOOT_FLAG_MAGIC: u16 = 0xaa55;
     const KERNEL_HDR_MAGIC: u32 = 0x5372_6448;
@@ -354,22 +362,28 @@ fn configure_64bit_boot(
 
     let himem_start = GuestAddress(layout::HIMEM_START);
 
+    // A bzImage carries its own setup header; for ELF there is none, so
+    // start from a zeroed header with the minimum required alignment.
+    let mut hdr = setup_header.unwrap_or_else(|| setup_header {
+        kernel_alignment: KERNEL_MIN_ALIGNMENT_BYTES,
+        ..Default::default()
+    });
+    hdr.type_of_loader = KERNEL_LOADER_OTHER;
+    hdr.boot_flag = KERNEL_BOOT_FLAG_MAGIC;
+    hdr.header = KERNEL_HDR_MAGIC;
+    hdr.cmd_line_ptr = u32::try_from(cmdline_addr.raw_value()).unwrap();
+    hdr.cmdline_size = u32::try_from(cmdline_size).unwrap();
+    if let Some(initrd_config) = initrd {
+        hdr.ramdisk_image = u32::try_from(initrd_config.address.raw_value()).unwrap();
+        hdr.ramdisk_size = u32::try_from(initrd_config.size).unwrap();
+    }
+
     // Set the location of RSDP in Boot Parameters to help the guest kernel find it faster.
     let mut params = boot_params {
+        hdr,
         acpi_rsdp_addr: layout::RSDP_ADDR,
         ..Default::default()
     };
-
-    params.hdr.type_of_loader = KERNEL_LOADER_OTHER;
-    params.hdr.boot_flag = KERNEL_BOOT_FLAG_MAGIC;
-    params.hdr.header = KERNEL_HDR_MAGIC;
-    params.hdr.cmd_line_ptr = u32::try_from(cmdline_addr.raw_value()).unwrap();
-    params.hdr.cmdline_size = u32::try_from(cmdline_size).unwrap();
-    params.hdr.kernel_alignment = KERNEL_MIN_ALIGNMENT_BYTES;
-    if let Some(initrd_config) = initrd {
-        params.hdr.ramdisk_image = u32::try_from(initrd_config.address.raw_value()).unwrap();
-        params.hdr.ramdisk_size = u32::try_from(initrd_config.size).unwrap();
-    }
 
     // We mark first [0x0, SYSTEM_MEM_START) region as usable RAM and the subsequent
     // [SYSTEM_MEM_START, (SYSTEM_MEM_START + SYSTEM_MEM_SIZE)) as reserved (note
@@ -429,7 +443,14 @@ fn add_e820_entry(
     Ok(())
 }
 
-/// Load linux kernel into guest memory.
+/// Offset of the 64-bit entry point from the start of a loaded bzImage,
+/// per the Linux/x86 64-bit boot protocol.
+const BZIMAGE_64BIT_ENTRY_OFFSET: u64 = 0x200;
+
+/// Load a linux kernel into guest memory.
+///
+/// Supports uncompressed ELF (`vmlinux`) and `bzImage`; ELF is tried
+/// first, falling back to the bzImage loader.
 pub fn load_kernel(
     kernel: &File,
     guest_memory: &GuestMemoryMmap,
@@ -440,28 +461,62 @@ pub fn load_kernel(
         .try_clone()
         .map_err(|_| ConfigurationError::KernelFile)?;
 
-    let entry_addr = Loader::load(
-        guest_memory,
-        None,
-        &mut kernel_file,
-        Some(GuestAddress(get_kernel_start())),
-    )
-    .map_err(ConfigurationError::KernelLoader)?;
+    let highmem_start = Some(GuestAddress(get_kernel_start()));
 
-    let mut entry_point_addr: GuestAddress = entry_addr.kernel_load;
-    let mut boot_prot: BootProtocol = BootProtocol::LinuxBoot;
-    if let PvhBootCapability::PvhEntryPresent(pvh_entry_addr) = entry_addr.pvh_boot_cap {
-        // Use the PVH kernel entry point to boot the guest
-        entry_point_addr = pvh_entry_addr;
-        boot_prot = BootProtocol::PvhBoot;
+    // Try to load the image as an ELF (vmlinux); if it has no ELF magic,
+    // we try to load it as a bzImage.
+    match ElfLoader::load(guest_memory, None, &mut kernel_file, highmem_start) {
+        Ok(elf_result) => {
+            let mut entry_point_addr: GuestAddress = elf_result.kernel_load;
+            let mut boot_prot: BootProtocol = BootProtocol::LinuxBoot;
+            if let PvhBootCapability::PvhEntryPresent(pvh_entry_addr) = elf_result.pvh_boot_cap {
+                // Use the PVH kernel entry point to boot the guest
+                entry_point_addr = pvh_entry_addr;
+                boot_prot = BootProtocol::PvhBoot;
+            }
+
+            debug!("Kernel loaded using {boot_prot}");
+
+            Ok(EntryPoint {
+                entry_addr: entry_point_addr,
+                protocol: boot_prot,
+                setup_header: None,
+            })
+        }
+        // Not an ELF image: fall back to the bzImage loader.
+        Err(KernelLoaderError::Elf(ElfError::InvalidElfMagicNumber)) => {
+            let bzimage_result =
+                BzImageLoader::load(guest_memory, None, &mut kernel_file, highmem_start)
+                    .map_err(ConfigurationError::KernelLoader)?;
+
+            // We jump to the 64-bit entry point, which only exists when the
+            // image advertises it via XLF_KERNEL_64 (boot protocol >= 2.12).
+            let hdr = bzimage_result
+                .setup_header
+                .expect("bzImage load always yields a setup header");
+            if hdr.version < 0x020c || hdr.xloadflags & XLF_KERNEL_64 == 0 {
+                return Err(ConfigurationError::BzImageMissing64BitEntry);
+            }
+
+            // Enter at the 64-bit entry point (BZIMAGE_64BIT_ENTRY_OFFSET
+            // past the load address); the setup header seeds the zero page.
+            let entry_addr = bzimage_result
+                .kernel_load
+                .checked_add(BZIMAGE_64BIT_ENTRY_OFFSET)
+                .ok_or(ConfigurationError::KernelLoader(
+                    KernelLoaderError::MemoryOverflow,
+                ))?;
+
+            debug!("Kernel loaded using {} (bzImage)", BootProtocol::LinuxBoot);
+
+            Ok(EntryPoint {
+                entry_addr,
+                protocol: BootProtocol::LinuxBoot,
+                setup_header: bzimage_result.setup_header,
+            })
+        }
+        Err(err) => Err(ConfigurationError::KernelLoader(err)),
     }
-
-    debug!("Kernel loaded using {boot_prot}");
-
-    Ok(EntryPoint {
-        entry_addr: entry_point_addr,
-        protocol: boot_prot,
-    })
 }
 
 #[cfg(kani)]
@@ -584,7 +639,7 @@ mod tests {
         let gm = arch_mem(mem_size);
         let mut resource_allocator = ResourceAllocator::new();
         mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus).unwrap();
-        configure_64bit_boot(&gm, GuestAddress(0), 0, &None).unwrap();
+        configure_64bit_boot(&gm, GuestAddress(0), 0, &None, None).unwrap();
         configure_pvh(&gm, GuestAddress(0), &None).unwrap();
 
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
@@ -592,7 +647,7 @@ mod tests {
         let gm = arch_mem(mem_size);
         let mut resource_allocator = ResourceAllocator::new();
         mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus).unwrap();
-        configure_64bit_boot(&gm, GuestAddress(0), 0, &None).unwrap();
+        configure_64bit_boot(&gm, GuestAddress(0), 0, &None, None).unwrap();
         configure_pvh(&gm, GuestAddress(0), &None).unwrap();
 
         // Now assigning some memory that falls after the 32bit memory hole.
@@ -600,8 +655,119 @@ mod tests {
         let gm = arch_mem(mem_size);
         let mut resource_allocator = ResourceAllocator::new();
         mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus).unwrap();
-        configure_64bit_boot(&gm, GuestAddress(0), 0, &None).unwrap();
+        configure_64bit_boot(&gm, GuestAddress(0), 0, &None, None).unwrap();
         configure_pvh(&gm, GuestAddress(0), &None).unwrap();
+    }
+
+    /// Builds a minimal bzImage that satisfies `linux_loader`'s bzImage
+    /// loader checks, with the given `xloadflags`. Not a runnable kernel, only
+    /// enough to exercise loader selection and zero-page seeding in
+    /// `load_kernel`.
+    fn make_fake_bzimage(xloadflags: u16) -> Vec<u8> {
+        const SETUP_SECTS: u8 = 4;
+        // Setup area (`(setup_sects + 1) * 512`) followed by a small protected-mode payload.
+        let setup_len = (SETUP_SECTS as usize + 1) * 512;
+        let mut image = vec![0u8; setup_len + 0x1000];
+
+        // setup_sects @ 0x1f1
+        image[0x1f1] = SETUP_SECTS;
+        // boot_flag (0xaa55) @ 0x1fe
+        image[0x1fe] = 0x55;
+        image[0x1ff] = 0xaa;
+        // "HdrS" header magic @ 0x202
+        image[0x202..0x206].copy_from_slice(&0x5372_6448u32.to_le_bytes());
+        // version @ 0x206 (>= 0x020c so xloadflags is defined)
+        image[0x206..0x208].copy_from_slice(&0x020fu16.to_le_bytes());
+        // loadflags @ 0x211 with LOADED_HIGH (bit 0) set
+        image[0x211] = 0x01;
+        // code32_start @ 0x214: default load address, must be >= HIMEM_START
+        let code32_start = u32::try_from(get_kernel_start()).unwrap();
+        image[0x214..0x218].copy_from_slice(&code32_start.to_le_bytes());
+        // xloadflags @ 0x236
+        image[0x236..0x238].copy_from_slice(&xloadflags.to_le_bytes());
+
+        image
+    }
+
+    #[test]
+    fn test_load_kernel_bzimage() {
+        use std::io::{Seek, SeekFrom, Write};
+
+        use vmm_sys_util::tempfile::TempFile;
+
+        let gm = arch_mem(mib_to_bytes(128));
+
+        let image = make_fake_bzimage(XLF_KERNEL_64);
+        let tempfile = TempFile::new().unwrap();
+        let mut file = tempfile.into_file();
+        file.write_all(&image).unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+
+        let entry_point = load_kernel(&file, &gm).unwrap();
+
+        assert_eq!(entry_point.protocol, BootProtocol::LinuxBoot);
+        assert_eq!(
+            entry_point.entry_addr,
+            GuestAddress(get_kernel_start() + BZIMAGE_64BIT_ENTRY_OFFSET)
+        );
+        let hdr = entry_point
+            .setup_header
+            .expect("bzImage must yield a setup header");
+        // Copy out of the packed struct to avoid unaligned references.
+        let (header, setup_sects) = (hdr.header, hdr.setup_sects);
+        assert_eq!(header, 0x5372_6448);
+        assert_eq!(setup_sects, 4);
+    }
+
+    #[test]
+    fn test_load_kernel_bzimage_without_64bit_entry() {
+        use std::io::{Seek, SeekFrom, Write};
+
+        use vmm_sys_util::tempfile::TempFile;
+
+        let gm = arch_mem(mib_to_bytes(128));
+
+        // A valid bzImage that does not advertise a 64-bit entry point.
+        let image = make_fake_bzimage(0);
+        let tempfile = TempFile::new().unwrap();
+        let mut file = tempfile.into_file();
+        file.write_all(&image).unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+
+        assert!(matches!(
+            load_kernel(&file, &gm),
+            Err(ConfigurationError::BzImageMissing64BitEntry)
+        ));
+    }
+
+    #[test]
+    fn test_load_kernel_elf_has_no_setup_header() {
+        use std::fs::File;
+
+        use crate::test_utils::mock_resources::kernel_image_path;
+
+        let gm = arch_mem(mib_to_bytes(128));
+
+        let file = File::open(kernel_image_path(None)).unwrap();
+        let entry_point = load_kernel(&file, &gm).unwrap();
+        assert!(entry_point.setup_header.is_none());
+    }
+
+    #[test]
+    fn test_load_kernel_invalid_image_is_rejected() {
+        use std::io::{Seek, SeekFrom, Write};
+
+        use vmm_sys_util::tempfile::TempFile;
+
+        let gm = arch_mem(mib_to_bytes(128));
+
+        // Neither valid ELF nor valid bzImage.
+        let tempfile = TempFile::new().unwrap();
+        let mut file = tempfile.into_file();
+        file.write_all(&[0u8; 8192]).unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+
+        load_kernel(&file, &gm).unwrap_err();
     }
 
     #[test]

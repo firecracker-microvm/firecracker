@@ -31,6 +31,10 @@ G4_SVE_AND_PAC = set(
     "paca pacg sve sve2 sveaes svebitperm svepmull svesha3 svebf16 svei8mm".split()
 )
 
+G5_FEATS = G4_FEATS | set("afp ecv".split())
+
+G5_SVE_AND_PAC = G4_SVE_AND_PAC
+
 
 @pin_cpu_template(ALL_CPU_TEMPLATES)
 def test_guest_cpu_features(uvm_any):
@@ -55,6 +59,16 @@ def test_guest_cpu_features(uvm_any):
             expected_cpu_features = G4_FEATS
         case CpuModel.ARM_NEOVERSE_V2, "AARCH64_WITH_SVE_AND_PAC":
             expected_cpu_features = G4_FEATS | G4_SVE_AND_PAC
+        case CpuModel.ARM_NEOVERSE_V3, "None":
+            expected_cpu_features = G5_FEATS
+        case CpuModel.ARM_NEOVERSE_V3, "AARCH64_WITH_SVE_AND_PAC":
+            expected_cpu_features = G5_FEATS | G5_SVE_AND_PAC
+
+    if (
+        global_props.cpu_model == CpuModel.ARM_NEOVERSE_V3
+        and vm.guest_kernel_version >= (6, 1)
+    ):
+        expected_cpu_features = expected_cpu_features | {"wfxt"}
 
     guest_feats = set(vm.ssh.check_output(CPU_FEATURES_CMD).stdout.split())
     assert guest_feats == expected_cpu_features

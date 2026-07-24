@@ -876,6 +876,7 @@ mod tests {
                 EntryPoint {
                     entry_addr: GuestAddress(0),
                     protocol: BootProtocol::LinuxBoot,
+                    setup_header: None,
                 },
                 &vcpu_config,
             ),
@@ -893,6 +894,7 @@ mod tests {
                             EntryPoint {
                                 entry_addr: GuestAddress(crate::arch::get_kernel_start()),
                                 protocol: BootProtocol::LinuxBoot,
+                                setup_header: None,
                             },
                             &config,
                         )
@@ -1023,6 +1025,7 @@ mod tests {
             EntryPoint {
                 entry_addr: GuestAddress(0),
                 protocol: BootProtocol::LinuxBoot,
+                setup_header: None,
             },
             &vcpu_config,
         )
@@ -1093,6 +1096,7 @@ mod tests {
             EntryPoint {
                 entry_addr: GuestAddress(0),
                 protocol: BootProtocol::LinuxBoot,
+                setup_header: None,
             },
             &vcpu_config,
         )
