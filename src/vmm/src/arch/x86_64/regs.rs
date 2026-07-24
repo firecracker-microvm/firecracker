@@ -388,6 +388,7 @@ mod tests {
         let entry_point: EntryPoint = EntryPoint {
             entry_addr: GuestAddress(expected_regs.rip),
             protocol: BootProtocol::LinuxBoot,
+            setup_header: None,
         };
 
         setup_regs(&vcpu, entry_point).unwrap();

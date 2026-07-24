@@ -4,8 +4,16 @@
 
 ### Manual compilation
 
-Currently, Firecracker supports uncompressed ELF kernel images on x86_64 while
-on aarch64 it supports PE formatted images.
+Currently, on x86_64 Firecracker supports uncompressed ELF (`vmlinux`) kernel
+images as well as `bzImage` images, while on aarch64 it supports PE formatted
+(`Image`) images. On x86_64 the image format is detected automatically.
+
+> [!NOTE]
+>
+> On x86_64, `bzImage` support is provided for compatibility; `vmlinux` is
+> recommended. A `bzImage` is compressed and is decompressed by the guest at
+> boot, which costs additional boot time and guest memory (and therefore host
+> memory) compared to booting the equivalent uncompressed `vmlinux`.
 
 Here's a quick step-by-step guide to building your own kernel that Firecracker
 can boot:
@@ -48,6 +56,9 @@ can boot:
         make Image
    fi
    ```
+
+   On x86_64 you can alternatively build a `bzImage` (`make bzImage`), which
+   Firecracker also supports; it is produced under `./arch/x86/boot/bzImage`.
 
 1. Upon a successful build, you can find the kernel image under `./vmlinux` (for
    x86) or `./arch/arm64/boot/Image` (for aarch64).
