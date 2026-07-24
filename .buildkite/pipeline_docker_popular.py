@@ -27,6 +27,7 @@ pipeline.build_group_per_arch(
 pipeline.build_group(
     "docker-popular-containers",
     [
+        "./tools/devtool setup_kvm",
         "./tools/devtool ensure_current_artifacts",
         f'buildkite-agent artifact download "{ROOTFS_TAR}" .',
         f'tar xzf "{ROOTFS_TAR}" -C tools/test-popular-containers',
