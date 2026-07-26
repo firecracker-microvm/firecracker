@@ -16,10 +16,12 @@ use super::metrics::BlockDeviceMetrics;
 use super::{FinishedRequest, IoErr, ProcessingResult, Request, VirtioBlockError};
 use crate::EventManager;
 use crate::devices::virtio::device::ActiveState;
-use crate::devices::virtio::queue::InvalidAvailIdx;
+use crate::devices::virtio::persist::QueueState;
+use crate::devices::virtio::queue::{InvalidAvailIdx, QueueError};
 use crate::devices::virtio::transport::VirtioInterruptType;
 use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::RateLimiter;
+use crate::snapshot::Persist;
 
 /// Runtime state and processing logic for an active block device.
 #[derive(Debug)]
@@ -47,6 +49,7 @@ struct ThreadedWorker {
 enum WorkerState {
     Parked,
     Running(BlockWorker),
+    Paused(BlockWorker),
     Finished,
 }
 
@@ -54,8 +57,11 @@ enum WorkerState {
 enum ControlMsg {
     Start(BlockWorker),
     UpdateDiskImage { path: String, read_only: bool },
-    Kick,
     Reset,
+    Pause,
+    GetQueueState,
+    MarkQueueMemoryDirty,
+    Kick { resume: bool },
     Finish(FlushMode),
 }
 
@@ -64,6 +70,9 @@ enum ControlMsg {
 enum ControlResponse {
     DiskUpdated(Result<u64, VirtioBlockError>), // returns nsectors on success
     Reset(BlockResources),
+    Paused,
+    QueueState(QueueState),
+    QueueMemoryDirty(Result<(), QueueError>),
 }
 
 /// VMM-side handle for controlling and joining a block worker thread.
@@ -277,7 +286,17 @@ impl BlockWorker {
 
     /// Prepare device for being snapshotted.
     pub(crate) fn prepare_save(&mut self) {
-        self.drain_and_flush(false);
+        // Fsync errors are non-fatal; other drain errors are broken invariants.
+        match self.resources.disk.file_engine.drain_and_flush(false) {
+            Ok(()) => {}
+            Err(BlockIoError::Async(async_io::AsyncIoError::SyncAll(err))) => {
+                error!("Failed to flush block data for snapshot: {:?}", err);
+            }
+            Err(BlockIoError::Sync(err)) => {
+                error!("Failed to flush block data for snapshot: {:?}", err);
+            }
+            Err(err) => panic!("Failed to drain block IO engine for snapshot: {err:?}"),
+        }
         if matches!(&self.resources.disk.file_engine, FileEngine::Async(_)) {
             self.process_async_completion_queue();
         }
@@ -307,6 +326,7 @@ impl WorkerHandle {
         let join = thread::Builder::new().name(name).spawn(move || {
             let event_manager =
                 EventManager::new().expect("Failed to create block worker EventManager");
+
             run_worker_loop(event_manager, control_evt, from_vmm, to_vmm);
         })?;
 
@@ -372,8 +392,35 @@ impl WorkerHandle {
         }
     }
 
-    pub(crate) fn kick(&self) {
-        self.request(ControlMsg::Kick);
+    /// Pause data-path processing after completing pending I/O.
+    pub(crate) fn pause(&self) {
+        match self.request_response(ControlMsg::Pause) {
+            ControlResponse::Paused => {}
+            response => panic!("Unexpected block worker pause response: {response:?}"),
+        }
+    }
+
+    /// Read queue state from a paused worker.
+    pub(crate) fn get_queue_state(&self) -> QueueState {
+        match self.request_response(ControlMsg::GetQueueState) {
+            ControlResponse::QueueState(state) => state,
+            response => panic!("Unexpected block worker queue state response: {response:?}"),
+        }
+    }
+
+    /// Mark the worker-owned virtqueue memory dirty after a snapshot.
+    pub(crate) fn mark_queue_memory_dirty(&self) -> Result<(), QueueError> {
+        match self.request_response(ControlMsg::MarkQueueMemoryDirty) {
+            ControlResponse::QueueMemoryDirty(result) => result,
+            response => {
+                panic!("Unexpected block worker queue memory dirty response: {response:?}")
+            }
+        }
+    }
+
+    /// Resume a paused worker and process pending queue entries.
+    pub(crate) fn kick(&self, resume: bool) {
+        self.request(ControlMsg::Kick { resume });
     }
 
     /// Stop the worker and wait for its thread to exit.
@@ -442,7 +489,7 @@ impl ThreadedWorker {
 
     fn process_control_event(&mut self, ops: &mut EventOps) {
         if let Err(err) = self.control_evt.read() {
-            if let WorkerState::Running(worker) = &self.state {
+            if let WorkerState::Running(worker) | WorkerState::Paused(worker) = &self.state {
                 worker.metrics.event_fails.inc();
             }
             panic!("Failed to consume block worker control event: {err:?}");
@@ -454,7 +501,10 @@ impl ThreadedWorker {
                 ControlMsg::UpdateDiskImage { path, read_only } => {
                     self.update_disk_image(path, read_only)
                 }
-                ControlMsg::Kick => self.kick_worker(),
+                ControlMsg::Pause => self.pause_worker(ops),
+                ControlMsg::GetQueueState => self.send_queue_state(),
+                ControlMsg::MarkQueueMemoryDirty => self.mark_queue_memory_dirty(),
+                ControlMsg::Kick { resume } => self.kick_worker(resume, ops),
                 ControlMsg::Reset => self.reset_worker(ops),
                 ControlMsg::Finish(flush_mode) => self.finish_worker(flush_mode, ops),
             }
@@ -485,7 +535,9 @@ impl ThreadedWorker {
 
     fn update_disk_image(&mut self, path: String, read_only: bool) {
         let result = match &mut self.state {
-            WorkerState::Running(worker) => worker.update_disk_image(path, read_only),
+            WorkerState::Running(worker) | WorkerState::Paused(worker) => {
+                worker.update_disk_image(path, read_only)
+            }
             WorkerState::Parked => panic!("Disk image update requested while worker is parked"),
             WorkerState::Finished => {
                 panic!("Disk image update requested after worker finished")
@@ -495,8 +547,72 @@ impl ThreadedWorker {
         self.reply(ControlResponse::DiskUpdated(result));
     }
 
-    fn kick_worker(&mut self) {
+    fn reset_worker(&mut self, ops: &mut EventOps) {
+        let worker = match std::mem::replace(&mut self.state, WorkerState::Parked) {
+            WorkerState::Running(worker) => {
+                Self::unregister_runtime_events(&worker.resources, ops);
+                worker
+            }
+            WorkerState::Paused(worker) => worker,
+            state => {
+                self.state = state;
+                panic!("Reset requested while block worker is not active")
+            }
+        };
+
+        drop(worker.active_state);
+        self.reply(ControlResponse::Reset(worker.resources));
+    }
+
+    fn pause_worker(&mut self, ops: &mut EventOps) {
         match std::mem::replace(&mut self.state, WorkerState::Parked) {
+            WorkerState::Running(mut worker) => {
+                Self::unregister_runtime_events(&worker.resources, ops);
+                worker.prepare_save();
+                self.state = WorkerState::Paused(worker);
+            }
+            WorkerState::Paused(worker) => {
+                self.state = WorkerState::Paused(worker);
+            }
+            state => {
+                self.state = state;
+                panic!("Pause requested while block worker is not active")
+            }
+        }
+
+        self.reply(ControlResponse::Paused);
+    }
+
+    fn send_queue_state(&self) {
+        let WorkerState::Paused(worker) = &self.state else {
+            panic!("Queue state requested while block worker is not paused")
+        };
+
+        self.reply(ControlResponse::QueueState(worker.resources.queue.save()));
+    }
+
+    fn mark_queue_memory_dirty(&mut self) {
+        let result = if let WorkerState::Paused(worker) = &mut self.state {
+            let mem = worker.active_state.mem.clone();
+            worker.resources.queue.initialize(&mem)
+        } else {
+            warn!("Queue memory dirty requested while block worker is not paused");
+            Err(QueueError::NotReady)
+        };
+
+        self.reply(ControlResponse::QueueMemoryDirty(result));
+    }
+
+    fn kick_worker(&mut self, resume: bool, ops: &mut EventOps) {
+        match std::mem::replace(&mut self.state, WorkerState::Parked) {
+            WorkerState::Paused(worker) if resume => {
+                Self::register_runtime_events(&worker.resources, ops);
+                self.state = WorkerState::Running(worker);
+            }
+            WorkerState::Paused(worker) => {
+                self.state = WorkerState::Paused(worker);
+                return;
+            }
             WorkerState::Running(worker) => {
                 self.state = WorkerState::Running(worker);
             }
@@ -515,33 +631,23 @@ impl ThreadedWorker {
         }
     }
 
-    fn reset_worker(&mut self, ops: &mut EventOps) {
-        let worker = match std::mem::replace(&mut self.state, WorkerState::Parked) {
+    fn finish_worker(&mut self, flush_mode: FlushMode, ops: &mut EventOps) {
+        match std::mem::replace(&mut self.state, WorkerState::Finished) {
             WorkerState::Running(worker) => {
                 Self::unregister_runtime_events(&worker.resources, ops);
-                worker
+                Self::flush_worker(worker, flush_mode);
             }
-            state => {
-                self.state = state;
-                panic!("Reset requested while block worker is not active")
-            }
-        };
-
-        drop(worker.active_state);
-        self.reply(ControlResponse::Reset(worker.resources));
+            WorkerState::Paused(worker) => Self::flush_worker(worker, flush_mode),
+            WorkerState::Parked | WorkerState::Finished => {}
+        }
     }
 
-    fn finish_worker(&mut self, flush_mode: FlushMode, ops: &mut EventOps) {
-        if let WorkerState::Running(mut worker) =
-            std::mem::replace(&mut self.state, WorkerState::Finished)
-        {
-            Self::unregister_runtime_events(&worker.resources, ops);
-            match flush_mode {
-                FlushMode::Drain => worker.drain(true),
-                FlushMode::DrainAndFlush => worker.drain_and_flush(true),
-            }
-            worker.resources.is_io_engine_throttled = false;
+    fn flush_worker(mut worker: BlockWorker, flush_mode: FlushMode) {
+        match flush_mode {
+            FlushMode::Drain => worker.drain(true),
+            FlushMode::DrainAndFlush => worker.drain_and_flush(true),
         }
+        worker.resources.is_io_engine_throttled = false;
     }
 
     fn is_finished(&self) -> bool {
