@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use vmm_sys_util::eventfd::EventFd;
 
-use super::device::{BlockResources, BlockState, DiskProperties};
+use super::device::{ActiveBlock, BlockResources, BlockState, DiskProperties};
 use super::*;
 use crate::devices::virtio::block::persist::BlockConstructorArgs;
 use crate::devices::virtio::block::virtio::device::{FileEngineType, VirtioBlockConfig};
@@ -70,14 +70,25 @@ impl Persist<'_> for VirtioBlock {
     type Error = VirtioBlockError;
 
     fn save(&self) -> Self::State {
-        // Save device state.
+        let virtio_state = if let BlockState::Active(ActiveBlock::Threaded(active)) = &self.state {
+            VirtioDeviceState {
+                device_type: VirtioDeviceType::Block,
+                avail_features: self.avail_features,
+                acked_features: self.acked_features,
+                queues: active.worker_handle.get_queue_states(),
+                activated: true,
+            }
+        } else {
+            VirtioDeviceState::from_device(self, &self.resources().queues)
+        };
+
         VirtioBlockState {
             id: self.config.drive_id.clone(),
             partuuid: self.config.partuuid.clone(),
             cache_type: self.config.cache_type,
             root_device: self.config.is_root_device,
-            disk_path: self.disk().file_path.clone(),
-            virtio_state: VirtioDeviceState::from_device(self, &self.resources().queues),
+            disk_path: self.config.path_on_host.clone(),
+            virtio_state,
             rate_limiter_state: self.rate_limiter().save(),
             file_engine_type: FileEngineTypeState::from(self.file_engine_type()),
         }
