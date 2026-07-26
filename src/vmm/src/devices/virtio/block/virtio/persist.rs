@@ -76,13 +76,24 @@ impl Persist<'_> for VirtioBlock {
     type Error = VirtioBlockError;
 
     fn save(&self) -> Self::State {
+        let virtio_state = if let BlockRuntimeState::Threaded(active) = &self.state {
+            VirtioDeviceState {
+                device_type: VirtioDeviceType::Block,
+                avail_features: self.avail_features,
+                acked_features: self.acked_features,
+                queues: vec![active.worker_handle.get_queue_state()],
+                activated: true,
+            }
+        } else {
+            VirtioDeviceState::from_device(self, iter::once(&self.resources().queue))
+        };
         VirtioBlockState {
             id: self.config.drive_id.clone(),
             partuuid: self.config.partuuid.clone(),
             cache_type: self.config.cache_type,
             root_device: self.config.is_root_device,
             disk_path: self.config.path_on_host.clone(),
-            virtio_state: VirtioDeviceState::from_device(self, iter::once(&self.resources().queue)),
+            virtio_state,
             rate_limiter_state: self.lock_rate_limiter().save(),
             file_engine_type: FileEngineTypeState::from(self.file_engine_type()),
             blk_size: self.config_space.blk_size,
