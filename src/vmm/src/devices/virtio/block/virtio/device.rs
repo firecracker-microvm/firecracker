@@ -404,7 +404,7 @@ pub(crate) enum BlockRuntimeState {
 /// VMM-side state when data path runs on a worker thread
 #[derive(Debug)]
 pub(crate) struct ThreadedActive {
-    worker_handle: WorkerHandle,
+    pub(crate) worker_handle: WorkerHandle,
     interrupt: Arc<dyn VirtioInterrupt>,
     queue_config: Vec<QueueConfig>,
 }
@@ -596,7 +596,7 @@ impl VirtioBlock {
             BlockRuntimeState::Inline(worker) => {
                 worker.process_queue().unwrap();
             }
-            BlockRuntimeState::Threaded(active) => active.worker_handle.kick(),
+            BlockRuntimeState::Threaded(active) => active.worker_handle.kick(false),
             BlockRuntimeState::Configuring(_, _) => {}
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
         }
@@ -658,9 +658,7 @@ impl VirtioBlock {
     pub fn prepare_save(&mut self) {
         match &mut self.state {
             BlockRuntimeState::Inline(worker) => worker.prepare_save(),
-            BlockRuntimeState::Threaded(_) => {
-                unreachable!("worker control messages are not connected yet")
-            }
+            BlockRuntimeState::Threaded(active) => active.worker_handle.pause(),
             BlockRuntimeState::Configuring(_, _) => {}
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
         }
@@ -868,13 +866,26 @@ impl VirtioDevice for VirtioBlock {
         }
     }
 
+    fn kick(&mut self) {
+        match &self.state {
+            BlockRuntimeState::Threaded(active) => active.worker_handle.kick(true),
+            BlockRuntimeState::Inline(_) => self.notify_queue_events(),
+            BlockRuntimeState::Configuring(_, _) => {}
+            BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
+        }
+    }
+
     fn mark_queue_memory_dirty(&mut self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
         match &mut self.state {
-            BlockRuntimeState::Configuring(resources, _) => resources.queue.initialize(mem)?,
+            BlockRuntimeState::Configuring(resources, _) => {
+                resources.queue.initialize(mem)?;
+            }
             BlockRuntimeState::Inline(worker) => {
                 worker.resources.queue.initialize(mem)?;
             }
-            BlockRuntimeState::Threaded(_) => {}
+            BlockRuntimeState::Threaded(active) => {
+                active.worker_handle.mark_queue_memory_dirty()?;
+            }
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
         }
         Ok(())
