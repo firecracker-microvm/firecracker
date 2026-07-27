@@ -6,7 +6,6 @@
 //! Reads serial output from the enclave's info page ring buffer on a 100ms
 //! timer and writes it to the configured serial output (file or stdout).
 
-use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::num::Wrapping;
 use std::path::Path;
@@ -24,6 +23,7 @@ use crate::nitro_enclave::info_page::InfoPage;
 #[cfg(test)]
 use crate::nitro_enclave::info_page::PartialSink;
 use crate::rate_limiter::{BucketReduction, TokenBucket};
+use crate::utils::{open_file_nonblock, set_stdout_nonblocking};
 
 /// Polling interval for the serial ring buffer.
 const SERIAL_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -94,19 +94,21 @@ pub struct ConsoleReader {
 impl ConsoleReader {
     /// Create a new serial console reader.
     ///
-    /// If `serial_out_path` is Some, output goes to that file (create/append).
-    /// If None, output goes to stdout. When `rate_limiter` is Some, output that
-    /// exceeds its budget is dropped rather than written.
+    /// Output goes to `serial_out_path` if set, else stdout. Either sink is
+    /// non-blocking, so a slow consumer cannot block the event thread. When
+    /// `rate_limiter` is Some, output over budget is dropped rather than
+    /// written.
     pub fn new(
         info_page: Arc<InfoPage>,
         serial_out_path: Option<&Path>,
         rate_limiter: Option<TokenBucket>,
     ) -> io::Result<Self> {
         let inner = match serial_out_path {
-            Some(path) => {
-                SerialOutInner::File(OpenOptions::new().create(true).append(true).open(path)?)
+            Some(path) => SerialOutInner::File(open_file_nonblock(path)?),
+            None => {
+                set_stdout_nonblocking();
+                SerialOutInner::Stdout(io::stdout())
             }
-            None => SerialOutInner::Stdout(io::stdout()),
         };
 
         let mut timer_fd = TimerFd::new();

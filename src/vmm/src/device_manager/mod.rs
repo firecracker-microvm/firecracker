@@ -49,7 +49,7 @@ use crate::devices::virtio::pmem::device::Pmem;
 use crate::devices::virtio::pmem::persist::PmemPersistError;
 use crate::devices::virtio::rng::persist::EntropyPersistError;
 use crate::devices::virtio::vsock::{VsockError, VsockUnixBackendError};
-use crate::logger::{error, info, warn};
+use crate::logger::{info, warn};
 use crate::nitro_enclave::enclave_vm::EnclaveVm;
 use crate::pci::bus::MAX_PCI_BUSES;
 use crate::rate_limiter::TokenBucket;
@@ -57,7 +57,7 @@ use crate::resources::VmResources;
 use crate::rpc_interface::VmmActionError;
 use crate::seccomp::BpfProgram;
 use crate::snapshot::Persist;
-use crate::utils::open_file_nonblock;
+use crate::utils::{open_file_nonblock, set_stdout_nonblocking};
 use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
 use crate::vmm_config::mmds::MmdsConfigError;
@@ -144,21 +144,6 @@ pub struct DeviceManager {
 }
 
 impl DeviceManager {
-    // Adds `O_NONBLOCK` to the stdout flags.
-    fn set_stdout_nonblocking() {
-        // SAFETY: Call is safe since parameters are valid.
-        let flags = unsafe { libc::fcntl(libc::STDOUT_FILENO, libc::F_GETFL, 0) };
-        if flags < 0 {
-            error!("Could not get Firecracker stdout flags.");
-        }
-        // SAFETY: Call is safe since parameters are valid.
-        let rc =
-            unsafe { libc::fcntl(libc::STDOUT_FILENO, libc::F_SETFL, flags | libc::O_NONBLOCK) };
-        if rc < 0 {
-            error!("Could not set Firecracker stdout to non-blocking.");
-        }
-    }
-
     /// Sets up the serial device.
     fn setup_serial_device(
         event_manager: &mut EventManager,
@@ -175,7 +160,7 @@ impl DeviceManager {
                 ),
             ),
             None => {
-                Self::set_stdout_nonblocking();
+                set_stdout_nonblocking();
 
                 (
                     Some(std::io::stdin()),
