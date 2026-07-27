@@ -72,7 +72,7 @@ impl PciSegment {
         let mmio_config_address = PCI_MMCONFIG_START + PCI_MMIO_CONFIG_SIZE_PER_SEGMENT * id as u64;
 
         vm.common.mmio_bus.insert(
-            Arc::clone(&pci_config_mmio) as Arc<dyn BusDeviceSync>,
+            pci_config_mmio.clone(),
             mmio_config_address,
             PCI_MMIO_CONFIG_SIZE_PER_SEGMENT,
         )?;
