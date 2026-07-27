@@ -15,6 +15,8 @@ use std::path::Path;
 
 use libc::O_NONBLOCK;
 
+use crate::logger::error;
+
 /// How many bits to left-shift by to convert MiB to bytes
 const MIB_TO_BYTES_SHIFT: usize = 20;
 
@@ -137,6 +139,20 @@ impl Version {
 impl std::fmt::Display for Version {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}.{}.{}", self.major(), self.minor(), self.patch())
+    }
+}
+
+/// Adds `O_NONBLOCK` to the stdout flags.
+pub fn set_stdout_nonblocking() {
+    // SAFETY: Call is safe since parameters are valid.
+    let flags = unsafe { libc::fcntl(libc::STDOUT_FILENO, libc::F_GETFL, 0) };
+    if flags < 0 {
+        error!("Could not get Firecracker stdout flags.");
+    }
+    // SAFETY: Call is safe since parameters are valid.
+    let rc = unsafe { libc::fcntl(libc::STDOUT_FILENO, libc::F_SETFL, flags | O_NONBLOCK) };
+    if rc < 0 {
+        error!("Could not set Firecracker stdout to non-blocking.");
     }
 }
 
