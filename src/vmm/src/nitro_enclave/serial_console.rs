@@ -21,6 +21,8 @@ use vmm_sys_util::epoll::EventSet;
 use crate::devices::legacy::serial::METRICS;
 use crate::logger::{IncMetric, error};
 use crate::nitro_enclave::info_page::InfoPage;
+#[cfg(test)]
+use crate::nitro_enclave::info_page::PartialSink;
 use crate::rate_limiter::{BucketReduction, TokenBucket};
 
 /// Polling interval for the serial ring buffer.
@@ -31,7 +33,7 @@ enum SerialOutInner {
     File(std::fs::File),
     Stdout(io::Stdout),
     #[cfg(test)]
-    Test(Vec<u8>),
+    Test(PartialSink),
 }
 
 /// Output destination for serial data, with an optional output rate limiter.
@@ -125,11 +127,25 @@ impl ConsoleReader {
     /// optional rate limiter.
     #[cfg(test)]
     fn new_test(info_page: Arc<InfoPage>, rate_limiter: Option<TokenBucket>) -> Self {
+        Self::new_test_sink(
+            info_page,
+            rate_limiter,
+            PartialSink::new(usize::MAX, io::ErrorKind::WouldBlock),
+        )
+    }
+
+    /// Create a serial console writing into `sink`.
+    #[cfg(test)]
+    fn new_test_sink(
+        info_page: Arc<InfoPage>,
+        rate_limiter: Option<TokenBucket>,
+        sink: PartialSink,
+    ) -> Self {
         Self {
             timer_fd: TimerFd::new(),
             info_page,
             output: SerialOutput {
-                inner: SerialOutInner::Test(Vec::new()),
+                inner: SerialOutInner::Test(sink),
                 rate_limiter,
             },
             last_write_idx: Wrapping(0),
@@ -139,31 +155,51 @@ impl ConsoleReader {
     #[cfg(test)]
     fn test_output(&self) -> &[u8] {
         match &self.output.inner {
-            SerialOutInner::Test(v) => v,
+            SerialOutInner::Test(sink) => &sink.written,
             _ => panic!("not a test output"),
         }
     }
 
     /// Read new bytes from the info page serial ring buffer and write to output.
-    pub(crate) fn flush_serial(&mut self) {
-        if let Some((new_idx, written)) = self
+    ///
+    /// Returns `false` once the sink has failed for good.
+    pub(crate) fn flush_serial(&mut self) -> bool {
+        match self
             .info_page
             .write_serial_since(self.last_write_idx, &mut self.output)
         {
-            self.output.flush();
-            self.last_write_idx = new_idx;
-            METRICS.write_count.add(written.into());
-            METRICS.flush_count.inc();
+            Ok((_, 0)) => {}
+            Ok((new_idx, written)) => {
+                self.output.flush();
+                self.last_write_idx = new_idx;
+                METRICS.write_count.add(written.into());
+                METRICS.flush_count.inc();
+            }
+            // Leave the cursor alone so the next tick retries these bytes.
+            Err(e) if e.is_retriable() => {}
+            Err(e) => {
+                error!("Failed to drain the serial ring: {e}");
+                METRICS.error_count.inc();
+                return false;
+            }
         }
+        true
     }
 }
 
 impl MutEventSubscriber for ConsoleReader {
-    fn process(&mut self, event: Events, _ops: &mut EventOps) {
-        if event.event_set().contains(EventSet::IN) {
-            // Read the timer to acknowledge it.
-            let _ = self.timer_fd.read();
-            self.flush_serial();
+    fn process(&mut self, event: Events, ops: &mut EventOps) {
+        if !event.event_set().contains(EventSet::IN) {
+            return;
+        }
+        // Read the timer to acknowledge it.
+        let _ = self.timer_fd.read();
+        if self.flush_serial() {
+            return;
+        }
+        error!("Shutting down the serial console: its output is no longer writable");
+        if let Err(err) = ops.remove(Events::new(&self.timer_fd, EventSet::IN)) {
+            error!("Failed to un-register serial console timer: {err}");
         }
     }
 
@@ -187,6 +223,7 @@ mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     #![allow(clippy::cast_possible_truncation)]
 
+    use std::io::ErrorKind;
     use std::ptr;
     use std::sync::Arc;
 
@@ -227,7 +264,9 @@ mod tests {
         let page = Arc::new(InfoPage::from_raw_ptr(p.cast::<u8>()));
         let mut console = ConsoleReader::new_test(page, None);
 
-        console.flush_serial();
+        // No header means no serial ring, which the hypervisor always
+        // publishes: stop polling rather than spin on a page it never filled.
+        assert!(!console.flush_serial());
         assert_eq!(console.last_write_idx, Wrapping(0));
     }
 
@@ -254,5 +293,39 @@ mod tests {
             METRICS.rate_limiter_dropped_bytes.count() - dropped_before,
             cap as u64
         );
+    }
+
+    #[test]
+    fn test_flush_serial_full_sink_retries_without_error() {
+        // A full sink is backpressure: keep polling, count no error.
+        let data = b"hello world";
+        let page = Arc::new(info_page::make_test_page(data.len() as u32, 256, data));
+        let mut console =
+            ConsoleReader::new_test_sink(page, None, PartialSink::new(4, ErrorKind::WouldBlock));
+
+        let errors_before = METRICS.error_count.count();
+        assert!(console.flush_serial());
+        assert_eq!(console.last_write_idx, Wrapping(4));
+        assert_eq!(console.test_output(), b"hell");
+
+        // Wedged now: the cursor stays put, so the rest is still pending.
+        assert!(console.flush_serial());
+        assert_eq!(console.last_write_idx, Wrapping(4));
+        assert_eq!(METRICS.error_count.count(), errors_before);
+    }
+
+    #[test]
+    fn test_flush_serial_broken_sink_reports_error() {
+        // EPIPE is fatal: count it and stop polling.
+        let data = b"hello";
+        let page = Arc::new(info_page::make_test_page(data.len() as u32, 256, data));
+        let mut console =
+            ConsoleReader::new_test_sink(page, None, PartialSink::new(0, ErrorKind::BrokenPipe));
+
+        let errors_before = METRICS.error_count.count();
+        assert!(!console.flush_serial());
+        assert_eq!(console.last_write_idx, Wrapping(0));
+        assert!(console.test_output().is_empty());
+        assert_eq!(METRICS.error_count.count() - errors_before, 1);
     }
 }

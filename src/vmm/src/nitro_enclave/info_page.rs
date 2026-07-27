@@ -12,7 +12,8 @@ use std::mem::size_of;
 use std::num::Wrapping;
 
 use vm_memory::{
-    ByteValued, Bytes, GuestMemoryRegion, MemoryRegionAddress, VolatileSlice, WriteVolatile,
+    ByteValued, Bytes, GuestMemoryRegion, MemoryRegionAddress, VolatileMemoryError, VolatileSlice,
+    WriteVolatile,
 };
 
 use super::ne_ioctl::EnclaveFd;
@@ -305,6 +306,45 @@ pub enum InfoPageError {
     InvalidHeader,
 }
 
+/// Errors from draining the info page's serial ring.
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum SerialRingError {
+    /// serial output is full
+    SinkFull,
+    /// failed to write serial output: {0}
+    Sink(VolatileMemoryError),
+    /// info page has no serial ring
+    NoRing,
+    /// info page TOC entry {entry}: serial ring capacity {capacity} unusable
+    BadCapacity {
+        /// Index of the offending TOC entry.
+        entry: usize,
+        /// Capacity the hypervisor declared.
+        capacity: u32,
+    },
+}
+
+impl SerialRingError {
+    /// Whether a later poll could succeed. Only a full sink drains later; a
+    /// malformed ring or a dead sink will not fix itself.
+    pub fn is_retriable(&self) -> bool {
+        matches!(self, Self::SinkFull)
+    }
+}
+
+impl From<VolatileMemoryError> for SerialRingError {
+    fn from(e: VolatileMemoryError) -> Self {
+        match e {
+            VolatileMemoryError::IOError(ref io_err)
+                if io_err.kind() == io::ErrorKind::WouldBlock =>
+            {
+                Self::SinkFull
+            }
+            other => Self::Sink(other),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // InfoPage -- allocation, registration, and serial ring reading
 // ---------------------------------------------------------------------------
@@ -376,13 +416,20 @@ impl InfoPage {
 
     /// Write new serial data since `last_write_idx` directly into `dst`.
     ///
-    /// Returns `(new write_idx, bytes written)` if there is new data, or `None`
-    /// if there is no serial ring buffer or no new data.
+    /// Each chunk is written once, so a sink that accepts only part of the data
+    /// does not block the caller. Returns `Ok((cursor, bytes written))`, where
+    /// the cursor trails `write_idx` on a short write so the next call resumes
+    /// there, and the count is zero when the ring holds nothing new.
+    ///
+    /// On error, see [`SerialRingError::is_retriable`]: a full sink drains on a
+    /// later poll, whereas a malformed ring means a broken hypervisor (it
+    /// publishes one before `NE_START_ENCLAVE` returns, so the console only
+    /// ever polls a populated page).
     pub fn write_serial_since<W: WriteVolatile>(
         &self,
         last_write_idx: Wrapping<u32>,
         dst: &mut W,
-    ) -> Option<(Wrapping<u32>, u32)> {
+    ) -> Result<(Wrapping<u32>, u32), SerialRingError> {
         for (i, toc) in self.toc_entries() {
             if toc.entry_type != TOC_TYPE_SERIAL {
                 continue;
@@ -411,40 +458,43 @@ impl InfoPage {
                 }
             };
             let data_offset = offset + size_of::<SerialRingHeader>();
-            if ring.capacity == 0 || ring.capacity as usize > size - size_of::<SerialRingHeader>() {
-                return None;
+            let capacity = ring.capacity;
+            if capacity == 0 || capacity as usize > size - size_of::<SerialRingHeader>() {
+                return Err(SerialRingError::BadCapacity { entry: i, capacity });
             }
             // `write_idx` wraps at u32::MAX, so the delta is a wrapping
             // subtraction; a zero delta means no new data.
             let new_bytes = (ring.write_idx - last_write_idx).0;
             if new_bytes == 0 {
-                return None;
+                return Ok((last_write_idx, 0));
             }
-            let read_len = new_bytes.min(ring.capacity);
+            let read_len = new_bytes.min(capacity);
             // Anchor on the oldest surviving byte, `read_len` behind `write_idx`.
             // This is `last_write_idx` normally, but the overwritten start once
             // the ring overflowed (`new_bytes > capacity`). Exact across the u32
             // counter wrap only when capacity is a power of two.
-            let start_pos = ring.write_idx.0.wrapping_sub(read_len) % ring.capacity;
+            let anchor = ring.write_idx - Wrapping(read_len);
+            let start_pos = anchor.0 % capacity;
+            // A drain running off the end of the ring continues at the start, so
+            // it takes two writes; `min` keeps the non-wrapping case to one.
             // `start_pos < capacity` and `read_len <= capacity <= INFO_PAGE_SIZE`,
-            // so the sum cannot overflow u32.
-            if start_pos + read_len <= ring.capacity {
-                vs.write_all_volatile_to(data_offset + start_pos as usize, dst, read_len as usize)
-                    .ok()?;
-            } else {
-                let first_chunk = ring.capacity - start_pos;
-                vs.write_all_volatile_to(
-                    data_offset + start_pos as usize,
-                    dst,
-                    first_chunk as usize,
-                )
-                .ok()?;
-                vs.write_all_volatile_to(data_offset, dst, (read_len - first_chunk) as usize)
-                    .ok()?;
+            // so neither sum can overflow u32.
+            let first_chunk = (capacity - start_pos).min(read_len);
+            let mut written =
+                vs.write_volatile_to(data_offset + start_pos as usize, dst, first_chunk as usize)?;
+            // Continue into the wrapped part only if the first chunk went out
+            // whole, so a short write cannot leave a hole mid-stream. Keep that
+            // progress if the remainder is refused; the cursor then trails
+            // `write_idx` and the next call reports the error.
+            if written == first_chunk as usize && read_len > first_chunk {
+                written += vs
+                    .write_volatile_to(data_offset, dst, (read_len - first_chunk) as usize)
+                    .unwrap_or(0);
             }
-            return Some((ring.write_idx, read_len));
+            let written = u32::try_from(written).expect("write_volatile_to wrote past read_len");
+            return Ok((anchor + Wrapping(written), written));
         }
-        None
+        Err(SerialRingError::NoRing)
     }
 
     /// Search the info page for a device mirror matching `device_uid`.
@@ -597,6 +647,45 @@ pub(crate) fn make_test_page(write_idx: u32, capacity: u32, data: &[u8]) -> Info
     InfoPage::from_raw_ptr(base)
 }
 
+/// A sink that accepts `accept` more bytes, then fails with `kind`.
+#[cfg(test)]
+pub(crate) struct PartialSink {
+    pub(crate) accept: usize,
+    pub(crate) kind: io::ErrorKind,
+    pub(crate) written: Vec<u8>,
+}
+
+#[cfg(test)]
+impl PartialSink {
+    pub(crate) fn new(accept: usize, kind: io::ErrorKind) -> Self {
+        Self {
+            accept,
+            kind,
+            written: Vec::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl WriteVolatile for PartialSink {
+    fn write_volatile<B: vm_memory::bitmap::BitmapSlice>(
+        &mut self,
+        buf: &VolatileSlice<'_, B>,
+    ) -> Result<usize, VolatileMemoryError> {
+        if self.accept == 0 {
+            return Err(VolatileMemoryError::IOError(io::Error::from(self.kind)));
+        }
+        let take = buf.len().min(self.accept);
+        let mut tmp = vec![0u8; take];
+        buf.subslice(0, take)
+            .expect("take <= buf.len()")
+            .copy_to(&mut tmp[..]);
+        self.written.extend_from_slice(&tmp);
+        self.accept -= take;
+        Ok(take)
+    }
+}
+
 /// Builder for an info page with arbitrary TOC entries, for unit tests.
 ///
 /// Unlike [`make_test_page`] (which writes a single serial entry), this lets a
@@ -734,6 +823,7 @@ mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     #![allow(clippy::cast_possible_truncation)]
 
+    use std::io::ErrorKind;
     use std::ptr;
 
     use super::*;
@@ -784,7 +874,7 @@ mod tests {
         // No new data when already caught up.
         let page = make_test_page(5, TEST_RING_CAPACITY, b"hello");
         buf.clear();
-        assert!(page.write_serial_since(Wrapping(5), &mut buf).is_none());
+        assert_eq!(page.write_serial_since(Wrapping(5), &mut buf).unwrap().1, 0);
     }
 
     #[test]
@@ -811,6 +901,67 @@ mod tests {
     }
 
     #[test]
+    fn test_write_serial_since_partial_write_resumes() {
+        // The sink takes 4 of 11 bytes, so the next call must emit the other 7
+        // exactly once.
+        let data = b"hello world";
+        let page = make_test_page(data.len() as u32, TEST_RING_CAPACITY, data);
+
+        let mut sink = PartialSink::new(4, ErrorKind::WouldBlock);
+        let (idx, written) = page.write_serial_since(Wrapping(0), &mut sink).unwrap();
+        assert_eq!(written, 4);
+        assert_eq!(idx, Wrapping(4));
+        assert_eq!(&sink.written, b"hell");
+
+        let mut sink = PartialSink::new(usize::MAX, ErrorKind::WouldBlock);
+        let (idx, written) = page.write_serial_since(idx, &mut sink).unwrap();
+        assert_eq!(written, 7);
+        assert_eq!(idx, Wrapping(data.len() as u32));
+        assert_eq!(&sink.written, b"o world");
+    }
+
+    #[test]
+    fn test_write_serial_since_sink_refuses_everything() {
+        // Nothing accepted: the error reaches the caller, which classifies it.
+        let data = b"hello";
+        let page = make_test_page(data.len() as u32, TEST_RING_CAPACITY, data);
+
+        let mut sink = PartialSink::new(0, ErrorKind::WouldBlock);
+        let err = page
+            .write_serial_since(Wrapping(0), &mut sink)
+            .expect_err("a sink that accepts nothing must report the error");
+        assert!(matches!(err, SerialRingError::SinkFull));
+        assert!(err.is_retriable());
+        assert!(sink.written.is_empty());
+    }
+
+    #[test]
+    fn test_write_serial_since_partial_write_across_wrap() {
+        // Wrapped drain starting at position 4. The sink takes 3 of the 4-byte
+        // first chunk, so writing the wrapped part would reorder the stream.
+        let page = make_test_page(12, 8, b"EFGHABCD");
+
+        let mut sink = PartialSink::new(3, ErrorKind::WouldBlock);
+        let (idx, written) = page.write_serial_since(Wrapping(0), &mut sink).unwrap();
+        assert_eq!(written, 3);
+        assert_eq!(idx, Wrapping(7));
+        assert_eq!(&sink.written, b"ABC");
+    }
+
+    #[test]
+    fn test_write_serial_since_wrap_keeps_accepted_first_chunk() {
+        // Same wrapped drain, but the first chunk goes out whole before the
+        // sink refuses, so that progress is kept.
+        let page = make_test_page(12, 8, b"EFGHABCD");
+
+        let mut sink = PartialSink::new(4, ErrorKind::WouldBlock);
+        let (idx, written) = page.write_serial_since(Wrapping(0), &mut sink).unwrap();
+        assert_eq!(written, 4);
+        assert_eq!(idx, Wrapping(8));
+        assert_eq!(&sink.written, b"ABCD");
+    }
+
+    #[test]
     fn test_read_serial_since_write_idx_u32_wrap() {
         // Last poll saw u32::MAX, now sees 3: wrapping delta == 4 new bytes.
         let capacity: u32 = 8;
@@ -826,9 +977,11 @@ mod tests {
         assert_eq!(&buf, b"HABC");
 
         buf.clear();
-        assert!(
+        assert_eq!(
             page.write_serial_since(Wrapping(write_idx), &mut buf)
-                .is_none()
+                .unwrap()
+                .1,
+            0
         );
     }
 
@@ -912,13 +1065,19 @@ mod tests {
 
     #[test]
     fn test_write_serial_since_rejects_zero_and_oversized_capacity() {
-        // capacity == 0 -> None.
+        // The hypervisor publishes a valid ring before NE_START_ENCLAVE
+        // returns, so either of these means it is broken: fail, don't drain.
         let page = TestPageBuilder::new().serial(4096, 5, 0, b"").build();
         let mut buf = Vec::new();
-        assert!(page.write_serial_since(Wrapping(0), &mut buf).is_none());
+        let err = page.write_serial_since(Wrapping(0), &mut buf).unwrap_err();
+        assert!(matches!(
+            err,
+            SerialRingError::BadCapacity { capacity: 0, .. }
+        ));
+        assert!(!err.is_retriable());
 
-        // capacity larger than the region's data area -> None. Craft a TOC entry
-        // whose recorded size is smaller than the ring's declared capacity.
+        // Capacity larger than the region's data area. Craft a TOC entry whose
+        // recorded size is smaller than the ring's declared capacity.
         let page = TestPageBuilder::new()
             .toc_entry(NitroTocEntry {
                 entry_type: TOC_TYPE_SERIAL,
@@ -933,6 +1092,18 @@ mod tests {
             ptr::write(ring_base.cast::<u32>(), 10);
             ptr::write(ring_base.add(4).cast::<u32>(), 4096);
         }
-        assert!(page.write_serial_since(Wrapping(0), &mut buf).is_none());
+        let err = page.write_serial_since(Wrapping(0), &mut buf).unwrap_err();
+        assert!(matches!(err, SerialRingError::BadCapacity { .. }));
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_write_serial_since_no_ring_is_fatal() {
+        // A page whose TOC has no serial entry at all.
+        let page = TestPageBuilder::new().build();
+        let mut buf = Vec::new();
+        let err = page.write_serial_since(Wrapping(0), &mut buf).unwrap_err();
+        assert!(matches!(err, SerialRingError::NoRing));
+        assert!(!err.is_retriable());
     }
 }
