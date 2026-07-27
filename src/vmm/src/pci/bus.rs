@@ -78,7 +78,7 @@ impl PciDevice for PciRoot {
 #[derive(Default)]
 pub struct PciBus {
     /// Devices attached to this bus. Slot 0 is reserved for host bridge.
-    pub devices: [Option<Arc<Mutex<dyn PciDevice>>>; NUM_DEVICE_IDS],
+    devices: [Option<Arc<Mutex<dyn PciDevice>>>; NUM_DEVICE_IDS],
 }
 
 impl Debug for PciBus {
@@ -96,6 +96,11 @@ impl PciBus {
         let mut bus: Self = Default::default();
         bus.devices[0] = Some(Arc::new(Mutex::new(pci_root)));
         bus
+    }
+
+    /// Get a reference to the device at index
+    pub fn get_device(&self, device_id: u8) -> Option<&Mutex<dyn PciDevice>> {
+        self.devices[device_id as usize].as_deref()
     }
 
     /// Insert a device in the bus at the specified slot (`device_id`).
@@ -179,11 +184,12 @@ impl PciConfigIo {
         // NOTE: Potential contention among vCPU threads on this lock. This should not
         // be a problem currently, since we mainly access this when we are setting up devices.
         // We might want to do some profiling to ensure this does not become a bottleneck.
-        self.pci_bus.as_ref().lock().unwrap().devices[usize::from(device)]
-            .as_ref()
-            .map_or(0xffff_ffff, |d| {
-                d.lock().unwrap().read_config_register(register)
-            })
+        let pci_bus = self.pci_bus.as_ref().lock().unwrap();
+        if let Some(d) = pci_bus.get_device(device) {
+            d.lock().unwrap().read_config_register(register)
+        } else {
+            0xffff_ffff
+        }
     }
 
     /// Handle a configuration space write over Port IO
@@ -216,7 +222,7 @@ impl PciConfigIo {
         // be a problem currently, since we mainly access this when we are setting up devices.
         // We might want to do some profiling to ensure this does not become a bottleneck.
         let pci_bus = self.pci_bus.as_ref().lock().unwrap();
-        if let Some(d) = pci_bus.devices[usize::from(device)].as_ref() {
+        if let Some(d) = pci_bus.get_device(device) {
             let mut device = d.lock().unwrap();
 
             // offset is validated to be < 4 at the top of this function.
@@ -312,11 +318,12 @@ impl PciConfigMmio {
             return 0xffff_ffff;
         }
 
-        self.pci_bus.lock().unwrap().devices[usize::from(device)]
-            .as_ref()
-            .map_or(0xffff_ffff, |d| {
-                d.lock().unwrap().read_config_register(register)
-            })
+        let pci_bus = self.pci_bus.lock().unwrap();
+        if let Some(d) = pci_bus.get_device(device) {
+            d.lock().unwrap().read_config_register(register)
+        } else {
+            0xffff_ffff
+        }
     }
 
     fn config_space_write(&mut self, config_address: u32, offset: u64, data: &[u8]) {
@@ -337,7 +344,7 @@ impl PciConfigMmio {
         }
 
         let pci_bus = self.pci_bus.lock().unwrap();
-        if let Some(d) = pci_bus.devices[usize::from(device)].as_ref() {
+        if let Some(d) = pci_bus.get_device(device) {
             let mut device = d.lock().unwrap();
 
             // offset is validated to be < 4 at the top of this function.
