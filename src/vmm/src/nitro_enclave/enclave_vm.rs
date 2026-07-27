@@ -395,7 +395,8 @@ impl EnclaveVm {
     /// reader is installed. No-op otherwise.
     pub fn flush_console(&self) {
         if let Some(console) = &self.console {
-            console
+            // Last drain, so there is no further polling to stop.
+            let _ = console
                 .lock()
                 .expect("poisoned console lock")
                 .flush_serial();
