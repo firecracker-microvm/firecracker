@@ -25,32 +25,6 @@ pub trait BusDevice: Send {
     }
 }
 
-/// Trait similar to [`BusDevice`] with the extra requirement that a device is `Send` and `Sync`.
-#[allow(unused_variables)]
-pub trait BusDeviceSync: Send + Sync {
-    /// Reads at `offset` from this device
-    fn read(&self, base: u64, offset: u64, data: &mut [u8]) {}
-    /// Writes at `offset` into this device
-    fn write(&self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
-        None
-    }
-}
-
-impl<B: BusDevice> BusDeviceSync for Mutex<B> {
-    /// Reads at `offset` from this device
-    fn read(&self, base: u64, offset: u64, data: &mut [u8]) {
-        self.lock()
-            .expect("Failed to acquire device lock")
-            .read(base, offset, data)
-    }
-    /// Writes at `offset` into this device
-    fn write(&self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
-        self.lock()
-            .expect("Failed to acquire device lock")
-            .write(base, offset, data)
-    }
-}
-
 /// Error type for [`Bus`]-related operations.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BusError {
