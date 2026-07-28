@@ -922,6 +922,7 @@ pub(crate) mod tests {
             cache_type: CacheType::Unsafe,
             is_read_only: Some(false),
             discard: None,
+            threaded: false,
             path_on_host: Some(f.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: None,
@@ -987,6 +988,7 @@ pub(crate) mod tests {
         let mut evt_manager = EventManager::new().unwrap();
         let mut vmm = default_vmm_with_pci();
         let f = TempFile::new().unwrap();
+        let seccomp_filters = get_empty_filters();
 
         let bar_addr = |vmm: &crate::Vmm, id: &str| {
             pci_devices(&vmm.device_manager)
@@ -998,7 +1000,8 @@ pub(crate) mod tests {
         };
 
         let cfg = HotplugDeviceConfig::Block(make_hotplug_block_cfg("block0", &f, false));
-        vmm.hotplug_device(cfg, &mut evt_manager).unwrap();
+        vmm.hotplug_device(cfg, &mut evt_manager, &seccomp_filters)
+            .unwrap();
         let first_addr = bar_addr(&vmm, "block0");
 
         vmm.hot_unplug_device(
@@ -1010,7 +1013,8 @@ pub(crate) mod tests {
         // The BAR range of the detached device must have been returned to the
         // 64-bit MMIO allocator, so the next device gets the same address.
         let cfg = HotplugDeviceConfig::Block(make_hotplug_block_cfg("block1", &f, false));
-        vmm.hotplug_device(cfg, &mut evt_manager).unwrap();
+        vmm.hotplug_device(cfg, &mut evt_manager, &seccomp_filters)
+            .unwrap();
         assert_eq!(bar_addr(&vmm, "block1"), first_addr);
     }
 
