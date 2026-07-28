@@ -47,6 +47,9 @@ const MSS_MIN: u16 = 100;
 // buffers we are given can be larger than that, hence the explicit bound.
 const MAX_SEGMENT_LEN: u16 = u16::MAX - IPV4_MIN_HEADER_LEN as u16;
 
+// A larger MSS could never be honoured, since the payload alone would not fit a segment.
+const MSS_MAX: u16 = MAX_SEGMENT_LEN - OPTIONS_OFFSET as u16;
+
 bitflags! {
     /// Represents the TCP header flags, with the exception of `NS`.
     ///
@@ -251,7 +254,7 @@ impl<T: NetworkBytes + Debug> TcpSegment<'_, T> {
                     // TODO: To be super strict, we should make sure there aren't additional MSS
                     // options present (which would be super wrong). Should we be super strict?
                     let mss = b.ntohs_unchecked(i + 2);
-                    if mss < MSS_MIN {
+                    if !(MSS_MIN..=MSS_MAX).contains(&mss) {
                         return Err(TcpError::MssOption);
                     }
                     // The unwarp() is safe because mms >= MSS_MIN at this point.
@@ -841,6 +844,33 @@ mod tests {
             seg.parse_mss_option_unchecked(header_len.into()),
             Err(TcpError::MssOption)
         );
+    }
+
+    #[test]
+    fn test_mss_option_range() {
+        let header_len = OPTIONS_OFFSET + OPTION_LEN_MSS;
+        let opts_start = usize::from(OPTIONS_OFFSET);
+
+        let parse_mss = |mss: u16| {
+            let mut buf = [0u8; 100];
+            {
+                let mut seg = TcpSegment::from_bytes_unchecked(buf.as_mut());
+                seg.set_header_len_rsvd_ns(header_len, false);
+                seg.bytes[opts_start] = OPTION_KIND_MSS;
+                seg.bytes[opts_start + 1] = OPTION_LEN_MSS;
+                seg.bytes.htons_unchecked(opts_start + 2, mss);
+            }
+            TcpSegment::from_bytes_unchecked(buf.as_ref())
+                .parse_mss_option_unchecked(header_len.into())
+        };
+
+        for mss in [MSS_MIN, 1460, MSS_MAX] {
+            assert_eq!(parse_mss(mss), Ok(Some(NonZeroU16::new(mss).unwrap())));
+        }
+
+        for mss in [0, MSS_MIN - 1, MSS_MAX + 1, u16::MAX] {
+            assert_eq!(parse_mss(mss), Err(TcpError::MssOption));
+        }
     }
 
     #[test]
