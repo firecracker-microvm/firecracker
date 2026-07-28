@@ -21,11 +21,10 @@ from framework.microvm import MicroVMFactory
 from framework.properties import global_props
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
 
-# Pinned due to issues introduced in https://github.com/speed47/spectre-meltdown-checker/pull/527
-CHECKER_URL = "https://raw.githubusercontent.com/speed47/spectre-meltdown-checker/3a822fdcf291ebb8bfbcb77aa216ac342c6b2f12/spectre-meltdown-checker.sh"
+CHECKER_URL = "https://raw.githubusercontent.com/speed47/spectre-meltdown-checker/master/spectre-meltdown-checker.sh"
 CHECKER_FILENAME = "spectre-meltdown-checker.sh"
 REMOTE_CHECKER_PATH = f"/tmp/{CHECKER_FILENAME}"
-REMOTE_CHECKER_COMMAND = f"sh {REMOTE_CHECKER_PATH} --no-intel-db --batch json"
+REMOTE_CHECKER_COMMAND = f"sh {REMOTE_CHECKER_PATH} --batch json-terse"
 
 VULN_DIR = "/sys/devices/system/cpu/vulnerabilities"
 
@@ -55,7 +54,7 @@ class SpectreMeltdownChecker:
         }
 
     def get_report_for_guest(self, vm) -> set:
-        """Parses the output of `spectre-meltdown-checker.sh --batch json`
+        """Parses the output of `spectre-meltdown-checker.sh --batch json-terse`
         and returns the set of issues for which it reported 'Vulnerable'.
 
         Sample stdout:
@@ -80,7 +79,7 @@ class SpectreMeltdownChecker:
         issues for which it reported 'Vulnerable'.
         """
 
-        res = utils.check_output(f"sh {self.path} --batch json")
+        res = utils.check_output(f"sh {self.path} --batch json-terse")
         return self._parse_output(res.stdout)
 
     def expected_vulnerabilities(self, cpu_template_name, guest_kernel_version=None):
