@@ -56,14 +56,14 @@ def kernel_params(glob="vmlinux-*", select=kernels, artifact_dir=ARTIFACT_DIR) -
 # ids carry the kernel filename (e.g. "vmlinux-6.1.123") rather than "kernel0".
 ALL_GUEST_KERNELS = list(kernel_params("vmlinux-*"))
 ACPI_GUEST_KERNELS = [p for p in kernel_params("vmlinux-*") if "no-acpi" not in p.id]
-GUEST_KERNELS_5_10 = list(kernel_params("vmlinux-5.10*"))
-GUEST_KERNELS_6_1 = list(kernel_params("vmlinux-6.1*"))
+GUEST_KERNELS_5_10 = list(kernel_params("vmlinux-5.10.*"))
+GUEST_KERNELS_6_1 = list(kernel_params("vmlinux-6.1.*"))
 GUEST_KERNELS_6_1_DEBUG = list(
-    kernel_params("vmlinux-6.1*", artifact_dir=ARTIFACT_DIR / "debug")
+    kernel_params("vmlinux-6.1.*", artifact_dir=ARTIFACT_DIR / "debug")
 )
-GUEST_KERNELS_6_18 = list(kernel_params("vmlinux-6.18*"))
+GUEST_KERNELS_6_18 = list(kernel_params("vmlinux-6.18.*"))
 GUEST_KERNELS_6_18_DEBUG = list(
-    kernel_params("vmlinux-6.18*", artifact_dir=ARTIFACT_DIR / "debug")
+    kernel_params("vmlinux-6.18.*", artifact_dir=ARTIFACT_DIR / "debug")
 )
 # The single canonical kernel used when a test pins to one specific kernel
 # (e.g. tests of Firecracker functionality that don't depend on guest kernel).
