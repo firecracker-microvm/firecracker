@@ -68,6 +68,8 @@ pub struct VirtioBlockState {
     blk_size: u32,
     topology: VirtioBlkTopology,
     discard_sector_alignment: u32,
+    #[serde(default)]
+    threaded: bool,
 }
 
 impl Persist<'_> for VirtioBlock {
@@ -99,6 +101,7 @@ impl Persist<'_> for VirtioBlock {
             blk_size: self.config_space.blk_size,
             topology: self.config_space.topology,
             discard_sector_alignment: self.config_space.discard_sector_alignment,
+            threaded: self.config.threaded,
         }
     }
 
@@ -117,6 +120,7 @@ impl Persist<'_> for VirtioBlock {
             cache_type: state.cache_type,
             is_read_only,
             discard: state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD) != 0,
+            threaded: state.threaded,
             path_on_host: state.disk_path.clone(),
             rate_limiter: rate_limiter_config.into_option(),
             file_engine_type: state.file_engine_type.into(),
@@ -198,6 +202,7 @@ mod tests {
             partuuid: None,
             is_read_only: false,
             discard: false,
+            threaded: false,
             cache_type: CacheType::Writeback,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
@@ -242,6 +247,7 @@ mod tests {
             partuuid: None,
             is_read_only: false,
             discard: false,
+            threaded: false,
             cache_type: CacheType::Unsafe,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
