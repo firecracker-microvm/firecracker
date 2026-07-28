@@ -31,6 +31,8 @@ pub enum BlockError {
     InvalidBlockBackend,
     /// Can not restore any backend.
     BackendRestore,
+    /// Missing block worker seccomp filter.
+    MissingSeccompFilter,
     /// Virtio backend error: {0}
     VirtioBackend(VirtioBlockError),
     /// Vhost user backend error: {0}

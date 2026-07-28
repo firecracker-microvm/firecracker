@@ -501,8 +501,6 @@ impl VirtioBlock {
     }
 
     /// Spawn a parked worker thread for the next activation.
-    // Currently unused because threaded mode is not exposed through device configuration yet.
-    #[allow(dead_code)]
     pub(crate) fn spawn_worker(
         &mut self,
         seccomp_filter: Arc<BpfProgram>,
@@ -516,11 +514,9 @@ impl VirtioBlock {
                 .map_err(VirtioBlockError::EventFd)?;
 
             let name = format!("fc_{}", self.config.drive_id);
-
-            *worker_handle = Some(
-                WorkerHandle::spawn(seccomp_filter, queue_evts, name)
-                    .map_err(VirtioBlockError::ThreadSpawn)?,
-            );
+            let worker = WorkerHandle::spawn(seccomp_filter, queue_evts, name)
+                .map_err(VirtioBlockError::ThreadSpawn)?;
+            *worker_handle = Some(worker);
         }
         Ok(())
     }
