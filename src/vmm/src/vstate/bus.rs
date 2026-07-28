@@ -11,6 +11,8 @@ use std::cmp::Ordering;
 use std::collections::btree_map::BTreeMap;
 use std::sync::{Arc, Barrier, Mutex, RwLock, Weak};
 
+use slab::Slab;
+
 /// Trait for devices that respond to reads or writes in an arbitrary address space.
 ///
 /// The device does not care where it exists in address space as each method is only given an offset
@@ -98,16 +100,40 @@ impl PartialOrd for BusRange {
 ///
 /// This doesn't have any restrictions on what kind of device or address space this applies to. The
 /// only restriction is that no two devices can overlap in this address space.
+///
+/// The address ranges and the device handles are held behind two separate
+/// locks. `ranges` maps an address range to the slot holding the owning
+/// device, while `devices` holds the device handles themselves. Decoupling
+/// them lets a bus access - which holds the `devices` read lock - mutate
+/// `ranges` (for example to relocate a device) without needing the `devices`
+/// write lock.
+///
+/// Lock ordering: whenever both locks are taken, `devices` MUST be acquired
+/// before `ranges`. A bus access holds `devices` (read) and then reaches into
+/// `ranges` (read to resolve the address, or write to relocate a mapping), so
+/// every other path that takes both must use the same order.
 #[derive(Default, Debug)]
 pub struct Bus {
-    devices: RwLock<BTreeMap<BusRange, Weak<Mutex<dyn BusDevice>>>>,
+    /// Device handles keyed by an opaque slot. Held (read) for the duration of
+    /// an access so that [`Bus::remove`] blocks until any in-flight access to
+    /// the device has finished.
+    ///
+    /// Lock ordering: acquire this *before* `ranges`.
+    devices: RwLock<Slab<Weak<Mutex<dyn BusDevice>>>>,
+
+    /// Maps each occupied address range to the slot in `devices` holding the
+    /// owning device.
+    ///
+    /// Lock ordering: acquire this *after* `devices`.
+    ranges: RwLock<BTreeMap<BusRange, usize>>,
 }
 
 impl Bus {
     /// Constructs an a bus with an empty address space.
     pub fn new() -> Bus {
         Bus {
-            devices: RwLock::new(BTreeMap::new()),
+            devices: RwLock::new(Slab::new()),
+            ranges: RwLock::new(BTreeMap::new()),
         }
     }
 
@@ -120,26 +146,18 @@ impl Bus {
     ) -> Result<(), BusError> {
         let new_range = BusRange::new(base, len)?;
 
+        // Acquire both write locks in the right order, to register the device
+        // in both maps atomically.
+        let mut devices = self.devices.write().unwrap();
+        let mut ranges = self.ranges.write().unwrap();
+
         // Reject all cases where the new device's range overlaps with an existing device.
-        if self
-            .devices
-            .read()
-            .unwrap()
-            .iter()
-            .any(|(range, _dev)| range.overlaps(&new_range))
-        {
+        if ranges.keys().any(|range| range.overlaps(&new_range)) {
             return Err(BusError::Overlap);
         }
 
-        if self
-            .devices
-            .write()
-            .unwrap()
-            .insert(new_range, Arc::downgrade(&device))
-            .is_some()
-        {
-            return Err(BusError::Overlap);
-        }
+        let slot = devices.insert(Arc::downgrade(&device));
+        ranges.insert(new_range, slot);
 
         Ok(())
     }
@@ -148,35 +166,42 @@ impl Bus {
     pub fn remove(&self, base: u64, len: u64) -> Result<(), BusError> {
         let bus_range = BusRange::new(base, len)?;
 
-        if self.devices.write().unwrap().remove(&bus_range).is_none() {
-            return Err(BusError::MissingAddressRange);
-        }
+        // Acquire both write locks in the right order, to remove the device
+        // from both maps atomically.
+        let mut devices = self.devices.write().unwrap();
+        let mut ranges = self.ranges.write().unwrap();
+
+        let slot = ranges
+            .remove(&bus_range)
+            .ok_or(BusError::MissingAddressRange)?;
+        devices.remove(slot);
 
         Ok(())
     }
 
-    // Lock the `devices` behind `read` lock, lock the device mutex and perform an operation on the
-    // device.
+    // Perform an operation on the device with the devices read lock held.
+    // The ranges read lock is only held for resolving the address and is
+    // dropped before performing the operation on the device.
     fn with_device<T>(
         &self,
         addr: u64,
         f: impl FnOnce(&mut dyn BusDevice, u64, u64) -> T,
     ) -> Result<T, BusError> {
         let devices = self.devices.read().unwrap();
-        if let Some((range, dev)) = devices
-            .range(..=BusRange::new(addr, 1).unwrap())
-            .next_back()
-            && addr <= range.end()
-            && let Some(device) = dev.upgrade()
-        {
-            let mut device = device.lock().unwrap();
-            let base = range.base();
-            let offset = addr - range.base();
-            let result = f(&mut *device, base, offset);
-            Ok(result)
-        } else {
-            Err(BusError::MissingAddressRange)
-        }
+        let (base, slot) = {
+            let ranges = self.ranges.read().unwrap();
+            match ranges.range(..=BusRange::new(addr, 1).unwrap()).next_back() {
+                Some((range, &slot)) if addr <= range.end() => (range.base(), slot),
+                _ => return Err(BusError::MissingAddressRange),
+            }
+        };
+
+        let Some(device) = devices.get(slot).and_then(Weak::upgrade) else {
+            return Err(BusError::MissingAddressRange);
+        };
+        let mut locked = device.lock().unwrap();
+        let offset = addr - base;
+        Ok(f(&mut *locked, base, offset))
     }
 
     /// Reads data from the device that owns the range containing `addr` and puts it into `data`.
