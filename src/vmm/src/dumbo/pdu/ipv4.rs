@@ -28,6 +28,8 @@ const OPTIONS_OFFSET: u8 = 20;
 
 /// Indicates version 4 of the IP protocol
 pub const IPV4_VERSION: u8 = 0x04;
+/// Length of an IPv4 header without any options.
+pub const IPV4_MIN_HEADER_LEN: u8 = OPTIONS_OFFSET;
 /// Default TTL value
 pub const DEFAULT_TTL: u8 = 1;
 
