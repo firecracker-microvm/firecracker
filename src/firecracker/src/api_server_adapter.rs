@@ -57,12 +57,13 @@ impl ApiServerAdapter {
         to_api: Sender<ApiResponse>,
         vmm: Arc<Mutex<Vmm>>,
         event_manager: &mut EventManager,
+        seccomp_filters: &BpfThreadMap,
     ) -> Result<(), ApiServerError> {
         let api_adapter = Arc::new(Mutex::new(Self {
             api_event_fd,
             from_api,
             to_api,
-            controller: RuntimeApiController::new(vmm.clone()),
+            controller: RuntimeApiController::new(vmm.clone(), seccomp_filters),
             request: None,
         }));
         event_manager.add_subscriber(api_adapter.clone());
@@ -262,7 +263,14 @@ pub(crate) fn run_with_api(
             .expect("Poisoned lock")
             .start(super::metrics::WRITE_METRICS_PERIOD_MS);
 
-        ApiServerAdapter::run_microvm(api_event_fd, from_api, to_api, vmm, &mut event_manager)
+        ApiServerAdapter::run_microvm(
+            api_event_fd,
+            from_api,
+            to_api,
+            vmm,
+            &mut event_manager,
+            seccomp_filters,
+        )
     });
 
     api_kill_switch.write(1).unwrap();

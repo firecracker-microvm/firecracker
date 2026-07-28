@@ -150,6 +150,7 @@ use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::resources::VmmConfig;
 use crate::rpc_interface::VmmActionError;
+use crate::seccomp::BpfThreadMap;
 use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::BalloonDeviceConfig;
 use crate::vmm_config::boot_source::BootSourceConfig;
@@ -708,6 +709,7 @@ impl Vmm {
         &mut self,
         config: HotplugDeviceConfig,
         event_manager: &mut EventManager,
+        seccomp_filters: &BpfThreadMap,
     ) -> Result<(), VmmActionError> {
         log_dev_preview_warning("PCI device hotplug", None);
         let kvm_vm = self
@@ -716,7 +718,7 @@ impl Vmm {
             .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?
             .clone();
         self.device_manager
-            .hotplug_device(kvm_vm, config, event_manager)
+            .hotplug_device(kvm_vm, config, event_manager, seccomp_filters)
     }
 
     /// Detaches a device after VM start
