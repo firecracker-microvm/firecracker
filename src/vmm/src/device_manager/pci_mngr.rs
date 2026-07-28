@@ -36,6 +36,7 @@ use crate::logger::{debug, warn};
 use crate::pci::PciSBDF;
 use crate::pci::bus::PciRootError;
 use crate::resources::VmResources;
+use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vstate::bus::BusError;
@@ -332,6 +333,7 @@ pub struct PciDevicesConstructorArgs<'a> {
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
     pub event_manager: &'a mut EventManager,
+    pub seccomp_filters: &'a BpfThreadMap,
 }
 
 impl<'a> Debug for PciDevicesConstructorArgs<'a> {
@@ -523,6 +525,11 @@ impl<'a> Persist<'a> for PciDevices {
                 &block_state.device_state,
             )?));
 
+            device
+                .lock()
+                .expect("Poisoned lock")
+                .spawn_worker(constructor_args.seccomp_filters.get("blk_worker").cloned())?;
+
             constructor_args
                 .vm_resources
                 .block
@@ -707,6 +714,7 @@ mod tests {
     use crate::devices::virtio::block::CacheType;
     use crate::mmds::data_store::MmdsVersion;
     use crate::resources::VmmConfig;
+    use crate::seccomp::get_empty_filters;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::entropy::EntropyDeviceConfig;
     use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
@@ -834,6 +842,7 @@ mod tests {
             vm_resources,
             instance_id: "microvm-id",
             event_manager: &mut event_manager,
+            seccomp_filters: &get_empty_filters(),
         };
         let _restored_dev_manager = PciDevices::restore(restore_args, pci_state).unwrap();
 
