@@ -103,6 +103,8 @@ class InstructionX86_64(Instruction):  # pylint: disable=invalid-name
         if reg not in affected_registers:
             return reg
 
+        partial_reg = ArchitectureX86_64.partial_reg(reg)
+
         match self.mnemonic:
             case "mov":
                 if len(self.args) != 2:
@@ -113,10 +115,18 @@ class InstructionX86_64(Instruction):  # pylint: disable=invalid-name
                 if dst == reg:
                     # an immediate load
                     if src.startswith("$"):
-                        return int(src[3:], 16)
+                        value = int(src[3:], 16)
+                        if partial_reg is not None:
+                            full_reg, mask = partial_reg
+                            return full_reg, lambda previous: (
+                                (previous & ~mask) | (value & mask)
+                            )
+                        return value
                     # We moved something into our target register. If it's a new register, we understand
                     # what's going on. Anything else, and tough luck
                     if re.match(r"^%\w{2,4}$", src):
+                        if partial_reg is not None:
+                            raise UnsupportedInstructionError(self, reg)
                         return src
                     raise UnsupportedInstructionError(self, reg)
                 return reg
@@ -126,6 +136,9 @@ class InstructionX86_64(Instruction):  # pylint: disable=invalid-name
                 if src == dst:
                     # we know that reg is part of the arguments, and we know that the arguments are identical
                     # Thus we have xor reg,reg, which is effectively zeroing reg
+                    if partial_reg is not None:
+                        full_reg, mask = partial_reg
+                        return full_reg, lambda previous: previous & ~mask
                     return 0
             case "push":
                 # a push doesn't do anything
@@ -292,21 +305,33 @@ class ArchitectureX86_64(  # pylint: disable=invalid-name
     syscall_argument_registers = ["%rdi", "%rsi", "%rdx", "%r10", "%r8", "%r9"]
     fn_call_argument_registers = ["%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"]
     seccomp_arch = seccomp.Arch.X86_64
+    REG_GROUPS = [
+        ("%rax", "%eax", "%ax", "%al"),
+        ("%rbx", "%ebx", "%bx", "%bl"),
+        ("%rcx", "%ecx", "%cx", "%cl"),
+        ("%rdx", "%edx", "%dx", "%dl"),
+        ("%rsi", "%esi", "%si", "%sil"),
+        ("%rdi", "%edi", "%di", "%dil"),
+        ("%rbp", "%ebp", "%bp", "%bpl"),
+        ("%rsp", "%esp", "%sp", "%spl"),
+    ] + [(f"%r{i}", f"%r{i}d", f"%r{i}w", f"%r{i}b") for i in range(8, 16)]
+    REG_ALIASES = {alias: group for group in REG_GROUPS for alias in group}
+
+    @staticmethod
+    def partial_reg(reg: str) -> tuple[str, int] | None:
+        """Return the full register and mask for a partial register."""
+        group = ArchitectureX86_64.REG_ALIASES.get(reg)
+        if group is None:
+            return None
+        if reg == group[2]:
+            return group[0], 0xFFFF
+        if reg == group[3]:
+            return group[0], 0xFF
+        return None
 
     @staticmethod
     def generalize_reg(reg: str) -> list[str]:
-        suffixes = ["ax", "bx", "cx", "dx", "si", "di", "bp", "sp"]
-        prefixes = ["%r8", "%r9", "%r10", "%r11", "%r12", "%r13", "%r14", "%r15"]
-
-        for suffix in suffixes:
-            if reg.endswith(suffix):
-                return [f"%r{suffix}", f"%e{suffix}", f"%{suffix}"]
-
-        for prefix in prefixes:
-            if reg.startswith(prefix):
-                return [prefix, f"{prefix}d", f"{prefix}w"]
-
-        return [reg]
+        return list(ArchitectureX86_64.REG_ALIASES.get(reg, (reg,)))
 
 
 class ArchitectureAarch64(Architecture[InstructionAarch64]):
@@ -573,9 +598,11 @@ def load_seccomp_rules(seccomp_path: Path):
     For 'masked_eq' comparisons, mask is the bitmask value."""
     filters = json.loads(seccomp_path.read_text("utf-8"))
 
-    all_filters = (
-        filters["vcpu"]["filter"] + filters["vmm"]["filter"] + filters["api"]["filter"]
-    )
+    all_filters = [
+        seccomp_filter
+        for thread_filter in filters.values()
+        for seccomp_filter in thread_filter["filter"]
+    ]
     allowlist = defaultdict(list)
 
     for seccomp_filter in all_filters:
