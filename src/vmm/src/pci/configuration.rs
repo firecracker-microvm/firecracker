@@ -7,7 +7,7 @@
 
 use byteorder::{ByteOrder, LittleEndian};
 use serde::{Deserialize, Serialize};
-use zerocopy::{FromBytes, IntoBytes};
+use zerocopy::IntoBytes;
 
 use crate::logger::warn;
 use crate::pci::{PciCapabilityId, PciClassCode};
@@ -68,8 +68,6 @@ pub struct Bar {
     pub encoded_addr: u32,
     /// Encoded size value of the register (according to PCI rules of size encoding).
     pub encoded_size: u32,
-    /// Indicator if the register was prepared to be read as the `size` instead of `addr`
-    pub about_to_be_read: bool,
 }
 
 impl Bar {
@@ -210,36 +208,30 @@ impl Bars {
         // There are only 6 registers each 4 bytes long
         assert!(bar_idx < NUM_BAR_REGS);
         assert!(offset as usize + data.len() <= 4);
-        if let Ok(value) = u32::read_from_bytes(data)
-            && value == 0xffff_ffff
-        {
-            self.bars[bar_idx as usize].about_to_be_read = true;
-        } else {
-            self.bars[bar_idx as usize].about_to_be_read = false;
-            // There is no BAR relocation support as of right now.
-            // PCI specification does not provide a way for a device to
-            // tell the driver that it does not support BAR relocation, but
-            // linux kernel does check this at:
-            // https://elixir.bootlin.com/linux/v6.19.8/source/drivers/pci/setup-res.c#L107
-        }
+
+        let bar = &mut self.bars[bar_idx as usize];
+
+        // Note that the actual BAR relocation takes effect when the guest
+        // enables memory-space decoding in the command register. This is
+        // because updating a 64-bit BAR requires more than one write.
+        // See maybe_relocate_bar().
+        let mut reg = bar.encoded_addr.to_le_bytes();
+        reg[offset as usize..][..data.len()].copy_from_slice(data);
+        let value = u32::from_le_bytes(reg);
+        // The address needs to be aligned to the BAR size. The low bits of the
+        // BAR corresponding to the size/alignment are non-writable. For
+        // example, if the BAR size is 2MiB, the last 20 bits are non-writable.
+        let writable = bar.encoded_size;
+        bar.encoded_addr = (value & writable) | (bar.encoded_addr & !writable);
     }
 
     /// Reads from a given BAR register at the given offset
-    pub fn read(&mut self, bar_idx: u8, offset: u8, data: &mut [u8]) {
+    pub fn read(&self, bar_idx: u8, offset: u8, data: &mut [u8]) {
         // There are only 6 registers each 4 bytes long
         assert!(bar_idx < NUM_BAR_REGS);
         assert!(offset as usize + data.len() <= 4);
-        let bar = &mut self.bars[bar_idx as usize];
-        let bytes = if bar.about_to_be_read {
-            // This technically allows for an inconsistent behaviour where the guest would read
-            // only a part of the `size` of the BAR on the first read, but will get `addr` bytes
-            // on following reads. Any sane driver will read the whole register, so this should
-            // not be an issue. This will be fixed once we support BAR relocation/resizing.
-            bar.about_to_be_read = false;
-            bar.encoded_size.as_bytes()
-        } else {
-            bar.encoded_addr.as_bytes()
-        };
+        let bar = &self.bars[bar_idx as usize];
+        let bytes = bar.encoded_addr.as_bytes();
         data.copy_from_slice(&bytes[offset as usize..][..data.len()]);
     }
 }
