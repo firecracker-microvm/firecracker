@@ -1247,6 +1247,19 @@
             },
             {
                 "syscall": "ioctl",
+                "comment": "Needed to relocate notify ioeventfds when the guest reprograms a BAR",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1077980793,
+                        "comment": "KVM_IOEVENTFD"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
                 "args": [
                     {
                         "index": 1,
