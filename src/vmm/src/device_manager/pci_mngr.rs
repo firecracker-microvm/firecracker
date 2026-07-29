@@ -129,7 +129,6 @@ impl PciDevices {
     ) -> Result<(), PciManagerError> {
         let sbdf = self.pci_segment.next_device_sbdf()?;
         debug!("Allocating SBDF: {sbdf:?} for device");
-        let mem = vm.guest_memory().clone();
 
         let device_type = device.lock().expect("Poisoned lock").device_type();
 
@@ -141,7 +140,7 @@ impl PciDevices {
 
         // Create the transport
         let mut virtio_device =
-            VirtioPciDevice::new(id.clone(), mem, device, Arc::new(msix_vectors), sbdf)?;
+            VirtioPciDevice::new(id.clone(), vm, device, Arc::new(msix_vectors), sbdf)?;
 
         // Allocate the BARs, then release the resource allocator lock before
         // touching any bus. A device access runs with the bus lock held and
