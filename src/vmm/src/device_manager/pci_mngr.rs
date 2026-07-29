@@ -80,26 +80,6 @@ impl PciDevices {
         })
     }
 
-    fn register_bars_with_bus(
-        vm: &KvmVm,
-        virtio_device: &Arc<Mutex<VirtioPciDevice>>,
-    ) -> Result<(), PciManagerError> {
-        let virtio_device_locked = virtio_device.lock().expect("Poisoned lock");
-
-        debug!(
-            "Inserting MMIO BAR region: {:#x}:{:#x}",
-            virtio_device_locked.config_bar_addr(),
-            CAPABILITY_BAR_SIZE
-        );
-        vm.common.mmio_bus.insert(
-            virtio_device.clone(),
-            virtio_device_locked.config_bar_addr(),
-            CAPABILITY_BAR_SIZE,
-        )?;
-
-        Ok(())
-    }
-
     fn attach_common(
         &mut self,
         vm: &KvmVm,
@@ -109,22 +89,33 @@ impl PciDevices {
         virtio_device: Arc<Mutex<VirtioPciDevice>>,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
+        let config_bar_addr = {
+            let mut device = virtio_device.lock().unwrap();
+
+            device.register_notification_ioevents(vm)?;
+
+            let sub_id = event_manager.add_subscriber(device.virtio_device());
+            device.sub_id = Some(sub_id);
+
+            device.config_bar_addr()
+        };
+
+        self.virtio_devices
+            .insert((device_type, id), virtio_device.clone());
+
         self.pci_segment
             .pci_bus
             .lock()
             .expect("Poisoned lock")
             .add_device(sbdf.device(), virtio_device.clone())?;
 
-        self.virtio_devices
-            .insert((device_type, id), virtio_device.clone());
-
-        Self::register_bars_with_bus(vm, &virtio_device)?;
-
-        let mut device = virtio_device.lock().expect("Poisoned lock");
-        device.register_notification_ioevents(vm)?;
-
-        let sub_id = event_manager.add_subscriber(device.virtio_device());
-        device.sub_id = Some(sub_id);
+        debug!(
+            "Inserting MMIO BAR region: {:#x}:{:#x}",
+            config_bar_addr, CAPABILITY_BAR_SIZE
+        );
+        vm.common
+            .mmio_bus
+            .insert(virtio_device.clone(), config_bar_addr, CAPABILITY_BAR_SIZE)?;
 
         Ok(())
     }
