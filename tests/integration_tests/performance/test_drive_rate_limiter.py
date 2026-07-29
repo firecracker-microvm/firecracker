@@ -33,7 +33,7 @@ def check_iops_limit(ssh_connection, block_size, count, min_time, max_time):
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
-def test_patch_drive_limiter(uvm):
+def test_patch_drive_limiter(uvm, threaded):
     """
     Test replacing the drive rate-limiter after guest boot works.
     """
@@ -56,6 +56,7 @@ def test_patch_drive_limiter(uvm):
             "bandwidth": {"size": 10 * MB, "refill_time": 100},
             "ops": {"size": 100, "refill_time": 100},
         },
+        threaded=threaded,
     )
     test_microvm.start()
 
