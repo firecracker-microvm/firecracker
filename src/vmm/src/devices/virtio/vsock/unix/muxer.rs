@@ -1242,6 +1242,50 @@ mod tests {
     }
 
     #[test]
+    fn test_killed_conn_drops_epoll_listener() {
+        // A killed connection must not keep an epoll listener, or the nested epoll fd
+        // re-fires forever on a peer-closed stream that no write can ever satisfy.
+        let mut ctx = MuxerTestContext::new("killed_conn_out");
+        let peer_port = 1025;
+        let (stream, local_port) = ctx.local_connect(peer_port);
+        let key = ConnMapKey {
+            local_port,
+            peer_port,
+        };
+        let conn_fd = ctx.muxer.conn_map.get(&key).unwrap().as_raw_fd();
+        assert!(ctx.muxer.listener_map.contains_key(&conn_fd));
+
+        // Fill the host socket's send buffer, so further data lands in the TX buffer.
+        let data = vec![0xffu8; ctx.tx_pkt.buf_size() as usize];
+        let mut sends = 0;
+        while !ctx
+            .muxer
+            .conn_map
+            .get(&key)
+            .unwrap()
+            .get_polled_evset()
+            .contains(EventSet::OUT)
+        {
+            ctx.init_data_tx_pkt(local_port, peer_port, data.as_slice());
+            ctx.send();
+            sends += 1;
+            assert!(sends < 1024, "TX buffer never filled up");
+        }
+
+        // The host end goes away while data is still buffered.
+        drop(stream);
+
+        // The failing flush kills the connection, which must drop its listener.
+        ctx.muxer.notify(EventSet::IN);
+        assert_eq!(
+            ctx.muxer.conn_map.get(&key).unwrap().state(),
+            ConnState::Killed
+        );
+        assert!(!ctx.muxer.listener_map.contains_key(&conn_fd));
+        assert_eq!(ctx.count_epoll_listeners().1, 0);
+    }
+
+    #[test]
     fn test_starvation_drops_epoll_listener_on_host_eof() {
         // Same as `test_starvation_drops_and_rearms_epoll_listener`, but the host closes
         // its end (EOF) instead of writing data. No host-side entity can break the loop,
