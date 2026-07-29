@@ -192,7 +192,7 @@ def test_cycled_snapshot_restore(
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
-def test_patch_drive_snapshot(uvm_configured, microvm_factory):
+def test_patch_drive_snapshot(uvm_configured, microvm_factory, io_engine):
     """
     Test that a patched drive is correctly used by guests loaded from snapshot.
     """
@@ -206,7 +206,12 @@ def test_patch_drive_snapshot(uvm_configured, microvm_factory):
     root = Path(basevm.path)
     scratch_path1 = str(root / "scratch1")
     scratch_disk1 = drive_tools.FilesystemFile(scratch_path1, size=128)
-    basevm.add_drive("scratch", scratch_disk1.path)
+    basevm.add_drive(
+        "scratch",
+        scratch_disk1.path,
+        io_engine=io_engine,
+        threaded=True,
+    )
     basevm.start()
 
     # Update drive to have another backing file, double in size.

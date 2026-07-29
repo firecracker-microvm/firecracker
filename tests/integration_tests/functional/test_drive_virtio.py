@@ -24,7 +24,7 @@ def partuuid_and_disk_path_tmpfs(rootfs, tmp_path):
     disk_path.unlink()
 
 
-def test_rescan_file(uvm, io_engine):
+def test_rescan_file(uvm, io_engine, threaded):
     """
     Verify that rescan works with a file-backed virtio device.
     """
@@ -40,7 +40,7 @@ def test_rescan_file(uvm, io_engine):
     fs = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, "scratch"), size=block_size
     )
-    test_microvm.add_drive("scratch", fs.path, io_engine=io_engine)
+    test_microvm.add_drive("scratch", fs.path, io_engine=io_engine, threaded=threaded)
 
     test_microvm.start()
 
@@ -65,7 +65,7 @@ def test_rescan_file(uvm, io_engine):
     _check_block_size(test_microvm.ssh, "/dev/vdb", fs.size())
 
 
-def test_device_ordering(uvm, io_engine):
+def test_device_ordering(uvm, io_engine, threaded):
     """
     Verify device ordering.
 
@@ -79,7 +79,7 @@ def test_device_ordering(uvm, io_engine):
     fs1 = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, "scratch1"), size=128
     )
-    test_microvm.add_drive("scratch1", fs1.path, io_engine=io_engine)
+    test_microvm.add_drive("scratch1", fs1.path, io_engine=io_engine, threaded=threaded)
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM and a root file system
     # (this is the second block device added).
@@ -90,7 +90,7 @@ def test_device_ordering(uvm, io_engine):
     fs2 = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, "scratch2"), size=512
     )
-    test_microvm.add_drive("scratch2", fs2.path, io_engine=io_engine)
+    test_microvm.add_drive("scratch2", fs2.path, io_engine=io_engine, threaded=threaded)
 
     test_microvm.start()
 
@@ -112,7 +112,7 @@ def test_device_ordering(uvm, io_engine):
     _check_block_size(ssh_connection, "/dev/vdc", fs2.size())
 
 
-def test_rescan_dev(uvm, io_engine):
+def test_rescan_dev(uvm, io_engine, threaded):
     """
     Verify that rescan works with a device-backed virtio device.
     """
@@ -125,7 +125,7 @@ def test_rescan_dev(uvm, io_engine):
 
     # Add a scratch block device.
     fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "fs1"))
-    test_microvm.add_drive("scratch", fs1.path, io_engine=io_engine)
+    test_microvm.add_drive("scratch", fs1.path, io_engine=io_engine, threaded=threaded)
 
     test_microvm.start()
 
@@ -152,7 +152,7 @@ def test_rescan_dev(uvm, io_engine):
             utils.check_output(["losetup", "--detach", loopback_device])
 
 
-def test_non_partuuid_boot(uvm, io_engine):
+def test_non_partuuid_boot(uvm, io_engine, threaded):
     """
     Test the output reported by blockdev when booting from /dev/vda.
     """
@@ -165,7 +165,9 @@ def test_non_partuuid_boot(uvm, io_engine):
 
     # Add another read-only block device.
     fs = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "readonly"))
-    test_microvm.add_drive("scratch", fs.path, is_read_only=True, io_engine=io_engine)
+    test_microvm.add_drive(
+        "scratch", fs.path, is_read_only=True, io_engine=io_engine, threaded=threaded
+    )
 
     test_microvm.start()
 
@@ -252,7 +254,7 @@ def test_partuuid_update(uvm, io_engine):
     _check_drives(test_microvm, assert_dict, assert_dict.keys())
 
 
-def test_patch_drive(uvm, io_engine):
+def test_patch_drive(uvm, io_engine, threaded):
     """
     Test replacing the backing filesystem after guest boot works.
     """
@@ -264,7 +266,7 @@ def test_patch_drive(uvm, io_engine):
     test_microvm.add_net_iface()
 
     fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "scratch"))
-    test_microvm.add_drive("scratch", fs1.path, io_engine=io_engine)
+    test_microvm.add_drive("scratch", fs1.path, io_engine=io_engine, threaded=threaded)
 
     test_microvm.start()
 
@@ -290,7 +292,7 @@ def test_patch_drive(uvm, io_engine):
     assert lines[1].strip() == size_bytes_str
 
 
-def test_no_flush(uvm, io_engine):
+def test_no_flush(uvm, io_engine, threaded):
     """
     Verify default block ignores flush.
     """
@@ -306,6 +308,7 @@ def test_no_flush(uvm, io_engine):
         test_microvm.rootfs_file,
         is_root_device=True,
         io_engine=io_engine,
+        threaded=threaded,
     )
     test_microvm.start()
 
@@ -326,7 +329,7 @@ def test_no_flush(uvm, io_engine):
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pin_rootfs_mode("rw")
-def test_flush(uvm, io_engine):
+def test_flush(uvm, io_engine, threaded):
     """
     Verify block with flush actually flushes.
     """
@@ -342,6 +345,7 @@ def test_flush(uvm, io_engine):
         is_root_device=True,
         cache_type="Writeback",
         io_engine=io_engine,
+        threaded=threaded,
     )
     test_microvm.start()
 
@@ -388,7 +392,7 @@ def _check_mount(ssh_connection, dev_path):
     assert stderr == ""
 
 
-def test_device_reset(uvm, io_engine):
+def test_device_reset(uvm, io_engine, threaded):
     """
     Test that virtio-block device reset works.
     """
@@ -398,7 +402,7 @@ def test_device_reset(uvm, io_engine):
     vm.add_net_iface()
 
     fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch"), size=2)
-    vm.add_drive("scratch", fs.path, io_engine=io_engine)
+    vm.add_drive("scratch", fs.path, io_engine=io_engine, threaded=threaded)
     vm.start()
 
     # Verify the scratch drive is accessible.

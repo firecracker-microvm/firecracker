@@ -6,6 +6,8 @@ import platform
 import time
 from pathlib import Path
 
+import pytest
+
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 
@@ -34,6 +36,31 @@ def test_allow_all(uvm, seccompiler):
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_missing_block_worker_filter(uvm, seccompiler):
+    """Reject a threaded block device when its seccomp filter is missing."""
+    seccomp_filter = {
+        thread: {"default_action": "allow", "filter_action": "trap", "filter": []}
+        for thread in ["vmm", "api", "vcpu"]
+    }
+
+    bpf_path = seccompiler.compile(seccomp_filter)
+    test_microvm = uvm
+    install_filter(test_microvm, bpf_path)
+    test_microvm.spawn()
+    test_microvm.basic_config(add_root_device=False)
+    test_microvm.add_drive(
+        drive_id="rootfs",
+        path_on_host=test_microvm.rootfs_file,
+        is_root_device=True,
+        is_read_only=test_microvm.rootfs_file.suffix == ".squashfs",
+        threaded=True,
+    )
+
+    with pytest.raises(RuntimeError, match="Missing block worker seccomp filter"):
+        test_microvm.start()
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_working_filter(uvm, seccompiler):
     """Test --seccomp-filter, rejecting some dangerous syscalls."""
 
@@ -43,7 +70,7 @@ def test_working_filter(uvm, seccompiler):
             "filter_action": "kill_process",
             "filter": [{"syscall": "clone"}, {"syscall": "execve"}],
         }
-        for thread in ["vmm", "api", "vcpu"]
+        for thread in ["vmm", "api", "vcpu", "blk_worker"]
     }
 
     bpf_path = seccompiler.compile(seccomp_filter)
@@ -68,6 +95,11 @@ def test_failing_filter(uvm, seccompiler):
             "default_action": "allow",
             "filter_action": "trap",
             "filter": [{"syscall": "ioctl"}],
+        },
+        "blk_worker": {
+            "default_action": "allow",
+            "filter_action": "trap",
+            "filter": [],
         },
     }
 
