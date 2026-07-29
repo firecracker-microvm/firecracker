@@ -12,14 +12,15 @@ Tests verify that:
 import pytest
 
 from framework.artifacts import (
-    GUEST_KERNEL_DEFAULT,
+    GUEST_KERNELS_6_1,
+    GUEST_KERNELS_6_18,
     pin_guest_kernel,
     pin_pci,
     pin_rootfs_mode,
 )
 
 pytestmark = [
-    pin_guest_kernel(GUEST_KERNEL_DEFAULT),
+    pin_guest_kernel(GUEST_KERNELS_6_1 + GUEST_KERNELS_6_18),
     pin_rootfs_mode("rw"),
     pin_pci(False),
 ]
