@@ -4,7 +4,7 @@
 
 from pathlib import Path
 
-from framework.microvm import HugePagesConfig
+from framework.utils_hugepages import HugePagesConfig
 
 KVM_PATH = Path("/dev/kvm")
 

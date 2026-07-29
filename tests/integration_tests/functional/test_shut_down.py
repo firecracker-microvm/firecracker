@@ -8,7 +8,7 @@ import pytest
 from packaging import version
 
 from framework import utils
-from framework.microvm import HugePagesConfig
+from framework.utils_hugepages import HugePagesConfig
 
 
 @pytest.mark.parametrize(
