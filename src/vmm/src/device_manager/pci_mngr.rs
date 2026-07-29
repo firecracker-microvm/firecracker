@@ -89,7 +89,7 @@ impl PciDevices {
         virtio_device: Arc<Mutex<VirtioPciDevice>>,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
-        let config_bar_addr = {
+        let bar_address = {
             let mut device = virtio_device.lock().unwrap();
 
             device.register_notification_ioevents(vm)?;
@@ -97,7 +97,7 @@ impl PciDevices {
             let sub_id = event_manager.add_subscriber(device.virtio_device());
             device.sub_id = Some(sub_id);
 
-            device.config_bar_addr()
+            device.bar_address()
         };
 
         self.virtio_devices
@@ -111,11 +111,11 @@ impl PciDevices {
 
         debug!(
             "Inserting MMIO BAR region: {:#x}:{:#x}",
-            config_bar_addr, CAPABILITY_BAR_SIZE
+            bar_address, CAPABILITY_BAR_SIZE
         );
         vm.common
             .mmio_bus
-            .insert(virtio_device.clone(), config_bar_addr, CAPABILITY_BAR_SIZE)?;
+            .insert(virtio_device.clone(), bar_address, CAPABILITY_BAR_SIZE)?;
 
         Ok(())
     }
@@ -195,7 +195,7 @@ impl PciDevices {
                 .unregister_notification_ioevents(vm)
                 .map_err(PciManagerError::Kvm)?;
             (
-                pci_device.config_bar_addr(),
+                pci_device.bar_address(),
                 pci_device.sbdf.device(),
                 pci_device.sub_id,
             )
