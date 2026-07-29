@@ -619,8 +619,12 @@ impl VirtioPciDevice {
         !self.device_activated.load(Ordering::SeqCst) && self.is_driver_ready()
     }
 
-    fn set_notification_ioevents(&self, vm: &KvmVm, assign: bool) -> Result<(), errno::Error> {
-        let bar_addr = self.config_bar_addr();
+    fn set_notification_ioevents(
+        &self,
+        vm: &KvmVm,
+        bar_addr: u64,
+        assign: bool,
+    ) -> Result<(), errno::Error> {
         for (i, queue_evt) in self
             .device
             .lock()
@@ -644,12 +648,12 @@ impl VirtioPciDevice {
 
     /// Register the IoEvent notifications for a VirtIO device.
     pub fn register_notification_ioevents(&self, vm: &KvmVm) -> Result<(), errno::Error> {
-        self.set_notification_ioevents(vm, true)
+        self.set_notification_ioevents(vm, self.config_bar_addr(), true)
     }
 
     /// Unregister the IoEvent notifications for a VirtIO device.
     pub fn unregister_notification_ioevents(&self, vm: &KvmVm) -> Result<(), errno::Error> {
-        self.set_notification_ioevents(vm, false)
+        self.set_notification_ioevents(vm, self.config_bar_addr(), false)
     }
 
     /// Tear down the MSI-X configuration. Used on device reset.
