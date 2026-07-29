@@ -20,7 +20,6 @@ from typing import Dict
 
 import psutil
 import semver
-from packaging import version
 from tenacity import (
     Retrying,
     retry,
@@ -622,11 +621,6 @@ def get_kernel_version(level=2):
             linux_version = linux_version[0:idx]
             break
     return linux_version
-
-
-def supports_hugetlbfs_discard():
-    """Returns True if the kernel supports hugetlbfs discard"""
-    return version.parse(get_kernel_version()) >= version.parse("5.18.0")
 
 
 def generate_mmds_session_token(

@@ -40,6 +40,7 @@ from framework.microvm_helpers import MicrovmHelpers
 from framework.properties import global_props
 from framework.utils_cpu_templates import get_cpu_template_name
 from framework.utils_drive import VhostUserBlkBackend, VhostUserBlkBackendType
+from framework.utils_hugepages import HugePagesConfig
 from framework.utils_uffd import spawn_pf_handler, uffd_handler
 from host_tools.fcmetrics import FCMetricsMonitor
 from host_tools.memory import MemoryMonitor
@@ -181,14 +182,6 @@ class Snapshot:
         """Delete the backing files from disk."""
         self.mem.unlink()
         self.vmstate.unlink()
-
-
-class HugePagesConfig(str, Enum):
-    """Enum describing the huge pages configurations supported Firecracker"""
-
-    NONE = "None"
-    TRANSPARENT = "Transparent"
-    HUGETLBFS_2MB = "2M"
 
 
 # pylint: disable=R0904

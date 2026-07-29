@@ -9,9 +9,9 @@ import pytest
 
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
-from framework.microvm import HugePagesConfig
 from framework.properties import global_props
 from framework.utils_ftrace import ftrace_events
+from framework.utils_hugepages import HugePagesConfig
 
 pytestmark = pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 
