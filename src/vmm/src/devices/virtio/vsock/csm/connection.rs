@@ -583,6 +583,8 @@ where
     pub fn kill(&mut self) {
         self.state = ConnState::Killed;
         self.pending_rx.insert(PendingRx::Rst);
+        // We're sending an RST, so anything still buffered for the host is forfeit.
+        self.tx_buf.clear();
     }
 
     /// Return the connections state.
@@ -1111,6 +1113,57 @@ mod tests {
         ctx.set_stream(stream);
         ctx.notify_epollin(); // sets PendingRx::Rw
         assert!(!ctx.conn.get_polled_evset().contains(EventSet::IN));
+    }
+
+    #[test]
+    fn test_polled_evset_drops_out_when_killed() {
+        // A killed connection must not keep asking for EPOLLOUT: a peer-closed fd is
+        // writable forever while every write fails, which busy-spins the event thread.
+        let mut ctx = CsmTestContext::new_established();
+
+        // Buffer some guest data by making the host stream refuse writes.
+        let mut stream = TestStream::new();
+        stream.write_state = StreamState::WouldBlock;
+        ctx.set_stream(stream);
+        ctx.init_data_tx_pkt(&[1, 2, 3, 4]);
+        ctx.send();
+        assert!(ctx.conn.get_polled_evset().contains(EventSet::OUT));
+
+        // The host end goes away: flushing fails and kills the connection.
+        let mut stream = TestStream::new();
+        stream.write_state = StreamState::Closed;
+        ctx.set_stream(stream);
+        ctx.notify_epollout();
+        assert_eq!(ctx.conn.state, ConnState::Killed);
+
+        // Wanting no events is what makes the muxer drop the listener.
+        assert!(ctx.conn.tx_buf.is_empty());
+        assert!(ctx.conn.get_polled_evset().is_empty());
+    }
+
+    #[test]
+    fn test_polled_evset_keeps_out_while_flushable() {
+        // Only a kill forfeits the buffer. `LocalClosed` still drains: a 0-length read
+        // only means the host shut down its write side. `PeerClosed(true, true)` drains
+        // too, and sends its RST once done.
+        for state in [
+            ConnState::Established,
+            ConnState::LocalClosed,
+            ConnState::PeerClosed(true, true),
+        ] {
+            let mut ctx = CsmTestContext::new_established();
+            let mut stream = TestStream::new();
+            stream.write_state = StreamState::WouldBlock;
+            ctx.set_stream(stream);
+            ctx.init_data_tx_pkt(&[1, 2, 3, 4]);
+            ctx.send();
+
+            ctx.conn.state = state;
+            assert!(
+                ctx.conn.get_polled_evset().contains(EventSet::OUT),
+                "OUT must stay armed in {state:?}"
+            );
+        }
     }
 
     #[test]

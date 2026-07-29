@@ -135,6 +135,13 @@ impl TxBuf {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Discard any buffered data, freeing the backing allocation.
+    pub fn clear(&mut self) {
+        self.data = None;
+        self.head = Wrapping(0);
+        self.tail = Wrapping(0);
+    }
 }
 
 impl WriteVolatile for TxBuf {
@@ -256,6 +263,25 @@ mod tests {
             .unwrap();
         assert_eq!(txbuf.flush_to(&mut sink).unwrap(), 4);
         assert_eq!(sink.data, [5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn test_clear() {
+        let mut txbuf = TxBuf::new();
+        let mut tmp = vec![0u8; 128];
+        txbuf
+            .push(&VolatileSlice::from(tmp.as_mut_slice()))
+            .unwrap();
+        assert!(!txbuf.is_empty());
+
+        txbuf.clear();
+        assert!(txbuf.is_empty());
+        assert_eq!(txbuf.len(), 0);
+        // The buffer can be reused afterwards.
+        txbuf
+            .push(&VolatileSlice::from(tmp.as_mut_slice()))
+            .unwrap();
+        assert_eq!(txbuf.len(), 128);
     }
 
     #[test]
