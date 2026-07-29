@@ -9,7 +9,7 @@ from typing import Optional
 import pytest
 
 from framework import utils
-from framework.microvm import HugePagesConfig
+from framework.utils_hugepages import HugePagesConfig
 
 THP_ENABLED_PATH = Path("/sys/kernel/mm/transparent_hugepage/enabled")
 

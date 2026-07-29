@@ -34,9 +34,10 @@ import host_tools.cargo_build as build_tools
 from framework import defs, utils
 from framework.artifacts import ALL_GUEST_KERNELS, GuestKernel, disks
 from framework.defs import ARTIFACT_DIR, DEFAULT_BINARY_DIR
-from framework.microvm import HugePagesConfig, MicroVMFactory, SnapshotType
+from framework.microvm import MicroVMFactory, SnapshotType
 from framework.properties import global_props
 from framework.utils_cpu_templates import get_cpu_template_name
+from framework.utils_hugepages import HugePagesConfig
 from host_tools.metrics import get_metrics_logger
 from host_tools.network import NetNs
 

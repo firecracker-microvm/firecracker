@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from framework.microvm import HugePagesConfig
 from framework.utils import parse_cpu_list
+from framework.utils_hugepages import HugePagesConfig
 
 NE_DEV_PATH = Path("/dev/nitro_enclaves")
 NE_CPUS_PATH = Path("/sys/module/nitro_enclaves/parameters/ne_cpus")

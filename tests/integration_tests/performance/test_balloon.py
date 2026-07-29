@@ -9,12 +9,12 @@ import time
 import pytest
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
-from framework.microvm import HugePagesConfig
 from framework.utils import (
     get_stable_rss_mem,
     supports_hugetlbfs_discard,
     track_cpu_utilization,
 )
+from framework.utils_hugepages import HugePagesConfig
 
 # Every test in this module exercises all huge_pages variants.
 pytestmark = pytest.mark.parametrize(
