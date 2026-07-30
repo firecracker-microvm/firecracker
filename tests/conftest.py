@@ -43,6 +43,7 @@ from framework.vm_backend import (
     available_vm_backends,
     get_vm_backend,
 )
+from framework.vm_lifecycle import VmLifecycle
 from host_tools.metrics import get_metrics_logger
 from host_tools.network import NetNs
 
@@ -706,7 +707,7 @@ def uvm_restored(uvm_booted, microvm_factory):
     return restored
 
 
-@pytest.fixture(params=["booted", "restored"])
+@pytest.fixture(params=tuple(VmLifecycle), ids=lambda lifecycle: lifecycle.value)
 def uvm_lifecycle(request):
     """Parametrized over the two lifecycle end-states a test may want.
 
@@ -743,4 +744,4 @@ def uvm_any(
     those names would error with "function uses no fixture").
     """
     # pylint: disable=unused-argument
-    return request.getfixturevalue(f"uvm_{uvm_lifecycle}")
+    return request.getfixturevalue(f"uvm_{uvm_lifecycle.value}")
