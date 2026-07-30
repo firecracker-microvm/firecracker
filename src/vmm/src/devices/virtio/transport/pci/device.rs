@@ -642,26 +642,48 @@ impl VirtioPciDevice {
         !self.device_activated.load(Ordering::SeqCst) && self.is_driver_ready()
     }
 
+    /// Register or unregister this device's per-queue notification ioeventfds
+    /// at `bar_addr`.
+    ///
+    /// Registration is all-or-nothing: if registering a queue fails, this
+    /// function attempts to unregister all ioeventfds already registered in
+    /// this call before the error is returned, so no partial set is left
+    /// behind.
     fn set_notification_ioevents(
         &self,
         vm: &KvmVm,
         bar_addr: u64,
         assign: bool,
     ) -> Result<(), errno::Error> {
-        for (i, queue_evt) in self
-            .device
-            .lock()
-            .expect("Poisoned lock")
-            .queue_events()
-            .iter()
-            .enumerate()
-        {
-            let notify_base = bar_addr + u64::from(NOTIFICATION_BAR_OFFSET);
-            let io_addr =
-                IoEventAddress::Mmio(notify_base + i as u64 * u64::from(NOTIFY_OFF_MULTIPLIER));
+        let device = self.device.lock().expect("Poisoned lock");
+        let queue_events = device.queue_events();
+
+        let notify_addr = |i: usize| {
+            bar_addr
+                + u64::from(NOTIFICATION_BAR_OFFSET)
+                + i as u64 * u64::from(NOTIFY_OFF_MULTIPLIER)
+        };
+
+        for (i, queue_evt) in queue_events.iter().enumerate() {
             if assign {
-                vm.fd().register_ioevent(queue_evt, &io_addr, NoDatamatch)?;
+                let io_addr = IoEventAddress::Mmio(notify_addr(i));
+                if let Err(err) = vm.fd().register_ioevent(queue_evt, &io_addr, NoDatamatch) {
+                    // Undo the ioeventfds we already registered in this call.
+                    for (j, queue_evt) in queue_events.iter().take(i).enumerate() {
+                        let io_addr = IoEventAddress::Mmio(notify_addr(j));
+                        if let Err(err) =
+                            vm.fd().unregister_ioevent(queue_evt, &io_addr, NoDatamatch)
+                        {
+                            error!(
+                                "Failed to roll back notification ioeventfd at {:#x}: {err:?}",
+                                notify_addr(j)
+                            );
+                        }
+                    }
+                    return Err(err);
+                }
             } else {
+                let io_addr = IoEventAddress::Mmio(notify_addr(i));
                 vm.fd()
                     .unregister_ioevent(queue_evt, &io_addr, NoDatamatch)?;
             }
