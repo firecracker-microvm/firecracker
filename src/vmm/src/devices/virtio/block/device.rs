@@ -315,3 +315,26 @@ impl Persist<'_> for Block {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::devices::virtio::block::virtio::device::FileEngineType;
+    use crate::devices::virtio::block::virtio::test_utils::default_block;
+
+    #[test]
+    fn test_spawn_worker_filter() {
+        let mut inline = Block::Virtio(default_block(FileEngineType::Sync));
+        inline.spawn_worker(None).unwrap();
+
+        let mut threaded = default_block(FileEngineType::Sync);
+        threaded.config.threaded = true;
+        let mut threaded = Block::Virtio(threaded);
+
+        assert!(matches!(
+            threaded.spawn_worker(None),
+            Err(BlockError::MissingSeccompFilter)
+        ));
+        threaded.spawn_worker(Some(Arc::new(vec![]))).unwrap();
+    }
+}

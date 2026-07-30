@@ -917,3 +917,104 @@ impl MutEventSubscriber for ThreadedWorker {
         self.register_control_event(ops);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn disconnected_handle() -> WorkerHandle {
+        let (to_worker, from_vmm) = channel::<ControlMsg>();
+        drop(from_vmm);
+        let (to_vmm, from_worker) = channel::<ControlResponse>();
+        drop(to_vmm);
+
+        WorkerHandle {
+            to_worker,
+            from_worker,
+            control_evt: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+            join: thread::spawn(|| {}),
+            queue_evts: Vec::new(),
+        }
+    }
+
+    fn response_disconnected_handle() -> WorkerHandle {
+        let (to_worker, from_vmm) = channel::<ControlMsg>();
+        let (to_vmm, from_worker) = channel::<ControlResponse>();
+        drop(to_vmm);
+
+        WorkerHandle {
+            to_worker,
+            from_worker,
+            control_evt: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+            join: thread::spawn(move || {
+                from_vmm.recv().unwrap();
+            }),
+            queue_evts: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_parked_disk_update() {
+        let worker = WorkerHandle::spawn(Arc::new(vec![]), Vec::new(), "fc_test".into()).unwrap();
+
+        assert!(matches!(
+            worker.update_disk_image(String::new(), false),
+            Err(VirtioBlockError::WorkerControl(err)) if err.contains("worker is parked")
+        ));
+
+        worker.finish(FlushMode::Drain);
+    }
+
+    #[test]
+    fn test_parked_reset() {
+        let worker = WorkerHandle::spawn(Arc::new(vec![]), Vec::new(), "fc_test".into()).unwrap();
+
+        assert!(worker.reset().is_none());
+
+        worker.finish(FlushMode::Drain);
+    }
+
+    #[test]
+    fn test_reset_disconnected() {
+        let worker = disconnected_handle();
+
+        assert!(worker.reset().is_none());
+
+        worker.finish(FlushMode::Drain);
+    }
+
+    #[test]
+    fn test_disk_update_disconnected() {
+        let worker = disconnected_handle();
+
+        assert!(matches!(
+            worker.update_disk_image(String::new(), false),
+            Err(VirtioBlockError::WorkerControl(err))
+                if err.contains("failed to send disk update")
+        ));
+
+        worker.finish(FlushMode::Drain);
+    }
+
+    #[test]
+    fn test_reset_no_response() {
+        let worker = response_disconnected_handle();
+
+        assert!(worker.reset().is_none());
+
+        worker.finish(FlushMode::Drain);
+    }
+
+    #[test]
+    fn test_disk_update_no_response() {
+        let worker = response_disconnected_handle();
+
+        assert!(matches!(
+            worker.update_disk_image(String::new(), false),
+            Err(VirtioBlockError::WorkerControl(err))
+                if err.contains("failed to receive disk update response")
+        ));
+
+        worker.finish(FlushMode::Drain);
+    }
+}
