@@ -30,37 +30,38 @@ pytestmark = [
 ]
 
 
+# No test requests this fixture directly: the conftest `uvm_booted` stage
+# resolves this module-local override, so every test below boots with the
+# FIPS kernel command line.
 @pytest.fixture
-def uvm_with_fips(uvm):
-    """Boot a microVM with FIPS mode enabled."""
+def uvm_configured(uvm):
+    """Spawned microVM configured to boot with FIPS mode enabled."""
     uvm.spawn()
     uvm.basic_config(boot_args="console=ttyS0 reboot=k panic=1 pci=off fips=1")
-    uvm.add_net_iface()
-    uvm.start()
     return uvm
 
 
 @pytest.fixture
-def fips_snapshot_pair(uvm_with_fips, microvm_factory):
+def fips_snapshot_pair(uvm_booted, microvm_factory):
     """Boot a FIPS VM, snapshot it, restore two VMs from the same snapshot."""
-    snapshot = uvm_with_fips.snapshot_full()
-    uvm_with_fips.kill()
+    snapshot = uvm_booted.snapshot_full()
+    uvm_booted.kill()
 
     uvm_a = microvm_factory.build_from_snapshot(snapshot)
     uvm_b = microvm_factory.build_from_snapshot(snapshot)
     yield uvm_a, uvm_b
 
 
-def test_fips_enabled(uvm_with_fips):
+def test_fips_enabled(uvm_booted):
     """Test that FIPS mode is enabled in the guest kernel."""
-    _, dmesg, _ = uvm_with_fips.ssh.run("dmesg | grep -i fips")
+    _, dmesg, _ = uvm_booted.ssh.run("dmesg | grep -i fips")
     assert "fips mode: enabled" in dmesg.lower()
 
 
-def test_fips_rng_reseed_on_snapshot_restore(uvm_with_fips, microvm_factory):
+def test_fips_rng_reseed_on_snapshot_restore(uvm_booted, microvm_factory):
     """Test that FIPS RNG reseeding is logged on snapshot restore."""
-    snapshot = uvm_with_fips.snapshot_full()
-    uvm_with_fips.kill()
+    snapshot = uvm_booted.snapshot_full()
+    uvm_booted.kill()
 
     restored = microvm_factory.build_from_snapshot(snapshot)
     _, dmesg, _ = restored.ssh.run("dmesg | grep -i fips")
