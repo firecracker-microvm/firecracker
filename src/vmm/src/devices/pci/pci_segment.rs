@@ -23,7 +23,7 @@ use crate::pci::PciSBDF;
 #[cfg(target_arch = "x86_64")]
 use crate::pci::bus::{PCI_CONFIG_IO_PORT, PCI_CONFIG_IO_PORT_SIZE};
 use crate::pci::bus::{PciBus, PciConfigIo, PciConfigMmio, PciRoot, PciRootError};
-use crate::vstate::bus::{BusDeviceSync, BusError};
+use crate::vstate::bus::BusError;
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::KvmVm;
 
@@ -72,7 +72,7 @@ impl PciSegment {
         let mmio_config_address = PCI_MMCONFIG_START + PCI_MMIO_CONFIG_SIZE_PER_SEGMENT * id as u64;
 
         vm.common.mmio_bus.insert(
-            Arc::clone(&pci_config_mmio) as Arc<dyn BusDeviceSync>,
+            pci_config_mmio.clone(),
             mmio_config_address,
             PCI_MMIO_CONFIG_SIZE_PER_SEGMENT,
         )?;

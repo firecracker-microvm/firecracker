@@ -80,26 +80,6 @@ impl PciDevices {
         })
     }
 
-    fn register_bars_with_bus(
-        vm: &KvmVm,
-        virtio_device: &Arc<Mutex<VirtioPciDevice>>,
-    ) -> Result<(), PciManagerError> {
-        let virtio_device_locked = virtio_device.lock().expect("Poisoned lock");
-
-        debug!(
-            "Inserting MMIO BAR region: {:#x}:{:#x}",
-            virtio_device_locked.config_bar_addr(),
-            CAPABILITY_BAR_SIZE
-        );
-        vm.common.mmio_bus.insert(
-            virtio_device.clone(),
-            virtio_device_locked.config_bar_addr(),
-            CAPABILITY_BAR_SIZE,
-        )?;
-
-        Ok(())
-    }
-
     fn attach_common(
         &mut self,
         vm: &KvmVm,
@@ -109,22 +89,33 @@ impl PciDevices {
         virtio_device: Arc<Mutex<VirtioPciDevice>>,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
+        let config_bar_addr = {
+            let mut device = virtio_device.lock().unwrap();
+
+            device.register_notification_ioevents(vm)?;
+
+            let sub_id = event_manager.add_subscriber(device.virtio_device());
+            device.sub_id = Some(sub_id);
+
+            device.config_bar_addr()
+        };
+
+        self.virtio_devices
+            .insert((device_type, id), virtio_device.clone());
+
         self.pci_segment
             .pci_bus
             .lock()
             .expect("Poisoned lock")
             .add_device(sbdf.device(), virtio_device.clone())?;
 
-        self.virtio_devices
-            .insert((device_type, id), virtio_device.clone());
-
-        Self::register_bars_with_bus(vm, &virtio_device)?;
-
-        let mut device = virtio_device.lock().expect("Poisoned lock");
-        device.register_notification_ioevents(vm)?;
-
-        let sub_id = event_manager.add_subscriber(device.virtio_device());
-        device.sub_id = Some(sub_id);
+        debug!(
+            "Inserting MMIO BAR region: {:#x}:{:#x}",
+            config_bar_addr, CAPABILITY_BAR_SIZE
+        );
+        vm.common
+            .mmio_bus
+            .insert(virtio_device.clone(), config_bar_addr, CAPABILITY_BAR_SIZE)?;
 
         Ok(())
     }
@@ -187,24 +178,35 @@ impl PciDevices {
             .virtio_devices
             .remove(&device_id)
             .expect("device presence should be checked before detach");
-        let pci_device = pci_device_arc.lock().expect("Poisoned lock");
 
-        pci_device
-            .unregister_notification_ioevents(vm)
-            .map_err(PciManagerError::Kvm)?;
+        // Next operations of removing device from mmio_bus and pci_bus need to wait for any other
+        // user of the device to finish. This requires us to not hold the lock for the device in
+        // case someone will try to access the device while we are in these several lines of code.
+        let (bar_addr, sbdf_device, sub_id) = {
+            let pci_device = pci_device_arc.lock().expect("Poisoned lock");
+
+            pci_device
+                .unregister_notification_ioevents(vm)
+                .map_err(PciManagerError::Kvm)?;
+            (
+                pci_device.config_bar_addr(),
+                pci_device.sbdf.device(),
+                pci_device.sub_id,
+            )
+        };
 
         vm.common
             .mmio_bus
-            .remove(pci_device.config_bar_addr(), CAPABILITY_BAR_SIZE)
+            .remove(bar_addr, CAPABILITY_BAR_SIZE)
             .map_err(PciManagerError::Bus)?;
 
         self.pci_segment
             .pci_bus
             .lock()
             .expect("Poisoned lock")
-            .remove_device(pci_device.sbdf.device());
+            .remove_device(sbdf_device);
 
-        if let Some(sub_id) = pci_device.sub_id
+        if let Some(sub_id) = sub_id
             && event_manager.remove_subscriber(sub_id).is_err()
         {
             warn!("Failed to remove event subscriber for device {device_id:?}");

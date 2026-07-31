@@ -25,32 +25,6 @@ pub trait BusDevice: Send {
     }
 }
 
-/// Trait similar to [`BusDevice`] with the extra requirement that a device is `Send` and `Sync`.
-#[allow(unused_variables)]
-pub trait BusDeviceSync: Send + Sync {
-    /// Reads at `offset` from this device
-    fn read(&self, base: u64, offset: u64, data: &mut [u8]) {}
-    /// Writes at `offset` into this device
-    fn write(&self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
-        None
-    }
-}
-
-impl<B: BusDevice> BusDeviceSync for Mutex<B> {
-    /// Reads at `offset` from this device
-    fn read(&self, base: u64, offset: u64, data: &mut [u8]) {
-        self.lock()
-            .expect("Failed to acquire device lock")
-            .read(base, offset, data)
-    }
-    /// Writes at `offset` into this device
-    fn write(&self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
-        self.lock()
-            .expect("Failed to acquire device lock")
-            .write(base, offset, data)
-    }
-}
-
 /// Error type for [`Bus`]-related operations.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BusError {
@@ -126,7 +100,7 @@ impl PartialOrd for BusRange {
 /// only restriction is that no two devices can overlap in this address space.
 #[derive(Default, Debug)]
 pub struct Bus {
-    devices: RwLock<BTreeMap<BusRange, Weak<dyn BusDeviceSync>>>,
+    devices: RwLock<BTreeMap<BusRange, Weak<Mutex<dyn BusDevice>>>>,
 }
 
 impl Bus {
@@ -137,28 +111,10 @@ impl Bus {
         }
     }
 
-    fn first_before(&self, addr: u64) -> Option<(BusRange, Arc<dyn BusDeviceSync>)> {
-        let devices = self.devices.read().unwrap();
-        let (range, dev) = devices.range(..=BusRange::new(addr, 1).ok()?).next_back()?;
-        dev.upgrade().map(|d| (*range, d.clone()))
-    }
-
-    #[allow(clippy::type_complexity)]
-    /// Get a reference to a device residing inside the bus at address [`addr`].
-    pub fn resolve(&self, addr: u64) -> Option<(u64, u64, Arc<dyn BusDeviceSync>)> {
-        if let Some((range, dev)) = self.first_before(addr)
-            && addr <= range.end()
-        {
-            let offset = addr - range.base();
-            return Some((range.base(), offset, dev));
-        }
-        None
-    }
-
     /// Insert a device into the [`Bus`] in the range [`addr`, `addr` + `len`].
     pub fn insert(
         &self,
-        device: Arc<dyn BusDeviceSync>,
+        device: Arc<Mutex<dyn BusDevice>>,
         base: u64,
         len: u64,
     ) -> Result<(), BusError> {
@@ -199,29 +155,42 @@ impl Bus {
         Ok(())
     }
 
+    // Lock the `devices` behind `read` lock, lock the device mutex and perform an operation on the
+    // device.
+    fn with_device<T>(
+        &self,
+        addr: u64,
+        f: impl FnOnce(&mut dyn BusDevice, u64, u64) -> T,
+    ) -> Result<T, BusError> {
+        let devices = self.devices.read().unwrap();
+        if let Some((range, dev)) = devices
+            .range(..=BusRange::new(addr, 1).unwrap())
+            .next_back()
+            && addr <= range.end()
+            && let Some(device) = dev.upgrade()
+        {
+            let mut device = device.lock().unwrap();
+            let base = range.base();
+            let offset = addr - range.base();
+            let result = f(&mut *device, base, offset);
+            Ok(result)
+        } else {
+            Err(BusError::MissingAddressRange)
+        }
+    }
+
     /// Reads data from the device that owns the range containing `addr` and puts it into `data`.
     ///
     /// Returns true on success, otherwise `data` is untouched.
     pub fn read(&self, addr: u64, data: &mut [u8]) -> Result<(), BusError> {
-        if let Some((base, offset, dev)) = self.resolve(addr) {
-            // OK to unwrap as lock() failing is a serious error condition and should panic.
-            dev.read(base, offset, data);
-            Ok(())
-        } else {
-            Err(BusError::MissingAddressRange)
-        }
+        self.with_device(addr, |dev, base, offset| dev.read(base, offset, data))
     }
 
     /// Writes `data` to the device that owns the range containing `addr`.
     ///
     /// Returns true on success, otherwise `data` is untouched.
     pub fn write(&self, addr: u64, data: &[u8]) -> Result<Option<Arc<Barrier>>, BusError> {
-        if let Some((base, offset, dev)) = self.resolve(addr) {
-            // OK to unwrap as lock() failing is a serious error condition and should panic.
-            Ok(dev.write(base, offset, data))
-        } else {
-            Err(BusError::MissingAddressRange)
-        }
+        self.with_device(addr, |dev, base, offset| dev.write(base, offset, data))
     }
 }
 
@@ -230,19 +199,19 @@ mod tests {
     use super::*;
 
     struct DummyDevice;
-    impl BusDeviceSync for DummyDevice {}
+    impl BusDevice for DummyDevice {}
 
     struct ConstantDevice;
-    impl BusDeviceSync for ConstantDevice {
+    impl BusDevice for ConstantDevice {
         #[allow(clippy::cast_possible_truncation)]
-        fn read(&self, _base: u64, offset: u64, data: &mut [u8]) {
+        fn read(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
             for (i, v) in data.iter_mut().enumerate() {
                 *v = (offset as u8) + (i as u8);
             }
         }
 
         #[allow(clippy::cast_possible_truncation)]
-        fn write(&self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+        fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
             for (i, v) in data.iter().enumerate() {
                 assert_eq!(*v, (offset as u8) + (i as u8))
             }
@@ -297,7 +266,7 @@ mod tests {
     #[test]
     fn bus_insert() {
         let bus = Bus::new();
-        let dummy = Arc::new(DummyDevice);
+        let dummy = Arc::new(Mutex::new(DummyDevice));
         bus.insert(dummy.clone(), 0x10, 0).unwrap_err();
         bus.insert(dummy.clone(), 0x10, 0x10).unwrap();
 
@@ -317,7 +286,7 @@ mod tests {
     #[test]
     fn bus_remove() {
         let bus = Bus::new();
-        let dummy: Arc<dyn BusDeviceSync> = Arc::new(DummyDevice);
+        let dummy = Arc::new(Mutex::new(DummyDevice));
 
         bus.remove(0x42, 0x0).unwrap_err();
 
@@ -332,7 +301,7 @@ mod tests {
     #[allow(clippy::redundant_clone)]
     fn bus_read_write() {
         let bus = Bus::new();
-        let dummy = Arc::new(DummyDevice);
+        let dummy = Arc::new(Mutex::new(DummyDevice));
         bus.insert(dummy.clone(), 0x10, 0x10).unwrap();
         bus.read(0x10, &mut [0, 0, 0, 0]).unwrap();
         bus.write(0x10, &[0, 0, 0, 0]).unwrap();
@@ -350,7 +319,7 @@ mod tests {
     #[allow(clippy::redundant_clone)]
     fn bus_read_write_values() {
         let bus = Bus::new();
-        let dummy = Arc::new(ConstantDevice);
+        let dummy = Arc::new(Mutex::new(ConstantDevice));
         bus.insert(dummy.clone(), 0x10, 0x10).unwrap();
 
         let mut values = [0, 1, 2, 3];
@@ -376,7 +345,7 @@ mod tests {
 
         let bus = Bus::new();
         let mut data = [1, 2, 3, 4];
-        let device = Arc::new(DummyDevice);
+        let device = Arc::new(Mutex::new(DummyDevice));
         bus.insert(device.clone(), 0x10, 0x10).unwrap();
         bus.write(0x10, &data).unwrap();
         bus.read(0x10, &mut data).unwrap();
