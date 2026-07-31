@@ -29,7 +29,11 @@ from framework.utils_cpu_templates import (
     SUPPORTED_CPU_TEMPLATES,
     pin_cpu_template,
 )
-from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
+from framework.vm_backend import (
+    VM_BACKEND_ENCLAVE_DIRECT,
+    VM_BACKEND_KVM,
+    pin_vm_backend,
+)
 
 MEM_LIMIT = 1000000000
 
@@ -553,6 +557,9 @@ def test_api_put_update_post_boot(uvm):
         test_microvm.api.mmds_config.put(**mmds_config)
 
 
+# Confidential enclaves disallow the entropy device (errno 291) this test
+# configures a rate limiter on.
+@pin_vm_backend([VM_BACKEND_KVM, VM_BACKEND_ENCLAVE_DIRECT])
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_rate_limiters_api_config(uvm, io_engine):
     """
@@ -1190,6 +1197,8 @@ def test_api_vsock(uvm_configured):
         vm.api.vsock.put(guest_cid=17, uds_path="vsock.sock")
 
 
+# Confidential enclaves disallow the entropy device (errno 291).
+@pin_vm_backend([VM_BACKEND_KVM, VM_BACKEND_ENCLAVE_DIRECT])
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_api_entropy(uvm):
     """
