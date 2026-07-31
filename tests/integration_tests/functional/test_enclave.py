@@ -44,27 +44,48 @@ def _assert_vm_process_is_alive(vm):
     assert os.path.exists(f"/proc/{vm.firecracker_pid}")
 
 
+# Enclave start flags as module dimensions. Defaults mirror
+# `enclave_prepare_start`; override one per test with indirect
+# parametrization, the same mechanism as `vcpu_count`/`mem_size_mib`.
 @pytest.fixture
-def boot_enclave(uvm):
-    """Factory booting `uvm` with the standard enclave test setup.
+def cpu_overcommit(request):
+    """Float vCPUs (True) or pin them to dedicated cores (False)."""
+    return getattr(request, "param", True)
 
-    Returns a callable so each test can pass its own start flags:
 
-        vm = boot_enclave(hotplug_mode=True)
+@pytest.fixture
+def cpu_accounting(request):
+    """Bind each enclave vCPU to an fc_vcpu host thread."""
+    return getattr(request, "param", False)
 
-    Tests exercising non-standard boot paths (initrd-only boot, config-file
-    boot, pre-start vsock devices) keep their manual setup instead.
-    """
 
-    def boot(*, vcpu_count=2, mem_size_mib=512, net_ifaces=1, **start_flags):
-        uvm.spawn()
-        uvm.basic_config(vcpu_count=vcpu_count, mem_size_mib=mem_size_mib)
-        for _ in range(net_ifaces):
-            uvm.add_net_iface()
-        uvm.start(debug_mode=True, **start_flags)
-        return uvm
+@pytest.fixture
+def hotplug_mode(request):
+    """Allow runtime device hotplug."""
+    return getattr(request, "param", False)
 
-    return boot
+
+@pytest.fixture
+def mem_size_mib(request):
+    """Enclave tests boot with 512 MiB (the guest also holds the EIF image)."""
+    return getattr(request, "param", 512)
+
+
+# Overrides the shared `uvm_booted` stage: every booted enclave in this
+# module starts in debug mode with the start-flag dimensions applied.
+# Tests exercising non-standard boot paths (initrd-only boot, config-file
+# boot, pre-start devices) stay on `uvm`/`uvm_configured` instead.
+@pytest.fixture
+def uvm_booted(uvm_configured, cpu_overcommit, cpu_accounting, hotplug_mode):
+    """Booted enclave with the standard test setup."""
+    uvm_configured.add_net_iface()
+    uvm_configured.start(
+        debug_mode=True,
+        cpu_overcommit=cpu_overcommit,
+        cpu_accounting=cpu_accounting,
+        hotplug_mode=hotplug_mode,
+    )
+    return uvm_configured
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
@@ -202,9 +223,9 @@ def test_enclave_config_file_boot(uvm):
 
 
 @pytest.mark.parametrize(
-    "cpu_overcommit", [True, False], ids=["overcommit", "dedicated"]
+    "cpu_overcommit", [True, False], ids=["overcommit", "dedicated"], indirect=True
 )
-def test_enclave_ssh(boot_enclave, cpu_overcommit):
+def test_enclave_ssh(uvm_booted):
     """Boot an enclave with block + net devices and verify SSH works.
 
     This exercises the full NE transport path: NE_ADD_DEVICE for block and net,
@@ -214,9 +235,9 @@ def test_enclave_ssh(boot_enclave, cpu_overcommit):
     dimension; CPU overcommit (floating vCPUs) vs dedicated cores is
     parametrized here.
     """
-    # start() waits for SSH — proves block + net devices are activated via
-    # info-event.
-    vm = boot_enclave(cpu_overcommit=cpu_overcommit)
+    # uvm_booted's start() waits for SSH — proves block + net devices are
+    # activated via info-event.
+    vm = uvm_booted
 
     assert "/dev/vda" in vm.ssh.check_output("mount").stdout
     assert "inet " in vm.ssh.check_output("ip addr show eth0").stdout
@@ -225,8 +246,13 @@ def test_enclave_ssh(boot_enclave, cpu_overcommit):
     assert "enclave test" in vm.ssh.check_output("cat /tmp/test.txt").stdout
 
 
-def test_enclave_max_vcpus(boot_enclave):
-    """Boot an enclave with as many vCPUs as the host has online CPUs."""
+def test_enclave_max_vcpus(uvm):
+    """Boot an enclave with as many vCPUs as the host has online CPUs.
+
+    Boots by hand rather than via `uvm_booted`: the vCPU count, memory size and
+    node list all follow from the host's online CPUs and nodes, which is only
+    known at run time.
+    """
     # Our CI guest kernels are built with CONFIG_NR_CPUS=64, so the guest onlines
     # at most 64 vCPUs no matter how many the enclave is given.
     host_cpus = min(CpuMap.len(), 64)
@@ -249,14 +275,14 @@ def test_enclave_max_vcpus(boot_enclave):
         for idx, n in enumerate(nodes)
     ]
 
-    # Overcommit (floating vCPUs) is required so the count is bounded by the
-    # parent instance's vCPU count rather than the dedicated NE CPU pool.
-    vm = boot_enclave(
-        vcpu_count=host_cpus,
-        mem_size_mib=per_node_mib * len(nodes),
-        numa_nodes=numa_nodes,
-        cpu_overcommit=True,
-    )
+    vm = uvm
+    vm.spawn()
+    vm.basic_config(vcpu_count=host_cpus, mem_size_mib=per_node_mib * len(nodes))
+    vm.add_net_iface()
+    # Overcommit (floating vCPUs, the enclave default) is required so the count
+    # is bounded by the parent instance's vCPU count rather than the dedicated
+    # NE CPU pool.
+    vm.start(debug_mode=True, numa_nodes=numa_nodes, cpu_overcommit=True)
 
     guest_cpus = int(vm.ssh.check_output("nproc").stdout.strip())
     assert guest_cpus == host_cpus, f"guest saw {guest_cpus} CPUs, expected {host_cpus}"
@@ -274,9 +300,10 @@ def _thread_guest_time(pid, tid):
 
 
 @pytest.mark.parametrize(
-    "cpu_overcommit", [True, False], ids=["overcommit", "dedicated"]
+    "cpu_overcommit", [True, False], ids=["overcommit", "dedicated"], indirect=True
 )
-def test_enclave_cpu_accounting(boot_enclave, cpu_overcommit):
+@pytest.mark.parametrize("cpu_accounting", [True], ids=["accounting"], indirect=True)
+def test_enclave_cpu_accounting(uvm_booted, vcpu_count):
     """A CPU_ACCOUNTING enclave binds each vCPU to an fc_vcpu host thread.
 
     Verifies Parent-PID visibility: the VMM has one `fc_vcpu N` thread per
@@ -286,13 +313,7 @@ def test_enclave_cpu_accounting(boot_enclave, cpu_overcommit):
     Parametrized over cpu_overcommit to exercise that accounting is independent
     of overcommit (it works both with floating and dedicated vCPUs).
     """
-    vcpu_count = 2
-
-    vm = boot_enclave(
-        vcpu_count=vcpu_count,
-        cpu_overcommit=cpu_overcommit,
-        cpu_accounting=True,
-    )
+    vm = uvm_booted
 
     config = vm.api.enclave.get().json()
     assert config["cpu_accounting"] is True
@@ -321,12 +342,13 @@ def test_enclave_cpu_accounting(boot_enclave, cpu_overcommit):
         ), f"{name} guest_time did not grow: before={before[name]} after={after[name]}"
 
 
-def test_enclave_hotplug(boot_enclave):
+@pytest.mark.parametrize("hotplug_mode", [True], ids=["hotplug"], indirect=True)
+def test_enclave_hotplug(uvm_booted):
     """Hotplug block devices to a running enclave and verify they are usable."""
     # Two slots are used pre-boot: the root block device and the SSH NIC.
     num_hotplug_devices = MAX_ENCLAVE_DEVICES - 2
 
-    vm = boot_enclave(hotplug_mode=True)
+    vm = uvm_booted
 
     blocks_before = set(vm.ssh.check_output("ls -1 /sys/block").stdout.split())
 
@@ -367,9 +389,9 @@ def test_enclave_hotplug(boot_enclave):
         assert vm.ssh.check_output(f"cat {mnt}/test").stdout.strip() == payload
 
 
-def test_enclave_hotplug_disabled(boot_enclave):
+def test_enclave_hotplug_disabled(uvm_booted):
     """Runtime device hotplug must be rejected when hotplug_mode is not set."""
-    vm = boot_enclave()
+    vm = uvm_booted
 
     host_file = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "hotplug0"), size=4)
     with pytest.raises(RuntimeError, match="hotplug_mode"):
@@ -381,15 +403,13 @@ def test_enclave_hotplug_disabled(boot_enclave):
         )
 
 
-def test_enclave_vsock(uvm):
+def test_enclave_vsock(uvm_configured):
     """Boot an enclave with a vsock device and verify host<->guest echo.
 
     Exercises the NE transport for virtio-vsock: NE_ADD_DEVICE, info-event
     DRIVER_OK activation, and an end-to-end vsock round-trip.
     """
-    vm = uvm
-    vm.spawn()
-    vm.basic_config(vcpu_count=2, mem_size_mib=512)
+    vm = uvm_configured
     vm.add_net_iface()
     vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
     vm.start(debug_mode=True)
@@ -409,7 +429,8 @@ def test_enclave_vsock(uvm):
         sock.close()
 
 
-def test_enclave_many_devices(boot_enclave):
+@pytest.mark.parametrize("mem_size_mib", [1024], ids=["1024mb"], indirect=True)
+def test_enclave_many_devices(uvm_configured):
     """Boot an enclave with many devices and verify they all activate.
 
     Attaches a root block device plus NICs up to the per-enclave device ceiling
@@ -419,7 +440,10 @@ def test_enclave_many_devices(boot_enclave):
     # the rest stress the device count.
     num_net_devices = MAX_ENCLAVE_DEVICES - 1
 
-    vm = boot_enclave(mem_size_mib=1024, net_ifaces=num_net_devices)
+    vm = uvm_configured
+    for _ in range(num_net_devices):
+        vm.add_net_iface()
+    vm.start(debug_mode=True)
 
     out = vm.ssh.check_output("ls -1 /sys/class/net | grep -c eth").stdout.strip()
     assert int(out) == num_net_devices, f"expected {num_net_devices} NICs, found {out}"
@@ -430,7 +454,7 @@ def test_enclave_many_devices(boot_enclave):
 # ---------------------------------------------------------------------------
 
 
-def test_enclave_block_config_update(uvm):
+def test_enclave_block_config_update(uvm_configured):
     """Patch an enclave block device and verify the guest sees the new size.
 
     An enclave guest reads its virtio config space from a copy held by the
@@ -438,9 +462,7 @@ def test_enclave_block_config_update(uvm):
     NE_UPDATE_DEVICE_CONFIG -> VMM -> config-change interrupt for the
     guest to observe the resized disk.
     """
-    vm = uvm
-    vm.spawn()
-    vm.basic_config(vcpu_count=2, mem_size_mib=512)
+    vm = uvm_configured
 
     # Scratch drive that will be patched to a larger backing file.
     fs1 = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch"), size=64)
@@ -541,17 +563,21 @@ def _guest_numa_topology(vm):
     return topo
 
 
-def test_enclave_numa_defaults_to_node_zero(boot_enclave):
+def test_enclave_numa_defaults_to_node_zero(uvm_booted, vcpu_count, mem_size_mib):
     """An enclave started without numa_nodes lands entirely on parent node 0.
 
     GET /enclave reports the placement in effect, so the synthesized default is
     observable rather than an absent field.
     """
-    vm = boot_enclave(vcpu_count=2, mem_size_mib=512)
+    vm = uvm_booted
 
     config = vm.api.enclave.get().json()
     assert config["numa_nodes"] == [
-        {"parent_numa": 0, "vcpu_count": 2, "mem_size_mib": 512}
+        {
+            "parent_numa": 0,
+            "vcpu_count": vcpu_count,
+            "mem_size_mib": mem_size_mib,
+        }
     ]
 
     # The enclave's pages must actually be on node 0, not merely reported there.
@@ -567,9 +593,13 @@ def test_enclave_numa_defaults_to_node_zero(boot_enclave):
     ],
 )
 @pytest.mark.parametrize("layout", ["node0", "node1", "all-nodes"])
-def test_enclave_numa_placement(boot_enclave, layout, cpu_overcommit, cpu_accounting):
+def test_enclave_numa_placement(uvm, layout, cpu_overcommit, cpu_accounting):
     """Place an enclave on requested parent NUMA node(s); verify parent placement and,
     on dedicated cores, the guest vNUMA topology.
+
+    Boots by hand rather than via `uvm_booted`: the vCPU count, memory size and
+    node list all follow from the host's online nodes, which is only known at
+    run time.
 
     Layouts: a single node on parent node 0, a single node on parent node 1 (a
     non-zero node), and a spread across every online node. The node1 and
@@ -606,9 +636,12 @@ def test_enclave_numa_placement(boot_enclave, layout, cpu_overcommit, cpu_accoun
     total_mib = per_node_mib * len(parent_nodes)
     multi = len(parent_nodes) > 1
 
-    vm = boot_enclave(
-        vcpu_count=vcpus,
-        mem_size_mib=total_mib,
+    vm = uvm
+    vm.spawn()
+    vm.basic_config(vcpu_count=vcpus, mem_size_mib=total_mib)
+    vm.add_net_iface()
+    vm.start(
+        debug_mode=True,
         numa_nodes=numa_nodes,
         cpu_overcommit=cpu_overcommit,
         cpu_accounting=cpu_accounting,
