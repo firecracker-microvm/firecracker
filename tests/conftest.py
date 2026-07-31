@@ -611,6 +611,23 @@ def vm_backend(request, record_property):
 # dim per-test — pytest's parametrize markers do NOT merge: a pytestmark +
 # per-test parametrize on the same argname raises "duplicate parametrization".
 #
+# Modules may also customise a lifecycle *stage* by defining a fixture with
+# the same name as `uvm_configured` or `uvm_booted` (fixture shadowing).
+# Pytest resolves the module-local fixture when the shared later stages
+# (`uvm_restored`, `uvm_any`) request that name, so booted and restored
+# variants both pick up the customisation. The override may request the
+# stage it replaces (same-name chaining) to decorate rather than
+# reimplement it, e.g. `def uvm_booted(uvm_booted): ...`.
+#
+# Shadow a stage only when every lifecycle-aware test in the module wants
+# the identical customisation; files with several boot configurations
+# should keep explicitly named fixtures. Prefer overriding a dimension
+# over shadowing a stage when the customisation is a plain configuration
+# value with an existing dimension; knobs too rare to be worth a dimension
+# (e.g. `boot_args`) shadow `uvm_configured` instead. See `test_rng.py`
+# (stage overrides), `test_sysgenid.py` (stage decoration) and
+# `test_fips.py` (custom boot args via a `uvm_configured` override).
+#
 # Dimensions:
 #   guest_kernel  Logical guest kernel variant                 auto-multiplied
 #                                                              over ALL_GUEST_KERNELS

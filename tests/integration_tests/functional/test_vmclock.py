@@ -9,18 +9,13 @@ from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
 pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
 
 
-@pytest.fixture(scope="function")
-def vm_with_vmclock(uvm, bin_vmclock_path):
-    """Create a VM with VMclock support and the `vmclock` test binary under `/tmp/vmclock`"""
-    basevm = uvm
-    basevm.spawn()
-
-    basevm.basic_config()
-    basevm.add_net_iface()
-    basevm.start()
-    basevm.ssh.scp_put(bin_vmclock_path, "/tmp/vmclock")
-
-    yield basevm
+# Decorates the shared `uvm_booted` stage via same-name chaining: every booted
+# VM in this module carries the vmclock test binary under /tmp/vmclock.
+@pytest.fixture
+def uvm_booted(uvm_booted, bin_vmclock_path):
+    """Booted microVM with the vmclock test binary installed."""
+    uvm_booted.ssh.scp_put(bin_vmclock_path, "/tmp/vmclock")
+    return uvm_booted
 
 
 def parse_vmclock(vm, use_mmap=False):
@@ -53,9 +48,9 @@ def parse_vmclock_from_poll(vm, expected_notifications):
 
 
 @pytest.mark.parametrize("use_mmap", [False, True], ids=["read()", "mmap()"])
-def test_vmclock_read_fields(vm_with_vmclock, use_mmap):
+def test_vmclock_read_fields(uvm_booted, use_mmap):
     """Make sure that we expose the expected values in the VMclock struct"""
-    vm = vm_with_vmclock
+    vm = uvm_booted
     vmclock = parse_vmclock(vm, use_mmap)
 
     assert vmclock["VMCLOCK_FLAG_VM_GEN_COUNTER_PRESENT"] == "true"
@@ -70,10 +65,10 @@ def test_vmclock_read_fields(vm_with_vmclock, use_mmap):
 
 
 @pytest.mark.parametrize("use_mmap", [False, True], ids=["read()", "mmap()"])
-def test_snapshot_update(vm_with_vmclock, microvm_factory, snapshot_type, use_mmap):
+def test_snapshot_update(uvm_booted, microvm_factory, snapshot_type, use_mmap):
     """Test that `disruption_marker` and `vm_generation_counter` are updated
     upon snapshot resume"""
-    basevm = vm_with_vmclock
+    basevm = uvm_booted
 
     vmclock = parse_vmclock(basevm, use_mmap)
     assert vmclock["VMCLOCK_FLAG_VM_GEN_COUNTER_PRESENT"] == "true"
@@ -92,9 +87,9 @@ def test_snapshot_update(vm_with_vmclock, microvm_factory, snapshot_type, use_mm
         assert vmclock["VMCLOCK_VM_GENERATION_COUNTER"] == f"{i+1}"
 
 
-def test_vmclock_notifications(vm_with_vmclock, microvm_factory, snapshot_type):
+def test_vmclock_notifications(uvm_booted, microvm_factory, snapshot_type):
     """Test that Firecracker will send a notification on snapshot load"""
-    basevm = vm_with_vmclock
+    basevm = uvm_booted
 
     # Launch vmclock utility in polling mode
     basevm.ssh.check_output("/tmp/vmclock -p > /tmp/vmclock.out 2>&1 &")
