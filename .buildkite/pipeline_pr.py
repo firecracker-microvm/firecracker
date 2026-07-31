@@ -132,4 +132,24 @@ if run_all_tests(changed_files):
         instances=["c8i.8xlarge", "m8g.8xlarge", "c8i.48xlarge"],
     )
 
+    pipeline.build_group(
+        "enclave-performance",
+        pipeline.devtool_test(
+            # No --performance: its CPU tuning targets metal hosts (no
+            # intel_pstate interface on virtual instances) and it force-sizes
+            # a 48GiB huge-page pool that only feeds KVM-pinned huge-page
+            # tests; enclave guest memory comes from the NE CMA carve-out.
+            devtool_opts="--no-kvm-check",
+            # No -n: run serially to avoid distorting measurements, matching
+            # the KVM performance group. The default marker filter excludes
+            # the nonci benchmarks; KVM-pinned tests are deselected at
+            # collection on enclave hosts.
+            pytest_opts="../tests/integration_tests/performance/",
+        ),
+        platforms=[("al2023", "enclave")],
+        instances=["c8i.8xlarge", "m8g.8xlarge"],
+        timeout_in_minutes=180,
+        **DEFAULTS_PERF,
+    )
+
 print(pipeline.to_json())
