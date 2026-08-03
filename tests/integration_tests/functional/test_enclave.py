@@ -13,7 +13,7 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_f
 import host_tools.drive as drive_tools
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.defs import ARTIFACT_DIR
-from framework.utils import get_threads
+from framework.utils import CpuMap, get_threads
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -216,6 +216,20 @@ def test_enclave_ssh(boot_enclave, cpu_overcommit):
 
     vm.ssh.check_output("echo 'enclave test' > /tmp/test.txt")
     assert "enclave test" in vm.ssh.check_output("cat /tmp/test.txt").stdout
+
+
+def test_enclave_max_vcpus(boot_enclave):
+    """Boot an enclave with as many vCPUs as the host has online CPUs."""
+    # Our CI guest kernels are built with CONFIG_NR_CPUS=64, so the guest onlines
+    # at most 64 vCPUs no matter how many the enclave is given.
+    host_cpus = min(CpuMap.len(), 64)
+
+    # Overcommit (floating vCPUs) is required so the count is bounded by the
+    # parent instance's vCPU count rather than the dedicated NE CPU pool.
+    vm = boot_enclave(vcpu_count=host_cpus, cpu_overcommit=True)
+
+    guest_cpus = int(vm.ssh.check_output("nproc").stdout.strip())
+    assert guest_cpus == host_cpus, f"guest saw {guest_cpus} CPUs, expected {host_cpus}"
 
 
 def _thread_guest_time(pid, tid):
