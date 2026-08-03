@@ -30,7 +30,7 @@ pub enum MachineConfigError {
     /// Could not get the configuration of the previously installed balloon device to validate the memory size.
     InvalidVmState,
     /// Invalid queue count {1} for device {0}; cannot exceed the configured vCPU count {2}.
-    InvalidQueueCount(String, u16, u8),
+    InvalidQueueCount(String, u16, u16),
     /// Enabling simultaneous multithreading is not supported on aarch64.
     #[cfg(target_arch = "aarch64")]
     SmtNotSupported,
@@ -118,7 +118,7 @@ impl From<HugePageConfig> for Option<memfd::HugetlbSize> {
 #[serde(deny_unknown_fields)]
 pub struct MachineConfig {
     /// Number of vcpu to start.
-    pub vcpu_count: u8,
+    pub vcpu_count: u16,
     /// The memory size in MiB.
     pub mem_size_mib: usize,
     /// Enables or disabled SMT.
@@ -202,7 +202,7 @@ impl Default for MachineConfig {
 pub struct MachineConfigUpdate {
     /// Number of vcpu to start.
     #[serde(default)]
-    pub vcpu_count: Option<u8>,
+    pub vcpu_count: Option<u16>,
     /// The memory size in MiB.
     #[serde(default)]
     pub mem_size_mib: Option<usize>,
@@ -335,7 +335,7 @@ impl MachineConfig {
         let Some(num_queues) = num_queues else {
             return Ok(());
         };
-        if num_queues.get() > u16::from(self.vcpu_count) {
+        if num_queues.get() > self.vcpu_count {
             return Err(MachineConfigError::InvalidQueueCount(
                 id.to_owned(),
                 num_queues.get(),

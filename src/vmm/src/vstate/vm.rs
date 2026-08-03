@@ -52,7 +52,7 @@ use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 /// 64 cores; CPUID leaf 0x1 EBX[23:16] rejects counts above 128; and the MP table and ACPI MADT
 /// both identify a CPU by an 8-bit APIC ID. On aarch64 none of these exist, and the bound is the
 /// kernel VGIC, at 512 vCPUs.
-pub const MAX_SUPPORTED_KVM_VCPUS: u8 = 32;
+pub const MAX_SUPPORTED_KVM_VCPUS: u16 = 32;
 
 /// Error type for [`KvmVm::start_vcpus`].
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
