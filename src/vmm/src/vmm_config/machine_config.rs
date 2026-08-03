@@ -105,7 +105,7 @@ impl From<HugePageConfig> for Option<memfd::HugetlbSize> {
 #[serde(deny_unknown_fields)]
 pub struct MachineConfig {
     /// Number of vcpu to start.
-    pub vcpu_count: u8,
+    pub vcpu_count: u16,
     /// The memory size in MiB.
     pub mem_size_mib: usize,
     /// Enables or disabled SMT.
@@ -185,7 +185,7 @@ impl Default for MachineConfig {
 pub struct MachineConfigUpdate {
     /// Number of vcpu to start.
     #[serde(default)]
-    pub vcpu_count: Option<u8>,
+    pub vcpu_count: Option<u16>,
     /// The memory size in MiB.
     #[serde(default)]
     pub mem_size_mib: Option<usize>,

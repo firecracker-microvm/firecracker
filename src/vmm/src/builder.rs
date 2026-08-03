@@ -178,7 +178,9 @@ pub fn build_microvm_for_boot(
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm)?;
-    let mut vcpus = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
+    let vcpu_count = u8::try_from(vm_resources.machine_config.vcpu_count)
+        .expect("vcpu_count validated <= MAX_SUPPORTED_KVM_VCPUS");
+    let mut vcpus = vm.create_vcpus(vcpu_count)?;
     vm.register_dram_memory_regions(guest_memory)?;
 
     // Allocate memory as soon as possible to make hotpluggable memory available to all consumers,
@@ -315,7 +317,7 @@ pub fn build_microvm_for_boot(
         &kvm_vm,
         &mut device_manager,
         vcpus.as_mut(),
-        vm_resources.machine_config.vcpu_count,
+        vcpu_count,
         vm_resources.machine_config.smt,
         &cpu_template,
         entry_point,
@@ -447,7 +449,10 @@ pub fn build_microvm_from_snapshot(
     let mut vm = KvmVm::new(kvm).map_err(StartMicrovmError::KvmVm)?;
 
     let mut vcpus = vm
-        .create_vcpus(vm_resources.machine_config.vcpu_count)
+        .create_vcpus(
+            u8::try_from(vm_resources.machine_config.vcpu_count)
+                .expect("vcpu_count validated <= MAX_SUPPORTED_KVM_VCPUS"),
+        )
         .map_err(StartMicrovmError::KvmVm)?;
 
     vm.restore_memory_regions(guest_memory, &microvm_state.vm_state.memory)
