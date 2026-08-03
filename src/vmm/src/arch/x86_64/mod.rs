@@ -43,7 +43,6 @@ use crate::device_manager::DeviceManager;
 use crate::initrd::InitrdConfig;
 use crate::logger::debug;
 use crate::utils::{u64_to_usize, usize_to_u64};
-use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{
     Address, GuestAddress, GuestMemoryMmap, GuestMemoryRegion, GuestRegionType,
 };
@@ -197,7 +196,8 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Opti
 fn configure_vcpus_for_boot(
     kvm: &Kvm,
     vcpus: &mut [Vcpu],
-    machine_config: &MachineConfig,
+    vcpu_count: u8,
+    smt: bool,
     cpu_template: &CustomCpuTemplate,
     guest_mem: &GuestMemoryMmap,
     entry_point: EntryPoint,
@@ -209,10 +209,7 @@ fn configure_vcpus_for_boot(
     // Phase 2: set each normalized CPUID before reading CPUID-dependent MSRs.
     let configured_cpuids = vcpus
         .iter()
-        .map(|vcpu| {
-            vcpu.kvm_vcpu
-                .configure_cpuid(&cpuid, machine_config.vcpu_count, machine_config.smt)
-        })
+        .map(|vcpu| vcpu.kvm_vcpu.configure_cpuid(&cpuid, vcpu_count, smt))
         .collect::<Result<Vec<_>, _>>()?;
 
     // Phase 3: construct the shared, templated MSRs from vCPU 0's post-CPUID state.
@@ -239,7 +236,8 @@ pub fn configure_system_for_boot(
     vm: &KvmVm,
     device_manager: &mut DeviceManager,
     vcpus: &mut [Vcpu],
-    machine_config: &MachineConfig,
+    vcpu_count: u8,
+    smt: bool,
     cpu_template: &CustomCpuTemplate,
     entry_point: EntryPoint,
     initrd: &Option<InitrdConfig>,
@@ -248,7 +246,8 @@ pub fn configure_system_for_boot(
     configure_vcpus_for_boot(
         kvm,
         vcpus,
-        machine_config,
+        vcpu_count,
+        smt,
         cpu_template,
         vm.guest_memory(),
         entry_point,
@@ -269,12 +268,8 @@ pub fn configure_system_for_boot(
     .map_err(ConfigurationError::LoadCommandline)?;
 
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
-    mptable::setup_mptable(
-        vm.guest_memory(),
-        &mut vm.resource_allocator(),
-        machine_config.vcpu_count,
-    )
-    .map_err(ConfigurationError::MpTableSetup)?;
+    mptable::setup_mptable(vm.guest_memory(), &mut vm.resource_allocator(), vcpu_count)
+        .map_err(ConfigurationError::MpTableSetup)?;
 
     match entry_point.protocol {
         BootProtocol::PvhBoot => {

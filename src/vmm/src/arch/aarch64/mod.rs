@@ -31,7 +31,6 @@ use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::initrd::InitrdConfig;
 use crate::logger::warn;
 use crate::utils::{Version, u64_to_usize, usize_to_u64};
-use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap, GuestRegionType};
 use crate::vstate::vcpu::KvmVcpuError;
 use crate::vstate::vm::KvmVm;
@@ -93,7 +92,8 @@ pub fn configure_system_for_boot(
     vm: &KvmVm,
     device_manager: &mut DeviceManager,
     vcpus: &mut [Vcpu],
-    machine_config: &MachineConfig,
+    vcpu_count: u8,
+    smt: bool,
     cpu_template: &CustomCpuTemplate,
     entry_point: EntryPoint,
     initrd: &Option<InitrdConfig>,
@@ -106,8 +106,8 @@ pub fn configure_system_for_boot(
     let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template);
 
     let vcpu_config = VcpuConfig {
-        vcpu_count: machine_config.vcpu_count,
-        smt: machine_config.smt,
+        vcpu_count,
+        smt,
         cpu_config,
     };
 
