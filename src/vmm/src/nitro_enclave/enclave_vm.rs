@@ -22,6 +22,12 @@ use crate::utils::u64_to_usize;
 use crate::vmm_config::enclave::EnclaveConfig;
 use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmapExt, MemoryError};
 
+/// Maximum vCPUs for the Nitro Enclave path.
+///
+/// This is an arbitrary sanity-check limit — the actual maximum depends on the
+/// underlying hardware and the Nitro hypervisor, which enforce it at boot.
+pub const MAX_SUPPORTED_ENCLAVE_VCPUS: u16 = 1024;
+
 /// Errors from enclave VM operations.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum EnclaveVmError {

@@ -15,7 +15,7 @@ use crate::device_manager::{AttachDeviceError, DeviceManager, VirtioDevices};
 use crate::logger::info;
 use crate::nitro_enclave::cpu_accounting::AccountingThreads;
 use crate::nitro_enclave::eif;
-use crate::nitro_enclave::enclave_vm::EnclaveVm;
+use crate::nitro_enclave::enclave_vm::{EnclaveVm, MAX_SUPPORTED_ENCLAVE_VCPUS};
 use crate::nitro_enclave::ne_ioctl;
 use crate::nitro_enclave::ne_ioctl::NitroEnclavesDevFd;
 use crate::nitro_enclave::serial_console::ConsoleReader;
@@ -57,6 +57,13 @@ pub enum EnclaveBuilderError {
         config_count: usize,
         /// Expected vCPU count from machine config.
         vcpu_count: usize,
+    },
+    /// The number of vCPUs ({requested}) exceeds the maximum for a Nitro Enclave VM ({max}).
+    TooManyVcpus {
+        /// Requested vCPU count from the machine config.
+        requested: u16,
+        /// Maximum vCPUs supported by a Nitro Enclave VM.
+        max: u16,
     },
     /// Hypervisor does not support required matched flags: requested={requested:#06x}, supported={supported:#06x}
     UnsupportedFlags {
@@ -126,6 +133,17 @@ fn resolve_enclave_cmdline(
     Ok(cstring.to_str().unwrap_or("").to_owned())
 }
 
+/// Reject a vCPU count above the enclave-path maximum.
+fn validate_enclave_vcpu_count(vcpu_count: u16) -> Result<(), EnclaveBuilderError> {
+    if vcpu_count > MAX_SUPPORTED_ENCLAVE_VCPUS {
+        return Err(EnclaveBuilderError::TooManyVcpus {
+            requested: vcpu_count,
+            max: MAX_SUPPORTED_ENCLAVE_VCPUS,
+        });
+    }
+    Ok(())
+}
+
 /// Build and boot a Nitro Enclave from the given VM resources and enclave config.
 ///
 /// If `kernel_image_path` points to a pre-built EIF file (detected by magic bytes),
@@ -151,6 +169,9 @@ pub fn build_and_boot_enclave(
     if !mem_size_mib.is_multiple_of(2) {
         return Err(EnclaveBuilderError::MemSizeNotAligned(mem_size_mib));
     }
+
+    let vcpu_count = vm_resources.machine_config.vcpu_count;
+    validate_enclave_vcpu_count(vcpu_count)?;
 
     let mut required_matched = ne_ioctl::start_flags::NE_ENCLAVE_PCIE_MODE
         | ne_ioctl::start_flags::NE_ENCLAVE_PCIE_VIRTIO_MODE;
@@ -225,7 +246,6 @@ pub fn build_and_boot_enclave(
         create_flags
     );
 
-    let vcpu_count = vm_resources.machine_config.vcpu_count as u32;
     if let Some(ref ids) = enclave_config.cpu_ids {
         if ids.len() != vcpu_count as usize {
             return Err(EnclaveBuilderError::CpuCountMismatch {
@@ -312,7 +332,8 @@ pub fn build_and_boot_enclave(
             .get("vcpu")
             .ok_or(EnclaveBuilderError::MissingSeccompFilters)?
             .clone();
-        let threads = AccountingThreads::spawn(enclave_vm.enclave_fd(), vcpu_count, vcpu_filter)?;
+        let threads =
+            AccountingThreads::spawn(enclave_vm.enclave_fd(), vcpu_count as u32, vcpu_filter)?;
         info!("Spawned {vcpu_count} CPU-accounting threads");
         // Owned by the EnclaveVm so they are stopped + joined on its drop.
         enclave_vm.set_accounting_threads(threads);
@@ -375,4 +396,26 @@ fn attach_enclave_devices(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_enclave_vcpu_count() {
+        // At and below the ceiling is accepted.
+        validate_enclave_vcpu_count(1).unwrap();
+        validate_enclave_vcpu_count(MAX_SUPPORTED_ENCLAVE_VCPUS).unwrap();
+
+        // Above the ceiling is rejected. (EnclaveBuilderError has no PartialEq, so
+        // match rather than assert_eq!.)
+        let over = MAX_SUPPORTED_ENCLAVE_VCPUS + 1;
+        let err = validate_enclave_vcpu_count(over).unwrap_err();
+        assert!(matches!(
+            err,
+            EnclaveBuilderError::TooManyVcpus { requested, max }
+                if requested == over && max == MAX_SUPPORTED_ENCLAVE_VCPUS
+        ));
+    }
 }
