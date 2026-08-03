@@ -5,7 +5,7 @@ use crate::cpu_config::x86_64::cpuid::{
     CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags, cpuid,
 };
 use crate::logger::warn;
-use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
+use crate::vstate::vm::MAX_SUPPORTED_KVM_VCPUS;
 
 /// Error type for [`super::Cpuid::normalize`].
 #[allow(clippy::module_name_repetitions)]
@@ -356,7 +356,7 @@ impl super::Cpuid {
                         set_range(
                             &mut subleaf.result.eax,
                             0..=4,
-                            MAX_SUPPORTED_VCPUS.next_power_of_two().ilog2(),
+                            MAX_SUPPORTED_KVM_VCPUS.next_power_of_two().ilog2(),
                         )
                         .map_err(|err| ExtendedTopologyError::RightShiftBits(index, err))?;
                         set_range(&mut subleaf.result.ebx, 0..=15, u32::from(cpu_count))

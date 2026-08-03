@@ -45,6 +45,15 @@ use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::{StartThreadedError, VcpuError, VcpuHandle};
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
+/// Maximum number of vCPUs supported by a KVM microVM.
+///
+/// The value is arbitrary, and far below what KVM allows (1024 on x86_64, 512 on aarch64).
+/// Raising it hits, on x86_64: Intel's CPUID leaf 0x4 EAX[31:26] encodes the core ID in 6 bits, so
+/// 64 cores; CPUID leaf 0x1 EBX[23:16] rejects counts above 128; and the MP table and ACPI MADT
+/// both identify a CPU by an 8-bit APIC ID. On aarch64 none of these exist, and the bound is the
+/// kernel VGIC, at 512 vCPUs.
+pub const MAX_SUPPORTED_KVM_VCPUS: u8 = 32;
+
 /// Error type for [`KvmVm::start_vcpus`].
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum StartVcpusError {
