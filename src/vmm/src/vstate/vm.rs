@@ -54,6 +54,10 @@ use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 /// kernel VGIC, at 512 vCPUs.
 pub const MAX_SUPPORTED_KVM_VCPUS: u16 = 32;
 
+/// The KVM vCPU plumbing narrows the count to a `u8`, so the limit must fit in
+/// one for that narrowing to be infallible.
+const _: () = assert!(MAX_SUPPORTED_KVM_VCPUS <= u8::MAX as u16);
+
 /// Error type for [`KvmVm::start_vcpus`].
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum StartVcpusError {
