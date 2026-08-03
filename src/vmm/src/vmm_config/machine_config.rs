@@ -9,12 +9,10 @@ use crate::arch::MAX_GUEST_MEM_SIZE;
 use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
 use crate::pci::bus::MAX_PCI_BUSES;
 use crate::utils::checked_mib_to_bytes;
+use crate::vstate::vm::MAX_SUPPORTED_KVM_VCPUS;
 
 /// The default memory size of the VM, in MiB.
 pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
-/// Firecracker aims to support small scale workloads only, so limit the maximum
-/// vCPUs supported.
-pub const MAX_SUPPORTED_VCPUS: u8 = 32;
 /// The maximum number of PCIe hot-plug ports. Each port starts a secondary bus,
 /// and the root bus takes one of the bus numbers.
 pub const MAX_PCIE_HOTPLUG_PORTS: u8 = MAX_PCI_BUSES - 1;
@@ -27,7 +25,7 @@ pub enum MachineConfigError {
     IncompatibleBalloonSize,
     /// The memory size (MiB) is either 0, not a multiple of the configured page size, or exceeds the architectural maximum.
     InvalidMemorySize,
-    /// The number of vCPUs must be greater than 0, less than {MAX_SUPPORTED_VCPUS:} and must be 1 or an even number if SMT is enabled.
+    /// The number of vCPUs must be greater than 0, less than {MAX_SUPPORTED_KVM_VCPUS:} and must be 1 or an even number if SMT is enabled.
     InvalidVcpuCount,
     /// Could not get the configuration of the previously installed balloon device to validate the memory size.
     InvalidVmState,
@@ -285,7 +283,7 @@ impl MachineConfig {
             return Err(MachineConfigError::SmtNotSupported);
         }
 
-        if vcpu_count == 0 || vcpu_count > MAX_SUPPORTED_VCPUS {
+        if vcpu_count == 0 || vcpu_count > MAX_SUPPORTED_KVM_VCPUS {
             return Err(MachineConfigError::InvalidVcpuCount);
         }
 
