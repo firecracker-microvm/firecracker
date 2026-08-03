@@ -1487,17 +1487,17 @@ mod tests {
             aux_vm_config
         );
 
-        // Invalid vcpu count.
+        // Zero is rejected.
         aux_vm_config.vcpu_count = Some(0);
         assert_eq!(
             vm_resources.update_machine_config(&aux_vm_config),
             Err(MachineConfigError::InvalidVcpuCount)
         );
+
+        // Counts above the KVM limit (32) are accepted by the machine-config API;
+        // the per-path limit is enforced when the VM is started.
         aux_vm_config.vcpu_count = Some(33);
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidVcpuCount)
-        );
+        vm_resources.update_machine_config(&aux_vm_config).unwrap();
 
         // Check that SMT is not supported on aarch64, and that on x86_64 enabling it requires vcpu
         // count to be even.

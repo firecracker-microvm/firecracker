@@ -51,7 +51,7 @@ use crate::vmm_config::boot_source::{
     DEFAULT_KERNEL_CMDLINE, append_root_device_cmdline, build_cmdline,
 };
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
-use crate::vmm_config::machine_config::MachineConfigError;
+use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError};
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::pmem::PmemConfig;
 use crate::vstate::kvm::{Kvm, KvmError};
@@ -59,7 +59,7 @@ use crate::vstate::memory::GuestRegionMmap;
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
-use crate::vstate::vm::{KvmVm, Vm, VmError};
+use crate::vstate::vm::{KvmVm, MAX_SUPPORTED_KVM_VCPUS, Vm, VmError};
 use crate::{EventManager, Vmm, VmmError};
 
 /// Errors associated with starting the instance.
@@ -67,6 +67,13 @@ use crate::{EventManager, Vmm, VmmError};
 pub enum StartMicrovmError {
     /// Unable to attach block device to Vmm: {0}
     AttachBlockDevice(io::Error),
+    /// The number of vCPUs ({requested}) exceeds the maximum for a KVM microVM ({max}).
+    TooManyVcpus {
+        /// Requested vCPU count from the machine config.
+        requested: u16,
+        /// Maximum vCPUs supported by a KVM microVM.
+        max: u16,
+    },
     /// Could not attach device: {0}
     AttachDevice(#[from] AttachDeviceError),
     /// System configuration error: {0}
@@ -137,6 +144,19 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
     }
 }
 
+/// Validate the configured vCPU count against the KVM microVM limit and return
+/// it as a `u8` for the KVM vCPU-creation path.
+fn kvm_vcpu_count(machine_config: &MachineConfig) -> Result<u8, StartMicrovmError> {
+    if machine_config.vcpu_count > MAX_SUPPORTED_KVM_VCPUS {
+        return Err(StartMicrovmError::TooManyVcpus {
+            requested: machine_config.vcpu_count,
+            max: MAX_SUPPORTED_KVM_VCPUS,
+        });
+    }
+    Ok(u8::try_from(machine_config.vcpu_count)
+        .expect("vcpu_count validated <= MAX_SUPPORTED_KVM_VCPUS"))
+}
+
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
 ///
 /// The built microVM and all the created vCPUs start off in the paused state.
@@ -150,6 +170,9 @@ pub fn build_microvm_for_boot(
 ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     // Timestamp for measuring microVM boot duration.
     let request_ts = TimestampUs::default();
+
+    // Reject an out-of-range vCPU count before doing any work for the boot.
+    let vcpu_count = kvm_vcpu_count(&vm_resources.machine_config)?;
 
     let boot_config = vm_resources
         .boot_source
@@ -178,8 +201,6 @@ pub fn build_microvm_for_boot(
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm)?;
-    let vcpu_count = u8::try_from(vm_resources.machine_config.vcpu_count)
-        .expect("vcpu_count validated <= MAX_SUPPORTED_KVM_VCPUS");
     let mut vcpus = vm.create_vcpus(vcpu_count)?;
     vm.register_dram_memory_regions(guest_memory)?;
 
@@ -442,6 +463,9 @@ pub fn build_microvm_from_snapshot(
     // Build Vmm.
     debug!("event_start: build microvm from snapshot");
 
+    // Reject an out-of-range vCPU count before doing any work for the restore.
+    let vcpu_count = kvm_vcpu_count(&vm_resources.machine_config)?;
+
     let kvm = Kvm::new(microvm_state.kvm_state.kvm_cap_modifiers.clone())
         .map_err(StartMicrovmError::Kvm)?;
     // Set up KVM VM and register memory regions.
@@ -449,10 +473,7 @@ pub fn build_microvm_from_snapshot(
     let mut vm = KvmVm::new(kvm).map_err(StartMicrovmError::KvmVm)?;
 
     let mut vcpus = vm
-        .create_vcpus(
-            u8::try_from(vm_resources.machine_config.vcpu_count)
-                .expect("vcpu_count validated <= MAX_SUPPORTED_KVM_VCPUS"),
-        )
+        .create_vcpus(vcpu_count)
         .map_err(StartMicrovmError::KvmVm)?;
 
     vm.restore_memory_regions(guest_memory, &microvm_state.vm_state.memory)
@@ -801,6 +822,29 @@ pub(crate) mod tests {
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
     use crate::vstate::vm::Vm;
     use crate::vstate::vm::tests::setup_vm_with_memory;
+
+    #[test]
+    fn test_kvm_vcpu_count() {
+        let with_vcpus = |vcpu_count| MachineConfig {
+            vcpu_count,
+            ..Default::default()
+        };
+
+        // At and below the KVM limit is accepted and narrows to u8.
+        assert_eq!(kvm_vcpu_count(&with_vcpus(1)).unwrap(), 1);
+        assert_eq!(
+            u16::from(kvm_vcpu_count(&with_vcpus(MAX_SUPPORTED_KVM_VCPUS)).unwrap()),
+            MAX_SUPPORTED_KVM_VCPUS
+        );
+
+        // Above the KVM limit is rejected (even though the API accepts it).
+        let over = MAX_SUPPORTED_KVM_VCPUS + 1;
+        assert!(matches!(
+            kvm_vcpu_count(&with_vcpus(over)),
+            Err(StartMicrovmError::TooManyVcpus { requested, max })
+                if requested == over && max == MAX_SUPPORTED_KVM_VCPUS
+        ));
+    }
 
     #[derive(Debug)]
     pub(crate) struct CustomBlockConfig {
