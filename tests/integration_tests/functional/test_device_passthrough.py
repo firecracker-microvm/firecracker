@@ -42,6 +42,17 @@ def test_api_device_passthrough(uvm):
     with pytest.raises(RuntimeError, match=expected_msg):
         vm.api.device_passthrough.put(id="", sbdf="0000:01:02.05")
 
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_api_device_passthrough_runtime(uvm):
+    """
+    Test device passthrough API commands during runtime.
+    """
+
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+
     # Not a runtime API
     vm.start()
     expected_msg = re.escape(
