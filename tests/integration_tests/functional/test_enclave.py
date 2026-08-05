@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for Nitro Enclave direct and confidential modes in Firecracker."""
 
+import functools
 import json
 import os
+import signal
+import threading
 import time
 from pathlib import Path
 
@@ -23,6 +26,10 @@ from framework.utils_vsock import (
 from framework.vm_backend import VM_BACKENDS_ENCLAVE, VmBackend, pin_vm_backend
 
 MAX_ENCLAVE_DEVICES = 32
+
+# Attempt-independent part of `Attempt #{n} of NE_CREATE_VM2 returned EINTR`,
+# which the retry loop logs for each EINTR it absorbs.
+RETRY_LOG_LINE = "NE_CREATE_VM2 returned EINTR"
 
 # Every test here needs a Nitro Enclave, so the pin belongs to the file rather
 # than to each test, and the backend decides the memory-isolation mode a test
@@ -667,3 +674,62 @@ def test_enclave_numa_placement(boot_enclave, layout, cpu_overcommit, cpu_accoun
             f"expected >= {int(per_node_mib * 1024 * 0.50)} kB "
             f"(50% of {per_node_mib} MiB)"
         )
+
+
+@pytest.mark.repeat(3)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_enclave_create_vm_pending_signal(uvm):
+    """NE_CREATE_VM2 must not fail the boot when a signal is pending.
+
+    The ioctl returns EINTR while a signal is pending.
+
+    SIGSTOP arms it in the kernel alone: the group stop sets TIF_SIGPENDING
+    with no userspace handler on the path, so the pending signal is all the
+    test introduces. SIGCONT follows so the boot proceeds.
+
+    Signalling stops at the first EINTR the retry absorbs. Without the retry
+    that first one already fails InstanceStart, so one hit is the whole test,
+    and an open-ended stream would instead out-pace the retry budget.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config(vcpu_count=2, mem_size_mib=512)
+    vm.add_net_iface()
+
+    # If FC wedges before replying, fail through pytest rather than hang until
+    # the CI runner kills the step. The Session is this VM's own, so the timeout
+    # does not leak to other tests.
+    vm.api.session.request = functools.partial(vm.api.session.request, timeout=30)
+
+    fc_pid = vm.firecracker_pid
+    stop = threading.Event()
+    # Set once the log proves the retry took over, so the run can tell coverage
+    # apart from a boot that never hit the window.
+    retried = threading.Event()
+
+    def signal_firecracker():
+        while not stop.is_set():
+            if RETRY_LOG_LINE in vm.log_data:
+                retried.set()
+                return
+            try:
+                os.kill(fc_pid, signal.SIGSTOP)
+                os.kill(fc_pid, signal.SIGCONT)
+            except ProcessLookupError:
+                return
+            time.sleep(0.001)
+
+    signaller = threading.Thread(target=signal_firecracker, daemon=True)
+    signaller.start()
+    try:
+        vm.start(debug_mode=True)
+    finally:
+        stop.set()
+        signaller.join(timeout=5)
+
+    vm.ssh.check_output("true")
+
+    # Landing in the window is timing-dependent. A run that missed it proved
+    # less, so say so instead of passing as though it covered the retry.
+    if not (retried.is_set() or RETRY_LOG_LINE in vm.log_data):
+        pytest.skip("no signal landed in the EINTR window")
