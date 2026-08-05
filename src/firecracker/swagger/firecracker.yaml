@@ -1260,6 +1260,8 @@ definitions:
           This field is optional for virtio-block config and should be omitted
           for vhost-user-block configuration.
         default: 512
+      topology:
+        $ref: "#/definitions/BlockTopology"
 
       # VhostUserBlock specific parameters
       socket:
@@ -1267,6 +1269,28 @@ definitions:
         description:
           Path to the socket of vhost-user-block backend.
           This field is required for vhost-user-block config should be omitted for virtio-block configuration.
+
+  BlockTopology:
+    type: object
+    description:
+      Block device topology exposed to the guest via VIRTIO_BLK_F_TOPOLOGY.
+      When value is present, it is used instead of Firecracker defaults. All
+      I/O size fields are expressed in units of logical blocks. This field is
+      optional for virtio-block config and should be omitted for
+      vhost-user-block configuration.
+    properties:
+      physical_block_exp:
+        type: integer
+        description: log2 of the number of logical blocks per physical block.
+      alignment_offset:
+        type: integer
+        description: Offset of the first aligned logical block.
+      min_io_size:
+        type: integer
+        description: Suggested minimum I/O size, in units of logical blocks.
+      opt_io_size:
+        type: integer
+        description: Suggested optimal (maximum) I/O size, in units of logical blocks.
 
   Pmem:
     type: object
