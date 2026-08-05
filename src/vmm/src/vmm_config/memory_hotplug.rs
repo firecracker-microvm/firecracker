@@ -101,7 +101,7 @@ impl From<&VirtioMem> for MemoryHotplugConfig {
 #[serde(deny_unknown_fields)]
 pub struct MemoryHotplugSizeUpdate {
     /// Requested size in MiB to resize the hotpluggable memory to.
-    pub requested_size_mib: usize,
+    pub requested_size_mib: u32,
 }
 
 #[cfg(test)]

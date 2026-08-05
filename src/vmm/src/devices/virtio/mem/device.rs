@@ -559,15 +559,12 @@ impl VirtioMem {
     }
 
     /// Updates the requested size of the virtio-mem device.
-    pub fn update_requested_size(
-        &mut self,
-        requested_size_mib: usize,
-    ) -> Result<(), VirtioMemError> {
-        let requested_size = usize_to_u64(mib_to_bytes(requested_size_mib));
+    pub fn update_requested_size(&mut self, requested_size_mib: u32) -> Result<(), VirtioMemError> {
         if !self.is_activated() {
             return Err(VirtioMemError::DeviceNotActive);
         }
 
+        let requested_size = u64::from(requested_size_mib) << 20;
         if !requested_size.is_multiple_of(self.config.block_size) {
             return Err(VirtioMemError::InvalidSize(requested_size));
         }
@@ -1020,6 +1017,14 @@ mod tests {
         // Size too large
         let result = th.device().update_requested_size(2048);
         assert!(matches!(result, Err(VirtioMemError::InvalidSize(_))));
+
+        // The largest request is converted without wrapping.
+        let expected_size = u64::from(u32::MAX) << 20;
+        let result = th.device().update_requested_size(u32::MAX);
+        assert!(matches!(
+            result,
+            Err(VirtioMemError::InvalidSize(size)) if size == expected_size
+        ));
     }
 
     #[test]
