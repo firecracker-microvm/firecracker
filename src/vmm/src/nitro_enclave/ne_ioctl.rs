@@ -13,6 +13,7 @@ use vm_memory::{FileOffset, GuestAddress};
 use vmm_sys_util::ioctl::{ioctl_with_mut_ref, ioctl_with_ref};
 use vmm_sys_util::{ioctl_ior_nr, ioctl_iow_nr, ioctl_iowr_nr};
 
+use crate::logger::info;
 use crate::vstate::memory::{GuestRegionMmap, MemoryError};
 
 /// Path to the Nitro Enclaves device node.
@@ -520,11 +521,26 @@ impl NitroEnclavesDevFd {
             padding: 0,
             slot_uid: 0,
         };
-        // SAFETY: NE_CREATE_VM2 ioctl on a valid NE device fd.
-        let ret = unsafe { ioctl_with_mut_ref(&self.fd, NE_CREATE_VM2(), &mut args) };
-        if ret < 0 {
-            return Err(last_ioctl_error());
-        }
+
+        // NE_CREATE_VM2 can return EINTR when a signal is pending; retry it.
+        const MAX_ATTEMPTS: u32 = 5;
+        let mut attempt = 1;
+        let ret = loop {
+            // SAFETY: NE_CREATE_VM2 ioctl on a valid NE device fd.
+            let ret = unsafe { ioctl_with_mut_ref(&self.fd, NE_CREATE_VM2(), &mut args) };
+            let result = (ret >= 0).then_some(ret).ok_or_else(last_ioctl_error);
+            match result {
+                Ok(ret) => break ret,
+                Err(e) if e.raw_os_error() == Some(libc::EINTR) && attempt < MAX_ATTEMPTS => {
+                    info!("Attempt #{attempt} of NE_CREATE_VM2 returned EINTR");
+                    // Exponential backoff (1us, 2us, 4us, and 8us => 15us in total)
+                    std::thread::sleep(std::time::Duration::from_micros(2u64.pow(attempt - 1)));
+                }
+                Err(e) => return Err(e),
+            }
+
+            attempt += 1;
+        };
         // The ioctl returns the enclave fd as the return value.
         // SAFETY: The kernel returned a valid fd.
         let enclave_fd = EnclaveFd::new(unsafe { OwnedFd::from_raw_fd(ret) });
