@@ -46,7 +46,7 @@ use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
-use crate::utils::mib_to_bytes;
+use crate::utils::{u32_mib_to_bytes, u64_to_usize};
 use crate::vmm_config::boot_source::{
     DEFAULT_KERNEL_CMDLINE, append_root_device_cmdline, build_cmdline,
 };
@@ -184,11 +184,14 @@ pub fn build_microvm_for_boot(
     let virtio_mem_addr = if let Some(memory_hotplug) = &vm_resources.memory_hotplug {
         let addr = allocate_virtio_mem_address(&vm, memory_hotplug.total_size_mib)?;
         let hotplug_memory_region = vm_resources
-            .allocate_memory_region(addr, mib_to_bytes(memory_hotplug.total_size_mib))
+            .allocate_memory_region(
+                addr,
+                u64_to_usize(u32_mib_to_bytes(memory_hotplug.total_size_mib)),
+            )
             .map_err(StartMicrovmError::GuestMemory)?;
         vm.register_hotpluggable_memory_region(
             hotplug_memory_region,
-            mib_to_bytes(memory_hotplug.slot_size_mib),
+            u64_to_usize(u32_mib_to_bytes(memory_hotplug.slot_size_mib)),
         )?;
         Some(addr)
     } else {
@@ -604,14 +607,14 @@ fn attach_entropy_device(
 
 fn allocate_virtio_mem_address(
     vm: &KvmVm,
-    total_size_mib: usize,
+    total_size_mib: u32,
 ) -> Result<GuestAddress, StartMicrovmError> {
     let addr = vm
         .resource_allocator()
         .past_mmio64_memory
         .allocate(
-            mib_to_bytes(total_size_mib) as u64,
-            mib_to_bytes(VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB) as u64,
+            u32_mib_to_bytes(total_size_mib),
+            u32_mib_to_bytes(VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB),
             AllocPolicy::FirstMatch,
         )?
         .start();
