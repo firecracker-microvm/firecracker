@@ -56,7 +56,8 @@ started, the hotpluggable region will be completely unplugged.
 
 - `total_size_mib` (required): The maximum size of hotpluggable memory in MiB.
   This defines the upper bound of memory that can be added to the VM. Must be a
-  multiple of `slot_size_mib`.
+  multiple of `slot_size_mib`. The VM will fail to start if the requested region
+  does not fit in the address space reserved for hotpluggable memory.
 
 - `block_size_mib` (optional, default: 2): The size of individual memory blocks
   in MiB. Must be at least 2 MiB and a power of 2. Larger block sizes provide
@@ -143,6 +144,9 @@ memory available to the guest by updating the requested size, which is the
 target that the guest should reach by requesting to plug or unplug memory
 blocks. The initial value of the requested size is 0 MiB, meaning that no
 hotpluggable memory blocks are plugged on VM boot.
+
+`requested_size_mib` must be a multiple of `block_size_mib` and must not exceed
+the configured `total_size_mib`.
 
 ### Hotplugging Memory
 
