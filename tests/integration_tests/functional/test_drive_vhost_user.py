@@ -104,6 +104,13 @@ def test_vhost_user_block(uvm_vhost_user_booted_ro):
         "1-6": "/dev/vda",
     }
     _check_drives(vm, assert_dict, assert_dict.keys())
+
+    # The backend is readonly, so Firecracker should have negotiated
+    # VIRTIO_BLK_F_RO and passed `ro` for the root device.
+    _, stdout, stderr = vm.ssh.run("cat /proc/cmdline")
+    assert stderr == ""
+    assert " ro " in f" {stdout.strip()} "
+
     vhost_user_block_metrics.validate(vm)
 
     with pytest.raises(
