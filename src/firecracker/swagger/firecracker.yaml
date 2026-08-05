@@ -1549,6 +1549,14 @@ definitions:
           sent to the UFFD handler over the UFFD socket alongside the UFFD itself.
           Only valid when 'backend_type' is 'Uffd'.
         default: false
+      use_sync_wp:
+        type: boolean
+        description:
+          When true, guest memory delivers synchronous userfault write-protect
+          events to the UFFD handler instead of the kernel resolving them in place
+          (UFFD_FEATURE_WP_ASYNC is not requested). The handler must resolve WP
+          events. Only valid when 'backend_type' is 'Uffd'.
+        default: false
 
   Metrics:
     type: object

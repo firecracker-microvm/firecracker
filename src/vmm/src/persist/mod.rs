@@ -428,6 +428,7 @@ pub fn restore_from_snapshot(
             track_dirty_pages,
             vm_resources.machine_config.huge_pages,
             params.mem_backend.use_memfd,
+            params.mem_backend.use_sync_wp,
         )
         .map_err(RestoreFromSnapshotGuestMemoryError::Uffd)?,
     };
@@ -534,6 +535,7 @@ fn guest_memory_from_uffd(
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
     use_memfd: bool,
+    use_sync_wp: bool,
 ) -> Result<(Vec<GuestRegionMmap>, Option<Uffd>), GuestMemoryFromUffdError> {
     let (guest_memory, backend_mappings, file) =
         create_guest_memory(mem_state, track_dirty_pages, huge_pages, use_memfd)?;
@@ -544,9 +546,16 @@ fn guest_memory_from_uffd(
     // because the only place the kernel checks this is in a hook from madvise, e.g. it doesn't
     // actively change the behavior of UFFD, only passively. Without balloon devices
     // we never call madvise anyway, so no need to put this into a conditional.
-    uffd_builder.require_features(
-        FeatureFlags::EVENT_REMOVE | FeatureFlags::MISSING_HUGETLBFS | FeatureFlags::WP_ASYNC,
-    );
+    let mut features = FeatureFlags::EVENT_REMOVE | FeatureFlags::MISSING_HUGETLBFS;
+    // With `use_sync_wp`, guest memory delivers SYNCHRONOUS write-protect events
+    // to the UFFD handler (which must resolve them), instead of the kernel
+    // clearing the WP bit in place (WP_ASYNC). This lets the handler observe
+    // every first write to a protected page, e.g. to drive copy-on-write for a
+    // background memory snapshot.
+    if !use_sync_wp {
+        features |= FeatureFlags::WP_ASYNC;
+    }
+    uffd_builder.require_features(features);
 
     let uffd = uffd_builder
         .close_on_exec(true)

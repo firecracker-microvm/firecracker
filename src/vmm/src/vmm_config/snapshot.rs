@@ -130,6 +130,11 @@ pub struct MemBackendConfig {
     /// handler over the UFFD socket. Only valid when `backend_type` is `Uffd`.
     #[serde(default)]
     pub use_memfd: bool,
+    /// When true, guest memory delivers synchronous userfault write-protect events to the UFFD
+    /// handler (UFFD_FEATURE_WP_ASYNC is not requested), instead of the kernel resolving them in
+    /// place. The handler must resolve WP events. Only valid when `backend_type` is `Uffd`.
+    #[serde(default)]
+    pub use_sync_wp: bool,
 }
 
 /// The microVM state options.
