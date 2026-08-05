@@ -42,6 +42,13 @@ and this project adheres to
 - [#5956](https://github.com/firecracker-microvm/firecracker/pull/5956): Fixed a
   TOCTOU race in the aarch64 jailer when setting ownership of the CPU cache and
   `MIDR_EL1` information files copied into the chroot.
+- [#6076](https://github.com/firecracker-microvm/firecracker/pull/6076): Fixed
+  memory hotplug sizes silently wrapping when converted from MiB to bytes.
+  `requested_size_mib` on `PATCH /hotplug/memory` and `total_size_mib`,
+  `block_size_mib` and `slot_size_mib` on `PUT /hotplug/memory` are now bounded
+  to 32 bits. Values above that previously wrapped to a smaller byte count, so a
+  large enough request was accepted as a 0-byte region instead of being
+  rejected.
 - [#6031](https://github.com/firecracker-microvm/firecracker/pull/6031),
   [#6041](https://github.com/firecracker-microvm/firecracker/pull/6041): Fixed
   the vsock device re-arming its host-stream `EPOLLIN` interest while received
