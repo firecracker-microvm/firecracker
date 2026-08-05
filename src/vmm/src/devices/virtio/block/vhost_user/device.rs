@@ -209,11 +209,13 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
             u64_to_usize(NUM_QUEUES)];
         let device_state = DeviceState::Inactive;
 
+        // Read before `acked_features` is narrowed to the protocol bit below.
+        let read_only = acked_features & (1 << VIRTIO_BLK_F_RO) != 0;
+
         // We negotiated features with backend. Now these acked_features
         // are available for guest driver to choose from.
         let avail_features = acked_features;
         let acked_features = acked_features & VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits();
-        let read_only = acked_features & (1 << VIRTIO_BLK_F_RO) != 0;
         let vhost_user_block_metrics_name = format!("block_{}", config.drive_id);
 
         let metrics = VhostUserMetricsPerDevice::alloc(vhost_user_block_metrics_name);
@@ -667,7 +669,7 @@ mod tests {
             VhostUserHeaderFlag::empty().bits()
         );
         assert!(!vhost_block.root_device);
-        assert!(!vhost_block.read_only);
+        assert!(vhost_block.read_only);
         assert_eq!(vhost_block.config_space, vec![0x69, 0x69, 0x69]);
 
         // Test some `VirtioDevice` methods
