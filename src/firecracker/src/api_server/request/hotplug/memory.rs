@@ -83,6 +83,25 @@ mod tests {
             vmm_action_from_request(parse_put_memory_hotplug(&Body::new(body)).unwrap()),
             VmmAction::SetMemoryHotplugDevice(expected_config)
         );
+
+        // PUT with sizes that exceed the u32 API limit. 2^44 MiB previously wrapped to 0 bytes
+        // when converted to a usize byte count.
+        let body = r#"{
+            "total_size_mib": 17592186044416
+        }"#;
+        parse_put_memory_hotplug(&Body::new(body)).unwrap_err();
+
+        let body = r#"{
+            "total_size_mib": 2048,
+            "block_size_mib": 4294967296
+        }"#;
+        parse_put_memory_hotplug(&Body::new(body)).unwrap_err();
+
+        let body = r#"{
+            "total_size_mib": 2048,
+            "slot_size_mib": 4294967296
+        }"#;
+        parse_put_memory_hotplug(&Body::new(body)).unwrap_err();
     }
 
     #[test]
