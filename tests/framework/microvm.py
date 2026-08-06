@@ -291,6 +291,8 @@ class Microvm:
         self.vcpus_count = None
         self.mem_size_bytes = None
         self.cpu_template_name = "None"
+        # Set by start(); None until the VM is started with a net iface.
+        self.time_to_ssh_up_us = None
         # The given custom CPU template will be set in basic_config() but could
         # be overwritten via set_cpu_template().
         self.custom_cpu_template = custom_cpu_template
@@ -1024,6 +1026,7 @@ class Microvm:
         assert self.state == "Not started"
 
         self.backend.prepare_start(self, *args, **kwargs)
+        started_at = time.perf_counter()
         self.api.actions.put(action_type="InstanceStart")
 
         # Check that the VM has started
@@ -1031,6 +1034,9 @@ class Microvm:
 
         if self.iface:
             self.wait_for_ssh_up()
+            # Covers guest boot plus sshd coming up, so it is only comparable
+            # against itself - but it is the only boot signal enclaves have.
+            self.time_to_ssh_up_us = int((time.perf_counter() - started_at) * 1_000_000)
 
     def pause(self):
         """Pauses the microVM"""
