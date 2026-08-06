@@ -143,11 +143,17 @@ impl PciDevices {
         let mut virtio_device =
             VirtioPciDevice::new(id.clone(), mem, device, Arc::new(msix_vectors), sbdf)?;
 
-        // Allocate bars
-        let mut resource_allocator_lock = vm.resource_allocator();
-        let resource_allocator = resource_allocator_lock.deref_mut();
+        // Allocate the BARs, then release the resource allocator lock before
+        // touching any bus. A device access runs with the bus lock held and
+        // can itself take the resource allocator lock, so holding the
+        // allocator across the bus insertion in attach_common() below would be
+        // the opposite order and can deadlock.
+        {
+            let mut resource_allocator_lock = vm.resource_allocator();
+            let resource_allocator = resource_allocator_lock.deref_mut();
 
-        virtio_device.allocate_bars(&mut resource_allocator.mmio64_memory);
+            virtio_device.allocate_bars(&mut resource_allocator.mmio64_memory);
+        }
 
         let virtio_device = Arc::new(Mutex::new(virtio_device));
 
