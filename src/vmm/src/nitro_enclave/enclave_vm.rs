@@ -18,8 +18,8 @@ use crate::nitro_enclave::cpu_accounting::AccountingThreads;
 use crate::nitro_enclave::info_page::InfoPage;
 use crate::nitro_enclave::ne_ioctl::{EnclaveFd, NitroEnclavesDevFd};
 use crate::nitro_enclave::serial_console::ConsoleReader;
-use crate::utils::u64_to_usize;
-use crate::vmm_config::enclave::EnclaveConfig;
+use crate::utils::{mib_to_bytes, u64_to_usize};
+use crate::vmm_config::enclave::{EnclaveConfig, EnclaveNumaNode};
 use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmapExt, MemoryError};
 
 /// Maximum vCPUs for the Nitro Enclave path.
@@ -167,22 +167,41 @@ impl EnclaveVm {
     #[cfg(target_arch = "x86_64")]
     const HIGH_RAM_BASE: u64 = 0x1_0000_0000;
 
-    /// Split `size` bytes of enclave RAM into `(gpa, size)` regions around the
-    /// PCI MMIO hole: one below `LOW_RAM_MAX_SIZE`, and (if RAM exceeds that) a
-    /// second at `HIGH_RAM_BASE` above the hole. Each region is donated as its
-    /// own owning CMA region; the hypervisor concatenates them in donation order.
-    fn split_ram_regions(size: usize) -> Vec<(GuestAddress, usize)> {
-        if size > Self::LOW_RAM_MAX_SIZE {
-            vec![
-                (GuestAddress(Self::ENCLAVE_RAM_BASE), Self::LOW_RAM_MAX_SIZE),
-                (
-                    GuestAddress(Self::HIGH_RAM_BASE),
-                    size - Self::LOW_RAM_MAX_SIZE,
-                ),
-            ]
+    /// Guest-physical base and max chunk length at cumulative `offset` bytes
+    /// into the enclave RAM, clamped so a chunk never crosses the PCI MMIO hole.
+    fn gpa_chunk_for_offset(offset: usize, remaining: usize) -> (u64, usize) {
+        if offset >= Self::LOW_RAM_MAX_SIZE {
+            let gpa = Self::HIGH_RAM_BASE + (offset - Self::LOW_RAM_MAX_SIZE) as u64;
+            (gpa, remaining)
         } else {
-            vec![(GuestAddress(Self::ENCLAVE_RAM_BASE), size)]
+            let to_boundary = Self::LOW_RAM_MAX_SIZE - offset;
+            (
+                Self::ENCLAVE_RAM_BASE + offset as u64,
+                remaining.min(to_boundary),
+            )
         }
+    }
+
+    /// Split the enclave's RAM into the `(gpa, size, parent_numa)` CMA regions to
+    /// allocate and donate, around the PCI MMIO hole.
+    ///
+    /// Each region is donated as its own owning CMA region and the hypervisor
+    /// concatenates them in donation order, so guest node K's base is the running
+    /// sum of the prior sizes -- which is why the nodes must be in
+    /// ascending-`parent_numa` order.
+    fn split_ram_regions(numa_nodes: &[EnclaveNumaNode]) -> Vec<(GuestAddress, usize, u16)> {
+        let mut regions = Vec::new();
+        let mut offset: usize = 0;
+        for node in numa_nodes {
+            let mut remaining = mib_to_bytes(node.mem_size_mib);
+            while remaining > 0 {
+                let (gpa, chunk) = Self::gpa_chunk_for_offset(offset, remaining);
+                regions.push((GuestAddress(gpa), chunk, node.parent_numa));
+                offset += chunk;
+                remaining -= chunk;
+            }
+        }
+        regions
     }
 
     /// Create a new enclave VM from a pre-opened device fd, issuing
@@ -262,56 +281,58 @@ impl EnclaveVm {
     /// Allocate CMA memory, copy the EIF image into it, then donate the
     /// memory to the NE driver.
     ///
-    /// The EIF must be written into the CMA pages **before** calling
-    /// `NE_SET_USER_MEMORY_REGION`, because that ioctl donates the pages
-    /// to the enclave and userspace can no longer access them (in
-    /// confidential mode).
-    ///
-    /// The donated memory is retained in both modes so its owning mapping stays
-    /// reserved for the enclave's lifetime. Direct mode exposes it via
-    /// [`Self::guest_memory`] as device DMA memory; confidential mode keeps it
-    /// PROT_NONE and inaccessible to the parent.
+    /// The EIF must be written before donation: `NE_SET_USER_MEMORY_REGION`
+    /// makes the pages inaccessible to the parent in confidential mode. The
+    /// donated memory is retained for the enclave's lifetime (dropping would
+    /// `munmap` it): direct mode exposes it as device DMA memory, confidential
+    /// mode keeps it PROT_NONE.
     pub fn load_and_add_memory(
         &mut self,
-        size: usize,
         eif_data: &[u8],
         direct_mode: bool,
+        numa_nodes: &[EnclaveNumaNode],
     ) -> Result<(), EnclaveVmError> {
-        let ram_regions = Self::split_ram_regions(size);
+        let ram_regions = Self::split_ram_regions(numa_nodes);
 
         // Verify the EIF fits in low RAM (guest node 0) before allocating any
-        // CMA, so an oversized image fails cheaply.
+        // CMA, so an oversized image fails cheaply. It must fit that chunk, else
+        // image bytes would spill onto another NUMA node.
         let load_info = self
             .enclave_fd
             .get_image_load_info()
             .map_err(EnclaveVmError::GetImageLoadInfo)?;
         let offset = u64_to_usize(load_info.memory_offset);
-        let low_size = ram_regions[0].1;
-        if offset + eif_data.len() > low_size {
+        let first_region_size = ram_regions[0].1;
+        if offset + eif_data.len() > first_region_size {
             return Err(EnclaveVmError::ImageTooLarge {
                 offset: offset as u64,
                 image_size: eif_data.len() as u64,
-                mem_size: low_size as u64,
+                mem_size: first_region_size as u64,
             });
         }
 
         // Allocate one owning CMA region per RAM region and donate each.
         // Read-write: the EIF is written here before donation, and direct mode
         // keeps using the regions as device DMA memory afterwards.
-        // Node 0 for now; per-node placement wires real nodes in later commits.
         let regions = ram_regions
             .iter()
             .enumerate()
-            .map(|(idx, &(gpa, region_size))| {
+            .map(|(idx, &(gpa, region_size, parent_numa))| {
                 let region = self
                     .dev_fd
-                    .allocate_cma_region(gpa, region_size, libc::PROT_READ | libc::PROT_WRITE, 0)
+                    .allocate_cma_region(
+                        gpa,
+                        region_size,
+                        libc::PROT_READ | libc::PROT_WRITE,
+                        parent_numa,
+                    )
                     .map_err(EnclaveVmError::CmaAlloc)?;
                 info!(
-                    "CMA alloc: gpa={:#x} host={:#x} size={} MiB",
+                    "CMA alloc: gpa={:#x} host={:#x} size={} MiB parent_numa={}",
                     gpa.0,
                     region.as_ptr() as usize,
                     region.len() / (1024 * 1024),
+                    parent_numa,
                 );
                 Ok(GuestRegionMmapExt::dram_from_mmap_region(
                     region,
@@ -328,8 +349,6 @@ impl EnclaveVm {
             .write_slice(eif_data, dest)
             .map_err(EnclaveVmError::WriteImage)?;
 
-        // Donate each region separately; the hypervisor concatenates them into
-        // its fixed GPA layout in donation order.
         for region in guest_mem.iter() {
             self.enclave_fd
                 .set_user_memory_region(region.as_ptr() as u64, region.len())
@@ -337,13 +356,9 @@ impl EnclaveVm {
         }
 
         self.enclave_ram = Some(if direct_mode {
-            // Direct mode keeps the regions as the devices' DMA memory.
             EnclaveRam::Direct(guest_mem)
         } else {
-            // Donation revoked the parent's access, so PROT_NONE each region to
-            // match. The region is retained (not dropped): its owning mapping
-            // must stay reserved for the enclave's lifetime, since dropping
-            // would munmap and free the VA back to the parent.
+            // Donation revoked the parent's access; PROT_NONE to match.
             for region in guest_mem.iter() {
                 for slot in region.plugged_slots() {
                     slot.protect(true).map_err(EnclaveVmError::Mprotect)?;
@@ -371,7 +386,8 @@ impl EnclaveVm {
     /// Uses CMA allocation (mmap on the NE device fd) for physically contiguous
     /// memory that the hypervisor can resolve.
     pub fn install_info_page(&mut self) -> Result<(), EnclaveVmError> {
-        let page = InfoPage::new(&self.dev_fd).map_err(EnclaveVmError::InfoPageAlloc)?;
+        let page = InfoPage::new(&self.dev_fd, self.guest_node0_parent_numa())
+            .map_err(EnclaveVmError::InfoPageAlloc)?;
         page.register(&self.enclave_fd)
             .map_err(EnclaveVmError::InfoPageRegister)?;
         self.info_page = Some(Arc::new(page));
@@ -423,23 +439,33 @@ impl EnclaveVm {
         }
     }
 
+    /// Parent NUMA node backing guest node 0, for parent-facing CMA regions (the
+    /// info page and the DMBs). numa_nodes is sorted ascending, so element 0 is
+    /// guest node 0; falls back to node 0 when no placement is set.
+    fn guest_node0_parent_numa(&self) -> u16 {
+        self.config
+            .numa_nodes
+            .as_deref()
+            .and_then(<[_]>::first)
+            .map_or(0, |n| n.parent_numa)
+    }
+
     /// Allocate a Device Memory Buffer (DMB) for a confidential-mode device.
     ///
     /// The DMB is a CMA-backed region from the NE driver's pool, shared with the
     /// enclave so that virtqueue rings stay accessible to the parent while the
     /// rest of the enclave RAM is isolated. It is returned as a single-region
     /// `GuestMemoryMmap` at `GuestAddress(0)`; the region owns its CMA mapping
-    /// and munmaps it on drop.
+    /// and munmaps it on drop. Pinned to guest node 0's parent node.
     pub fn create_dmb(&self, size_bytes: usize) -> Result<GuestMemoryMmap, EnclaveVmError> {
         // Read-write: the parent services queue rings in this DMA memory.
-        // Node 0 for now; per-node placement wires real nodes in later commits.
         let region = self
             .dev_fd
             .allocate_cma_region(
                 GuestAddress(0),
                 size_bytes,
                 libc::PROT_READ | libc::PROT_WRITE,
-                0,
+                self.guest_node0_parent_numa(),
             )
             .map_err(EnclaveVmError::CmaAlloc)?;
         GuestMemoryMmap::from_regions(vec![GuestRegionMmapExt::dram_from_mmap_region(region, 0)])
@@ -453,18 +479,36 @@ mod tests {
 
     use super::*;
 
+    /// Multi-node placements whose per-node sizes are 128 MiB section multiples,
+    /// as `validate_numa_config` requires, on ascending parent nodes.
+    fn numa_placements() -> impl Strategy<Value = Vec<EnclaveNumaNode>> {
+        proptest::collection::vec(1usize..=20, 2..=5).prop_map(|sections| {
+            sections
+                .into_iter()
+                .zip(0u16..)
+                .map(|(n, parent_numa)| numa_node(parent_numa, 2, n * 128))
+                .collect()
+        })
+    }
+
     proptest! {
         // Span sizes below, at, and well above the MMIO hole so both the
         // single-region and split cases (incl. the boundary) are exercised.
         #[test]
-        fn test_split_ram_regions(size in 1usize..=(EnclaveVm::LOW_RAM_MAX_SIZE * 2)) {
-            let ram_regions = EnclaveVm::split_ram_regions(size);
+        fn test_split_ram_regions(mib in 1usize..=(EnclaveVm::LOW_RAM_MAX_SIZE * 2 / (1024 * 1024))) {
+            // The default placement: one node on parent node 0, as
+            // validate_numa_config synthesizes when the request omits numa_nodes.
+            let nodes = vec![numa_node(0, 1, mib)];
+            let size = mib_to_bytes(mib);
+            let ram_regions = EnclaveVm::split_ram_regions(&nodes);
 
             // The regions exactly cover `size`, low region first at the RAM base.
-            let total: usize = ram_regions.iter().map(|&(_, s)| s).sum();
+            let total: usize = ram_regions.iter().map(|&(_, s, _)| s).sum();
             prop_assert_eq!(total, size);
             prop_assert_eq!(ram_regions[0].0, GuestAddress(EnclaveVm::ENCLAVE_RAM_BASE));
             prop_assert!(ram_regions[0].1 <= EnclaveVm::LOW_RAM_MAX_SIZE);
+            // Everything lands on the one configured node.
+            prop_assert!(ram_regions.iter().all(|&(_, _, parent_numa)| parent_numa == 0));
 
             if size > EnclaveVm::LOW_RAM_MAX_SIZE {
                 // Split around the hole: low region fills it, overflow lands high.
@@ -475,5 +519,163 @@ mod tests {
                 prop_assert_eq!(ram_regions.len(), 1);
             }
         }
+
+        #[test]
+        fn test_split_ram_regions_numa(nodes in numa_placements()) {
+            let total: usize = nodes.iter().map(|n| mib_to_bytes(n.mem_size_mib)).sum();
+            let regions = EnclaveVm::split_ram_regions(&nodes);
+
+            prop_assert_eq!(regions.iter().map(|&(_, s, _)| s).sum::<usize>(), total);
+            prop_assert!(regions.iter().all(|&(_, size, _)| size > 0));
+            prop_assert_eq!(regions[0].0, GuestAddress(EnclaveVm::ENCLAVE_RAM_BASE));
+
+            for &(gpa, size, _) in &regions {
+                let end = gpa.0 + size as u64;
+                if gpa.0 < EnclaveVm::PCIE_MMIO_BASE {
+                    prop_assert!(end <= EnclaveVm::PCIE_MMIO_BASE);
+                } else {
+                    prop_assert!(gpa.0 >= EnclaveVm::HIGH_RAM_BASE);
+                }
+            }
+
+            // Strictly ascending, and contiguous except for the single jump over
+            // the hole. `GuestMemoryMmap::from_regions` rejects unsorted or
+            // overlapping regions, and donation order is what assigns guest-node
+            // identity, so a region that restarted lower would alias another node.
+            for pair in regions.windows(2) {
+                let (prev_gpa, prev_size, _) = pair[0];
+                let (next_gpa, _, _) = pair[1];
+                let prev_end = prev_gpa.0 + prev_size as u64;
+                prop_assert!(next_gpa.0 > prev_gpa.0);
+                let contiguous = next_gpa.0 == prev_end;
+                let crosses_hole =
+                    prev_end == EnclaveVm::PCIE_MMIO_BASE && next_gpa.0 == EnclaveVm::HIGH_RAM_BASE;
+                prop_assert!(contiguous || crosses_hole);
+            }
+
+            // Nodes are laid out in order, each contributing its exact size, so a
+            // node's regions are consecutive rather than interleaved.
+            let mut tag_order: Vec<u16> = regions.iter().map(|&(_, _, t)| t).collect();
+            tag_order.dedup();
+            let expected: Vec<u16> = nodes.iter().map(|n| n.parent_numa).collect();
+            prop_assert_eq!(tag_order, expected);
+            for node in &nodes {
+                let donated: usize = regions
+                    .iter()
+                    .filter(|&&(_, _, tag)| tag == node.parent_numa)
+                    .map(|&(_, size, _)| size)
+                    .sum();
+                prop_assert_eq!(donated, mib_to_bytes(node.mem_size_mib));
+            }
+        }
+    }
+
+    fn numa_node(parent_numa: u16, vcpu_count: u16, mem_size_mib: usize) -> EnclaveNumaNode {
+        EnclaveNumaNode {
+            parent_numa,
+            vcpu_count,
+            mem_size_mib,
+        }
+    }
+
+    #[test]
+    fn test_split_ram_regions_single_node_pins_parent() {
+        // A one-entry config pins the whole (hole-split) layout to that node.
+        let size = 256 * 1024 * 1024;
+        let nodes = vec![numa_node(1, 2, 256)];
+        let regions = EnclaveVm::split_ram_regions(&nodes);
+        assert_eq!(
+            regions,
+            vec![(GuestAddress(EnclaveVm::ENCLAVE_RAM_BASE), size, 1)]
+        );
+    }
+
+    #[test]
+    fn test_split_ram_regions_node_split_around_hole() {
+        // Node 0 crosses the PCI hole: it splits into a low + high chunk sharing
+        // its parent node; node 1 follows in high RAM.
+        let low = EnclaveVm::LOW_RAM_MAX_SIZE;
+        let overflow = 128 * 1024 * 1024;
+        let node0_mib = (low + overflow) / (1024 * 1024);
+        let node1_mib = 128;
+        let nodes = vec![numa_node(0, 2, node0_mib), numa_node(1, 2, node1_mib)];
+        let regions = EnclaveVm::split_ram_regions(&nodes);
+        // Node 1's base is the running sum of node 0's chunks, so it must follow
+        // node 0's overflow in high RAM rather than restarting at the RAM base.
+        assert_eq!(
+            regions,
+            vec![
+                (GuestAddress(EnclaveVm::ENCLAVE_RAM_BASE), low, 0),
+                (GuestAddress(EnclaveVm::HIGH_RAM_BASE), overflow, 0),
+                (
+                    GuestAddress(EnclaveVm::HIGH_RAM_BASE + overflow as u64),
+                    mib_to_bytes(node1_mib),
+                    1,
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_split_ram_regions_single_node_split_stays_pinned() {
+        // A single node larger than the hole still splits, and BOTH chunks keep
+        // the requested parent node -- otherwise the overflow half would be placed
+        // by the kernel's default policy instead of where the config asked.
+        let low = EnclaveVm::LOW_RAM_MAX_SIZE;
+        let overflow = 128 * 1024 * 1024;
+        let mib = (low + overflow) / (1024 * 1024);
+        let nodes = vec![numa_node(1, 2, mib)];
+        let regions = EnclaveVm::split_ram_regions(&nodes);
+        assert_eq!(
+            regions,
+            vec![
+                (GuestAddress(EnclaveVm::ENCLAVE_RAM_BASE), low, 1),
+                (GuestAddress(EnclaveVm::HIGH_RAM_BASE), overflow, 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_split_ram_regions_at_hole_boundary() {
+        // Exactly LOW_RAM_MAX_SIZE fills low RAM with nothing left over, so the
+        // hole is never crossed and no high-RAM region is emitted; one MiB more
+        // spills a single region into high RAM. (The sub-MiB `>=` vs `>`
+        // transition is pinned directly in test_gpa_chunk_for_offset_boundary,
+        // since a node's size is expressed in MiB.)
+        let low = EnclaveVm::LOW_RAM_MAX_SIZE;
+        let low_mib = low / (1024 * 1024);
+        assert_eq!(
+            EnclaveVm::split_ram_regions(&[numa_node(0, 1, low_mib)]),
+            vec![(GuestAddress(EnclaveVm::ENCLAVE_RAM_BASE), low, 0)]
+        );
+        assert_eq!(
+            EnclaveVm::split_ram_regions(&[numa_node(0, 1, low_mib - 1)]),
+            vec![(
+                GuestAddress(EnclaveVm::ENCLAVE_RAM_BASE),
+                low - 1024 * 1024,
+                0
+            )]
+        );
+        assert_eq!(
+            EnclaveVm::split_ram_regions(&[numa_node(0, 1, low_mib + 1)]),
+            vec![
+                (GuestAddress(EnclaveVm::ENCLAVE_RAM_BASE), low, 0),
+                (GuestAddress(EnclaveVm::HIGH_RAM_BASE), 1024 * 1024, 0),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_gpa_chunk_for_offset_boundary() {
+        // The exact byte transition `split_ram_regions` can no longer express
+        // (node sizes are in MiB): one byte short of the hole still yields a low
+        // chunk, exactly at the hole switches to high RAM.
+        let low = EnclaveVm::LOW_RAM_MAX_SIZE;
+        let (gpa, chunk) = EnclaveVm::gpa_chunk_for_offset(low - 1, 1);
+        assert_eq!(gpa, EnclaveVm::ENCLAVE_RAM_BASE + (low as u64 - 1));
+        assert_eq!(chunk, 1);
+        let (gpa, chunk) = EnclaveVm::gpa_chunk_for_offset(low, 1);
+        assert_eq!(gpa, EnclaveVm::HIGH_RAM_BASE);
+        assert_eq!(chunk, 1);
     }
 }
