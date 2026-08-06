@@ -71,6 +71,16 @@ class VmBackend(str, Enum):
         """
         return not self.is_enclave
 
+    @property
+    def supports_hot_unplug(self):
+        """Whether devices can be removed from a running microVM.
+
+        Enclaves support hot-plugging (with ``hotplug_mode``) but not
+        hot-unplugging, so tests exercise the plug half on every backend and
+        skip the unplug half where it is unsupported.
+        """
+        return not self.is_enclave
+
     def available(self):
         """Whether this host can run the backend."""
         match self:
