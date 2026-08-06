@@ -25,7 +25,7 @@ use crate::utils::mib_to_bytes;
 use crate::vmm_config::boot_source::{
     BootConfig, DEFAULT_ENCLAVE_KERNEL_CMDLINE, append_root_device_cmdline, build_cmdline,
 };
-use crate::vmm_config::enclave::EnclaveConfig;
+use crate::vmm_config::enclave::{EnclaveConfig, EnclaveNumaNode};
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vstate::vm::Vm;
 use crate::{EventManager, Vmm};
@@ -268,8 +268,14 @@ pub fn build_and_boot_enclave(
     enclave_vm.install_info_page()?;
     info!("Info page installed");
 
-    let mem_size = mib_to_bytes(vm_resources.machine_config.mem_size_mib);
-    enclave_vm.load_and_add_memory(mem_size, &eif_data, enclave_config.direct_mode)?;
+    // Placeholder until validate_numa_config lands (next commit): the whole
+    // enclave on parent node 0.
+    let numa_nodes = vec![EnclaveNumaNode {
+        parent_numa: 0,
+        vcpu_count: vm_resources.machine_config.vcpu_count,
+        mem_size_mib: vm_resources.machine_config.mem_size_mib,
+    }];
+    enclave_vm.load_and_add_memory(&eif_data, enclave_config.direct_mode, &numa_nodes)?;
     info!(
         "Allocated {} MiB, loaded EIF, and donated memory to enclave",
         vm_resources.machine_config.mem_size_mib
