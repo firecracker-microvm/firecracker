@@ -38,6 +38,12 @@ const MSI_PHANDLE: u32 = 3;
 // So, we start the indexing of the phandles used from a really big number and then subtract from
 // it as we need more and more phandle for each cache representation.
 const LAST_CACHE_PHANDLE: u32 = 4000;
+
+// Phandle base for cpu@N nodes.  Placed above LAST_CACHE_PHANDLE so the cpu
+// phandle range never collides with the cache phandles (which count DOWN
+// from LAST_CACHE_PHANDLE).  Used by /cpus/cpu-map/cluster*/core*/cpu
+// references for per-core distinct CPUs visible in the guest.
+const CPU_PHANDLE_BASE: u32 = 4001;
 // Read the documentation specified when appending the root node to the FDT.
 const ADDRESS_CELLS: u32 = 0x2;
 const SIZE_CELLS: u32 = 0x2;
@@ -139,6 +145,12 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtEr
         // Set the field to first 24 bits of the MPIDR - Multiprocessor Affinity Register.
         // See http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0488c/BABHBJCI.html.
         fdt.property_u64("reg", mpidr & 0x7FFFFF)?;
+        // Phandle so the /cpus/cpu-map nodes (emitted after this loop) can
+        // reference this cpu via `cpu = <&cpuN>`.  Without an explicit
+        // phandle, the cpu-map references would not resolve and the Linux
+        // FDT topology parser would skip the cpu-map entirely.
+        let cpu_phandle = CPU_PHANDLE_BASE + u32::try_from(cpu_index).unwrap();
+        fdt.property_u32("phandle", cpu_phandle)?;
 
         for cache in l1_caches.iter() {
             // Please check out
@@ -215,6 +227,22 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtEr
 
         fdt.end_node(cpu)?;
     }
+    // Emit /cpus/cpu-map so the guest has an explicit cluster/core topology.
+    // Minimal viable shape: single cluster containing N cores. Mirrors
+    // crosvm/aarch64/src/fdt.rs::create_cpu_nodes. A real multi-cluster layout
+    // (matching host SoC topology) can be a follow-up once a config knob exists.
+    //
+    // Binding: Linux Documentation/devicetree/bindings/cpu/cpu-topology.txt
+    let cpu_map = fdt.begin_node("cpu-map")?;
+    let cluster0 = fdt.begin_node("cluster0")?;
+    for cpu_index in 0..num_cpus {
+        let core = fdt.begin_node(&format!("core{cpu_index}"))?;
+        let cpu_phandle = CPU_PHANDLE_BASE + u32::try_from(cpu_index).unwrap();
+        fdt.property_u32("cpu", cpu_phandle)?;
+        fdt.end_node(core)?;
+    }
+    fdt.end_node(cluster0)?;
+    fdt.end_node(cpu_map)?;
     fdt.end_node(cpus)?;
 
     Ok(())
