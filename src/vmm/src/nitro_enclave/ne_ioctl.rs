@@ -121,17 +121,15 @@ pub struct NeInfoPage {
     pub size: u64,
 }
 
-/// NE_ADD_ANY_VCPU ioctl payload. Atomically picks and adds a vCPU,
-/// optionally biased toward a preferred parent NUMA node.
+/// NE_ADD_ANY_VCPU ioctl payload. Atomically picks and adds a vCPU on the
+/// requested parent NUMA node.
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NeAddAnyVcpuArgs {
-    /// Preferred parent NUMA node, or [`NE_NUMA_ANY`] (-1) for no preference.
+    /// Parent NUMA node to take the vCPU from.
+    /// The NE UAPI spells this the "host" NUMA node.
     pub numa_hint: i32,
 }
-
-/// No NUMA preference — pick from any node.
-pub const NE_NUMA_ANY: i32 = -1;
 
 // ---------------------------------------------------------------------------
 // Device attachment structures (NE_ADD_DEVICE and notification wiring)
@@ -567,11 +565,9 @@ impl EnclaveFd {
         Ok(id)
     }
 
-    /// Atomically pick and add a vCPU to the enclave, optionally biased
-    /// toward a preferred NUMA node. Uses the NE_ADD_ANY_VCPU ioctl which
-    /// avoids the TOCTOU race of the legacy NE_ADD_VCPU(0) path.
-    ///
-    /// Pass [`NE_NUMA_ANY`] (-1) for no node preference.
+    /// Atomically pick and add a vCPU to the enclave on parent NUMA node
+    /// `numa_hint`. Uses the NE_ADD_ANY_VCPU ioctl, which avoids the TOCTOU race
+    /// of the legacy NE_ADD_VCPU(0) path.
     pub fn add_any_vcpu(&self, numa_hint: i32) -> std::io::Result<()> {
         let mut args = NeAddAnyVcpuArgs { numa_hint };
         // SAFETY: NE_ADD_ANY_VCPU ioctl on a valid enclave fd.

@@ -258,10 +258,11 @@ pub fn build_and_boot_enclave(
         }
         info!("Added {} vCPUs (explicit): {:?}", ids.len(), ids);
     } else {
+        // No explicit cpu_ids: take every vCPU from parent node 0.
         for _ in 0..vcpu_count {
-            enclave_vm.add_any_vcpu(ne_ioctl::NE_NUMA_ANY)?;
+            enclave_vm.add_any_vcpu(0)?;
         }
-        info!("Added {} vCPUs via NE_ADD_ANY_VCPU", vcpu_count);
+        info!("Added {vcpu_count} vCPUs via NE_ADD_ANY_VCPU on parent node 0");
     }
 
     enclave_vm.install_info_page()?;
