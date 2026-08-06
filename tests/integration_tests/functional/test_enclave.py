@@ -403,6 +403,21 @@ def test_enclave_hotplug_disabled(uvm_booted):
         )
 
 
+def test_enclave_poweroff(uvm_booted):
+    """A guest-initiated poweroff shuts the VMM down gracefully.
+
+    The enclave counterpart of `test_shut_down.py::test_reboot`: enclave vCPUs
+    produce no KVM_SYSTEM_EVENT, so assert on the VMM exiting cleanly instead.
+    """
+    vm = uvm_booted
+
+    vm.ssh.run("poweroff")
+    vm.mark_killed()
+
+    vm.check_log_message("Vmm is stopping.")
+    assert vm.get_exit_code() == 0
+
+
 def test_enclave_vsock(uvm_configured):
     """Boot an enclave with a vsock device and verify host<->guest echo.
 
