@@ -91,7 +91,9 @@ class VmBackend(str, Enum):
             case _:
                 raise AssertionError(f"Unhandled VM backend: {self!r}")
 
-    def deselect_reason(self, *, kernel, pci_enabled, huge_pages, lifecycle):
+    def deselect_reason(
+        self, *, kernel, pci_enabled, huge_pages, lifecycle, cpu_template
+    ):
         """Why this backend cannot run a parametrisation, or ``None``.
 
         Consulted at collection time so impossible variants are deselected
@@ -106,6 +108,7 @@ class VmBackend(str, Enum):
                     pci_enabled=pci_enabled,
                     huge_pages=huge_pages,
                     lifecycle=lifecycle,
+                    cpu_template=cpu_template,
                 )
             case _:
                 raise AssertionError(f"Unhandled VM backend: {self!r}")

@@ -157,6 +157,7 @@ def pytest_collection_modifyitems(config, items):
             pci_enabled=params.get("pci_enabled"),
             huge_pages=params.get("huge_pages"),
             lifecycle=params.get("uvm_lifecycle"),
+            cpu_template=params.get("cpu_template"),
         ):
             deselected.append(item)
         else:

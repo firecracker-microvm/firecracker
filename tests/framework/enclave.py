@@ -174,14 +174,16 @@ class EnclaveConfigError(AssertionError):
     """
 
 
-def enclave_deselect_reason(*, kernel, pci_enabled, huge_pages, lifecycle):
+def enclave_deselect_reason(
+    *, kernel, pci_enabled, huge_pages, lifecycle, cpu_template
+):
     """Why an enclave backend cannot run a parametrisation, or ``None``.
 
     An enclave cannot restore snapshots, boots an EIF image over PCI, and
     donates its guest memory to the NE driver. It therefore cannot express
-    MMIO or huge-page modes and needs an ACPI guest kernel. A kernel whose EFI
-    boot image is merely absent from the artifact set is not deselected: that
-    artifact gap stays visible as a runtime skip (see
+    MMIO, huge-page modes or CPU templates, and needs an ACPI guest kernel. A
+    kernel whose EFI boot image is merely absent from the artifact set is not
+    deselected: that artifact gap stays visible as a runtime skip (see
     ``VmBackend.kernel_image_for``).
     """
     if lifecycle is VmLifecycle.RESTORED:
@@ -191,6 +193,8 @@ def enclave_deselect_reason(*, kernel, pci_enabled, huge_pages, lifecycle):
         return "enclave backends boot EIF images over PCI only"
     if huge_pages is not None and huge_pages != HugePagesConfig.NONE:
         return "NE donated memory cannot express huge-page modes"
+    if cpu_template is not None:
+        return "enclave backends cannot express CPU templates"
     if kernel is not None and not kernel.acpi:
         return "enclave backends require an ACPI guest kernel"
     return None
