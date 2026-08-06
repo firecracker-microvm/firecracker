@@ -27,6 +27,7 @@ use crate::vmm_config::boot_source::{
 };
 use crate::vmm_config::enclave::{EnclaveConfig, EnclaveNumaNode};
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
+use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::vm::Vm;
 use crate::{EventManager, Vmm};
 
@@ -80,6 +81,8 @@ pub enum EnclaveBuilderError {
     Accounting(#[from] crate::nitro_enclave::cpu_accounting::AccountingError),
     /// Required "vcpu" seccomp filter not found
     MissingSeccompFilters,
+    /// Invalid numa_nodes config: {0}
+    NumaValidationError(String),
 }
 
 /// Resolve the kernel command line for the enclave.
@@ -173,6 +176,9 @@ pub fn build_and_boot_enclave(
     let vcpu_count = vm_resources.machine_config.vcpu_count;
     validate_enclave_vcpu_count(vcpu_count)?;
 
+    let numa_nodes = validate_numa_config(enclave_config, &vm_resources.machine_config)?;
+    let multi_numa = numa_nodes.len() > 1;
+
     let mut required_matched = ne_ioctl::start_flags::NE_ENCLAVE_PCIE_MODE
         | ne_ioctl::start_flags::NE_ENCLAVE_PCIE_VIRTIO_MODE;
     if enclave_config.cpu_overcommit {
@@ -183,6 +189,11 @@ pub fn build_and_boot_enclave(
     }
     if enclave_config.hotplug_mode {
         required_matched |= ne_ioctl::start_flags::NE_ENCLAVE_PCIE_HOTPLUG_MODE;
+    }
+    // Only a multi-node placement requests a multi-NUMA guest topology; the
+    // node-0 default keeps the single-node flags.
+    if multi_numa {
+        required_matched |= ne_ioctl::start_flags::NE_ENCLAVE_PCIE_NUMA_MODE;
     }
     // Matched flags live in bits 6-15, guaranteed to fit in u16 by the mask.
     #[allow(clippy::cast_possible_truncation)]
@@ -235,7 +246,11 @@ pub fn build_and_boot_enclave(
     #[allow(clippy::cast_possible_truncation)]
     let create_flags = create_flags as u32;
 
-    let mut enclave_vm = EnclaveVm::new(dev_fd, create_flags, enclave_config.clone())?;
+    // EnclaveVm retains the normalized config so GET /enclave reports what
+    // launched, not the raw request order.
+    let mut normalized_config = enclave_config.clone();
+    normalized_config.numa_nodes = Some(numa_nodes.clone());
+    let mut enclave_vm = EnclaveVm::new(dev_fd, create_flags, normalized_config)?;
     info!(
         "Enclave VM created: slot_uid={}, direct_mode={}, cpu_overcommit={}, \
          cpu_accounting={}, create_flags=0x{:x}",
@@ -258,23 +273,22 @@ pub fn build_and_boot_enclave(
         }
         info!("Added {} vCPUs (explicit): {:?}", ids.len(), ids);
     } else {
-        // No explicit cpu_ids: take every vCPU from parent node 0.
-        for _ in 0..vcpu_count {
-            enclave_vm.add_any_vcpu(0)?;
+        // No explicit cpu_ids: request each node's vCPUs on its parent node.
+        for node in &numa_nodes {
+            let hint = i32::from(node.parent_numa);
+            for _ in 0..node.vcpu_count {
+                enclave_vm.add_any_vcpu(hint)?;
+            }
         }
-        info!("Added {vcpu_count} vCPUs via NE_ADD_ANY_VCPU on parent node 0");
+        info!(
+            "Added {vcpu_count} vCPUs via NE_ADD_ANY_VCPU across {} NUMA node(s)",
+            numa_nodes.len()
+        );
     }
 
     enclave_vm.install_info_page()?;
     info!("Info page installed");
 
-    // Placeholder until validate_numa_config lands (next commit): the whole
-    // enclave on parent node 0.
-    let numa_nodes = vec![EnclaveNumaNode {
-        parent_numa: 0,
-        vcpu_count: vm_resources.machine_config.vcpu_count,
-        mem_size_mib: vm_resources.machine_config.mem_size_mib,
-    }];
     enclave_vm.load_and_add_memory(&eif_data, enclave_config.direct_mode, &numa_nodes)?;
     info!(
         "Allocated {} MiB, loaded EIF, and donated memory to enclave",
@@ -405,6 +419,99 @@ fn attach_enclave_devices(
     Ok(())
 }
 
+/// Validate and normalize the per-NUMA-node placement from the enclave config.
+///
+/// An absent `numa_nodes` places the whole enclave on parent node 0; an explicit
+/// empty list is rejected. The returned nodes are sorted ascending by
+/// `parent_numa`, so element 0 is guest node 0 -- the EIF / GPA-low region and the
+/// DMB anchor.
+fn validate_numa_config(
+    enclave_config: &EnclaveConfig,
+    machine_config: &MachineConfig,
+) -> Result<Vec<EnclaveNumaNode>, EnclaveBuilderError> {
+    let Some(nodes) = enclave_config.numa_nodes.as_ref() else {
+        return Ok(vec![EnclaveNumaNode {
+            parent_numa: 0,
+            vcpu_count: machine_config.vcpu_count,
+            mem_size_mib: machine_config.mem_size_mib,
+        }]);
+    };
+    let err = EnclaveBuilderError::NumaValidationError;
+    if nodes.is_empty() {
+        return Err(err("numa_nodes must not be empty".into()));
+    }
+
+    let vcpu_total: u32 = nodes.iter().map(|n| u32::from(n.vcpu_count)).sum();
+    if vcpu_total != u32::from(machine_config.vcpu_count) {
+        return Err(err(format!(
+            "vCPU total {vcpu_total} != machine vcpu_count {}",
+            machine_config.vcpu_count
+        )));
+    }
+    // checked_add: mem_size_mib is untrusted and a wrapping sum could land back
+    // on machine_mem, slipping past the mismatch check.
+    let mem_total = nodes
+        .iter()
+        .try_fold(0usize, |acc, n| acc.checked_add(n.mem_size_mib));
+    if mem_total != Some(machine_config.mem_size_mib) {
+        return Err(err(format!(
+            "memory total {mem_total:?} MiB != machine mem_size_mib {} MiB",
+            machine_config.mem_size_mib
+        )));
+    }
+
+    let mut normalized = nodes.clone();
+    normalized.sort_by_key(|n| n.parent_numa);
+
+    // Reject parent_numa well above the kernel's MAX_NUMNODES as a sanity bound.
+    const MAX_PARENT_NUMA: u16 = 1 << 12;
+    const SECTION_MIB: usize = 128;
+    let last = normalized.len() - 1;
+    for (idx, node) in normalized.iter().enumerate() {
+        if node.parent_numa > MAX_PARENT_NUMA {
+            return Err(err(format!(
+                "parent_numa {} exceeds maximum {MAX_PARENT_NUMA}",
+                node.parent_numa
+            )));
+        }
+        if node.vcpu_count == 0 {
+            return Err(err(format!(
+                "parent_numa {} has vcpu_count 0",
+                node.parent_numa
+            )));
+        }
+        if node.mem_size_mib == 0 {
+            return Err(err(format!(
+                "parent_numa {} has mem_size_mib 0",
+                node.parent_numa
+            )));
+        }
+        // A node's size sets the NEXT node's guest base, so every node but the
+        // last must land on a 128 MiB sparsemem section or a guest NUMA boundary
+        // would fall mid-section. The last node's size ends the address space and
+        // constrains nothing.
+        if idx != last && !node.mem_size_mib.is_multiple_of(SECTION_MIB) {
+            return Err(err(format!(
+                "parent_numa {} mem_size_mib {} must be a multiple of {SECTION_MIB} MiB \
+                 (every node but the last)",
+                node.parent_numa, node.mem_size_mib
+            )));
+        }
+    }
+    // Sorted above, so duplicate parent_numa values are adjacent.
+    if let Some(pair) = normalized
+        .windows(2)
+        .find(|p| p[0].parent_numa == p[1].parent_numa)
+    {
+        return Err(err(format!(
+            "duplicate parent_numa {}",
+            pair[0].parent_numa
+        )));
+    }
+
+    Ok(normalized)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,5 +531,149 @@ mod tests {
             EnclaveBuilderError::TooManyVcpus { requested, max }
                 if requested == over && max == MAX_SUPPORTED_ENCLAVE_VCPUS
         ));
+    }
+
+    fn machine(vcpu_count: u16, mem_size_mib: usize) -> MachineConfig {
+        MachineConfig {
+            vcpu_count,
+            mem_size_mib,
+            ..Default::default()
+        }
+    }
+
+    fn config(nodes: Option<Vec<EnclaveNumaNode>>) -> EnclaveConfig {
+        EnclaveConfig {
+            numa_nodes: nodes,
+            ..Default::default()
+        }
+    }
+
+    fn node(parent_numa: u16, vcpu_count: u16, mem_size_mib: usize) -> EnclaveNumaNode {
+        EnclaveNumaNode {
+            parent_numa,
+            vcpu_count,
+            mem_size_mib,
+        }
+    }
+
+    #[track_caller]
+    fn assert_numa_err(err: EnclaveBuilderError, needle: &str) {
+        match err {
+            EnclaveBuilderError::NumaValidationError(msg) => assert!(
+                msg.contains(needle),
+                "message {msg:?} does not contain {needle:?}"
+            ),
+            other => panic!("expected NumaValidationError, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_validate_numa_config_defaults_to_node_zero() {
+        // Absent numa_nodes places the whole enclave on parent node 0; an explicit
+        // empty list is still an invalid config.
+        assert_eq!(
+            validate_numa_config(&config(None), &machine(2, 512)).unwrap(),
+            vec![node(0, 2, 512)]
+        );
+        let err = validate_numa_config(&config(Some(vec![])), &machine(2, 512)).unwrap_err();
+        assert_numa_err(err, "must not be empty");
+    }
+
+    #[test]
+    fn test_validate_numa_config_section_rule_skips_last_node() {
+        // Last node unaligned: accepted (its size ends the address space).
+        let nodes = vec![node(0, 1, 256), node(1, 1, 258)];
+        assert_eq!(
+            validate_numa_config(&config(Some(nodes)), &machine(2, 514)).unwrap(),
+            vec![node(0, 1, 256), node(1, 1, 258)]
+        );
+        // Non-last node unaligned: rejected, it would put node 1's base
+        // mid-section.
+        let nodes = vec![node(0, 1, 258), node(1, 1, 256)];
+        let err = validate_numa_config(&config(Some(nodes)), &machine(2, 514)).unwrap_err();
+        assert_numa_err(err, "must be a multiple of 128 MiB");
+    }
+
+    #[test]
+    fn test_validate_numa_config_vcpu_mismatch() {
+        let nodes = vec![node(0, 1, 256), node(1, 1, 256)];
+        let err = validate_numa_config(&config(Some(nodes)), &machine(4, 512)).unwrap_err();
+        assert_numa_err(err, "vCPU total 2 != machine vcpu_count 4");
+    }
+
+    #[test]
+    fn test_validate_numa_config_mem_mismatch() {
+        let nodes = vec![node(0, 1, 256), node(1, 1, 256)];
+        let err = validate_numa_config(&config(Some(nodes)), &machine(2, 1024)).unwrap_err();
+        assert_numa_err(err, "memory total");
+    }
+
+    #[test]
+    fn test_validate_numa_config_zero_vcpus() {
+        let nodes = vec![node(0, 2, 256), node(1, 0, 256)];
+        let err = validate_numa_config(&config(Some(nodes)), &machine(2, 512)).unwrap_err();
+        assert_numa_err(err, "parent_numa 1 has vcpu_count 0");
+    }
+
+    #[test]
+    fn test_validate_numa_config_duplicate_node() {
+        let nodes = vec![node(0, 1, 256), node(0, 1, 256)];
+        let err = validate_numa_config(&config(Some(nodes)), &machine(2, 512)).unwrap_err();
+        assert_numa_err(err, "duplicate parent_numa 0");
+    }
+
+    #[test]
+    fn test_validate_numa_config_zero_memory() {
+        let nodes = vec![node(0, 1, 512), node(1, 1, 0)];
+        let err = validate_numa_config(&config(Some(nodes)), &machine(2, 512)).unwrap_err();
+        assert_numa_err(err, "parent_numa 1 has mem_size_mib 0");
+    }
+
+    #[test]
+    fn test_validate_numa_config_parent_numa_out_of_range() {
+        let huge = (1 << 12) + 1;
+        let nodes = vec![node(huge, 2, 512)];
+        let err = validate_numa_config(&config(Some(nodes)), &machine(2, 512)).unwrap_err();
+        assert_numa_err(err, "exceeds maximum 4096");
+    }
+
+    #[test]
+    fn test_validate_numa_config_parent_numa_at_max_accepted() {
+        let nodes = vec![node(1 << 12, 2, 512)];
+        let out = validate_numa_config(&config(Some(nodes)), &machine(2, 512)).unwrap();
+        assert_eq!(out[0].parent_numa, 1 << 12);
+    }
+
+    #[test]
+    fn test_validate_numa_config_mem_sum_overflow_rejected() {
+        // A wrapping mem_size_mib sum must not slip past the mismatch check: two
+        // nodes whose sizes overflow usize back to machine_mem are rejected via
+        // the checked_add path.
+        let nodes = vec![node(0, 1, 512), node(1, 1, usize::MAX - 512 + 1)];
+        let err = validate_numa_config(&config(Some(nodes)), &machine(2, 512)).unwrap_err();
+        assert_numa_err(err, "memory total");
+    }
+
+    #[test]
+    fn test_validate_numa_config_normalizes_sorted_by_parent_numa() {
+        // Input given out of order (parent_numa 2 then 0 then 1); output must be
+        // sorted ascending so element 0 is guest node 0.
+        let nodes = vec![node(2, 1, 128), node(0, 1, 128), node(1, 1, 128)];
+        let out = validate_numa_config(&config(Some(nodes)), &machine(3, 384)).unwrap();
+        assert_eq!(
+            out.iter().map(|n| n.parent_numa).collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+    }
+
+    #[test]
+    fn test_validate_numa_config_single_node_needs_no_section_align() {
+        // A lone node is also the last node: its size ends the address space and
+        // sets no other node's base, so section alignment does not apply.
+        let nodes = vec![node(0, 2, 200)];
+        assert_eq!(
+            validate_numa_config(&config(Some(nodes)), &machine(2, 200)).unwrap(),
+            vec![node(0, 2, 200)]
+        );
     }
 }
