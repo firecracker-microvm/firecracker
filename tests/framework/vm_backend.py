@@ -81,6 +81,23 @@ class VmBackend(str, Enum):
         """
         return not self.is_enclave
 
+    @property
+    def has_boot_timer(self):
+        """Whether the boot timer pseudo-device can be attached.
+
+        It is an MMIO device wired up only on the KVM build path.
+        """
+        return not self.is_enclave
+
+    @property
+    def supports_entropy_device(self):
+        """Whether virtio-rng can be attached.
+
+        Confidential enclaves disallow it, and the NE hypervisor rejects the
+        device at start with errno 291.
+        """
+        return self is not VmBackend.ENCLAVE_CONFIDENTIAL
+
     def available(self):
         """Whether this host can run the backend."""
         match self:
