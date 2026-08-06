@@ -16,6 +16,7 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_f
 import host_tools.drive as drive_tools
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.defs import ARTIFACT_DIR
+from framework.guest_stats import MeminfoGuest
 from framework.utils import CpuMap, get_threads, parse_cpu_list
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
@@ -401,6 +402,45 @@ def test_enclave_hotplug_disabled(uvm_booted):
             is_root_device=False,
             is_read_only=False,
         )
+
+
+# Guest memory the kernel takes for itself before userspace sees any: its own
+# image, the EIF it was booted from, and reserved regions.
+KERNEL_OVERHEAD_MIB = 64
+# struct page is 64 bytes per 4 KiB page, so the vmemmap costs size/64.
+VMEMMAP_OVERHEAD_RATIO = 64 / 4096
+
+
+@pytest.mark.parametrize(
+    "mem_size_mib", [512, 1022, 1024, 1026, 2046, 2048, 2050, 4096], indirect=True
+)
+def test_enclave_memory_sizes(uvm, mem_size_mib):
+    """Boot an enclave at each memory size and check the guest sees it.
+
+    The sizes straddle the PCI MMIO hole, where guest RAM is split into a low
+    and a high region: 1024 MiB is the aarch64 boundary, 2048 MiB the x86_64
+    one (see EnclaveVm::split_ram_regions). The +2 sizes leave a deliberately
+    tiny high region, which is where the region maths has gone wrong before.
+    """
+    vm = uvm
+    vm.spawn()
+    # Disable the bounce buffer: Linux reserves 64 MiB of it whenever guest RAM
+    # spans past 4 GiB, which every size above the split boundary does, and that
+    # would dwarf the overhead this test is trying to bound.
+    vm.basic_config(
+        vcpu_count=2,
+        mem_size_mib=mem_size_mib,
+        boot_args="reboot=k panic=1 nomodule swiotlb=noforce cryptomgr.notests",
+    )
+    vm.add_net_iface()
+    vm.start(debug_mode=True)
+
+    budget_mib = KERNEL_OVERHEAD_MIB + mem_size_mib * VMEMMAP_OVERHEAD_RATIO
+    mem_total_mib = MeminfoGuest(vm).get().mem_total.mib()
+    assert mem_total_mib >= mem_size_mib - budget_mib, (
+        f"guest reports {mem_total_mib:.0f} MiB of {mem_size_mib} MiB, "
+        f"more than {budget_mib:.0f} MiB missing"
+    )
 
 
 def test_enclave_poweroff(uvm_booted):
