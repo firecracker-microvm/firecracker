@@ -30,6 +30,10 @@ and this project adheres to
   support for booting `bzImage` guest kernels on x86_64, in addition to the
   existing uncompressed ELF (`vmlinux`) images. The kernel image format is
   detected automatically, so no configuration change is required.
+- [#6064](https://github.com/firecracker-microvm/firecracker/pull/6064): Added
+  the `huge_pages` field to `PUT /snapshot/load`, allowing the restored microVM
+  to reuse the snapshot's host page configuration or select `None`,
+  `Transparent`, or `2M`.
 
 ### Changed
 

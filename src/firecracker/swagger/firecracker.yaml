@@ -1728,6 +1728,20 @@ definitions:
           elapsed since the snapshot was taken. When false (default), kvmclock resumes
           from where it was at snapshot time. This option may be extended to other clock
           sources and CPU architectures in the future."
+      huge_pages:
+        type: string
+        enum:
+          - Snapshot
+          - None
+          - Transparent
+          - 2M
+        description:
+          Selects the huge pages configuration for the restored microVM.
+          Snapshot reuses the value serialized in the snapshot and is the
+          default when this field is omitted; None uses the host's default
+          memory-mapping behavior. Explicit hugetlbfs (`2M`) pages require a UFFD
+          memory backend. With UFFD, the effectiveness of transparent huge pages
+          may be limited.
 
 
   TokenBucket:

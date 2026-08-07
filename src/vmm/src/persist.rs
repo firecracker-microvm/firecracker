@@ -428,7 +428,7 @@ pub fn restore_from_snapshot(
             smt: Some(microvm_state.vm_info.smt),
             cpu_template: Some(microvm_state.vm_info.cpu_template),
             track_dirty_pages: Some(track_dirty_pages),
-            huge_pages: Some(microvm_state.vm_info.huge_pages),
+            huge_pages: Some(params.huge_pages.resolve(microvm_state.vm_info.huge_pages)),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         })

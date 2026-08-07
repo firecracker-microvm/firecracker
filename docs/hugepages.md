@@ -56,10 +56,15 @@ pool, please refer to the [Linux Documentation][hugetlbfs_docs].
 
 ### Huge Pages and Snapshotting
 
-Restoring a Firecracker snapshot of a microVM backed by huge pages will also use
-huge pages to back the restored guest. There is no option to flip between
-regular, 4K, pages and huge pages at restore time. Furthermore, snapshots of
-microVMs backed with huge pages can only be restored via UFFD.
+The `huge_pages` field on `PUT /snapshot/load` selects the page configuration
+for the restored microVM. `Snapshot` reuses the configuration serialized in the
+snapshot and is the default when the field is omitted. `None` uses the host's
+default memory-mapping behavior, while `Transparent` and `2M` select their
+corresponding huge page configurations.
+
+Explicit `2M` hugetlbfs pages require UFFD, so combining `2M` with file-backed
+restore returns an error. `Transparent` is accepted with UFFD, although UFFD may
+limit the effectiveness of transparent huge pages.
 
 When restoring snapshots via UFFD, Firecracker will send the configured page
 size (in KiB) for each memory region as part of the initial handshake, as

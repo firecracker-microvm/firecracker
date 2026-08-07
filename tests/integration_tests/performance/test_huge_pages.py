@@ -106,6 +106,51 @@ def test_hugetlbfs_snapshot(microvm_factory, uvm, snapshot_type):
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
 
+@pytest.mark.parametrize(
+    ("source_huge_pages", "restore_huge_pages", "uffd_handler_name"),
+    [
+        (HugePagesConfig.NONE, HugePagesConfig.HUGETLBFS_2MB, "on_demand"),
+        (HugePagesConfig.HUGETLBFS_2MB, HugePagesConfig.NONE, None),
+        (HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT, "on_demand"),
+    ],
+)
+def test_snapshot_huge_pages_override(
+    microvm_factory,
+    uvm,
+    snapshot_type,
+    source_huge_pages,
+    restore_huge_pages,
+    uffd_handler_name,
+):
+    """Restore snapshots using a different huge-page configuration."""
+    vm = uvm
+    vm.memory_monitor = None
+    vm.spawn()
+    vm.basic_config(
+        huge_pages=source_huge_pages,
+        mem_size_mib=128,
+        track_dirty_pages=snapshot_type.needs_dirty_page_tracking,
+    )
+    vm.add_net_iface()
+    vm.start()
+    snapshot = vm.make_snapshot(snapshot_type)
+    vm.kill()
+
+    vm = microvm_factory.build()
+    vm.spawn()
+    vm.restore_from_snapshot(
+        snapshot,
+        resume=True,
+        huge_pages=restore_huge_pages,
+        uffd_handler_name=uffd_handler_name,
+    )
+
+    assert vm.api.machine_config.get().json()["huge_pages"] == restore_huge_pages
+    vm.ssh.check_output("true")
+    if restore_huge_pages == HugePagesConfig.HUGETLBFS_2MB:
+        check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
+
+
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
 def test_ept_violation_count(
     microvm_factory,

@@ -112,6 +112,7 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
         network_overrides: snapshot_config.network_overrides,
         vsock_override: snapshot_config.vsock_override,
         clock_realtime: snapshot_config.clock_realtime,
+        huge_pages: snapshot_config.huge_pages,
     };
 
     // Construct the `ParsedRequest` object.
@@ -127,7 +128,9 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
 
 #[cfg(test)]
 mod tests {
-    use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType, NetworkOverride};
+    use vmm::vmm_config::snapshot::{
+        MemBackendConfig, MemBackendType, NetworkOverride, SnapshotLoadHugePageConfig,
+    };
 
     use super::*;
     use crate::api_server::parsed_request::tests::{depr_action_from_req, vmm_action_from_request};
@@ -178,7 +181,8 @@ mod tests {
             "mem_backend": {
                 "backend_path": "bar",
                 "backend_type": "File"
-            }
+            },
+            "huge_pages": "2M"
         }"#;
         let expected_config = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
@@ -191,6 +195,7 @@ mod tests {
             network_overrides: vec![],
             vsock_override: None,
             clock_realtime: false,
+            huge_pages: SnapshotLoadHugePageConfig::Hugetlbfs2M,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(
@@ -223,6 +228,7 @@ mod tests {
             network_overrides: vec![],
             vsock_override: None,
             clock_realtime: false,
+            huge_pages: SnapshotLoadHugePageConfig::Snapshot,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(
@@ -242,7 +248,8 @@ mod tests {
                 "backend_path": "bar",
                 "backend_type": "Uffd"
             },
-            "resume_vm": true
+            "resume_vm": true,
+            "huge_pages": "Snapshot"
         }"#;
         let expected_config = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
@@ -255,6 +262,7 @@ mod tests {
             network_overrides: vec![],
             vsock_override: None,
             clock_realtime: false,
+            huge_pages: SnapshotLoadHugePageConfig::Snapshot,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(
@@ -296,6 +304,7 @@ mod tests {
             }],
             vsock_override: None,
             clock_realtime: false,
+            huge_pages: SnapshotLoadHugePageConfig::Snapshot,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(
@@ -325,6 +334,7 @@ mod tests {
             network_overrides: vec![],
             vsock_override: None,
             clock_realtime: false,
+            huge_pages: SnapshotLoadHugePageConfig::Snapshot,
         };
         let parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert_eq!(
@@ -345,6 +355,23 @@ mod tests {
                 .to_string(),
             "An error occurred when deserializing the json body of a request: missing field \
              `backend_type` at line 5 column 13."
+        );
+
+        let body = r#"{
+            "snapshot_path": "foo",
+            "mem_backend": {
+                "backend_path": "bar",
+                "backend_type": "File"
+            },
+            "huge_pages": "1M"
+        }"#;
+        assert!(
+            parse_put_snapshot(&Body::new(body), Some("load"))
+                .unwrap_err()
+                .to_string()
+                .contains(
+                    "unknown variant `1M`, expected one of `Snapshot`, `None`, `Transparent`, `2M`"
+                )
         );
 
         let body = r#"{
