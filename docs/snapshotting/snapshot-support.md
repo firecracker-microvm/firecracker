@@ -432,6 +432,14 @@ The meaning of `backend_path` depends on the `backend_type` chosen:
   used for communication between Firecracker and the user space process that
   handles page faults.
 
+The `huge_pages` field selects the host page configuration for the restored
+microVM. It accepts `Snapshot`, `None`, `Transparent`, and `2M`. `Snapshot`
+reuses the value stored in the snapshot and is the default when the field is
+omitted; `None` uses the host's default memory-mapping behavior. Explicit `2M`
+hugetlbfs pages require the `Uffd` backend, so combining `2M` with `File`
+returns an error. With `Uffd`, the effectiveness of transparent huge pages may
+be limited.
+
 When relying on the OS to handle page faults, the command below is also
 accepted. Note that `mem_file_path` field is currently under the deprecation
 policy. `mem_file_path` and `mem_backend` are mutually exclusive, therefore

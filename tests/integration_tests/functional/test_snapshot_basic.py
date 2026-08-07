@@ -81,10 +81,45 @@ def test_resume(uvm_configured, microvm_factory, resume_at_restore, huge_pages):
     restored_vm = microvm_factory.build()
     restored_vm.spawn()
     restored_vm.restore_from_snapshot(snapshot, resume=resume_at_restore)
+    assert restored_vm.api.machine_config.get().json()["huge_pages"] == huge_pages
     if not resume_at_restore:
         assert restored_vm.state == "Paused"
         restored_vm.resume()
     assert restored_vm.state == "Running"
+    restored_vm.ssh.check_output("true")
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pytest.mark.parametrize(
+    ("huge_pages", "restore_huge_pages"),
+    [
+        (HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT),
+        (HugePagesConfig.TRANSPARENT, HugePagesConfig.NONE),
+    ],
+    indirect=["huge_pages"],
+)
+def test_snapshot_huge_pages_override(
+    uvm_configured, microvm_factory, huge_pages, restore_huge_pages
+):
+    """Restore a snapshot with a different host page configuration."""
+    vm = uvm_configured
+    assert vm.huge_pages == huge_pages
+    vm.add_net_iface()
+    vm.start()
+    snapshot = vm.snapshot_full()
+    vm.kill()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+    restored_vm.restore_from_snapshot(
+        snapshot,
+        resume=True,
+        huge_pages=restore_huge_pages,
+    )
+
+    assert (
+        restored_vm.api.machine_config.get().json()["huge_pages"] == restore_huge_pages
+    )
     restored_vm.ssh.check_output("true")
 
 

@@ -1098,6 +1098,7 @@ class Microvm:
         vsock_override: str = None,
         clock_realtime: bool = False,
         *,
+        huge_pages: Optional[HugePagesConfig] = None,
         uffd_handler_name: str = None,
     ):
         """Restore a snapshot"""
@@ -1162,6 +1163,9 @@ class Microvm:
         if clock_realtime:
             optional_kwargs["clock_realtime"] = clock_realtime
 
+        if huge_pages is not None:
+            optional_kwargs["huge_pages"] = huge_pages
+
         self.api.snapshot_load.put(
             mem_backend=mem_backend,
             snapshot_path=str(jailed_vmstate),
@@ -1169,6 +1173,9 @@ class Microvm:
             resume_vm=resume,
             **optional_kwargs,
         )
+
+        if huge_pages is not None:
+            self.huge_pages = huge_pages
 
         if self.memory_monitor:
             response = self.api.machine_config.get()
