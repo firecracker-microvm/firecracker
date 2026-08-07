@@ -57,6 +57,11 @@ and this project adheres to
   Terminating a connection now also discards its TX buffer, so the device stops
   advertising `EPOLLOUT` for a host stream it will never write to again, which
   could otherwise busy-spin the event thread indefinitely.
+- [#6086](https://github.com/firecracker-microvm/firecracker/pull/6086): Fixed a
+  potential deadlock in the logger: a signal handler that logs while the
+  interrupted thread already held the logger lock would re-acquire it and hang
+  the VMM. The logger now uses an `RwLock` so logging takes a shared lock that a
+  nested (signal-handler) log can re-acquire without blocking.
 
 ## [1.16.1]
 
