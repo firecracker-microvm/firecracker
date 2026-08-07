@@ -4,7 +4,6 @@
 
 import json
 import os
-import platform
 import re
 import shutil
 from pathlib import Path
@@ -204,8 +203,8 @@ def test_config_bad_machine_config(uvm, vm_config_file):
 @pytest.mark.parametrize(
     "test_config",
     [
-        ("framework/vm_config_cpu_template_C3.json", True, False),
-        ("framework/vm_config_smt_true.json", False, True),
+        ("framework/vm_config_cpu_template_C3.json", True),
+        ("framework/vm_config_smt_true.json", False),
     ],
 )
 def test_config_machine_config_params(uvm, test_config):
@@ -216,7 +215,7 @@ def test_config_machine_config_params(uvm, test_config):
 
     # Test configuration determines if the file is a valid config or not
     # based on the CPU
-    vm_config_file, cpu_template_used, smt_used = test_config
+    vm_config_file, cpu_template_used = test_config
 
     _configure_vm_from_json(test_microvm, vm_config_file)
     test_microvm.jailer.extra_args.update({"no-api": None})
@@ -225,8 +224,6 @@ def test_config_machine_config_params(uvm, test_config):
 
     should_fail = False
     if cpu_template_used and "C3" not in SUPPORTED_CPU_TEMPLATES:
-        should_fail = True
-    if smt_used and (platform.machine() == "aarch64"):
         should_fail = True
 
     if should_fail:

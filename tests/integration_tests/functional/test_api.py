@@ -348,15 +348,8 @@ def test_api_machine_config(uvm):
     response = test_microvm.api.machine_config.get()
     assert response.json()["smt"] is False
 
-    # Test that smt=True errors on ARM.
-    if platform.machine() == "x86_64":
-        test_microvm.api.machine_config.patch(smt=True)
-    elif platform.machine() == "aarch64":
-        expected_msg = (
-            "Enabling simultaneous multithreading is not supported on aarch64"
-        )
-        with pytest.raises(RuntimeError, match=expected_msg):
-            test_microvm.api.machine_config.patch(smt=True)
+    # Test that smt=True is accepted.
+    test_microvm.api.machine_config.patch(smt=True)
 
     # Test invalid mem_size_mib < 0.
     with pytest.raises(RuntimeError):
