@@ -1081,6 +1081,7 @@ class Microvm:
                 "kernel_file": str(self.guest_kernel.vmlinux),
                 "rootfs_file": str(self.rootfs_file) if self.rootfs_file else None,
                 "vcpus_count": self.vcpus_count,
+                "pci_enabled": self.pci_enabled,
             },
         )
 
