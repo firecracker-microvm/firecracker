@@ -31,6 +31,11 @@ pub struct VsockFrontendState {
     /// Context Identifier.
     pub cid: u64,
     pub virtio_state: VirtioDeviceState,
+    /// Whether a `TRANSPORT_RESET_EVENT` published to the guest's event queue
+    /// is still awaiting the driver's acknowledgment. RX delivery stays gated
+    /// until the guest acks, so a restored device must resume with the same
+    /// gate state the source device had.
+    pub pending_event_ack: bool,
 }
 
 /// The Vsock Unix Backend serializable state.
@@ -92,6 +97,7 @@ where
         VsockFrontendState {
             cid: self.cid(),
             virtio_state: VirtioDeviceState::from_device(self),
+            pending_event_ack: self.pending_event_ack,
         }
     }
 
@@ -114,6 +120,7 @@ where
         vsock.acked_features = state.virtio_state.acked_features;
         vsock.avail_features = state.virtio_state.avail_features;
         vsock.device_state = DeviceState::Inactive;
+        vsock.pending_event_ack = state.pending_event_ack;
         Ok(vsock)
     }
 }
@@ -142,6 +149,29 @@ pub(crate) mod tests {
 
         fn restore(_: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
             Ok(TestBackend::new())
+        }
+    }
+
+    #[test]
+    fn test_persist_pending_event_ack() {
+        // The RX gate must survive a save/restore cycle: a restored device must keep
+        // gating RX while a TRANSPORT_RESET ack is outstanding, and must not gate RX
+        // when none is.
+        let mut ctx = TestContext::new();
+        for armed in [false, true] {
+            ctx.device.pending_event_ack = armed;
+            let state = ctx.device.save();
+            assert_eq!(state.pending_event_ack, armed);
+
+            let restored = Vsock::restore(
+                VsockConstructorArgs {
+                    mem: ctx.mem.clone(),
+                    backend: TestBackend::new(),
+                },
+                &state,
+            )
+            .unwrap();
+            assert_eq!(restored.pending_event_ack, armed);
         }
     }
 
