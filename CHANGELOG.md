@@ -17,6 +17,10 @@ and this project adheres to
   release. This aliviates the guest performance regression seen on host kernels
   in range \[6.3..6.10) correlated to incorrect cpu cache topology presented to
   the guest.
+- [#6100](https://github.com/firecracker-microvm/firecracker/pull/6100): Bumped
+  the snapshot format version. Snapshots created by this version cannot be
+  loaded by 1.16.0 or 1.16.1, and snapshots created by those versions cannot be
+  loaded by this one.
 
 ### Deprecated
 
@@ -24,6 +28,14 @@ and this project adheres to
 
 ### Fixed
 
+- [#6100](https://github.com/firecracker-microvm/firecracker/pull/6100): Fixed
+  the vsock device permanently suppressing RX (host-to-guest) delivery after a
+  bare pause/resume cycle (`PATCH /vm` with `Paused` then `Resumed`, without a
+  snapshot). The resume kick armed the `TRANSPORT_RESET` RX gate even though no
+  reset event had been sent, so the guest could never acknowledge it and every
+  new host-initiated connection made after the resume hung forever. The gate is
+  now part of the persisted device state and the resume kick respects it instead
+  of arming it.
 - [#6174](https://github.com/firecracker-microvm/firecracker/pull/6174): Fixed
   `virtio-mem` leaving unplugged memory writable by the VMM, and potentially
   unmapped, on microVMs restored from a snapshot memory file. Firecracker now
