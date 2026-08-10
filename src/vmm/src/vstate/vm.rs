@@ -959,16 +959,15 @@ pub(crate) mod tests {
         let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
 
         // Set some configuration for the vectors. Initially all are masked
-        let mut config = MsixVectorConfig {
+        let configs: [_; 4] = std::array::from_fn(|idx| MsixVectorConfig {
             high_addr: 0x42,
             low_addr: 0x13,
-            data: 0x12,
+            data: 0x12 * idx as u32,
             devid: PciSBDF::from(0xafa),
-        };
-        for i in 0..4 {
-            config.data = 0x12 * i;
-            msix_group.update(i as usize, config, true).unwrap();
-        }
+        });
+        msix_group
+            .update_batched(&configs, &[true, true, true, true])
+            .unwrap();
 
         // All vectors should be disabled
         for vector in &msix_group.vectors {
@@ -1008,8 +1007,7 @@ pub(crate) mod tests {
         }
 
         // Updating the config of a vector should enable its route (and only its route)
-        config.data = 0;
-        msix_group.update(0, config, false).unwrap();
+        msix_group.update(0, configs[0], false).unwrap();
         for i in 0..4 {
             let gsi = crate::arch::GSI_MSI_START + i;
             let interrupts = vm.common.interrupts.lock().unwrap();
