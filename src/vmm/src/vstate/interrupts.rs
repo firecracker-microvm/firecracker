@@ -135,6 +135,15 @@ impl MsixVectorGroup {
         self.vectors.get(index).map(|route| &route.event_fd)
     }
 
+    /// Update the MSI-X configuration for all vectors in the group
+    pub fn update_batched(
+        &self,
+        msi_config: &[MsixVectorConfig],
+        masked: &[bool],
+    ) -> Result<(), InterruptError> {
+        self.update_vectors(msi_config, masked, &self.vectors)
+    }
+
     /// Update the MSI-X configuration for a vector in the group
     pub fn update(
         &self,
@@ -143,30 +152,45 @@ impl MsixVectorGroup {
         masked: bool,
     ) -> Result<(), InterruptError> {
         if let Some(vector) = self.vectors.get(index) {
-            METRICS.interrupts.config_updates.inc();
-            // When an interrupt is masked the GSI will not be passed to KVM through
-            // KVM_SET_GSI_ROUTING. So, call [`disable()`] to unregister the interrupt file
-            // descriptor before passing the interrupt routes to KVM
-            if masked {
+            self.update_vectors(&[msi_config], &[masked], std::slice::from_ref(vector))
+        } else {
+            Err(InterruptError::InvalidVectorIndex(index))
+        }
+    }
+
+    /// Update the MSI-X configuration for the given vectors
+    fn update_vectors(
+        &self,
+        msi_config: &[MsixVectorConfig],
+        masked: &[bool],
+        vectors: &[MsixVector],
+    ) -> Result<(), InterruptError> {
+        assert_eq!(msi_config.len(), vectors.len());
+        assert_eq!(masked.len(), vectors.len());
+
+        METRICS.interrupts.config_updates.inc();
+
+        // Disables masked vectors and update the config
+        for (idx, vector) in vectors.iter().enumerate() {
+            if masked[idx] {
                 vector.disable(&self.vm.common.fd)?;
             }
-
-            self.vm.register_msi(vector, masked, msi_config)?;
-            self.vm
-                .set_gsi_routes()
-                .map_err(|err| std::io::Error::other(format!("MSI-X update: {err}")))?;
-
-            // Assign KVM_IRQFD after KVM_SET_GSI_ROUTING to avoid
-            // panic on kernel which does not have commit a80ced6ea514
-            // (KVM: SVM: fix panic on out-of-bounds guest IRQ).
-            if !masked {
-                vector.enable(&self.vm.common.fd)?;
-            }
-
-            return Ok(());
+            self.vm.register_msi(vector, masked[idx], msi_config[idx])?;
         }
 
-        Err(InterruptError::InvalidVectorIndex(index))
+        self.vm
+            .set_gsi_routes()
+            .map_err(|err| std::io::Error::other(format!("MSI-X update: {err}")))?;
+
+        // Enables unmasked. Must be done after set_gsi_routes to avoid panic on kernel
+        // which does not have commit a80ced6ea514 (KVM: SVM: fix panic on out-of-bounds guest IRQ).
+        for (idx, vector) in vectors.iter().enumerate() {
+            if !masked[idx] {
+                vector.enable(&self.vm.common.fd)?;
+            }
+        }
+
+        Ok(())
     }
 }
 
