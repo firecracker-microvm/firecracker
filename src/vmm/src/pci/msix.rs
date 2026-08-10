@@ -136,7 +136,6 @@ impl MsixConfig {
                 };
 
                 vectors.update(idx, config, state.masked)?;
-                vectors.enable()?;
             }
         }
 
