@@ -962,7 +962,7 @@ pub(crate) mod tests {
         let configs: [_; 4] = std::array::from_fn(|idx| MsixVectorConfig {
             high_addr: 0x42,
             low_addr: 0x13,
-            data: 0x12 * idx as u32,
+            data: 0x12 * u32::try_from(idx).unwrap(),
             devid: PciSBDF::from(0xafa),
         });
         msix_group
