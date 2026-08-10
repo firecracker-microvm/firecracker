@@ -1005,15 +1005,22 @@ pub(crate) mod tests {
                 assert_eq!(kvm_route.entry.u.msi.address_lo, 0x13);
                 assert_eq!(kvm_route.entry.u.msi.data, 0x12 * i);
             }
+            assert!(
+                msix_group.vectors[i as usize]
+                    .enabled
+                    .load(Ordering::Acquire)
+            );
         }
+        msix_group.disable().unwrap();
 
-        // Updating the config of a vector should enable its route (and only its route)
+        // `update` and `register` will update the in-memory GSI config of its route (and only its route)
         msix_group.update(0, configs[0], false).unwrap();
+        msix_group.register(1, configs[1], false).unwrap();
         for i in 0..4 {
             let gsi = crate::arch::GSI_MSI_START + i;
             let interrupts = vm.common.interrupts.lock().unwrap();
             let kvm_route = interrupts.get(&gsi).unwrap();
-            assert_eq!(kvm_route.masked, i != 0);
+            assert_eq!(kvm_route.masked, i >= 2);
             assert_eq!(kvm_route.entry.gsi, gsi);
             assert_eq!(kvm_route.entry.type_, KVM_IRQ_ROUTING_MSI);
             // SAFETY: because we know we setup MSI routes.
@@ -1022,6 +1029,13 @@ pub(crate) mod tests {
                 assert_eq!(kvm_route.entry.u.msi.address_lo, 0x13);
                 assert_eq!(kvm_route.entry.u.msi.data, 0x12 * i);
             }
+            // However, only `update` (first vector) will actually enable be enabled
+            assert_eq!(
+                msix_group.vectors[i as usize]
+                    .enabled
+                    .load(Ordering::Acquire),
+                i == 0,
+            );
         }
     }
 

@@ -454,7 +454,7 @@ impl VirtioPciDevice {
             vectors,
         ));
 
-        let mut virtio_pci_device = VirtioPciDevice {
+        let virtio_pci_device = VirtioPciDevice {
             id,
             sub_id: None,
             sbdf: state.sbdf,
@@ -482,6 +482,16 @@ impl VirtioPciDevice {
         }
 
         Ok(virtio_pci_device)
+    }
+
+    /// Enable unmasked MSI-X vectors by registering IRQFDs with KVM.
+    ///
+    /// Must be called after the GSI routes have been set up (see [KvmVm::set_gsi_routes]).
+    pub fn enable_unmasked_vectors(&self) -> Result<(), InterruptError> {
+        self.msix_config
+            .lock()
+            .expect("Poisoned lock")
+            .enable_unmasked_vectors()
     }
 
     fn is_driver_ready(&self) -> bool {

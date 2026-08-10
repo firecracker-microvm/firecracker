@@ -126,6 +126,22 @@ impl MsixVectorGroup {
         self.vectors.get(index).map(|route| &route.event_fd)
     }
 
+    /// Registers the configuration of a vector in the group in the VM.
+    /// Note: this function doesn't set the GSI routes. Please do that separately, or use [update]/[update_batched].
+    pub fn register(
+        &self,
+        index: usize,
+        msi_config: MsixVectorConfig,
+        masked: bool,
+    ) -> Result<(), InterruptError> {
+        if let Some(vector) = self.vectors.get(index) {
+            self.vm.register_msi(vector, masked, msi_config)?;
+            return Ok(());
+        }
+
+        Err(InterruptError::InvalidVectorIndex(index))
+    }
+
     /// Update the MSI-X configuration for all vectors in the group
     pub fn update_batched(
         &self,
