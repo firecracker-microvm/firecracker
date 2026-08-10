@@ -125,6 +125,33 @@ impl MsixConfig {
         vm: Arc<KvmVm>,
         sbdf: PciSBDF,
     ) -> Result<Self, InterruptError> {
+        let num_vectors = state.vectors.len();
+        if num_vectors > MAX_MSIX_VECTORS_PER_DEVICE as usize {
+            return Err(InterruptError::MsixStateSizeMismatch(format!(
+                "vectors length ({num_vectors}) exceeds maximum \
+                 ({MAX_MSIX_VECTORS_PER_DEVICE})"
+            )));
+        }
+
+        let num_table_entries = state.table_entries.len();
+        if num_table_entries != num_vectors {
+            return Err(InterruptError::MsixStateSizeMismatch(format!(
+                "table_entries length ({num_table_entries}) does not match \
+                 vectors length ({num_vectors})"
+            )));
+        }
+
+        let expected_pba_entries = u16::try_from(num_vectors)
+            .unwrap()
+            .div_ceil(BITS_PER_PBA_ENTRY) as usize;
+        if state.pba_entries.len() != expected_pba_entries {
+            return Err(InterruptError::MsixStateSizeMismatch(format!(
+                "pba_entries length ({}) does not match expected length \
+                 ({expected_pba_entries}) for {num_vectors} vectors",
+                state.pba_entries.len()
+            )));
+        }
+
         let vectors = Arc::new(MsixVectorGroup::restore(vm, &state.vectors)?);
         if state.enabled && !state.masked {
             for (idx, table_entry) in state.table_entries.iter().enumerate() {
@@ -650,6 +677,48 @@ mod tests {
                     .load(Ordering::Acquire),
             );
         }
+    }
+
+    #[test]
+    fn test_from_state_rejects_size_mismatches() {
+        let sbdf = PciSBDF::from(0x42);
+        let vmm = default_vmm();
+        let vm = vmm.vm.as_kvm().unwrap().clone();
+
+        let config = MsixConfig::new(msix_vector_group(2), sbdf);
+
+        // More table_entries than vectors
+        let mut state = config.state();
+        state.table_entries.push(MsixTableEntry::default());
+        assert!(matches!(
+            MsixConfig::from_state(state, vm.clone(), sbdf),
+            Err(InterruptError::MsixStateSizeMismatch(_))
+        ));
+
+        // Fewer table_entries than vectors
+        let mut state = config.state();
+        state.table_entries.pop();
+        assert!(matches!(
+            MsixConfig::from_state(state, vm.clone(), sbdf),
+            Err(InterruptError::MsixStateSizeMismatch(_))
+        ));
+
+        // Wrong number of pba_entries
+        let mut state = config.state();
+        state.pba_entries.push(0);
+        assert!(matches!(
+            MsixConfig::from_state(state, vm.clone(), sbdf),
+            Err(InterruptError::MsixStateSizeMismatch(_))
+        ));
+
+        // Too many vectors (exceeds MAX_MSIX_VECTORS_PER_DEVICE)
+        let mut state = config.state();
+        state.vectors = vec![0; 2049];
+        state.table_entries = vec![MsixTableEntry::default(); 2049];
+        assert!(matches!(
+            MsixConfig::from_state(state, vm, sbdf),
+            Err(InterruptError::MsixStateSizeMismatch(_))
+        ));
     }
 
     #[test]

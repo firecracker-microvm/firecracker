@@ -26,6 +26,8 @@ pub enum InterruptError {
     Kvm(#[from] kvm_ioctls::Error),
     /// Invalid vector index: {0}
     InvalidVectorIndex(usize),
+    /// MSI-X state size mismatch: {0}
+    MsixStateSizeMismatch(String),
 }
 
 /// Type that describes an allocated interrupt
