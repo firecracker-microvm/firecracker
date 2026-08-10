@@ -173,17 +173,20 @@ impl MsixConfig {
         if old_masked != self.masked || old_enabled != self.enabled {
             if self.enabled && !self.masked {
                 debug!("MSI-X enabled for device {}", self.sbdf);
-                for (idx, table_entry) in self.table_entries.iter().enumerate() {
-                    let config = MsixVectorConfig {
+
+                let mut configs = Vec::with_capacity(self.table_entries.len());
+                let mut masks = Vec::with_capacity(self.table_entries.len());
+                for table_entry in &self.table_entries {
+                    configs.push(MsixVectorConfig {
                         high_addr: table_entry.msg_addr_hi,
                         low_addr: table_entry.msg_addr_lo,
                         data: table_entry.msg_data,
                         devid: self.sbdf,
-                    };
-
-                    if let Err(e) = self.vectors.update(idx, config, table_entry.masked()) {
-                        error!("Failed updating vector: {:?}", e);
-                    }
+                    });
+                    masks.push(table_entry.masked());
+                }
+                if let Err(e) = self.vectors.update_batched(&configs, &masks) {
+                    error!("Failed updating vectors: {:?}", e);
                 }
             } else if old_enabled || !old_masked {
                 debug!("MSI-X disabled for device {}", self.sbdf);
@@ -673,7 +676,7 @@ mod tests {
         // enabled and not masked
         check_metric_after_block!(
             METRICS.interrupts.config_updates,
-            2,
+            1,
             config.set_msg_ctl(0x8000)
         );
         let mut buffer = [0u8; 8];
