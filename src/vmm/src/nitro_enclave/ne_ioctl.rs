@@ -426,12 +426,112 @@ impl NeError {
     }
 }
 
+/// An enclave-device error code, as surfaced to userspace.
+///
+/// These originate in the enclave device rather than the driver. The driver
+/// forwards them shifted up by its `NE_ERR_DEVICE_SHIFT`, so they occupy a
+/// range disjoint from [`NeError`]'s and an errno decodes to at most one of the
+/// two. Variant names and `#[repr(i32)]` discriminants mirror the UAPI
+/// `NE_ERR_*` symbols verbatim, so an in-range errno maps to a variant by its
+/// discriminant.
+///
+/// Each doc comment is the bare description; [`last_ioctl_error`] appends the
+/// name and code when rendering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, displaydoc::Display)]
+#[repr(i32)]
+#[allow(non_camel_case_types)]
+// Variants are materialized by `from_code`'s transmute, which dead-code
+// analysis cannot see; they exist to give each errno a name and description.
+#[allow(dead_code)]
+enum NeDeviceError {
+    /// the command's reserved flags field was nonzero
+    NE_ERR_INVALID_FLAGS = NeDeviceError::NE_ERR_DEVICE_MIN,
+    /// the info page address or size is misaligned or too small
+    NE_ERR_INVALID_ALIGNMENT,
+    /// a size or count field is zero, too large, or too short
+    NE_ERR_INVALID_SIZE,
+    /// the referenced enclave slot does not exist
+    NE_ERR_INVALID_SLOT,
+    /// the request names an invalid device, address, or memory range
+    NE_ERR_INVALID_DEVICE,
+    /// the per-enclave device limit has been reached
+    NE_ERR_TOO_MANY_DEVICES,
+    /// the per-device virtqueue limit has been reached
+    NE_ERR_TOO_MANY_VQS,
+    /// the enclave device could not allocate an internal resource
+    NE_ERR_NO_RESOURCES,
+    /// an info page is already registered for this slot
+    NE_ERR_ALREADY_EXISTS,
+    /// the required info page is missing or too small
+    NE_ERR_MISSING_INFO_PAGE,
+    /// an unknown or not-permitted flag bit was set
+    NE_ERR_INVALID_FLAG,
+    /// a reserved flag bit was set
+    NE_ERR_RESERVED_FLAG,
+    /// a PCIe-dependent flag was set without the PCIe flag
+    NE_ERR_MISSING_PCIE,
+    /// the requested flag combination is not allowed
+    NE_ERR_INCOMPATIBLE_FLAGS,
+    /// the image's matched flags differ from those requested at enclave start
+    NE_ERR_EIF_FLAG_MISMATCH,
+    /// the requested device type is not permitted
+    NE_ERR_DEVICE_DISALLOWED,
+    /// device hotplug is disabled for this enclave
+    NE_ERR_HOTPLUG_DISABLED,
+    /// the enclave image is missing or failed validation at start
+    NE_ERR_BAD_EIF,
+    /// a dependent flag was set without the virtio-PCIe flag
+    NE_ERR_MISSING_PCIE_VIRTIO,
+    /// the request payload version is unsupported or malformed
+    NE_ERR_BAD_PAYLOAD_VERSION,
+    /// no free notification vectors remain
+    NE_ERR_INFO_VECTORS_EXHAUSTED,
+    /// the per-instance enclave quota has been reached
+    NE_ERR_ENCLAVE_LIMIT,
+    /// the per-NUMA-node memory budget is exhausted
+    NE_ERR_NO_MEM_SLOTS_ON_NODE,
+    /// Exclusive upper bound; append new enclave-device codes immediately above
+    /// this line.
+    NE_ERR_DEVICE_MAX,
+}
+
+impl NeDeviceError {
+    /// Lowest enclave-device error code as seen by userspace (the device's own
+    /// lowest code plus the driver's shift); a literal, as the first variant
+    /// derives its discriminant from it (deriving this from that variant is
+    /// circular).
+    const NE_ERR_DEVICE_MIN: i32 = 532;
+
+    /// Decode an errno into an `NeDeviceError`, or `None` if it is not an
+    /// enclave-device code.
+    fn from_code(code: i32) -> Option<Self> {
+        if !(Self::NE_ERR_DEVICE_MIN..Self::NE_ERR_DEVICE_MAX as i32).contains(&code) {
+            return None;
+        }
+        // SAFETY: `NeDeviceError` is a field-less `#[repr(i32)]` enum whose
+        // discriminants are contiguous from NE_ERR_DEVICE_MIN up to (excluding)
+        // NE_ERR_DEVICE_MAX. The check above restricts `code` to exactly that
+        // range, so it is always a valid discriminant.
+        Some(unsafe { std::mem::transmute::<i32, NeDeviceError>(code) })
+    }
+}
+
 /// The current `errno` as a [`std::io::Error`], naming an NE-specific code and
 /// preserving a standard errno verbatim. Used at every ioctl failure site.
 fn last_ioctl_error() -> std::io::Error {
     let err = std::io::Error::last_os_error();
-    match err.raw_os_error().and_then(NeError::from_code) {
-        Some(ne) => std::io::Error::other(format!("{ne:?} (errno={}): {ne}", ne as i32)),
+    let Some(code) = err.raw_os_error() else {
+        return err;
+    };
+    // Driver and enclave-device codes occupy disjoint ranges, so at most one of
+    // these decodes; both render the same way.
+    let named = NeError::from_code(code)
+        .map(|ne| format!("{ne:?} (errno={code}): {ne}"))
+        .or_else(|| {
+            NeDeviceError::from_code(code).map(|ne| format!("{ne:?} (errno={code}): {ne}"))
+        });
+    match named {
+        Some(msg) => std::io::Error::other(msg),
         None => err,
     }
 }
@@ -847,6 +947,58 @@ mod tests {
     fn test_ne_error_passes_through_standard_errno() {
         // A standard errno is outside the NE range, so from_code rejects it.
         assert!(NeError::from_code(libc::EINVAL).is_none());
+    }
+
+    #[test]
+    fn test_ne_device_error_decodes_specific_codes() {
+        let ne = NeDeviceError::from_code(553).unwrap();
+        assert_eq!(
+            ne.to_string(),
+            "the per-instance enclave quota has been reached"
+        );
+        assert_eq!(format!("{ne:?}"), "NE_ERR_ENCLAVE_LIMIT");
+        assert_eq!(ne as i32, 553);
+        // The rendering last_ioctl_error assembles.
+        assert_eq!(
+            format!("{ne:?} (errno={}): {ne}", ne as i32),
+            "NE_ERR_ENCLAVE_LIMIT (errno=553): the per-instance enclave quota has been reached"
+        );
+    }
+
+    #[test]
+    fn test_ne_device_error_range_is_contiguous() {
+        // Guards the contiguity the transmute in from_code relies on.
+        for code in NeDeviceError::NE_ERR_DEVICE_MIN..NeDeviceError::NE_ERR_DEVICE_MAX as i32 {
+            let ne = NeDeviceError::from_code(code).unwrap_or_else(|| {
+                panic!("enclave-device code {code} should decode to a named variant")
+            });
+            assert_eq!(ne as i32, code, "discriminant must equal the wire code");
+        }
+    }
+
+    #[test]
+    fn test_ne_error_ranges_are_disjoint() {
+        // last_ioctl_error tries both decoders in turn, which only yields an
+        // unambiguous name while the two ranges stay disjoint.
+        for code in NeError::NE_ERR_MIN..NeError::NE_ERR_MAX as i32 {
+            assert!(
+                NeDeviceError::from_code(code).is_none(),
+                "driver code {code} must not decode as an enclave-device code"
+            );
+        }
+        for code in NeDeviceError::NE_ERR_DEVICE_MIN..NeDeviceError::NE_ERR_DEVICE_MAX as i32 {
+            assert!(
+                NeError::from_code(code).is_none(),
+                "enclave-device code {code} must not decode as a driver code"
+            );
+        }
+    }
+
+    #[test]
+    fn test_ne_device_error_passes_through_standard_errno() {
+        // A standard errno is outside the enclave-device range, so from_code
+        // rejects it.
+        assert!(NeDeviceError::from_code(libc::EINVAL).is_none());
     }
 
     #[test]
