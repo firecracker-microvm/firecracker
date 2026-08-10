@@ -141,7 +141,6 @@ impl MsixVectorGroup {
         index: usize,
         msi_config: MsixVectorConfig,
         masked: bool,
-        set_gsi: bool,
     ) -> Result<(), InterruptError> {
         if let Some(vector) = self.vectors.get(index) {
             METRICS.interrupts.config_updates.inc();
@@ -153,11 +152,9 @@ impl MsixVectorGroup {
             }
 
             self.vm.register_msi(vector, masked, msi_config)?;
-            if set_gsi {
-                self.vm
-                    .set_gsi_routes()
-                    .map_err(|err| std::io::Error::other(format!("MSI-X update: {err}")))?
-            }
+            self.vm
+                .set_gsi_routes()
+                .map_err(|err| std::io::Error::other(format!("MSI-X update: {err}")))?;
 
             // Assign KVM_IRQFD after KVM_SET_GSI_ROUTING to avoid
             // panic on kernel which does not have commit a80ced6ea514

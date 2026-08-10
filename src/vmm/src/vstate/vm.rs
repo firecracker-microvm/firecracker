@@ -946,8 +946,8 @@ pub(crate) mod tests {
             data: 0x12,
             devid: PciSBDF::from(0xafa),
         };
-        msix_group.update(0, config, true, true).unwrap();
-        msix_group.update(4, config, true, true).unwrap_err();
+        msix_group.update(0, config, true).unwrap();
+        msix_group.update(4, config, true).unwrap_err();
     }
 
     #[test]
@@ -967,7 +967,7 @@ pub(crate) mod tests {
         };
         for i in 0..4 {
             config.data = 0x12 * i;
-            msix_group.update(i as usize, config, true, false).unwrap();
+            msix_group.update(i as usize, config, true).unwrap();
         }
 
         // All vectors should be disabled
@@ -1009,7 +1009,7 @@ pub(crate) mod tests {
 
         // Updating the config of a vector should enable its route (and only its route)
         config.data = 0;
-        msix_group.update(0, config, false, true).unwrap();
+        msix_group.update(0, config, false).unwrap();
         for i in 0..4 {
             let gsi = crate::arch::GSI_MSI_START + i;
             let interrupts = vm.common.interrupts.lock().unwrap();
@@ -1094,7 +1094,7 @@ pub(crate) mod tests {
                 devid: PciSBDF::from(0xafa),
             };
             for i in 0..group.num_vectors() as usize {
-                group.update(i, config, false, true).unwrap();
+                group.update(i, config, false).unwrap();
             }
             assert_eq!(vm.common.interrupts.lock().unwrap().len(), 4);
         }

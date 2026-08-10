@@ -135,7 +135,7 @@ impl MsixConfig {
                     devid: sbdf,
                 };
 
-                vectors.update(idx, config, state.masked, true)?;
+                vectors.update(idx, config, state.masked)?;
                 vectors.enable()?;
             }
         }
@@ -181,7 +181,7 @@ impl MsixConfig {
                         devid: self.sbdf,
                     };
 
-                    if let Err(e) = self.vectors.update(idx, config, table_entry.masked(), true) {
+                    if let Err(e) = self.vectors.update(idx, config, table_entry.masked()) {
                         error!("Failed updating vector: {:?}", e);
                     }
                 }
@@ -339,10 +339,7 @@ impl MsixConfig {
                 devid: self.sbdf,
             };
 
-            if let Err(e) = self
-                .vectors
-                .update(index, config, table_entry.masked(), true)
-            {
+            if let Err(e) = self.vectors.update(index, config, table_entry.masked()) {
                 error!("Failed updating vector: {:?}", e);
             }
         }
