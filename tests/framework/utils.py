@@ -211,6 +211,14 @@ class CpuMap:
         """Get the host cpus count."""
         return len(CpuMap._cpus())
 
+    @staticmethod
+    def node_len(node=0):
+        """Get the usable cpu count on one host NUMA node."""
+        cpulist = Path(f"/sys/devices/system/node/node{node}/cpulist").read_text(
+            "ascii"
+        )
+        return len(set(CpuMap._cpus()) & set(parse_cpu_list(cpulist)))
+
     @classmethod
     def _cpus(cls):
         """Obtain the real processor map.
