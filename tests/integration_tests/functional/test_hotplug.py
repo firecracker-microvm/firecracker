@@ -18,6 +18,7 @@ from framework.artifacts import (
     pin_pci,
 )
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
+from integration_tests.functional.test_max_devices import max_devices
 
 # The guest's pciehp driver sleeps for 120ms after a hot-plug (add some buffer)
 PLUG_SLEEP = 0.4
@@ -28,6 +29,39 @@ VIRTIO_PCI_VENDOR_ID = 0x1AF4
 VIRTIO_PCI_DEVICE_ID_NET = 0x1041
 VIRTIO_PCI_DEVICE_ID_BLOCK = 0x1042
 VIRTIO_PCI_DEVICE_ID_PMEM = 0x105B
+# Nitro Security Module. Provided by the hypervisor to confidential enclaves,
+# so it is not one of the device slots the VMM gets to fill.
+VIRTIO_PCI_DEVICE_ID_NSM = 0x1061
+
+
+def count_vmm_virtio_devices(vm):
+    """Count virtio devices the VMM attached, as seen by the guest.
+
+    Not the same as counting `lspci` lines: those also include host and PCI
+    bridges, and an enclave guest has dozens of PCIe root ports.
+    """
+    _, lspci, _ = vm.ssh.check_output("lspci -n")
+    return sum(
+        f"{VIRTIO_PCI_VENDOR_ID:04x}:" in line
+        and f"{VIRTIO_PCI_DEVICE_ID_NSM:04x}" not in line
+        for line in lspci.splitlines()
+    )
+
+
+# Not pinned as a module: hot-plugging works on enclaves, so tests that can run
+# there do, skipping only their hot-unplug half. The rest carry their own pin.
+
+
+# Shadows the shared stage: enclaves reject runtime hotplug unless started with
+# `hotplug_mode`, which the shared stage does not pass. `uvm_restored` resolves
+# `uvm_booted` by name, so `uvm_any` picks this up for both lifecycle states.
+@pytest.fixture
+def uvm_booted(uvm_configured):
+    """Booted microVM that accepts hotplugged devices."""
+    start_kwargs = {"hotplug_mode": True} if uvm_configured.backend.is_enclave else {}
+    uvm_configured.add_net_iface()
+    uvm_configured.start(**start_kwargs)
+    return uvm_configured
 
 
 def attached_drives(vm):
@@ -55,7 +89,7 @@ def test_hotplug_block(uvm_any):
     Test hotplugging a block device after VM start.
     Test that the device appears in lspci and is usable.
     Test that invalid hotplug request are rejected.
-    Test hot-unplugging the device.
+    Test hot-unplugging the device, on backends that support it.
     """
     vm = uvm_any
 
@@ -129,6 +163,9 @@ def test_hotplug_block(uvm_any):
     time.sleep(PLUG_SLEEP)
     _, lspci_final, _ = vm.ssh.check_output("lspci -n")
     assert lspci_final == lspci_after
+
+    if not vm.backend.supports_hot_unplug:
+        return
 
     # Unplugging a non-existent device must be rejected
     with pytest.raises(RuntimeError, match="Device not found"):
@@ -260,7 +297,7 @@ def test_hotplug_net(uvm_any):
     Test hotplugging a net device after VM start.
     Test that the device appears in lspci and is usable.
     Test that invalid hotplug request are rejected.
-    Test hot-unplugging the device.
+    Test hot-unplugging the device, on backends that support it.
     """
     vm = uvm_any
 
@@ -339,6 +376,9 @@ def test_hotplug_net(uvm_any):
     time.sleep(PLUG_SLEEP)
     _, lspci_final, _ = vm.ssh.check_output("lspci -n")
     assert lspci_final == lspci_after
+
+    if not vm.backend.supports_hot_unplug:
+        return
 
     # Unplugging a non-existent device must be rejected
     with pytest.raises(RuntimeError, match="Device not found"):
@@ -592,12 +632,22 @@ HOTPLUG_PORTS = 29
 @pin_hotplug_ports(HOTPLUG_PORTS)
 def test_hotplug_max_devices(uvm_any):
     """
-    Test that hotplugging more devices than there are root ports is rejected,
-    and the ports are reusable once their devices are unplugged.
+    Test that hotplugging past the backend's device ceiling is rejected, and,
+    on backends that support hot-unplug, that the freed slots are reusable.
+
+    The ceiling and the resulting error are backend-specific: KVM runs out of
+    the PCIe root ports reserved for hot-plug, an enclave runs out of NE device
+    slots.
     """
     vm = uvm_any
 
-    # Count how many PCI slots are already in use
+    if vm.backend.is_enclave:
+        free_slots = max_devices(vm) - count_vmm_virtio_devices(vm)
+        expected_error = "NE_ADD_DEVICE"
+    else:
+        free_slots = HOTPLUG_PORTS
+        expected_error = "No PCIe root port is free"
+
     _, lspci_initial, _ = vm.ssh.check_output("lspci -n")
     initial = set(lspci_initial.strip().splitlines())
 
@@ -613,19 +663,22 @@ def test_hotplug_max_devices(uvm_any):
         )
         time.sleep(PLUG_SLEEP)
 
-    for i in range(HOTPLUG_PORTS):
+    for i in range(free_slots):
         plug(f"block{i}")
 
-    # Verify all root ports are occupied
+    # Verify every slot is taken
     _, lspci_full, _ = vm.ssh.check_output("lspci -n")
-    assert len(set(lspci_full.strip().splitlines()) - initial) == HOTPLUG_PORTS
+    assert len(set(lspci_full.strip().splitlines()) - initial) == free_slots
 
-    # The next hotplug must fail - no PCI root port left
-    with pytest.raises(RuntimeError, match="No PCIe root port is free"):
+    # The next hotplug must fail - no slot left
+    with pytest.raises(RuntimeError, match=expected_error):
         plug("block_overflow")
 
+    if not vm.backend.supports_hot_unplug:
+        return
+
     # Unplug all hotplugged devices
-    for i in range(HOTPLUG_PORTS):
+    for i in range(free_slots):
         vm.api.drive.delete(f"block{i}")
     time.sleep(10)
 
@@ -633,13 +686,13 @@ def test_hotplug_max_devices(uvm_any):
     _, lspci, _ = vm.ssh.check_output("lspci -n")
     assert set(lspci.strip().splitlines()) == initial
 
-    # Re-plug all devices to verify the ports were truly freed
-    for i in range(HOTPLUG_PORTS):
+    # Re-plug all devices to verify the slots were truly freed
+    for i in range(free_slots):
         plug(f"block_re{i}")
 
-    # Verify all root ports are occupied again
+    # Verify every slot is taken again
     _, lspci, _ = vm.ssh.check_output("lspci -n")
-    assert len(set(lspci.strip().splitlines()) - initial) == HOTPLUG_PORTS
+    assert len(set(lspci.strip().splitlines()) - initial) == free_slots
 
 
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
