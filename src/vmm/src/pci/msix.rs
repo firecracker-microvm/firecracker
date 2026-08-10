@@ -115,7 +115,11 @@ impl MsixConfig {
         }
     }
 
-    /// Create an MSI-X configuration from snapshot state
+    /// Create an MSI-X configuration from snapshot state.
+    ///
+    /// This populates the in-memory GSI routing table entries but does NOT flush them to KVM
+    /// (`KVM_SET_GSI_ROUTING`) and does NOT register IRQFDs (`KVM_IRQFD`).
+    /// The caller must call [KvmVm::set_gsi_routes] and [MsixConfig::enable_unmasked_vectors].
     pub fn from_state(
         state: MsixConfigState,
         vm: Arc<KvmVm>,
@@ -135,7 +139,9 @@ impl MsixConfig {
                     devid: sbdf,
                 };
 
-                vectors.update(idx, config, state.masked)?;
+                // Only populate the in-memory routing entry; do not flush to KVM or
+                // register the IRQFD yet.
+                vectors.register(idx, config, state.masked)?;
             }
         }
 
@@ -147,6 +153,20 @@ impl MsixConfig {
             masked: state.masked,
             enabled: state.enabled,
         })
+    }
+
+    /// Enable unmasked MSI-X vectors by registering IRQFDs with KVM.
+    ///
+    /// Must be called after the GSI routes have been set up (see [KvmVm::set_gsi_routes]).
+    pub fn enable_unmasked_vectors(&self) -> Result<(), InterruptError> {
+        if self.enabled && !self.masked {
+            for (idx, table_entry) in self.table_entries.iter().enumerate() {
+                if !table_entry.masked() {
+                    self.vectors.vectors[idx].enable(&self.vectors.vm.common.fd)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Create the state object for serializing MSI-X vectors
@@ -575,6 +595,7 @@ mod tests {
     use crate::check_metric_after_block;
     use crate::logger::{IncMetric, METRICS};
     use crate::vstate::vm::KvmVm;
+    use std::sync::atomic::Ordering;
 
     fn msix_vector_group(nr_vectors: u16) -> Arc<MsixVectorGroup> {
         let vmm = default_vmm();
@@ -621,6 +642,46 @@ mod tests {
         config.set_msg_ctl(0x0);
         assert!(!config.enabled);
         assert!(!config.masked);
+    }
+
+    #[test]
+    fn test_msix_from_state() {
+        let sbdf = PciSBDF::from(0x42);
+
+        // Setting up the original configuration (first vector enabled and unmasked)
+        let mut original = MsixConfig::new(msix_vector_group(2), sbdf);
+        original.set_msg_ctl(0x8000);
+        original.write_table(8, &u64::to_le_bytes(0x0));
+        assert!(original.enabled);
+        assert!(!original.masked);
+        assert!(original.vectors.vectors[0].enabled.load(Ordering::Acquire));
+
+        // Restoring from original config
+        let vmm = default_vmm();
+        let restored =
+            MsixConfig::from_state(original.state(), vmm.vm.as_kvm().unwrap().clone(), sbdf)
+                .unwrap();
+        restored.enable_unmasked_vectors().unwrap();
+
+        // Assert state matches original
+        assert_eq!(original.enabled, restored.enabled);
+        assert_eq!(original.masked, restored.masked);
+        assert_eq!(original.table_entries, restored.table_entries);
+        assert_eq!(original.pba_entries, restored.pba_entries);
+        for idx in [0, 1] {
+            assert_eq!(
+                original.vectors.vectors[idx].gsi,
+                restored.vectors.vectors[idx].gsi,
+            );
+            assert_eq!(
+                original.vectors.vectors[idx]
+                    .enabled
+                    .load(Ordering::Acquire),
+                restored.vectors.vectors[idx]
+                    .enabled
+                    .load(Ordering::Acquire),
+            );
+        }
     }
 
     #[test]

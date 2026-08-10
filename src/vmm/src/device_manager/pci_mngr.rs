@@ -673,6 +673,23 @@ impl<'a> Persist<'a> for PciDevices {
             )?
         }
 
+        // After PCI devices are restored, we must set up the GSI routes (one KVM_SET_GSI_ROUTING call for all vectors),
+        // and enable all unmasked vectors (one kvm_irqfd call per vector).
+        // Ordering: routing must be set before IRQFDs to avoid kernel panics on
+        // older AMD/SVM hosts (see kernel commit a80ced6ea514).
+        if !pci_devices.virtio_devices.is_empty() {
+            constructor_args
+                .vm
+                .set_gsi_routes()
+                .map_err(PciManagerError::from)?;
+
+            for pci_device in pci_devices.virtio_devices.values() {
+                let dev = pci_device.lock().expect("Poisoned lock");
+                dev.enable_unmasked_vectors()
+                    .map_err(PciManagerError::from)?;
+            }
+        }
+
         Ok(pci_devices)
     }
 }
