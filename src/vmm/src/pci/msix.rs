@@ -15,7 +15,7 @@ use crate::logger::{debug, error, warn};
 use crate::pci::configuration::PciCapability;
 use crate::pci::{PciCapabilityId, PciSBDF};
 use crate::snapshot::Persist;
-use crate::vstate::interrupts::{InterruptError, MsixVectorConfig, MsixVectorGroup};
+use crate::vstate::interrupts::{InterruptError, MsixVectorGroup};
 use crate::vstate::vm::KvmVm;
 
 const MAX_MSIX_VECTORS_PER_DEVICE: u16 = 2048;
@@ -132,16 +132,9 @@ impl MsixConfig {
                     continue;
                 }
 
-                let config = MsixVectorConfig {
-                    high_addr: table_entry.msg_addr_hi,
-                    low_addr: table_entry.msg_addr_lo,
-                    data: table_entry.msg_data,
-                    devid: sbdf,
-                };
-
                 // Only populate the in-memory routing entry; do not flush to KVM or
                 // register the IRQFD yet.
-                vectors.register(idx, config, state.masked)?;
+                vectors.register(idx, table_entry, sbdf)?;
             }
         }
 
@@ -192,19 +185,7 @@ impl MsixConfig {
         if old_masked != self.masked || old_enabled != self.enabled {
             if self.enabled && !self.masked {
                 debug!("MSI-X enabled for device {}", self.sbdf);
-
-                let mut configs = Vec::with_capacity(self.table_entries.len());
-                let mut masks = Vec::with_capacity(self.table_entries.len());
-                for table_entry in &self.table_entries {
-                    configs.push(MsixVectorConfig {
-                        high_addr: table_entry.msg_addr_hi,
-                        low_addr: table_entry.msg_addr_lo,
-                        data: table_entry.msg_data,
-                        devid: self.sbdf,
-                    });
-                    masks.push(table_entry.masked());
-                }
-                if let Err(e) = self.vectors.update_batched(&configs, &masks) {
+                if let Err(e) = self.vectors.update_batched(&self.table_entries, self.sbdf) {
                     error!("Failed updating vectors: {:?}", e);
                 }
             } else if old_enabled || !old_masked {
@@ -353,17 +334,9 @@ impl MsixConfig {
         // Optimisation: only update routes if the entry is not masked;
         // this is safe because if the entry is masked (starts masked as per spec)
         // in the table then it won't be triggered.
-        if self.enabled && !self.masked && !table_entry.masked() {
-            let config = MsixVectorConfig {
-                high_addr: table_entry.msg_addr_hi,
-                low_addr: table_entry.msg_addr_lo,
-                data: table_entry.msg_data,
-                devid: self.sbdf,
-            };
-
-            if let Err(e) = self.vectors.update(index, config, table_entry.masked()) {
-                error!("Failed updating vector: {:?}", e);
-            }
+        let enabled = self.enabled && !self.masked && !table_entry.masked();
+        if enabled && let Err(e) = self.vectors.update(index, table_entry, self.sbdf) {
+            error!("Failed updating vector: {:?}", e);
         }
 
         // After the MSI-X table entry has been updated, it is necessary to
@@ -379,12 +352,7 @@ impl MsixConfig {
         let index = index as u16;
 
         // Check if bit has been flipped
-        if !self.masked
-            && self.enabled
-            && old_entry.masked()
-            && !table_entry.masked()
-            && self.get_pba_bit(index) == 1
-        {
+        if enabled && old_entry.masked() && self.get_pba_bit(index) == 1 {
             self.inject_msix_and_clear_pba(index);
         }
     }
