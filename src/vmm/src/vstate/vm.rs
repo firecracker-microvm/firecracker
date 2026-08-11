@@ -876,8 +876,15 @@ pub(crate) mod tests {
         assert_eq!(msix_group.num_vectors(), 4);
     }
 
+    /// Enable all vectors MSI-X vector group
+    pub fn enable_all_vectors(vector_group: &MsixVectorGroup) {
+        for route in &vector_group.vectors {
+            route.enable(&vector_group.vm.common.fd).unwrap();
+        }
+    }
+
     #[test]
-    fn test_msi_vector_group_enable_disable() {
+    fn test_msi_vector_group_disable() {
         let mut vm = setup_vm_with_memory(mib_to_bytes(128));
         enable_irqchip(&mut vm);
         let vm = Arc::new(vm);
@@ -887,14 +894,8 @@ pub(crate) mod tests {
         for route in &msix_group.vectors {
             assert!(!route.enabled.load(Ordering::Acquire))
         }
-
-        // Enable works
-        msix_group.enable().unwrap();
-        for route in &msix_group.vectors {
-            assert!(route.enabled.load(Ordering::Acquire));
-        }
-        // Enabling an enabled group doesn't error out
-        msix_group.enable().unwrap();
+        // Enabling vectors
+        enable_all_vectors(&msix_group);
 
         // Disable works
         msix_group.disable().unwrap();
@@ -990,7 +991,7 @@ pub(crate) mod tests {
         }
 
         // Simply enabling the vectors should not update the registered IRQ routes
-        msix_group.enable().unwrap();
+        enable_all_vectors(&msix_group);
         for i in 0..4 {
             let gsi = crate::arch::GSI_MSI_START + i;
             let interrupts = vm.common.interrupts.lock().unwrap();
@@ -1031,7 +1032,7 @@ pub(crate) mod tests {
         let vm = Arc::new(vm);
         let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
 
-        msix_group.enable().unwrap();
+        enable_all_vectors(&msix_group);
         let state = msix_group.save();
 
         // On the real restore path the allocator state omits MSI GSIs before devices replay
