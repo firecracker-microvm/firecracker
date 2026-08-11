@@ -102,15 +102,6 @@ impl MsixVectorGroup {
         u16::try_from(self.vectors.len()).unwrap()
     }
 
-    /// Enable the MSI-X vector group
-    pub fn enable(&self) -> Result<(), InterruptError> {
-        for route in &self.vectors {
-            route.enable(&self.vm.common.fd)?;
-        }
-
-        Ok(())
-    }
-
     /// Disable the MSI-X vector group
     pub fn disable(&self) -> Result<(), InterruptError> {
         for route in &self.vectors {
