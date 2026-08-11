@@ -544,6 +544,12 @@ def test_memory_hotplug_latency(
 ):
     """Test the latency of hotplugging memory"""
 
+    # Secret free VMs are backed by guest_memfd, which cannot be combined with huge
+    # pages, so /machine-config rejects the combination. The two parameters are
+    # independent, so their product includes pairs that are invalid by construction.
+    if secret_free and huge_pages != HugePagesConfig.NONE:
+        pytest.skip("secret freedom and huge pages are mutually exclusive")
+
     for i in range(20):
         config = {
             "total_size_mib": hotplug_size,
