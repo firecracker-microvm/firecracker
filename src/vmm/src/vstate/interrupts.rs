@@ -9,6 +9,7 @@ use vmm_sys_util::eventfd::EventFd;
 
 use crate::logger::{IncMetric, METRICS, error};
 use crate::pci::PciSBDF;
+use crate::pci::msix::MsixTableEntry;
 use crate::snapshot::Persist;
 use crate::vstate::vm::KvmVm;
 
@@ -25,19 +26,6 @@ pub enum InterruptError {
     Kvm(#[from] kvm_ioctls::Error),
     /// Invalid vector index: {0}
     InvalidVectorIndex(usize),
-}
-
-/// Configuration data for an MSI-X interrupt.
-#[derive(Copy, Clone, Debug, Default)]
-pub struct MsixVectorConfig {
-    /// High address to delivery message signaled interrupt.
-    pub high_addr: u32,
-    /// Low address to delivery message signaled interrupt.
-    pub low_addr: u32,
-    /// Data to write to delivery message signaled interrupt.
-    pub data: u32,
-    /// Devid of the device to delivery message signaled interrupt.
-    pub devid: PciSBDF,
 }
 
 /// Type that describes an allocated interrupt
@@ -131,11 +119,11 @@ impl MsixVectorGroup {
     pub fn register(
         &self,
         index: usize,
-        msi_config: MsixVectorConfig,
-        masked: bool,
+        table_entry: &MsixTableEntry,
+        pci_sbdf: PciSBDF,
     ) -> Result<(), InterruptError> {
         if let Some(vector) = self.vectors.get(index) {
-            self.vm.register_msi(vector, masked, msi_config)?;
+            self.vm.register_msi(vector, table_entry, pci_sbdf)?;
             return Ok(());
         }
 
@@ -145,21 +133,25 @@ impl MsixVectorGroup {
     /// Update the MSI-X configuration for all vectors in the group
     pub fn update_batched(
         &self,
-        msi_config: &[MsixVectorConfig],
-        masked: &[bool],
+        msi_config: &[MsixTableEntry],
+        pci_sbdf: PciSBDF,
     ) -> Result<(), InterruptError> {
-        self.update_vectors(msi_config, masked, &self.vectors)
+        self.update_vectors(msi_config, &self.vectors, pci_sbdf)
     }
 
     /// Update the MSI-X configuration for a vector in the group
     pub fn update(
         &self,
         index: usize,
-        msi_config: MsixVectorConfig,
-        masked: bool,
+        table_entry: &MsixTableEntry,
+        pci_sbdf: PciSBDF,
     ) -> Result<(), InterruptError> {
         if let Some(vector) = self.vectors.get(index) {
-            self.update_vectors(&[msi_config], &[masked], std::slice::from_ref(vector))
+            self.update_vectors(
+                std::slice::from_ref(table_entry),
+                std::slice::from_ref(vector),
+                pci_sbdf,
+            )
         } else {
             Err(InterruptError::InvalidVectorIndex(index))
         }
@@ -168,21 +160,21 @@ impl MsixVectorGroup {
     /// Update the MSI-X configuration for the given vectors
     fn update_vectors(
         &self,
-        msi_config: &[MsixVectorConfig],
-        masked: &[bool],
+        table_entries: &[MsixTableEntry],
         vectors: &[MsixVector],
+        pci_sbdf: PciSBDF,
     ) -> Result<(), InterruptError> {
-        assert_eq!(msi_config.len(), vectors.len());
-        assert_eq!(masked.len(), vectors.len());
+        assert_eq!(table_entries.len(), vectors.len());
 
         METRICS.interrupts.config_updates.inc();
 
         // Disables masked vectors and update the config
         for (idx, vector) in vectors.iter().enumerate() {
-            if masked[idx] {
+            let table_entry = &table_entries[idx];
+            if table_entry.masked() {
                 vector.disable(&self.vm.common.fd)?;
             }
-            self.vm.register_msi(vector, masked[idx], msi_config[idx])?;
+            self.vm.register_msi(vector, table_entry, pci_sbdf)?;
         }
 
         self.vm
@@ -192,7 +184,7 @@ impl MsixVectorGroup {
         // Enables unmasked. Must be done after set_gsi_routes to avoid panic on kernel
         // which does not have commit a80ced6ea514 (KVM: SVM: fix panic on out-of-bounds guest IRQ).
         for (idx, vector) in vectors.iter().enumerate() {
-            if !masked[idx] {
+            if !table_entries[idx].masked() {
                 vector.enable(&self.vm.common.fd)?;
             }
         }
