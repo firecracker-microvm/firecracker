@@ -89,7 +89,7 @@ impl PciDevices {
         virtio_device: Arc<Mutex<VirtioPciDevice>>,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
-        let config_bar_addr = {
+        let bar_address = {
             let mut device = virtio_device.lock().unwrap();
 
             device.register_notification_ioevents(vm)?;
@@ -97,7 +97,7 @@ impl PciDevices {
             let sub_id = event_manager.add_subscriber(device.virtio_device());
             device.sub_id = Some(sub_id);
 
-            device.config_bar_addr()
+            device.bar_address()
         };
 
         self.virtio_devices
@@ -111,11 +111,11 @@ impl PciDevices {
 
         debug!(
             "Inserting MMIO BAR region: {:#x}:{:#x}",
-            config_bar_addr, CAPABILITY_BAR_SIZE
+            bar_address, CAPABILITY_BAR_SIZE
         );
         vm.common
             .mmio_bus
-            .insert(virtio_device.clone(), config_bar_addr, CAPABILITY_BAR_SIZE)?;
+            .insert(virtio_device.clone(), bar_address, CAPABILITY_BAR_SIZE)?;
 
         Ok(())
     }
@@ -129,7 +129,6 @@ impl PciDevices {
     ) -> Result<(), PciManagerError> {
         let sbdf = self.pci_segment.next_device_sbdf()?;
         debug!("Allocating SBDF: {sbdf:?} for device");
-        let mem = vm.guest_memory().clone();
 
         let device_type = device.lock().expect("Poisoned lock").device_type();
 
@@ -141,13 +140,19 @@ impl PciDevices {
 
         // Create the transport
         let mut virtio_device =
-            VirtioPciDevice::new(id.clone(), mem, device, Arc::new(msix_vectors), sbdf)?;
+            VirtioPciDevice::new(id.clone(), vm, device, Arc::new(msix_vectors), sbdf)?;
 
-        // Allocate bars
-        let mut resource_allocator_lock = vm.resource_allocator();
-        let resource_allocator = resource_allocator_lock.deref_mut();
+        // Allocate the BARs, then release the resource allocator lock before
+        // touching any bus. A device access runs with the bus lock held and
+        // can itself take the resource allocator lock, so holding the
+        // allocator across the bus insertion in attach_common() below would be
+        // the opposite order and can deadlock.
+        {
+            let mut resource_allocator_lock = vm.resource_allocator();
+            let resource_allocator = resource_allocator_lock.deref_mut();
 
-        virtio_device.allocate_bars(&mut resource_allocator.mmio64_memory);
+            virtio_device.allocate_bars(&mut resource_allocator.mmio64_memory);
+        }
 
         let virtio_device = Arc::new(Mutex::new(virtio_device));
 
@@ -179,32 +184,33 @@ impl PciDevices {
             .remove(&device_id)
             .expect("device presence should be checked before detach");
 
+        let sbdf_device = pci_device_arc.lock().expect("Poisoned lock").sbdf.device();
+
+        // Remove the device from the PCI bus first. A config space access runs
+        // with the PCI bus lock held and can relocate the BAR, so afterwards
+        // the BAR address of the device can no longer change under us.
+        self.pci_segment
+            .pci_bus
+            .lock()
+            .expect("Poisoned lock")
+            .remove_device(sbdf_device);
+
         // Next operations of removing device from mmio_bus and pci_bus need to wait for any other
         // user of the device to finish. This requires us to not hold the lock for the device in
         // case someone will try to access the device while we are in these several lines of code.
-        let (bar_addr, sbdf_device, sub_id) = {
+        let (bar_addr, sub_id) = {
             let pci_device = pci_device_arc.lock().expect("Poisoned lock");
 
             pci_device
                 .unregister_notification_ioevents(vm)
                 .map_err(PciManagerError::Kvm)?;
-            (
-                pci_device.config_bar_addr(),
-                pci_device.sbdf.device(),
-                pci_device.sub_id,
-            )
+            (pci_device.bar_address(), pci_device.sub_id)
         };
 
         vm.common
             .mmio_bus
             .remove(bar_addr, CAPABILITY_BAR_SIZE)
             .map_err(PciManagerError::Bus)?;
-
-        self.pci_segment
-            .pci_bus
-            .lock()
-            .expect("Poisoned lock")
-            .remove_device(sbdf_device);
 
         if let Some(sub_id) = sub_id
             && event_manager.remove_subscriber(sub_id).is_err()

@@ -2,11 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for the PCI devices"""
 
+import host_tools.drive as drive_tools
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_pci
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
 
 # Virtio PCI common config register offsets
 # https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-1420003
+COMMON_CFG_NUM_QUEUES = 0x12  # u16 (read-only)
 COMMON_CFG_QUEUE_SELECT = 0x16  # u16
 COMMON_CFG_QUEUE_SIZE = 0x18  # u16
 COMMON_CFG_QUEUE_ENABLE = 0x1C  # u16
@@ -16,6 +18,12 @@ COMMON_CFG_QUEUE_AVAIL_LO = 0x28  # u32
 COMMON_CFG_QUEUE_AVAIL_HI = 0x2C  # u32
 COMMON_CFG_QUEUE_USED_LO = 0x30  # u32
 COMMON_CFG_QUEUE_USED_HI = 0x34  # u32
+
+# The virtio-pci capability BAR size
+CAPABILITY_BAR_SIZE = 0x80000
+
+# Offset of the notification area within the capability BAR
+NOTIFICATION_BAR_OFFSET = 0x6000
 
 
 @pin_pci(True)
@@ -143,3 +151,101 @@ def test_queue_config_immutable(uvm_any, devmem_bin):
         assert (
             readback == orig
         ), f"{name} should remain {orig:#x} after DRIVER_OK, got {readback:#x}"
+
+
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+def test_bar_relocation(microvm_factory, guest_kernel, rootfs, devmem_bin):
+    """
+    Test that the guest can relocate a virtio-pci device's BAR.
+    """
+    vm = microvm_factory.build(guest_kernel, rootfs, pci=True)
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+    # Add a scratch virtio-blk device whose BAR we are going to relocate
+    scratch = drive_tools.FilesystemFile(size=16)
+    vm.add_drive("scratch", scratch.path)
+    vm.start()
+
+    rmt_path = "/tmp/devmem"
+    vm.ssh.scp_put(devmem_bin, rmt_path)
+    vm.ssh.check_output(f"chmod +x {rmt_path}")
+
+    # The scratch device is the second block device exposed as vdb.
+    slot = vm.ssh.check_output(
+        "readlink -f /sys/block/vdb | grep -oE "
+        "'[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}.[0-9]' | tail -1"
+    ).stdout.strip()
+    resource = vm.ssh.check_output(
+        f"cat /sys/bus/pci/devices/{slot}/resource | head -1"
+    ).stdout.strip()
+    old_base = int(resource.split()[0], 16)
+    assert old_base != 0
+
+    # The device's num_queues field (read-only) is a stable, non-zero value we
+    # can use as a witness that config reads resolve to the device.
+    num_queues = _devmem_read(vm, rmt_path, old_base + COMMON_CFG_NUM_QUEUES, 2)
+    assert num_queues not in (0, 0xFFFF), f"unexpected num_queues {num_queues:#x}"
+
+    # Relocate the BAR 4 GiB higher. This stays inside the 64-bit MMIO aperture
+    # ([256 GiB, 512 GiB)) and is naturally aligned to the BAR size, so it does
+    # not collide with any other device.
+    new_base = old_base + 0x1_0000_0000
+    assert new_base % CAPABILITY_BAR_SIZE == 0
+
+    # Nothing is mapped at the new base yet: an unmapped MMIO read returns 0.
+    empty = _devmem_read(vm, rmt_path, new_base + COMMON_CFG_NUM_QUEUES, 2)
+    assert empty == 0, f"expected nothing mapped at {new_base:#x}, read {empty:#x}"
+
+    # Disable memory-space decoding (COMMAND bit 1) before touching the BARs,
+    # reprogram the 64-bit BAR (low then high dword), then re-enable decoding.
+    vm.ssh.check_output(f"setpci -s {slot} COMMAND=0:2")
+    vm.ssh.check_output(
+        f"setpci -s {slot} BASE_ADDRESS_0=0x{new_base & 0xFFFFFFFF:08x}"
+    )
+    vm.ssh.check_output(f"setpci -s {slot} BASE_ADDRESS_1=0x{new_base >> 32:08x}")
+    vm.ssh.check_output(f"setpci -s {slot} COMMAND=2:2")
+
+    # The device now answers at the new base with the same num_queues value...
+    relocated = _devmem_read(vm, rmt_path, new_base + COMMON_CFG_NUM_QUEUES, 2)
+    assert (
+        relocated == num_queues
+    ), f"device not reachable at relocated BAR {new_base:#x}: read {relocated:#x}"
+
+    # ...and no longer at the old base (unmapped MMIO reads back as 0).
+    stale = _devmem_read(vm, rmt_path, old_base + COMMON_CFG_NUM_QUEUES, 2)
+    assert stale == 0, f"device still mapped at old BAR {old_base:#x}: read {stale:#x}"
+
+    # Verify the notification ioeventfds followed the BAR as well. A write to
+    # queue 0's notify address at the new base must be absorbed by the
+    # relocated ioeventfd; had the ioeventfd move failed, the write would fall
+    # through to the device's BAR handler and log a warning.
+    _devmem_write(vm, rmt_path, new_base + NOTIFICATION_BAR_OFFSET, 2, 0)
+    assert (
+        "unexpected write to notification BAR" not in vm.log_data
+    ), "notification ioeventfd did not follow the BAR to the new base"
+    assert (
+        "notification ioeventfds" not in vm.log_data
+    ), "BAR relocation logged a notification ioeventfd error"
+
+    # An out-of-aperture relocation must be refused. Reprogram the BAR to an
+    # address above the 64-bit MMIO window ([256 GiB, 512 GiB)) and re-enable
+    # decoding: Firecracker must reject it and leave the device where it is.
+    invalid_base = 0x100_0000_0000  # 1 TiB, above the aperture
+    assert invalid_base % CAPABILITY_BAR_SIZE == 0
+    vm.ssh.check_output(f"setpci -s {slot} COMMAND=0:2")
+    vm.ssh.check_output(
+        f"setpci -s {slot} BASE_ADDRESS_0=0x{invalid_base & 0xFFFFFFFF:08x}"
+    )
+    vm.ssh.check_output(f"setpci -s {slot} BASE_ADDRESS_1=0x{invalid_base >> 32:08x}")
+    vm.ssh.check_output(f"setpci -s {slot} COMMAND=2:2")
+
+    # The relocation is rejected and logged, and the device stays reachable at
+    # the (valid) base it was already relocated to.
+    assert (
+        "outside the 64-bit MMIO window" in vm.log_data
+    ), "Firecracker did not reject the out-of-aperture BAR relocation"
+    still_there = _devmem_read(vm, rmt_path, new_base + COMMON_CFG_NUM_QUEUES, 2)
+    assert (
+        still_there == num_queues
+    ), f"device disturbed by a rejected relocation: read {still_there:#x}"
