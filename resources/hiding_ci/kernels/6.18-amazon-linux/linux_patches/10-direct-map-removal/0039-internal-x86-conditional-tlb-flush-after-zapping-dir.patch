@@ -1,0 +1,131 @@
+From 1a865b5794638a1d298c244fb22a01d513dfc0a4 Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <kalyazin@amazon.com>
+Date: Mon, 12 Jan 2026 15:51:48 +0000
+Subject: [PATCH 39/94] internal: x86: conditional tlb flush after zapping
+ direct map
+
+Gate TLB flushes after removing pages from direct map on x86 by a
+module param (guest_memfd_tlb_flush, disabled by default).
+
+Also export missing functions to the KVM module.
+
+This is useful to be able to collect performance data for both enabled
+and disabled TLB flushes.
+
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Signed-off-by: Firecracker CI <ci@email.com>
+---
+ arch/x86/include/asm/tlbflush.h | 3 ++-
+ arch/x86/mm/tlb.c               | 1 +
+ fs/userfaultfd.c                | 1 +
+ include/linux/kvm_host.h        | 1 +
+ mm/memory.c                     | 2 --
+ virt/kvm/guest_memfd.c          | 3 +++
+ virt/kvm/kvm_main.c             | 3 +++
+ 7 files changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/arch/x86/include/asm/tlbflush.h b/arch/x86/include/asm/tlbflush.h
+index 00daedfef..6f57f7eb6 100644
+--- a/arch/x86/include/asm/tlbflush.h
++++ b/arch/x86/include/asm/tlbflush.h
+@@ -317,7 +317,6 @@ extern void flush_tlb_all(void);
+ extern void flush_tlb_mm_range(struct mm_struct *mm, unsigned long start,
+ 				unsigned long end, unsigned int stride_shift,
+ 				bool freed_tables);
+-extern void flush_tlb_kernel_range(unsigned long start, unsigned long end);
+ 
+ static inline void flush_tlb_page(struct vm_area_struct *vma, unsigned long a)
+ {
+@@ -483,6 +482,8 @@ static inline void cpu_tlbstate_update_lam(unsigned long lam, u64 untag_mask)
+ #endif
+ #endif /* !MODULE */
+ 
++extern void flush_tlb_kernel_range(unsigned long start, unsigned long end);
++
+ static inline void __native_tlb_flush_global(unsigned long cr4)
+ {
+ 	native_write_cr4(cr4 ^ X86_CR4_PGE);
+diff --git a/arch/x86/mm/tlb.c b/arch/x86/mm/tlb.c
+index 5d2217093..cce591d26 100644
+--- a/arch/x86/mm/tlb.c
++++ b/arch/x86/mm/tlb.c
+@@ -1561,6 +1561,7 @@ void flush_tlb_kernel_range(unsigned long start, unsigned long end)
+ 
+ 	put_flush_tlb_info();
+ }
++EXPORT_SYMBOL_FOR_MODULES(flush_tlb_kernel_range, "kvm");
+ 
+ /*
+  * This can be used from process context to figure out what the value of
+diff --git a/fs/userfaultfd.c b/fs/userfaultfd.c
+index df18fb453..4e4b02420 100644
+--- a/fs/userfaultfd.c
++++ b/fs/userfaultfd.c
+@@ -537,6 +537,7 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
+ out:
+ 	return ret;
+ }
++EXPORT_SYMBOL_FOR_MODULES(handle_userfault, "kvm");
+ 
+ static void userfaultfd_event_wait_completion(struct userfaultfd_ctx *ctx,
+ 					      struct userfaultfd_wait_queue *ewq)
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index ee192aa7e..28017f0be 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -2314,6 +2314,7 @@ extern unsigned int halt_poll_ns;
+ extern unsigned int halt_poll_ns_grow;
+ extern unsigned int halt_poll_ns_grow_start;
+ extern unsigned int halt_poll_ns_shrink;
++extern bool guest_memfd_tlb_flush;
+ 
+ struct kvm_device {
+ 	const struct kvm_device_ops *ops;
+diff --git a/mm/memory.c b/mm/memory.c
+index 0502983ce..c72a8d55e 100644
+--- a/mm/memory.c
++++ b/mm/memory.c
+@@ -7375,8 +7375,6 @@ int folio_zap_direct_map(struct folio *folio)
+ 		return -EINVAL;
+ 
+ 	ret = set_direct_map_valid_noflush(addr, folio_nr_pages(folio), false);
+-	flush_tlb_kernel_range((unsigned long)addr,
+-			       (unsigned long)addr + folio_size(folio));
+ 
+ 	return ret;
+ }
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index 9e493d049..5757949ff 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -91,6 +91,7 @@ static bool kvm_gmem_folio_no_direct_map(struct folio *folio)
+ 
+ static int kvm_gmem_folio_zap_direct_map(struct folio *folio)
+ {
++	unsigned long addr = (unsigned long)folio_address(folio);
+ 	int r = 0;
+ 
+ 	VM_WARN_ON_FOLIO(!folio_test_locked(folio), folio);
+@@ -104,6 +105,8 @@ static int kvm_gmem_folio_zap_direct_map(struct folio *folio)
+ 	r = folio_zap_direct_map(folio);
+ 	if (!r)
+ 		folio->private = (void *)((u64)folio->private | KVM_GMEM_FOLIO_NO_DIRECT_MAP);
++	if (guest_memfd_tlb_flush)
++		flush_tlb_kernel_range(addr, addr + folio_size(folio));
+ 
+ out:
+ 	return r;
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index 5286c0b57..b60c468f9 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -94,6 +94,9 @@ unsigned int halt_poll_ns_shrink = 2;
+ module_param(halt_poll_ns_shrink, uint, 0644);
+ EXPORT_SYMBOL_FOR_KVM_INTERNAL(halt_poll_ns_shrink);
+ 
++bool guest_memfd_tlb_flush = false;
++module_param(guest_memfd_tlb_flush, bool, 0444);
++
+ /*
+  * Allow direct access (from KVM or the CPU) without MMU notifier protection
+  * to unpinned pages.
