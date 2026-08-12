@@ -1,0 +1,30 @@
+From a5502fa3583148e6e9530b9b94ed6812da97d01a Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <kalyazin@amazon.com>
+Date: Mon, 26 Jan 2026 12:37:52 +0000
+Subject: [PATCH 83/94] fixup for uffd + dmr
+
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Signed-off-by: Firecracker CI <ci@email.com>
+---
+ virt/kvm/guest_memfd.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index f2d3bd1c3..8121421a9 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -621,6 +621,14 @@ static int kvm_gmem_filemap_add(struct folio *folio,
+ 		return err;
+ 	}
+ 
++	if (kvm_gmem_folio_no_direct_map(folio)) {
++		err = kvm_gmem_folio_zap_direct_map(folio);
++		if (err) {
++			folio_unlock(folio);
++			return err;
++		}
++	}
++
+ 	return 0;
+ }
+ 

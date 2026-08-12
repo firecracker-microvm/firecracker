@@ -1,0 +1,25 @@
+From 9c7a7c98ba77ebea3392bdc48e087cc86e10a26b Mon Sep 17 00:00:00 2001
+From: Harry Yoo <harry.yoo@oracle.com>
+Date: Mon, 16 Mar 2026 15:19:49 +0900
+Subject: [PATCH 67/94] WARNING in folio_add_new_anon_rmap
+
+#syz test
+
+Signed-off-by: Firecracker CI <ci@email.com>
+---
+ mm/userfaultfd.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
+index f4e8d726c..31a498041 100644
+--- a/mm/userfaultfd.c
++++ b/mm/userfaultfd.c
+@@ -824,7 +824,7 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
+ 		.dst_start = dst_start,
+ 		.src_start = src_start,
+ 		.flags = flags,
+-
++		.len = len,
+ 		.src_addr = src_start,
+ 		.dst_addr = dst_start,
+ 	};
