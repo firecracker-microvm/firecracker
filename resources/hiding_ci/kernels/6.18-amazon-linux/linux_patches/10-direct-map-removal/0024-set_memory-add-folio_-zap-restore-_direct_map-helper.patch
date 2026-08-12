@@ -1,0 +1,118 @@
+From 6c5858f1487c29e7ef5509a5a73a9089a1e5f032 Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <nikita.kalyazin@linux.dev>
+Date: Mon, 12 Jan 2026 14:24:52 +0000
+Subject: [PATCH 24/94] set_memory: add folio_{zap,restore}_direct_map helpers
+
+Let's provide folio_{zap,restore}_direct_map helpers as preparation for
+supporting removal of the direct map for guest_memfd folios.
+In folio_zap_direct_map(), flush TLB to make sure the data is not
+accessible.  On some architectures, there may be a double TLB flush
+issued because set_direct_map_valid_noflush already performs a flush
+internally.
+
+The new helpers need to be accessible to KVM on architectures that
+support guest_memfd (x86 and arm64).
+
+Direct map removal gives guest_memfd the same protection that
+memfd_secret does, such as hardening against Spectre-like attacks
+through in-kernel gadgets.
+
+Acked-by: David Hildenbrand (Arm) <david@kernel.org>
+Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
+Signed-off-by: Firecracker CI <ci@email.com>
+---
+ include/linux/set_memory.h | 13 +++++++++++
+ mm/memory.c                | 45 ++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 58 insertions(+)
+
+diff --git a/include/linux/set_memory.h b/include/linux/set_memory.h
+index 1a2563f52..24caea293 100644
+--- a/include/linux/set_memory.h
++++ b/include/linux/set_memory.h
+@@ -41,6 +41,15 @@ static inline int set_direct_map_valid_noflush(const void *addr,
+ 	return 0;
+ }
+ 
++static inline int folio_zap_direct_map(struct folio *folio)
++{
++	return 0;
++}
++
++static inline void folio_restore_direct_map(struct folio *folio)
++{
++}
++
+ static inline bool kernel_page_present(struct page *page)
+ {
+ 	return true;
+@@ -57,6 +66,10 @@ static inline bool can_set_direct_map(void)
+ }
+ #define can_set_direct_map can_set_direct_map
+ #endif
++
++int folio_zap_direct_map(struct folio *folio);
++void folio_restore_direct_map(struct folio *folio);
++
+ #endif /* CONFIG_ARCH_HAS_SET_DIRECT_MAP */
+ 
+ #ifdef CONFIG_X86_64
+diff --git a/mm/memory.c b/mm/memory.c
+index 42b733b78..0502983ce 100644
+--- a/mm/memory.c
++++ b/mm/memory.c
+@@ -76,6 +76,7 @@
+ #include <linux/ptrace.h>
+ #include <linux/vmalloc.h>
+ #include <linux/sched/sysctl.h>
++#include <linux/set_memory.h>
+ 
+ #include <trace/events/kmem.h>
+ 
+@@ -7353,3 +7354,47 @@ void vma_pgtable_walk_end(struct vm_area_struct *vma)
+ 	if (is_vm_hugetlb_page(vma))
+ 		hugetlb_vma_unlock_read(vma);
+ }
++
++#ifdef CONFIG_ARCH_HAS_SET_DIRECT_MAP
++/**
++ * folio_zap_direct_map - remove a folio from the kernel direct map
++ * @folio: folio to remove from the direct map
++ *
++ * Removes the folio from the kernel direct map and flushes the TLB.  This may
++ * require splitting huge pages in the direct map, which can fail due to memory
++ * allocation.  So far, only order-0 folios are supported.
++ *
++ * Return: 0 on success, or a negative error code on failure.
++ */
++int folio_zap_direct_map(struct folio *folio)
++{
++	const void *addr = folio_address(folio);
++	int ret;
++
++	if (folio_test_large(folio))
++		return -EINVAL;
++
++	ret = set_direct_map_valid_noflush(addr, folio_nr_pages(folio), false);
++	flush_tlb_kernel_range((unsigned long)addr,
++			       (unsigned long)addr + folio_size(folio));
++
++	return ret;
++}
++EXPORT_SYMBOL_FOR_MODULES(folio_zap_direct_map, "kvm");
++
++/**
++ * folio_restore_direct_map - restore the kernel direct map entry for a folio
++ * @folio: folio whose direct map entry is to be restored
++ *
++ * This may only be called after a prior successful folio_zap_direct_map() on
++ * the same folio.  Because the zap will have already split any huge pages in
++ * the direct map, restoration here only updates protection bits and cannot
++ * fail.
++ */
++void folio_restore_direct_map(struct folio *folio)
++{
++	WARN_ON_ONCE(set_direct_map_valid_noflush(folio_address(folio),
++						  folio_nr_pages(folio), true));
++}
++EXPORT_SYMBOL_FOR_MODULES(folio_restore_direct_map, "kvm");
++#endif /* CONFIG_ARCH_HAS_SET_DIRECT_MAP */
