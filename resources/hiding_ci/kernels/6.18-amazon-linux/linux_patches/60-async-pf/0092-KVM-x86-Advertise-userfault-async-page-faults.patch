@@ -1,0 +1,532 @@
+From f90b241055d8cb5bb002e88a71b51fd4d4555ec0 Mon Sep 17 00:00:00 2001
+From: Jack Thomson <jackabt@amazon.com>
+Date: Tue, 2 Jun 2026 16:03:24 +0000
+Subject: [PATCH 92/94] KVM: x86: Advertise userfault async page faults
+
+Advertise base userfault async page fault support separately from the
+exitless eventfd fast path.
+
+Enable the per-vCPU capability, document the KVM_ASYNC_PF ioctl, and add
+a selftest for the exit-based ACCEPT/READY and autocomplete flows.
+Keeping this commit limited to the non-exitless API lets
+KVM_CAP_ASYNC_PF_USERFAULT describe a useful standalone feature.
+
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
+Signed-off-by: Firecracker CI <ci@email.com>
+---
+ Documentation/virt/kvm/api.rst                |  75 +++++
+ arch/x86/kvm/x86.c                            |   8 +
+ include/uapi/linux/kvm.h                      |   1 +
+ tools/include/uapi/linux/kvm.h                |  47 +++-
+ tools/testing/selftests/kvm/Makefile.kvm      |   1 +
+ .../kvm/x86/async_pf_userfault_test.c         | 265 ++++++++++++++++++
+ 6 files changed, 396 insertions(+), 1 deletion(-)
+ create mode 100644 tools/testing/selftests/kvm/x86/async_pf_userfault_test.c
+
+diff --git a/Documentation/virt/kvm/api.rst b/Documentation/virt/kvm/api.rst
+index 4488eaee7..7ee6b78c0 100644
+--- a/Documentation/virt/kvm/api.rst
++++ b/Documentation/virt/kvm/api.rst
+@@ -6543,6 +6543,67 @@ the capability to be present.
+ `flags` must currently be zero.
+ 
+ 
++4.144 KVM_ASYNC_PF
++------------------
++
++:Capability: KVM_CAP_ASYNC_PF_USERFAULT
++:Architectures: x86
++:Type: vcpu ioctl
++:Parameters: struct kvm_async_pf_req (in)
++:Returns: 0 on success, < 0 on error
++
++Errors:
++
++  ========== ===============================================================
++  EINVAL     Invalid ``op``, non-zero ``flags`` or ``reserved`` fields,
++             or ``gpa`` is not page-aligned.
++  ENOENT     No async page fault exists for the specified GPA.
++  EALREADY   The async page fault has already been completed
++             (KVM_APF_OP_READY only).
++  EBUSY      The vCPU is being torn down (KVM_APF_OP_READY only).
++  EFAULT     The parameter address was invalid.
++  ========== ===============================================================
++
++::
++
++  struct kvm_async_pf_req {
++	__u64 gpa;
++	__u32 op;
++	__u32 flags;
++	__u64 reserved[2];
++  };
++
++  #define KVM_APF_OP_ACCEPT  1
++  #define KVM_APF_OP_READY   2
++
++This ioctl manages userfaultfd-based async page faults. When a vCPU exits
++with ``KVM_EXIT_MEMORY_FAULT`` and ``KVM_MEMORY_EXIT_FLAG_APF`` set in
++``memory_fault.flags``, an async page fault has been created for the
++faulting GPA. Userspace may respond with one of the following operations:
++
++``KVM_APF_OP_ACCEPT``
++  Userspace will resolve the page asynchronously. The vCPU re-enters in a
++  halted state while the page is being resolved. When the page is ready,
++  userspace signals completion via ``KVM_APF_OP_READY``.
++
++``KVM_APF_OP_READY``
++  Signals that a page fault previously accepted via ``KVM_APF_OP_ACCEPT``
++  has been resolved. This wakes the vCPU if it was halted waiting for the
++  page. This operation may be called from a thread other than the vCPU
++  thread (it does not require ``vcpu->mutex``).
++
++If userspace resolves the page synchronously (e.g. via ``UFFDIO_COPY``)
++and re-enters ``KVM_RUN`` without calling ``KVM_APF_OP_ACCEPT``, KVM
++auto-completes the pending APF on re-entry, and the guest retries the
++faulting instruction.
++
++Op value 0 is reserved and rejected with ``EINVAL`` so that a zero-
++initialized ``struct kvm_async_pf_req`` is never interpreted as a valid
++operation.
++
++``flags`` and ``reserved`` must be zero.
++
++
+ .. _kvm_run:
+ 
+ 5. The kvm_run structure
+@@ -9297,6 +9358,20 @@ KVM exits with the register state of either the L1 or L2 guest
+ depending on which executed at the time of an exit. Userspace must
+ take care to differentiate between these cases.
+ 
++8.46 KVM_CAP_ASYNC_PF_USERFAULT
++---------------------------------
++
++:Architectures: x86
++
++The presence of this capability indicates that the kernel supports
++userfaultfd-based async page faults via the ``KVM_ASYNC_PF`` vcpu ioctl.
++
++When a vCPU encounters a userfault page, KVM can create an async page
++fault and exit to userspace with ``KVM_EXIT_MEMORY_FAULT`` with
++``KVM_MEMORY_EXIT_FLAG_APF`` set. Userspace then accepts or synchronously
++completes the fault before re-entering the vCPU. See the documentation
++for ``KVM_ASYNC_PF`` (section 4.144) for details.
++
+ 9. Known KVM API problems
+ =========================
+ 
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index 9abe84282..05fe963d9 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -4892,6 +4892,7 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
+ 	case KVM_CAP_MEMORY_FAULT_INFO:
+ 	case KVM_CAP_X86_GUEST_MODE:
+ 	case KVM_CAP_ONE_REG:
++	case KVM_CAP_ASYNC_PF_USERFAULT:
+ 		r = 1;
+ 		break;
+ 	case KVM_CAP_PRE_FAULT_MEMORY:
+@@ -6093,6 +6094,13 @@ static int kvm_vcpu_ioctl_enable_cap(struct kvm_vcpu *vcpu,
+ 	case KVM_CAP_ENFORCE_PV_FEATURE_CPUID:
+ 		vcpu->arch.pv_cpuid.enforce = cap->args[0];
+ 		return 0;
++	case KVM_CAP_ASYNC_PF_USERFAULT:
++		if (cap->args[0] > 1 || cap->args[1] ||
++		    cap->args[2] || cap->args[3])
++			return -EINVAL;
++
++		vcpu->async_pf.userfault_enabled = cap->args[0];
++		return 0;
+ 	default:
+ 		return -EINVAL;
+ 	}
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index 0001d2e6a..b30d59353 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -973,6 +973,7 @@ struct kvm_enable_cap {
+ #define KVM_CAP_ARM_CACHEABLE_PFNMAP_SUPPORTED 243
+ #define KVM_CAP_GUEST_MEMFD_FLAGS 244
+ #define KVM_CAP_USERFAULT 245
++#define KVM_CAP_ASYNC_PF_USERFAULT 246
+ 
+ struct kvm_irq_routing_irqchip {
+ 	__u32 irqchip;
+diff --git a/tools/include/uapi/linux/kvm.h b/tools/include/uapi/linux/kvm.h
+index 52f6000ab..6ccd393c5 100644
+--- a/tools/include/uapi/linux/kvm.h
++++ b/tools/include/uapi/linux/kvm.h
+@@ -40,7 +40,8 @@ struct kvm_userspace_memory_region2 {
+ 	__u64 guest_memfd_offset;
+ 	__u32 guest_memfd;
+ 	__u32 pad1;
+-	__u64 pad2[14];
++	__u64 userfault_bitmap;
++	__u64 pad2[13];
+ };
+ 
+ /*
+@@ -51,6 +52,7 @@ struct kvm_userspace_memory_region2 {
+ #define KVM_MEM_LOG_DIRTY_PAGES	(1UL << 0)
+ #define KVM_MEM_READONLY	(1UL << 1)
+ #define KVM_MEM_GUEST_MEMFD	(1UL << 2)
++#define KVM_MEM_USERFAULT	(1UL << 3)
+ 
+ /* for KVM_IRQ_LINE */
+ struct kvm_irq_level {
+@@ -444,6 +446,8 @@ struct kvm_run {
+ 		/* KVM_EXIT_MEMORY_FAULT */
+ 		struct {
+ #define KVM_MEMORY_EXIT_FLAG_PRIVATE	(1ULL << 3)
++#define KVM_MEMORY_EXIT_FLAG_USERFAULT	(1ULL << 4)
++#define KVM_MEMORY_EXIT_FLAG_APF	(1ULL << 5)
+ 			__u64 flags;
+ 			__u64 gpa;
+ 			__u64 size;
+@@ -963,6 +967,8 @@ struct kvm_enable_cap {
+ #define KVM_CAP_RISCV_MP_STATE_RESET 242
+ #define KVM_CAP_ARM_CACHEABLE_PFNMAP_SUPPORTED 243
+ #define KVM_CAP_GUEST_MEMFD_FLAGS 244
++#define KVM_CAP_USERFAULT 245
++#define KVM_CAP_ASYNC_PF_USERFAULT 246
+ 
+ struct kvm_irq_routing_irqchip {
+ 	__u32 irqchip;
+@@ -1601,6 +1607,8 @@ struct kvm_memory_attributes {
+ #define KVM_CREATE_GUEST_MEMFD	_IOWR(KVMIO,  0xd4, struct kvm_create_guest_memfd)
+ #define GUEST_MEMFD_FLAG_MMAP		(1ULL << 0)
+ #define GUEST_MEMFD_FLAG_INIT_SHARED	(1ULL << 1)
++#define GUEST_MEMFD_FLAG_NO_DIRECT_MAP	(1ULL << 2)
++#define GUEST_MEMFD_FLAG_WRITE		(1ULL << 3)
+ 
+ struct kvm_create_guest_memfd {
+ 	__u64 size;
+@@ -1610,6 +1618,43 @@ struct kvm_create_guest_memfd {
+ 
+ #define KVM_PRE_FAULT_MEMORY	_IOWR(KVMIO, 0xd5, struct kvm_pre_fault_memory)
+ 
++/*
++ * Userfaultfd async page fault ioctl.
++ *
++ * When a vCPU exits with KVM_EXIT_MEMORY_FAULT and KVM_MEMORY_EXIT_FLAG_APF
++ * set, an async page fault has been created. Userspace may respond with
++ * one of the following operations:
++ *
++ * KVM_APF_OP_ACCEPT - Userspace will resolve the page asynchronously.
++ *   The vCPU re-enters in a halted state while the page is being resolved.
++ *   When the page is ready, userspace calls KVM_APF_OP_READY to wake
++ *   the vCPU.
++ *
++ * KVM_APF_OP_READY - Signal that an async page fault previously accepted
++ *   via KVM_APF_OP_ACCEPT has been resolved. The argument is the GPA
++ *   that was faulted. This wakes the vCPU if it was halted waiting for
++ *   the page.
++ *
++ * If userspace resolves the page synchronously (e.g. via UFFDIO_COPY) and
++ * re-enters KVM_RUN without calling ACCEPT, KVM auto-completes the pending
++ * APF on re-entry. The guest retries the faulting instruction and finds
++ * the page present.
++ *
++ * Op value 0 is reserved and rejected with -EINVAL so that a zero-
++ * initialized request is never interpreted as a valid op.
++ */
++#define KVM_ASYNC_PF		_IOW(KVMIO, 0xd6, struct kvm_async_pf_req)
++
++#define KVM_APF_OP_ACCEPT		1
++#define KVM_APF_OP_READY		2
++
++struct kvm_async_pf_req {
++	__u64 gpa;
++	__u32 op;
++	__u32 flags;
++	__u64 reserved[2];
++};
++
+ struct kvm_pre_fault_memory {
+ 	__u64 gpa;
+ 	__u64 size;
+diff --git a/tools/testing/selftests/kvm/Makefile.kvm b/tools/testing/selftests/kvm/Makefile.kvm
+index 1715efe9d..c00cfaca5 100644
+--- a/tools/testing/selftests/kvm/Makefile.kvm
++++ b/tools/testing/selftests/kvm/Makefile.kvm
+@@ -95,6 +95,7 @@ TEST_GEN_PROGS_x86 += x86/pmu_counters_test
+ TEST_GEN_PROGS_x86 += x86/pmu_event_filter_test
+ TEST_GEN_PROGS_x86 += x86/private_mem_conversions_test
+ TEST_GEN_PROGS_x86 += x86/private_mem_kvm_exits_test
++TEST_GEN_PROGS_x86 += x86/async_pf_userfault_test
+ TEST_GEN_PROGS_x86 += x86/set_boot_cpu_id
+ TEST_GEN_PROGS_x86 += x86/set_sregs_test
+ TEST_GEN_PROGS_x86 += x86/smaller_maxphyaddr_emulation_test
+diff --git a/tools/testing/selftests/kvm/x86/async_pf_userfault_test.c b/tools/testing/selftests/kvm/x86/async_pf_userfault_test.c
+new file mode 100644
+index 000000000..4d3c53734
+--- /dev/null
++++ b/tools/testing/selftests/kvm/x86/async_pf_userfault_test.c
+@@ -0,0 +1,265 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Test KVM userfaultfd-based async page faults.
++ *
++ * Verifies the KVM_ASYNC_PF ioctl with KVM_APF_OP_ACCEPT
++ * and KVM_APF_OP_READY operations, and synchronous autocomplete
++ * against a userfault memslot.
++ *
++ * Copyright (C) 2026, Amazon.com, Inc.
++ */
++#include <linux/kvm.h>
++#include <stdint.h>
++#include <pthread.h>
++#include <signal.h>
++#include <sys/mman.h>
++#include <sys/eventfd.h>
++#include <sys/select.h>
++#include <unistd.h>
++
++#include "kvm_util.h"
++#include "processor.h"
++#include "test_util.h"
++
++#define TEST_GVA	0xc0000000
++#define TEST_GPA	TEST_GVA
++#define TEST_NPAGES	1
++#define TEST_SIZE	(TEST_NPAGES * PAGE_SIZE)
++#define TEST_SLOT	10
++
++/*
++ * Helper: add a memslot and mark all its pages as userfault.
++ * Creates the memslot first, then sets KVM_MEM_USERFAULT with a bitmap
++ * that has all pages marked.
++ */
++static unsigned long userfault_bitmap;
++
++static void add_userfault_memslot(struct kvm_vm *vm)
++{
++	vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS,
++				    TEST_GPA, TEST_SLOT,
++				    TEST_NPAGES, 0);
++
++	/* Set all bits in the bitmap, one bit per page. */
++	userfault_bitmap = (1UL << TEST_NPAGES) - 1;
++	vm_mem_region_set_flags_userfault(vm, TEST_SLOT,
++					  KVM_MEM_USERFAULT,
++					  &userfault_bitmap);
++}
++
++static void clear_userfault_memslot(struct kvm_vm *vm)
++{
++	userfault_bitmap = 0;
++	vm_mem_region_set_flags_userfault(vm, TEST_SLOT,
++					  KVM_MEM_USERFAULT,
++					  &userfault_bitmap);
++}
++
++static void guest_code(void)
++{
++	/*
++	 * Enable interrupts so kvm_can_do_async_pf() returns true.
++	 * STI has a one-instruction interrupt shadow, so execute a NOP
++	 * after it to ensure interrupts are fully enabled before the
++	 * memory access that triggers the userfault.
++	 */
++	asm volatile("sti; nop; nop");
++
++	READ_ONCE(*((uint64_t *)TEST_GVA));
++	GUEST_DONE();
++}
++
++static void async_pf_op(struct kvm_vcpu *vcpu, uint64_t gpa, uint32_t op)
++{
++	struct kvm_async_pf_req req = {
++		.gpa = gpa,
++		.op = op,
++	};
++	vcpu_ioctl(vcpu, KVM_ASYNC_PF, &req);
++}
++
++/*
++ * Helper: create a VM with one vCPU, enable APF userfault capability,
++ * add a userfault memslot, and map it into the guest.
++ */
++static struct kvm_vm *create_apf_test_vm(struct kvm_vcpu **vcpu)
++{
++	struct kvm_vm *vm;
++
++	vm = vm_create_with_one_vcpu(vcpu, guest_code);
++
++	/* Enable async PF userfault on this vCPU */
++	vcpu_enable_cap(*vcpu, KVM_CAP_ASYNC_PF_USERFAULT, 1);
++
++	/* Add a userfault memslot with bitmap */
++	add_userfault_memslot(vm);
++	virt_map(vm, TEST_GVA, TEST_GPA, TEST_NPAGES);
++
++	return vm;
++}
++
++/*
++ * Test: synchronous resolution via autocomplete.
++ * Guest touches a userfault page, KVM exits with MEMORY_FAULT + APF.
++ * Userspace resolves the page and re-enters without any ioctl.
++ * KVM auto-completes the pending APF on re-entry.
++ */
++static void test_sync_resolve(void)
++{
++	struct kvm_vm *vm;
++	struct kvm_vcpu *vcpu;
++	struct kvm_run *run;
++	void *mem;
++	int r;
++
++	pr_info("Testing sync resolve (autocomplete)\n");
++
++	vm = create_apf_test_vm(&vcpu);
++	run = vcpu->run;
++
++	/* First run: should exit with memory fault + APF */
++	r = _vcpu_run(vcpu);
++	TEST_ASSERT(r != 0 && errno == EFAULT,
++		    "Expected EFAULT, got r=%d errno=%d", r, errno);
++	TEST_ASSERT_EQ(run->exit_reason, KVM_EXIT_MEMORY_FAULT);
++	TEST_ASSERT(run->memory_fault.flags & KVM_MEMORY_EXIT_FLAG_USERFAULT,
++		    "Expected USERFAULT flag");
++
++	if (!(run->memory_fault.flags & KVM_MEMORY_EXIT_FLAG_APF)) {
++		pr_info("  APF not created (kvm_can_do_async_pf false?) - skip\n");
++		goto done;
++	}
++
++	TEST_ASSERT_EQ(run->memory_fault.gpa, TEST_GPA);
++
++	/* Resolve the page and clear bitmap, no ioctl needed. */
++	mem = addr_gpa2hva(vm, TEST_GPA);
++	memset(mem, 0, PAGE_SIZE);
++	clear_userfault_memslot(vm);
++
++	/* Re-run: KVM auto-completes the APF, guest should complete */
++	vcpu_run(vcpu);
++	TEST_ASSERT_EQ(get_ucall(vcpu, NULL), UCALL_DONE);
++
++done:
++	kvm_vm_free(vm);
++	pr_info("  PASSED\n");
++}
++
++/*
++ * Test: accept then ready (async path).
++ * Same setup, but userspace accepts the APF, then signals ready.
++ */
++static void test_accept_then_ready(void)
++{
++	struct kvm_vm *vm;
++	struct kvm_vcpu *vcpu;
++	struct kvm_run *run;
++	void *mem;
++	int r;
++
++	pr_info("Testing KVM_APF_OP_ACCEPT + KVM_APF_OP_READY\n");
++
++	vm = create_apf_test_vm(&vcpu);
++	run = vcpu->run;
++
++	r = _vcpu_run(vcpu);
++	TEST_ASSERT(r != 0 && errno == EFAULT,
++		    "Expected EFAULT, got r=%d errno=%d", r, errno);
++	TEST_ASSERT_EQ(run->exit_reason, KVM_EXIT_MEMORY_FAULT);
++
++	if (!(run->memory_fault.flags & KVM_MEMORY_EXIT_FLAG_APF)) {
++		pr_info("  APF not created - skip\n");
++		goto done;
++	}
++
++	/* Accept the APF */
++	async_pf_op(vcpu, TEST_GPA, KVM_APF_OP_ACCEPT);
++
++	/* Resolve the page */
++	mem = addr_gpa2hva(vm, TEST_GPA);
++	memset(mem, 0, PAGE_SIZE);
++
++	/* Clear userfault bitmap so the page won't fault again */
++	clear_userfault_memslot(vm);
++
++	/* Signal ready */
++	async_pf_op(vcpu, TEST_GPA, KVM_APF_OP_READY);
++
++	/* Re-run: guest should complete */
++	vcpu_run(vcpu);
++	TEST_ASSERT_EQ(get_ucall(vcpu, NULL), UCALL_DONE);
++
++done:
++	kvm_vm_free(vm);
++	pr_info("  PASSED\n");
++}
++
++/*
++ * Test: error cases for the KVM_ASYNC_PF ioctl.
++ */
++static void test_error_cases(void)
++{
++	struct kvm_vm *vm;
++	struct kvm_vcpu *vcpu;
++	struct kvm_async_pf_req req = {};
++	int r;
++
++	pr_info("Testing KVM_ASYNC_PF error cases\n");
++
++	vm = vm_create_with_one_vcpu(&vcpu, guest_code);
++
++	/* Non-zero reserved field */
++	req.gpa = TEST_GPA;
++	req.op = KVM_APF_OP_READY;
++	req.reserved[0] = 1;
++	r = __vcpu_ioctl(vcpu, KVM_ASYNC_PF, &req);
++	TEST_ASSERT(r == -1 && errno == EINVAL,
++		    "Expected EINVAL for non-zero reserved");
++
++	/* Non-zero flags */
++	memset(&req, 0, sizeof(req));
++	req.gpa = TEST_GPA;
++	req.op = KVM_APF_OP_READY;
++	req.flags = 1;
++	r = __vcpu_ioctl(vcpu, KVM_ASYNC_PF, &req);
++	TEST_ASSERT(r == -1 && errno == EINVAL,
++		    "Expected EINVAL for non-zero flags");
++
++	/* Unaligned GPA */
++	memset(&req, 0, sizeof(req));
++	req.gpa = TEST_GPA + 1;
++	req.op = KVM_APF_OP_READY;
++	r = __vcpu_ioctl(vcpu, KVM_ASYNC_PF, &req);
++	TEST_ASSERT(r == -1 && errno == EINVAL,
++		    "Expected EINVAL for unaligned GPA");
++
++	/* Invalid op */
++	memset(&req, 0, sizeof(req));
++	req.gpa = TEST_GPA;
++	req.op = 99;
++	r = __vcpu_ioctl(vcpu, KVM_ASYNC_PF, &req);
++	TEST_ASSERT(r == -1 && errno == EINVAL,
++		    "Expected EINVAL for invalid op");
++
++	/* READY on non-existent APF */
++	memset(&req, 0, sizeof(req));
++	req.gpa = TEST_GPA;
++	req.op = KVM_APF_OP_READY;
++	r = __vcpu_ioctl(vcpu, KVM_ASYNC_PF, &req);
++	TEST_ASSERT(r == -1 && errno == ENOENT,
++		    "Expected ENOENT for non-existent APF");
++
++	kvm_vm_free(vm);
++	pr_info("  PASSED\n");
++}
++
++int main(int argc, char *argv[])
++{
++	TEST_REQUIRE(kvm_check_cap(KVM_CAP_ASYNC_PF_USERFAULT));
++	TEST_REQUIRE(kvm_check_cap(KVM_CAP_USERFAULT));
++
++	test_error_cases();
++	test_sync_resolve();
++	test_accept_then_ready();
++}
