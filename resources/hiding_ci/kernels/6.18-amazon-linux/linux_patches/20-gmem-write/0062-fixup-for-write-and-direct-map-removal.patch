@@ -1,0 +1,38 @@
+From 84e7cd995abdec7e10367fe70588f770797624ff Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <kalyazin@amazon.com>
+Date: Mon, 24 Nov 2025 12:25:09 +0000
+Subject: [PATCH 62/94] fixup for write and direct map removal
+
+Make sure the two work together.
+
+Signed-off-by: Firecracker CI <ci@email.com>
+---
+ virt/kvm/guest_memfd.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index d60be4b52..117c491bb 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -667,6 +667,12 @@ static int kvm_gmem_write_begin(const struct kiocb *kiocb,
+ 	if (IS_ERR(*folio))
+ 		return PTR_ERR(*folio);
+ 
++	if (kvm_gmem_folio_no_direct_map(*folio)) {
++		folio_unlock(*folio);
++		folio_put(*folio);
++		return -EEXIST;
++	}
++
+ 	return 0;
+ }
+ 
+@@ -678,6 +684,8 @@ static int kvm_gmem_write_end(const struct kiocb *kiocb,
+ {
+ 	if (!folio_test_uptodate(folio)) {
+ 		folio_zero_range(folio, copied, len - copied);
++		if (kvm_gmem_folio_no_direct_map(folio))
++			kvm_gmem_folio_zap_direct_map(folio);
+ 		folio_mark_uptodate(folio);
+ 	}
+ 
