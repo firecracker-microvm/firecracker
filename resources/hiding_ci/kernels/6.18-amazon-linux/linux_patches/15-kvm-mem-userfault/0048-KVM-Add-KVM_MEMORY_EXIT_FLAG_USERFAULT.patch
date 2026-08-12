@@ -1,0 +1,26 @@
+From 1299dcd397d6d1d46bb9c53687d43a74aafbd2fb Mon Sep 17 00:00:00 2001
+From: James Houghton <jthoughton@google.com>
+Date: Thu, 9 Jan 2025 20:49:18 +0000
+Subject: [PATCH 48/94] KVM: Add KVM_MEMORY_EXIT_FLAG_USERFAULT
+
+This flag is used for vCPU memory faults caused by KVM Userfault; i.e.,
+the bit in `userfault_bitmap` corresponding to the faulting gfn was set.
+
+Signed-off-by: James Houghton <jthoughton@google.com>
+Signed-off-by: Firecracker CI <ci@email.com>
+---
+ include/uapi/linux/kvm.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index ca8fff1fa..c1dcea0b2 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -451,6 +451,7 @@ struct kvm_run {
+ 		/* KVM_EXIT_MEMORY_FAULT */
+ 		struct {
+ #define KVM_MEMORY_EXIT_FLAG_PRIVATE	(1ULL << 3)
++#define KVM_MEMORY_EXIT_FLAG_USERFAULT	(1ULL << 4)
+ 			__u64 flags;
+ 			__u64 gpa;
+ 			__u64 size;
