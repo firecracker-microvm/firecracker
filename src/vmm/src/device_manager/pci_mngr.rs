@@ -141,7 +141,7 @@ impl PciDevices {
 
         // Create the transport
         let mut virtio_device =
-            VirtioPciDevice::new(id.clone(), mem, device, Arc::new(msix_vectors), sbdf)?;
+            VirtioPciDevice::new(id.clone(), mem, device, Arc::new(msix_vectors), sbdf);
 
         // Allocate bars
         let mut resource_allocator_lock = vm.resource_allocator();

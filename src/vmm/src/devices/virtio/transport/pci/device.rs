@@ -371,7 +371,7 @@ impl VirtioPciDevice {
         device: Arc<Mutex<dyn VirtioDevice>>,
         msix_vectors: Arc<MsixVectorGroup>,
         sbdf: PciSBDF,
-    ) -> Result<Self, VirtioPciDeviceError> {
+    ) -> Self {
         let num_queues = device.lock().expect("Poisoned lock").queues().len();
         assert_eq!(msix_vectors.vectors.len(), num_queues + 1);
 
@@ -397,7 +397,7 @@ impl VirtioPciDevice {
             msix_vectors,
         ));
 
-        let virtio_pci_device = VirtioPciDevice {
+        VirtioPciDevice {
             id,
             sub_id: None,
             sbdf,
@@ -411,9 +411,7 @@ impl VirtioPciDevice {
             bars: Bars::default(),
             msix_config,
             msix_config_cap_offset: 0,
-        };
-
-        Ok(virtio_pci_device)
+        }
     }
 
     pub fn new_from_state(
