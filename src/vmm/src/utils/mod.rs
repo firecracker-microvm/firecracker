@@ -47,6 +47,23 @@ pub const fn mib_to_bytes(mib: usize) -> usize {
     mib << MIB_TO_BYTES_SHIFT
 }
 
+/// Converts MiB to Bytes, widening to `u64` first so the result cannot wrap.
+///
+/// The largest input yields just under 4 PiB, which always fits in a `u64` byte count.
+pub const fn u32_mib_to_bytes(mib: u32) -> u64 {
+    (mib as u64) << MIB_TO_BYTES_SHIFT
+}
+
+/// Converts Bytes to MiB, truncating any remainder.
+///
+/// # Panics
+///
+/// Panics if the resulting MiB count does not fit in a `u32`. Callers must only pass byte
+/// counts that originate from a `u32` MiB value, for which this is unreachable.
+pub fn bytes_to_u32_mib(bytes: u64) -> u32 {
+    u32::try_from(bytes >> MIB_TO_BYTES_SHIFT).expect("byte count does not originate from u32 MiB")
+}
+
 /// Converts Bytes to MiB, truncating any remainder
 pub const fn bytes_to_mib(bytes: usize) -> usize {
     bytes >> MIB_TO_BYTES_SHIFT
@@ -93,6 +110,32 @@ pub fn open_file_nonblock(path: &Path) -> Result<File, std::io::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_u32_mib_to_bytes_does_not_wrap() {
+        assert_eq!(u32_mib_to_bytes(0), 0);
+        assert_eq!(u32_mib_to_bytes(1), 1 << 20);
+        // The largest input is just under 4 PiB and stays within a u64.
+        assert_eq!(u32_mib_to_bytes(u32::MAX), (u32::MAX as u64) << 20);
+        // The same value shifted as a usize MiB count would have wrapped; widening first
+        // means every u32 input is representable.
+        assert!(u32_mib_to_bytes(u32::MAX) > u32::MAX.into());
+    }
+
+    #[test]
+    fn test_bytes_to_u32_mib_round_trips() {
+        for mib in [0, 1, 2, 128, 1024, u32::MAX] {
+            assert_eq!(bytes_to_u32_mib(u32_mib_to_bytes(mib)), mib);
+        }
+        // Truncates a partial MiB, matching bytes_to_mib.
+        assert_eq!(bytes_to_u32_mib((1 << 20) - 1), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "byte count does not originate from u32 MiB")]
+    fn test_bytes_to_u32_mib_panics_above_u32_mib() {
+        bytes_to_u32_mib(u32_mib_to_bytes(u32::MAX) + (1 << 20));
+    }
 
     #[test]
     fn test_align_up_already_aligned() {

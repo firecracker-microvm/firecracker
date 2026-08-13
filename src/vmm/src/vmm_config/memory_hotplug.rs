@@ -11,24 +11,24 @@ use crate::devices::virtio::mem::{
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum MemoryHotplugConfigError {
     /// Block size must not be lower than {0} MiB
-    BlockSizeTooSmall(usize),
+    BlockSizeTooSmall(u32),
     /// Block size must be a power of 2
     BlockSizeNotPowerOfTwo,
     /// Slot size must not be lower than {0} MiB
-    SlotSizeTooSmall(usize),
+    SlotSizeTooSmall(u32),
     /// Slot size must be a multiple of block size ({0} MiB)
-    SlotSizeNotMultipleOfBlockSize(usize),
+    SlotSizeNotMultipleOfBlockSize(u32),
     /// Total size must not be lower than slot size ({0} MiB)
-    TotalSizeTooSmall(usize),
+    TotalSizeTooSmall(u32),
     /// Total size must be a multiple of slot size ({0} MiB)
-    TotalSizeNotMultipleOfSlotSize(usize),
+    TotalSizeNotMultipleOfSlotSize(u32),
 }
 
-fn default_block_size_mib() -> usize {
+fn default_block_size_mib() -> u32 {
     VIRTIO_MEM_DEFAULT_BLOCK_SIZE_MIB
 }
 
-fn default_slot_size_mib() -> usize {
+fn default_slot_size_mib() -> u32 {
     VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB
 }
 
@@ -37,13 +37,13 @@ fn default_slot_size_mib() -> usize {
 #[serde(deny_unknown_fields)]
 pub struct MemoryHotplugConfig {
     /// Total memory size in MiB that can be hotplugged.
-    pub total_size_mib: usize,
+    pub total_size_mib: u32,
     /// Block size in MiB. A block is the smallest unit the guest can hot(un)plug
     #[serde(default = "default_block_size_mib")]
-    pub block_size_mib: usize,
+    pub block_size_mib: u32,
     /// Slot size in MiB. A slot is the smallest unit the host can (de)attach memory
     #[serde(default = "default_slot_size_mib")]
-    pub slot_size_mib: usize,
+    pub slot_size_mib: u32,
 }
 
 impl MemoryHotplugConfig {
@@ -101,7 +101,7 @@ impl From<&VirtioMem> for MemoryHotplugConfig {
 #[serde(deny_unknown_fields)]
 pub struct MemoryHotplugSizeUpdate {
     /// Requested size in MiB to resize the hotpluggable memory to.
-    pub requested_size_mib: usize,
+    pub requested_size_mib: u32,
 }
 
 #[cfg(test)]

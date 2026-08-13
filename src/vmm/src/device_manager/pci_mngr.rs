@@ -141,7 +141,7 @@ impl PciDevices {
 
         // Create the transport
         let mut virtio_device =
-            VirtioPciDevice::new(id.clone(), mem, device, Arc::new(msix_vectors), sbdf)?;
+            VirtioPciDevice::new(id.clone(), mem, device, Arc::new(msix_vectors), sbdf);
 
         // Allocate bars
         let mut resource_allocator_lock = vm.resource_allocator();
@@ -671,6 +671,23 @@ impl<'a> Persist<'a> for PciDevices {
                 &memory_device.transport_state,
                 constructor_args.event_manager,
             )?
+        }
+
+        // After PCI devices are restored, we must set up the GSI routes (one KVM_SET_GSI_ROUTING call for all vectors),
+        // and enable all unmasked vectors (one kvm_irqfd call per vector).
+        // Ordering: routing must be set before IRQFDs to avoid kernel panics on
+        // older AMD/SVM hosts (see kernel commit a80ced6ea514).
+        if !pci_devices.virtio_devices.is_empty() {
+            constructor_args
+                .vm
+                .set_gsi_routes()
+                .map_err(PciManagerError::from)?;
+
+            for pci_device in pci_devices.virtio_devices.values() {
+                let dev = pci_device.lock().expect("Poisoned lock");
+                dev.enable_unmasked_vectors()
+                    .map_err(PciManagerError::from)?;
+            }
         }
 
         Ok(pci_devices)

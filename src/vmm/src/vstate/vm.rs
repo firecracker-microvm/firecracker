@@ -29,10 +29,12 @@ use vmm_sys_util::terminal::Terminal;
 use crate::arch::{GSI_MSI_END, host_page_size};
 pub use crate::arch::{KvmVm, KvmVmError, VmState};
 use crate::logger::{debug, info};
+use crate::pci::PciSBDF;
+use crate::pci::msix::MsixTableEntry;
 use crate::persist::CreateSnapshotError;
 use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::bus::Bus;
-use crate::vstate::interrupts::{InterruptError, MsixVector, MsixVectorConfig, MsixVectorGroup};
+use crate::vstate::interrupts::{InterruptError, MsixVector, MsixVectorGroup};
 use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{
     GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestMemoryState, GuestRegionMmap,
@@ -668,28 +670,34 @@ impl KvmVm {
     pub fn register_msi(
         &self,
         route: &MsixVector,
-        masked: bool,
-        config: MsixVectorConfig,
+        table_entry: &MsixTableEntry,
+        pci_sbdf: PciSBDF,
     ) -> Result<(), errno::Error> {
         let mut entry = kvm_irq_routing_entry {
             gsi: route.gsi,
             type_: KVM_IRQ_ROUTING_MSI,
             ..Default::default()
         };
-        entry.u.msi.address_lo = config.low_addr;
-        entry.u.msi.address_hi = config.high_addr;
-        entry.u.msi.data = config.data;
+        entry.u.msi.address_lo = table_entry.msg_addr_lo;
+        entry.u.msi.address_hi = table_entry.msg_addr_hi;
+        entry.u.msi.data = table_entry.msg_data;
 
         if self.common.fd.check_extension(kvm_ioctls::Cap::MsiDevid) {
             entry.flags = KVM_MSI_VALID_DEVID;
-            entry.u.msi.__bindgen_anon_1.devid = config.devid.into();
+            entry.u.msi.__bindgen_anon_1.devid = pci_sbdf.into();
         }
 
         self.common
             .interrupts
             .lock()
             .expect("Poisoned lock")
-            .insert(route.gsi, RoutingEntry { entry, masked });
+            .insert(
+                route.gsi,
+                RoutingEntry {
+                    entry,
+                    masked: table_entry.masked(),
+                },
+            );
 
         Ok(())
     }
@@ -763,6 +771,7 @@ fn mincore_bitmap(addr: *mut u8, len: usize) -> Result<Vec<u64>, VmError> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::assert_matches;
     use std::sync::atomic::Ordering;
 
     use vm_memory::GuestAddress;
@@ -770,6 +779,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::arch;
     use crate::pci::PciSBDF;
+    use crate::pci::msix::MsixTableEntry;
     use crate::snapshot::Persist;
     use crate::test_utils::single_region_mem_raw;
     use crate::utils::mib_to_bytes;
@@ -876,8 +886,15 @@ pub(crate) mod tests {
         assert_eq!(msix_group.num_vectors(), 4);
     }
 
+    /// Enable all vectors MSI-X vector group
+    pub fn enable_all_vectors(vector_group: &MsixVectorGroup) {
+        for route in &vector_group.vectors {
+            route.enable(&vector_group.vm.common.fd).unwrap();
+        }
+    }
+
     #[test]
-    fn test_msi_vector_group_enable_disable() {
+    fn test_msi_vector_group_disable() {
         let mut vm = setup_vm_with_memory(mib_to_bytes(128));
         enable_irqchip(&mut vm);
         let vm = Arc::new(vm);
@@ -887,14 +904,8 @@ pub(crate) mod tests {
         for route in &msix_group.vectors {
             assert!(!route.enabled.load(Ordering::Acquire))
         }
-
-        // Enable works
-        msix_group.enable().unwrap();
-        for route in &msix_group.vectors {
-            assert!(route.enabled.load(Ordering::Acquire));
-        }
-        // Enabling an enabled group doesn't error out
-        msix_group.enable().unwrap();
+        // Enabling vectors
+        enable_all_vectors(&msix_group);
 
         // Disable works
         msix_group.disable().unwrap();
@@ -940,14 +951,19 @@ pub(crate) mod tests {
         enable_irqchip(&mut vm);
         let vm = Arc::new(vm);
         let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
-        let config = MsixVectorConfig {
-            high_addr: 0x42,
-            low_addr: 0x12,
-            data: 0x12,
-            devid: PciSBDF::from(0xafa),
+        let sbdf = PciSBDF::from(0xafa);
+        let config = MsixTableEntry {
+            msg_addr_hi: 0x42,
+            msg_addr_lo: 0x12,
+            msg_data: 0x12,
+            // Masked
+            vector_ctl: 0x1,
         };
-        msix_group.update(0, config, true, true).unwrap();
-        msix_group.update(4, config, true, true).unwrap_err();
+        msix_group.update(0, &config, sbdf).unwrap();
+        assert_matches!(
+            msix_group.update(4, &config, sbdf),
+            Err(InterruptError::InvalidVectorIndex(4)),
+        );
     }
 
     #[test]
@@ -957,18 +973,16 @@ pub(crate) mod tests {
         let vm = Arc::new(vm);
         assert!(vm.common.interrupts.lock().unwrap().is_empty());
         let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
+        let pci_sbdf = PciSBDF::from(0xafa);
 
         // Set some configuration for the vectors. Initially all are masked
-        let mut config = MsixVectorConfig {
-            high_addr: 0x42,
-            low_addr: 0x13,
-            data: 0x12,
-            devid: PciSBDF::from(0xafa),
-        };
-        for i in 0..4 {
-            config.data = 0x12 * i;
-            msix_group.update(i as usize, config, true, false).unwrap();
-        }
+        let configs: [_; 4] = std::array::from_fn(|idx| MsixTableEntry {
+            msg_addr_hi: 0x42,
+            msg_addr_lo: 0x13,
+            msg_data: 0x12 * u32::try_from(idx).unwrap(),
+            vector_ctl: 0x1, // Masked
+        });
+        msix_group.update_batched(&configs, pci_sbdf).unwrap();
 
         // All vectors should be disabled
         for vector in &msix_group.vectors {
@@ -991,7 +1005,7 @@ pub(crate) mod tests {
         }
 
         // Simply enabling the vectors should not update the registered IRQ routes
-        msix_group.enable().unwrap();
+        enable_all_vectors(&msix_group);
         for i in 0..4 {
             let gsi = crate::arch::GSI_MSI_START + i;
             let interrupts = vm.common.interrupts.lock().unwrap();
@@ -1005,16 +1019,30 @@ pub(crate) mod tests {
                 assert_eq!(kvm_route.entry.u.msi.address_lo, 0x13);
                 assert_eq!(kvm_route.entry.u.msi.data, 0x12 * i);
             }
+            assert!(
+                msix_group.vectors[i as usize]
+                    .enabled
+                    .load(Ordering::Acquire)
+            );
         }
+        msix_group.disable().unwrap();
 
-        // Updating the config of a vector should enable its route (and only its route)
-        config.data = 0;
-        msix_group.update(0, config, false, true).unwrap();
+        let unmasked0 = MsixTableEntry {
+            vector_ctl: 0x0, // un-masked
+            ..configs[0].clone()
+        };
+        let unmasked1 = MsixTableEntry {
+            vector_ctl: 0x0, // un-masked
+            ..configs[1].clone()
+        };
+        // `update` and `register` will update the in-memory GSI config of its route (and only its route)
+        msix_group.update(0, &unmasked0, pci_sbdf).unwrap();
+        msix_group.register(1, &unmasked1, pci_sbdf).unwrap();
         for i in 0..4 {
             let gsi = crate::arch::GSI_MSI_START + i;
             let interrupts = vm.common.interrupts.lock().unwrap();
             let kvm_route = interrupts.get(&gsi).unwrap();
-            assert_eq!(kvm_route.masked, i != 0);
+            assert_eq!(kvm_route.masked, i >= 2);
             assert_eq!(kvm_route.entry.gsi, gsi);
             assert_eq!(kvm_route.entry.type_, KVM_IRQ_ROUTING_MSI);
             // SAFETY: because we know we setup MSI routes.
@@ -1023,6 +1051,13 @@ pub(crate) mod tests {
                 assert_eq!(kvm_route.entry.u.msi.address_lo, 0x13);
                 assert_eq!(kvm_route.entry.u.msi.data, 0x12 * i);
             }
+            // However, only `update` (first vector) will actually enable be enabled
+            assert_eq!(
+                msix_group.vectors[i as usize]
+                    .enabled
+                    .load(Ordering::Acquire),
+                i == 0,
+            );
         }
     }
 
@@ -1033,7 +1068,7 @@ pub(crate) mod tests {
         let vm = Arc::new(vm);
         let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
 
-        msix_group.enable().unwrap();
+        enable_all_vectors(&msix_group);
         let state = msix_group.save();
 
         // On the real restore path the allocator state omits MSI GSIs before devices replay
@@ -1087,15 +1122,17 @@ pub(crate) mod tests {
         // table in the same state as before.
         {
             let group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
-            let config = MsixVectorConfig {
-                high_addr: 0x42,
-                low_addr: 0x13,
-                data: 0x12,
-                devid: PciSBDF::from(0xafa),
+            let table_entry = MsixTableEntry {
+                msg_addr_hi: 0x42,
+                msg_addr_lo: 0x13,
+                msg_data: 0x12,
+                // Unmasked
+                vector_ctl: 0x0,
             };
-            for i in 0..group.num_vectors() as usize {
-                group.update(i, config, false, true).unwrap();
-            }
+            let table_entries = vec![table_entry.clone(); 4];
+            group
+                .update_batched(&table_entries, PciSBDF::from(0xafa))
+                .unwrap();
             assert_eq!(vm.common.interrupts.lock().unwrap().len(), 4);
         }
 
