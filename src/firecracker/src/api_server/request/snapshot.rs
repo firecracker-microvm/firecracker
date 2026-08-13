@@ -150,6 +150,24 @@ mod tests {
             snapshot_type: SnapshotType::Diff,
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
+            sync_snapshot_files: true,
+        };
+        assert_eq!(
+            vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some("create")).unwrap()),
+            VmmAction::CreateSnapshot(expected_config)
+        );
+
+        let body = r#"{
+            "snapshot_type": "Diff",
+            "snapshot_path": "foo",
+            "mem_file_path": "bar",
+            "sync_snapshot_files": false
+        }"#;
+        let expected_config = CreateSnapshotParams {
+            snapshot_type: SnapshotType::Diff,
+            snapshot_path: PathBuf::from("foo"),
+            mem_file_path: PathBuf::from("bar"),
+            sync_snapshot_files: false,
         };
         assert_eq!(
             vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some("create")).unwrap()),
@@ -164,6 +182,7 @@ mod tests {
             snapshot_type: SnapshotType::Full,
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
+            sync_snapshot_files: true,
         };
         assert_eq!(
             vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some("create")).unwrap()),
