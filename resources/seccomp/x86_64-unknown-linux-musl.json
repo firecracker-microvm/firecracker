@@ -8,6 +8,10 @@
                 "comment": "Used when creating snapshots in vmm:persist::snapshot_memory_to_file through std::fs::File::metadata"
             },
             {
+                "syscall": "epoll_create1",
+                "comment": "Used by the threaded block worker's EventManager::new(), which runs on the spawned worker thread under the inherited vmm filter before it applies its own blk_worker filter"
+            },
+            {
                 "syscall": "epoll_ctl"
             },
             {
@@ -393,6 +397,28 @@
                 ]
             },
             {
+                "syscall": "mmap",
+                "comment": "Used to allocate the threaded block worker's thread stack (spawned from the VMM thread, so checked against this inherited filter)",
+                "args": [
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 131106,
+                        "comment": "libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_STACK"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": {
+                            "masked_eq": 4
+                        },
+                        "val": 0,
+                        "comment": "Ensure PROT_EXEC is not set"
+                    }
+                ]
+            },
+            {
                 "syscall": "memfd_create",
                 "comment": "Used by IovDeque ring buffer for net device hotplug",
                 "args": [
@@ -415,6 +441,19 @@
                         "op": "eq",
                         "val": 1033,
                         "comment": "F_ADD_SEALS"
+                    }
+                ]
+            },
+            {
+                "syscall": "fcntl",
+                "comment": "Used by EventFd::try_clone() when spawning the threaded block worker (control_evt/queue_evts duplication on the VMM thread)",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1030,
+                        "comment": "F_DUPFD_CLOEXEC"
                     }
                 ]
             },
@@ -722,6 +761,70 @@
                         "op": {"masked_eq": 4},
                         "val": 0,
                         "comment": "Ensure PROT_EXEC is not set"
+                    }
+                ]
+            },
+            {
+                "syscall": "clone",
+                "comment": "Used by musl pthread_create to spawn the block worker thread",
+                "args": [
+                    {
+                        "index": 0,
+                        "type": "dword",
+                        "op": {"masked_eq": 4290772991},
+                        "val": 4001536,
+                        "comment": "Require the pthread clone flags and allow only the optional obsolete CLONE_DETACHED bit"
+                    }
+                ]
+            },
+            {
+                "syscall": "prctl",
+                "comment": "Used by musl to set the block worker thread name",
+                "args": [
+                    {
+                        "index": 0,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15,
+                        "comment": "PR_SET_NAME"
+                    }
+                ]
+            },
+            {
+                "syscall": "prctl",
+                "comment": "Used to set no_new_privs before applying the block worker seccomp filter",
+                "args": [
+                    {
+                        "index": 0,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 38,
+                        "comment": "PR_SET_NO_NEW_PRIVS"
+                    },
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1
+                    }
+                ]
+            },
+            {
+                "syscall": "seccomp",
+                "comment": "Used to apply the block worker seccomp filter",
+                "args": [
+                    {
+                        "index": 0,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "SECCOMP_SET_MODE_FILTER"
+                    },
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 0
                     }
                 ]
             }
@@ -1479,6 +1582,200 @@
                         "comment": "KVM_IRQFD"
                     }
                 ]
+            }
+        ]
+    },
+    "blk_worker": {
+        "default_action": "trap",
+        "filter_action": "allow",
+        "filter": [
+            {
+                "syscall": "epoll_ctl"
+            },
+            {
+                "syscall": "lseek",
+                "comment": "SyncFileEngine seeks to the request offset before each read/write"
+            },
+            {
+                "syscall": "futex",
+                "comment": "Locking the Arc<Mutex<ThreadedWorker>> data path"
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Allocator growth during I/O",
+                "args": [
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 34,
+                        "comment": "libc::MAP_ANONYMOUS | libc::MAP_PRIVATE"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": {"masked_eq": 4},
+                        "val": 0,
+                        "comment": "Ensure PROT_EXEC is not set"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used by io_uring for mapping the queues during drive patch",
+                "args": [
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 32769,
+                        "comment": "libc::MAP_SHARED | libc::MAP_POPULATE"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": {"masked_eq": 4},
+                        "val": 0,
+                        "comment": "Ensure PROT_EXEC is not set"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used for reading the timezone in LocalTime::now()",
+                "args": [
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "libc::MAP_SHARED"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": {"masked_eq": 4},
+                        "val": 0,
+                        "comment": "Ensure PROT_EXEC is not set"
+                    }
+                ]
+            },
+            {
+                "syscall": "munmap"
+            },
+            {
+                "syscall": "sigaltstack"
+            },
+            {
+                "syscall": "rt_sigprocmask"
+            },
+            {
+                "syscall": "rt_sigaction",
+                "comment": "rt_sigaction is used by libc::abort during a panic to install the default handler for SIGABRT",
+                "args": [
+                    {
+                        "index": 0,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 6,
+                        "comment": "SIGABRT"
+                    }
+                ]
+            },
+            {
+                "syscall": "exit",
+                "comment": "Worker thread exit on Finish"
+            },
+            {
+                "syscall": "exit_group",
+                "comment": "Used by the fatal signal handlers (vmm::signal_handler::exit_with_code) to terminate the process"
+            },
+            {
+                "syscall": "tkill",
+                "comment": "tkill is used by libc::abort during a panic to raise SIGABRT",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 6,
+                        "comment": "SIGABRT"
+                    }
+                ]
+            },
+            {
+                "syscall": "epoll_pwait"
+            },
+            {
+                "syscall": "read"
+            },
+            {
+                "syscall": "write"
+            },
+            {
+                "syscall": "fsync"
+            },
+            {
+                "syscall": "open"
+            },
+            {
+                "syscall": "close"
+            },
+            {
+                "syscall": "io_uring_enter",
+                "comment": "Used for submitting io_uring requests"
+            },
+            {
+                "syscall": "io_uring_setup",
+                "comment": "Rebuilding the io_uring ring on the worker thread during drive patch (update_file)"
+            },
+            {
+                "syscall": "io_uring_register",
+                "comment": "Registering fixed fds/opcode restrictions when rebuilding the ring on drive patch"
+            },
+            {
+                "syscall": "gettid",
+                "comment": "Rust std uses it during panic to print the thread id."
+            },
+            {
+                "syscall": "clock_gettime",
+                "comment": "Used for metrics and logging, via the helpers in utils/src/time.rs. It's not called on some platforms, because of vdso optimisations."
+            },
+            {
+                "syscall": "timerfd_settime",
+                "comment": "Needed for rate limiting and metrics",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 0
+                    }
+                ]
+            },
+            {
+                "syscall": "fcntl",
+                "comment": "Used by snapshotting, drive patching and rescanning",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 2,
+                        "comment": "FCNTL_F_SETFD"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "FCNTL_FD_CLOEXEC"
+                    }
+                ]
+            },
+            {
+                "syscall": "fstat",
+                "comment": "Used by disk update"
             }
         ]
     }
