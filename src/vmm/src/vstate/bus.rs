@@ -293,6 +293,72 @@ mod tests {
         assert_eq!(r.end(), 0x13ff);
     }
 
+    /// A device that answers every read with its own id, so that a test can
+    /// tell which device an access was routed to.
+    struct IdDevice(u8);
+    impl BusDevice for IdDevice {
+        fn read(&mut self, _base: u64, _offset: u64, data: &mut [u8]) {
+            data.fill(self.0);
+        }
+    }
+
+    #[test]
+    fn bus_multiple_devices() {
+        let bus = Bus::new();
+        let dev_a = Arc::new(Mutex::new(IdDevice(0xa)));
+        let dev_b = Arc::new(Mutex::new(IdDevice(0xb)));
+        let dev_c = Arc::new(Mutex::new(IdDevice(0xc)));
+        let dev_d = Arc::new(Mutex::new(IdDevice(0xd)));
+        let dev_e = Arc::new(Mutex::new(IdDevice(0xe)));
+
+        let read = |addr| {
+            let mut data = [0u8; 1];
+            bus.read(addr, &mut data).unwrap();
+            data[0]
+        };
+        let slot_of = |base| {
+            *bus.ranges
+                .read()
+                .unwrap()
+                .get(&BusRange::new(base, 0x100).unwrap())
+                .unwrap()
+        };
+
+        bus.insert(dev_a.clone(), 0x1000, 0x100).unwrap();
+        bus.insert(dev_b.clone(), 0x2000, 0x100).unwrap();
+        bus.insert(dev_c.clone(), 0x3000, 0x100).unwrap();
+
+        // Every range decodes to the device that owns it, at both ends.
+        assert_eq!(read(0x1000), 0xa);
+        assert_eq!(read(0x10ff), 0xa);
+        assert_eq!(read(0x2000), 0xb);
+        assert_eq!(read(0x20ff), 0xb);
+        assert_eq!(read(0x3000), 0xc);
+        assert_eq!(read(0x30ff), 0xc);
+
+        // Removing the middle device leaves its range undecoded and does not
+        // disturb the routing of the others.
+        let slot_b = slot_of(0x2000);
+        bus.remove(0x2000, 0x100).unwrap();
+        bus.read(0x2000, &mut [0; 1]).unwrap_err();
+        assert_eq!(read(0x1000), 0xa);
+        assert_eq!(read(0x3000), 0xc);
+
+        // The next insertion recycles the slot freed above. The new device
+        // must only answer within its own range, and the removed range must
+        // stay dead.
+        bus.insert(dev_d.clone(), 0x4000, 0x100).unwrap();
+        assert_eq!(slot_of(0x4000), slot_b);
+        assert_eq!(read(0x4000), 0xd);
+        bus.read(0x2000, &mut [0; 1]).unwrap_err();
+        assert_eq!(read(0x1000), 0xa);
+        assert_eq!(read(0x3000), 0xc);
+
+        // Reusing the freed range rebinds it to the new device
+        bus.insert(dev_e.clone(), 0x2000, 0x100).unwrap();
+        assert_eq!(read(0x2000), 0xe);
+    }
+
     #[test]
     fn bus_insert() {
         let bus = Bus::new();
