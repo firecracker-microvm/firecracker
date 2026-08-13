@@ -34,6 +34,15 @@ and this project adheres to
   the `huge_pages` field to `PUT /snapshot/load`, allowing the restored microVM
   to reuse the snapshot's host page configuration or select `None`,
   `Transparent`, or `2M`.
+- [#6109](https://github.com/firecracker-microvm/firecracker/pull/6109): Added
+  an optional `sync_snapshot_files` field to the `PUT /snapshot/create` API,
+  defaulting to `true`. It controls whether the snapshot state and guest memory
+  files are synced to disk (`fsync`) before the request returns. Setting it to
+  `false` returns without waiting for the writeback, making snapshot creation
+  faster at the cost of durability across a host crash; the data stays in the
+  host page cache, so same-host reads still see the full contents. Block device
+  backing files are always `fsync`'d regardless. See
+  [snapshot documentation](docs/snapshotting/snapshot-support.md).
 
 ### Changed
 
