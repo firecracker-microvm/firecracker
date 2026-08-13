@@ -77,8 +77,11 @@ This means that Firecracker has a JSON file for each supported target (currently
 determined by the arch-libc combinations). You can view them in
 `resources/seccomp`.
 
-At the top level, the file requires an object that maps thread categories (vmm,
-api and vcpu) to seccomp filters:
+At the top level, the file contains an object that maps thread categories to
+seccomp filters. Firecracker allows the `vmm`, `api`, `vcpu`, and `blk_worker`
+categories. The `vmm`, `api`, and `vcpu` categories are mandatory. The
+`blk_worker` category is optional and is needed only when a block device uses a
+dedicated worker thread.
 
 ```
 {
@@ -91,6 +94,7 @@ api and vcpu) to seccomp filters:
     },
     "api": {...},
     "vcpu": {...},
+    "blk_worker": {...}
 }
 ```
 
