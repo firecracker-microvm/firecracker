@@ -72,6 +72,18 @@ pub struct Bar {
     pub about_to_be_read: bool,
 }
 
+impl Bar {
+    /// Is this BAR used
+    pub fn used(&self) -> bool {
+        !(self.encoded_addr == 0 && self.encoded_size == 0)
+    }
+    /// Is this a 64bit BAR
+    /// Must be called only on lower register of the BAR
+    pub fn is_64bit(&self) -> bool {
+        (self.encoded_addr & 0b100) == 0b100
+    }
+}
+
 /// Specifies if the BAR is prefetchable
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -89,6 +101,24 @@ pub struct Bars {
     pub bars: [Bar; NUM_BAR_REGS as usize],
 }
 impl Bars {
+    /// Set a BAR slot as a single 32bit bar
+    pub fn set_bar_32(&mut self, bar_idx: u8, addr: u32, size: u32, prefetchable: BarPrefetchable) {
+        assert_ne!(size, 0);
+        assert!(size.is_power_of_two());
+        assert!(addr & 0b1111 == 0);
+        addr.checked_add(size - 1).unwrap();
+        assert!(bar_idx < NUM_BAR_REGS);
+
+        // Unused BARs will have address and size of 0
+        assert_eq!(self.bars[bar_idx as usize].encoded_addr, 0);
+        assert_eq!(self.bars[bar_idx as usize].encoded_size, 0);
+
+        let size = encode_32_bits_bar_size(size);
+        let prefetchable = (prefetchable as u32) << 3;
+        self.bars[bar_idx as usize].encoded_addr = addr | prefetchable;
+        self.bars[bar_idx as usize].encoded_size = size;
+    }
+
     /// Set 2 consecutive BAR slots as a single 64bit bar
     pub fn set_bar_64(&mut self, bar_idx: u8, addr: u64, size: u64, prefetchable: BarPrefetchable) {
         assert_ne!(size, 0);
@@ -114,6 +144,40 @@ impl Bars {
         self.bars[(bar_idx + 1) as usize].encoded_addr = addr_hi;
         self.bars[(bar_idx + 1) as usize].encoded_size = size_hi;
     }
+
+    /// Get the address of the 32bit or 64bit BAR
+    pub fn get_bar_addr(&self, bar_idx: u8) -> u64 {
+        assert!(bar_idx < NUM_BAR_REGS);
+        let bar = &self.bars[bar_idx as usize];
+        if bar.is_64bit() {
+            self.get_bar_addr_64(bar_idx)
+        } else {
+            self.get_bar_addr_32(bar_idx)
+        }
+    }
+
+    /// Get the size of the 32bit or 64bit BAR
+    pub fn get_bar_size(&self, bar_idx: u8) -> u64 {
+        assert!(bar_idx < NUM_BAR_REGS);
+        let bar = &self.bars[bar_idx as usize];
+        if bar.is_64bit() {
+            self.get_bar_size_64(bar_idx)
+        } else {
+            self.get_bar_size_32(bar_idx)
+        }
+    }
+
+    /// Get the address of the 32bit bar
+    pub fn get_bar_addr_32(&self, bar_idx: u8) -> u64 {
+        assert!(bar_idx < NUM_BAR_REGS);
+        if 0 < bar_idx {
+            let previous_bar = &self.bars[bar_idx as usize - 1];
+            assert!(!previous_bar.is_64bit());
+        }
+        let bar = &self.bars[bar_idx as usize];
+        u64::from(bar.encoded_addr & !0b1111)
+    }
+
     /// Get the address of the 64bit bar
     pub fn get_bar_addr_64(&self, bar_idx: u8) -> u64 {
         assert!(bar_idx < NUM_BAR_REGS - 1);
@@ -121,6 +185,26 @@ impl Bars {
         let addr_lo = self.bars[bar_idx as usize].encoded_addr & !0b1111;
         (addr_hi as u64) << 32 | (addr_lo as u64)
     }
+
+    /// Get the size of the 32bit bar
+    pub fn get_bar_size_32(&self, bar_idx: u8) -> u64 {
+        assert!(bar_idx < NUM_BAR_REGS);
+        if 0 < bar_idx {
+            let previous_bar = &self.bars[bar_idx as usize - 1];
+            assert!(!previous_bar.is_64bit());
+        }
+        let bar = &self.bars[bar_idx as usize];
+        u64::from(decode_32_bits_bar_size(bar.encoded_size))
+    }
+
+    /// Get the size of the 64bit bar
+    pub fn get_bar_size_64(&self, bar_idx: u8) -> u64 {
+        assert!(bar_idx < NUM_BAR_REGS - 1);
+        let size_hi = self.bars[(bar_idx + 1) as usize].encoded_size;
+        let size_lo = self.bars[bar_idx as usize].encoded_size;
+        decode_64_bits_bar_size(size_hi, size_lo)
+    }
+
     /// Writes into a given BAR register at the given offset
     pub fn write(&mut self, bar_idx: u8, offset: u8, data: &[u8]) {
         // There are only 6 registers each 4 bytes long
@@ -139,6 +223,7 @@ impl Bars {
             // https://elixir.bootlin.com/linux/v6.19.8/source/drivers/pci/setup-res.c#L107
         }
     }
+
     /// Reads from a given BAR register at the given offset
     pub fn read(&mut self, bar_idx: u8, offset: u8, data: &mut [u8]) {
         // There are only 6 registers each 4 bytes long
@@ -167,7 +252,19 @@ pub trait PciCapability {
     fn id(&self) -> PciCapabilityId;
 }
 
-// This encodes the BAR size as expected by the software running inside the guest.
+// Encode 32bit BAR size
+// It assumes that bar_size is not 0
+fn encode_32_bits_bar_size(bar_size: u32) -> u32 {
+    assert_ne!(bar_size, 0);
+    !(bar_size - 1)
+}
+
+/// Decode 32bit BAR size
+pub fn decode_32_bits_bar_size(encoded_size: u32) -> u32 {
+    (!encoded_size).wrapping_add(1)
+}
+
+// Encode 64bit BAR size
 // It assumes that bar_size is not 0
 fn encode_64_bits_bar_size(bar_size: u64) -> (u32, u32) {
     assert_ne!(bar_size, 0);
@@ -175,6 +272,12 @@ fn encode_64_bits_bar_size(bar_size: u64) -> (u32, u32) {
     let result_hi = (result >> 32) as u32;
     let result_lo = (result & 0xffff_ffff) as u32;
     (result_hi, result_lo)
+}
+
+/// Decode 64bit BAR size
+pub fn decode_64_bits_bar_size(encoded_size_hi: u32, encoded_size_lo: u32) -> u64 {
+    let result = (u64::from(encoded_size_hi) << 32) | (u64::from(encoded_size_lo));
+    (!result).wrapping_add(1)
 }
 
 /// PCI configuration space state for (de)serialization
@@ -693,35 +796,56 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_bars_size_no_power_of_two() {
+    fn test_bars_set_bar_32_size_no_power_of_two() {
+        let mut bars = Bars::default();
+        bars.set_bar_32(0, 0x1000, 0x1001, BarPrefetchable::No);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bars_set_bar_32_bad_bar_index() {
+        let mut bars = Bars::default();
+        bars.set_bar_32(NUM_BAR_REGS, 0x1000, 0x1000, BarPrefetchable::No);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bars_set_bar_32_bar_size_overflows() {
+        let mut bars = Bars::default();
+        bars.set_bar_32(0, u32::MAX - 0xf, 0x20, BarPrefetchable::No);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bars_set_bar_64_size_no_power_of_two() {
         let mut bars = Bars::default();
         bars.set_bar_64(0, 0x1000, 0x1001, BarPrefetchable::No);
     }
 
     #[test]
     #[should_panic]
-    fn test_bars_bad_bar_index() {
+    fn test_bars_set_bar_64_invalid_bar_index() {
         let mut bars = Bars::default();
         bars.set_bar_64(NUM_BAR_REGS, 0x1000, 0x1000, BarPrefetchable::No);
     }
 
     #[test]
     #[should_panic]
-    fn test_bars_bad_64bit_bar_index() {
+    fn test_bars_set_bar_64_bad_bar_index() {
         let mut bars = Bars::default();
         bars.set_bar_64(NUM_BAR_REGS - 1, 0x1000, 0x1000, BarPrefetchable::No);
     }
 
     #[test]
     #[should_panic]
-    fn test_bars_bar_size_overflows() {
+    fn test_bars_set_bar_64_bar_size_overflows() {
         let mut bars = Bars::default();
-        bars.set_bar_64(0, u64::MAX, 0x2, BarPrefetchable::No);
+        bars.set_bar_64(0, u64::MAX - 0xf, 0x20, BarPrefetchable::No);
     }
 
     #[test]
     #[should_panic]
-    fn test_bars_lower_bar_free_upper_used() {
+    fn test_bars_set_bar_64_lower_bar_free_upper_used() {
         let mut bars = Bars::default();
         bars.set_bar_64(1, 0x1000, 0x1000, BarPrefetchable::No);
         bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
@@ -729,7 +853,7 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_bars_lower_bar_used() {
+    fn test_bars_set_bar_64_lower_bar_used() {
         let mut bars = Bars::default();
         bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
         bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
@@ -737,7 +861,7 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_bars_upper_bar_used() {
+    fn test_bars_set_bar_64_upper_bar_used() {
         let mut bars = Bars::default();
         bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
         bars.set_bar_64(1, 0x1000, 0x1000, BarPrefetchable::No);
@@ -747,11 +871,25 @@ mod tests {
     fn test_bars_add_pci_bar() {
         let mut bars = Bars::default();
         bars.set_bar_64(0, 0x1_0000_0000, 0x1000, BarPrefetchable::No);
+        assert!(bars.bars[0].used());
+        assert!(bars.bars[0].is_64bit());
+        assert!(bars.bars[1].used());
+        assert_eq!(bars.get_bar_addr(0), 0x1_0000_0000);
         assert_eq!(bars.get_bar_addr_64(0), 0x1_0000_0000);
+        assert_eq!(bars.get_bar_size(0), 0x1000);
+        assert_eq!(bars.get_bar_size_64(0), 0x1000);
         let mut v: u32 = 0;
         bars.read(0, 0, v.as_mut_bytes());
         assert_eq!(v & 0xffff_fff0, 0x0);
         bars.read(1, 0, v.as_mut_bytes());
         assert_eq!(v, 1);
+
+        bars.set_bar_32(2, 0x2_0000, 0x2000, BarPrefetchable::Yes);
+        assert!(bars.bars[2].used());
+        assert!(!bars.bars[2].is_64bit());
+        assert_eq!(bars.get_bar_addr(2), 0x2_0000);
+        assert_eq!(bars.get_bar_addr_32(2), 0x2_0000);
+        assert_eq!(bars.get_bar_size(2), 0x2000);
+        assert_eq!(bars.get_bar_size_32(2), 0x2000);
     }
 }

@@ -39,6 +39,8 @@ const CONNECTION_RTO_COUNT_MAX: u16 = 15;
 // since it effectively limits the size of the keys (URIs) we're willing to use.
 const RCV_BUF_MAX_SIZE: u32 = 2500;
 
+const _: () = assert!(RCV_BUF_MAX_SIZE <= MAX_WINDOW_SIZE);
+
 // Represents the local endpoint of a HTTP over TCP connection which carries GET requests
 // to the MMDS.
 #[derive(Debug)]
@@ -90,20 +92,12 @@ impl Endpoint {
     ///   unit.
     /// - `connection_rto_count_max`: How many consecutive timeout-based retransmission may occur
     ///   before the connection resets itself.
-    /// ## Panics:
-    /// - `assert!(RCV_BUF_MAX_SIZE <= MAX_WINDOW_SIZE as usize);`
     pub fn new<T: NetworkBytes + Debug>(
         segment: &TcpSegment<T>,
         eviction_threshold: NonZeroU64,
         connection_rto_period: NonZeroU64,
         connection_rto_count_max: NonZeroU16,
     ) -> Result<Self, PassiveOpenError> {
-        // This simplifies things, and is a very reasonable assumption.
-        #[allow(clippy::assertions_on_constants)]
-        {
-            assert!(RCV_BUF_MAX_SIZE <= MAX_WINDOW_SIZE);
-        }
-
         let connection = Connection::passive_open(
             segment,
             RCV_BUF_MAX_SIZE,

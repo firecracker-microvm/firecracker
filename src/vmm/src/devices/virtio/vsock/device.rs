@@ -83,11 +83,6 @@ pub struct Vsock<B> {
     pub(crate) pending_event_ack: bool,
 }
 
-// TODO: Detect / handle queue deadlock:
-// 1. If the driver halts RX queue processing, we'll need to notify `self.backend`, so that it can
-//    unregister any EPOLLIN listeners, since otherwise it will keep spinning, unable to consume its
-//    EPOLLIN events.
-
 impl<B> Vsock<B>
 where
     B: VsockBackend + Debug,
@@ -178,30 +173,32 @@ where
         while let Some(head) = queue.pop_or_enable_notification()? {
             let index = head.index;
             let used_len = match self.rx_packet.parse(mem, head) {
-                Ok(()) => {
-                    if self.backend.recv_pkt(&mut self.rx_packet).is_ok() {
-                        match self.rx_packet.commit_hdr() {
-                            // This addition cannot overflow, because packet length
-                            // is previously validated against `MAX_PKT_BUF_SIZE`
-                            // bound as part of `commit_hdr()`.
-                            Ok(()) => VSOCK_PKT_HDR_SIZE + self.rx_packet.hdr.len(),
-                            Err(err) => {
-                                warn!(
-                                    "vsock: Error writing packet header to guest memory: \
-                                     {:?}.Discarding the package.",
-                                    err
-                                );
-                                0
-                            }
+                Ok(()) => match self.backend.recv_pkt(&mut self.rx_packet) {
+                    Ok(()) => match self.rx_packet.commit_hdr() {
+                        // This addition cannot overflow, because packet length
+                        // is previously validated against `MAX_PKT_BUF_SIZE`
+                        // bound as part of `commit_hdr()`.
+                        Ok(()) => VSOCK_PKT_HDR_SIZE + self.rx_packet.hdr.len(),
+                        Err(err) => {
+                            warn!(
+                                "vsock: Error writing packet header to guest memory: \
+                                 {:?}.Discarding the package.",
+                                err
+                            );
+                            0
                         }
-                    } else {
-                        // We are using a consuming iterator over the virtio buffers, so, if we
-                        // can't fill in this buffer, we'll need to undo the
-                        // last iterator step.
+                    },
+                    Err(VsockError::NoData) => {
+                        // No more data to deliver. Return the unused buffer to the queue.
                         queue.undo_pop();
                         break;
                     }
-                }
+                    Err(err) => {
+                        error!("vsock: error receiving packet from backend: {:?}", err);
+                        queue.undo_pop();
+                        break;
+                    }
+                },
                 Err(err) => {
                     warn!("vsock: RX queue error: {:?}. Discarding the package.", err);
                     0
@@ -382,6 +379,11 @@ where
             }
         }
 
+        self.backend.activate().map_err(|err| {
+            METRICS.activate_fails.inc();
+            ActivateError::VsockBackend(err)
+        })?;
+
         if self.activate_evt.write(1).is_err() {
             METRICS.activate_fails.inc();
             return Err(ActivateError::EventFd);
@@ -394,6 +396,18 @@ where
 
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
+    }
+
+    fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
+
+    fn _reset(&mut self) -> bool {
+        self.backend.reset();
+        self.rx_packet.clear();
+        self.tx_packet.clear();
+        self.pending_event_ack = false;
+        true
     }
 
     fn kick(&mut self) {

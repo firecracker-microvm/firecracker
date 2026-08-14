@@ -6,7 +6,7 @@ use std::fs::File;
 use std::os::fd::RawFd;
 use std::os::unix::io::AsRawFd;
 
-use vm_memory::GuestMemoryError;
+use vm_memory::{GuestMemoryBackend, GuestMemoryError};
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::devices::virtio::block::virtio::io::RequestError;
@@ -15,7 +15,7 @@ use crate::io_uring::operation::{Cqe, OpCode, Operation};
 use crate::io_uring::restriction::Restriction;
 use crate::io_uring::{IoUring, IoUringError};
 use crate::logger::log_dev_preview_warning;
-use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap};
+use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum AsyncIoError {

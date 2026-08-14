@@ -83,6 +83,13 @@ impl MutEventSubscriber for Entropy {
 
         if !self.is_activated() {
             warn!("entropy: The device is not activated yet. Spurious event received: {source}");
+            match source {
+                Self::PROCESS_ENTROPY_QUEUE => self.drain_queue_events(),
+                Self::PROCESS_RATE_LIMITER => {
+                    self.rate_limiter.event_handler();
+                }
+                _ => (),
+            }
             return;
         }
 

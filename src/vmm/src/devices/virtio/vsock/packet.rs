@@ -197,6 +197,12 @@ pub struct VsockPacketTx {
 }
 
 impl VsockPacketTx {
+    /// Clear the packet buffer.
+    pub fn clear(&mut self) {
+        self.hdr = Default::default();
+        self.buffer.clear();
+    }
+
     /// Create the packet wrapper from a TX virtq chain head.
     ///
     /// ## Errors
@@ -290,6 +296,12 @@ pub struct VsockPacketRx {
 }
 
 impl VsockPacketRx {
+    /// Clear the packet buffer.
+    pub fn clear(&mut self) {
+        self.hdr = Default::default();
+        self.buffer.clear();
+    }
+
     /// Creates new VsockPacketRx.
     pub fn new() -> Result<Self, VsockError> {
         let buffer = IoVecBufferMut::new().map_err(VsockError::IovDeque)?;

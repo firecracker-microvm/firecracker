@@ -90,6 +90,12 @@ perf_test = {
         "label": "mmds",
         "tests": "integration_tests/performance/test_mmds.py",
         "devtool_opts": "-c 1-10 -m 0",
+        # The latency of consecutive MMDS calls is very correlated.
+        # To make datapoints more independent, we run more iterations to spread the datapoint collection over a longer
+        # period of time.
+        # Each iteration takes about 2 minutes (12 10-seconds tests), so the maximum total time is about ~1h:30
+        # accounting for all the additional test overheads.
+        "max_iterations": 30,
     },
 }
 
@@ -97,7 +103,7 @@ REVISION_A = os.environ.get("REVISION_A")
 REVISION_B = os.environ.get("REVISION_B")
 REVISION_A_ARTIFACTS = os.environ.get("REVISION_A_ARTIFACTS")
 REVISION_B_ARTIFACTS = os.environ.get("REVISION_B_ARTIFACTS")
-A_B_TEST_MAX_ITERATIONS = 4
+A_B_TEST_DEFAULT_MAX_ITERATIONS = 4
 
 # Either both are specified or neither. Only doing either is a bug. If you want to
 # run performance tests _on_ a specific commit, specify neither and put your commit
@@ -135,12 +141,13 @@ for test in tests:
     devtool_opts = test.pop("devtool_opts")
     test_selector = test.pop("tests")
     ab_opts = test.pop("ab_opts", "")
+    max_iterations = test.pop("max_iterations", A_B_TEST_DEFAULT_MAX_ITERATIONS)
     devtool_opts += " --performance"
     test_script_opts = ""
     artifacts = []
     if REVISION_A:
         devtool_opts += " --ab"
-        test_script_opts = f'{ab_opts} run --binaries-a build/{REVISION_A}/ --binaries-b build/{REVISION_B} --max-iterations={A_B_TEST_MAX_ITERATIONS} --pytest-opts "{test_selector}"'
+        test_script_opts = f'{ab_opts} run --binaries-a build/{REVISION_A}/ --binaries-b build/{REVISION_B} --max-iterations={max_iterations} --pytest-opts "{test_selector}"'
         if REVISION_A_ARTIFACTS:
             artifacts.append(REVISION_A_ARTIFACTS)
             artifacts.append(REVISION_B_ARTIFACTS)
@@ -160,7 +167,6 @@ for test in tests:
         # and the rest can be command arguments
         **test,
     )
-
 
 # Stores the info about pinning tests to agents with particular kernel versions.
 # For example, the following:

@@ -68,7 +68,7 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v91}
+DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v93}
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
@@ -139,6 +139,10 @@ CTR_CI_ARTIFACTS_PATH="${CTR_FC_ROOT_DIR}/resources/$(uname -m)"
 
 DEFAULT_ARTIFACTS_S3_BUCKET=s3://spec.ccfc.min/firecracker-ci
 
+# Maximum number of retries for AWS CLI S3 operations (mitigates transient
+# connection errors such as ConnectionResetError during large downloads).
+AWS_S3_MAX_ATTEMPTS=5
+
 # Lockfile used while modifying KVM modules
 KVM_MODULE_LOCKFILE="/tmp/.kvm_module_lock"
 
@@ -151,7 +155,7 @@ get_newest_s3_artifacts() {
   # sort them by the `LastModified` date, and return the last one (newest).
   # We need to do it this way as S3 doesn't store `LastModified`` date for directories,
   # so we need to list all files.
-  local newest_dir=$(aws s3api list-objects-v2 \
+  local newest_dir=$(AWS_MAX_ATTEMPTS=$AWS_S3_MAX_ATTEMPTS aws s3api list-objects-v2 \
         --bucket "$bucket" --prefix "$base_prefix" --no-sign-request \
         --query 'sort_by(Contents[?contains(Key, `vmlinux`)], &LastModified)[-1].Key' |
         tr -d '"' |
@@ -509,6 +513,11 @@ cmd_help() {
 
     checkbuild [--all|-m x86_64|aarch64]
         Run cargo check on the target architecture (supports cross compilation).
+
+    setup_kvm
+        Ensure KVM is available on the host by loading kernel modules if needed.
+        Applies platform-specific tweaks (e.g. nx_huge_pages on Linux 6.1).
+        Safe to call from CI steps that need /dev/kvm before entering a container.
 EOF
 }
 
@@ -699,7 +708,7 @@ download_ci_artifacts() {
     if [ ! -d "$local_artifacts_path" ]; then
         say "Fetching artifacts from S3: " $artifacts_arch " into: " $local_artifacts_path
         mkdir -pv $local_artifacts_path
-        aws s3 sync --no-sign-request "$artifacts_arch" "$local_artifacts_path"
+        AWS_MAX_ATTEMPTS=$AWS_S3_MAX_ATTEMPTS aws s3 sync --no-sign-request "$artifacts_arch" "$local_artifacts_path"
         ok_or_die "Failed to download artifacts using awscli!"
         cmd_sh "./tools/setup-ci-artifacts.sh" $local_artifacts_path
         if [ $? != 0 ]; then
@@ -842,6 +851,15 @@ setup_kvm() {
     tail -v $itlb_multihit $nx_huge_pages
 
     [[ -c /dev/kvm ]] || die "/dev/kvm not found. Aborting."
+}
+
+# `$0 setup_kvm` - ensure KVM is available on the host.
+# Acquires the shared KVM lock and calls setup_kvm to load modules if needed.
+# Safe to call from any pipeline step that needs /dev/kvm before entering a
+# container.
+cmd_setup_kvm() {
+    acquire_shared_kvm_lock
+    setup_kvm
 }
 
 # Modifies the processors CPU governor and P-state configuration (x86_64 only) for consistent performance. This means
@@ -1430,7 +1448,7 @@ download_complementary_artifacts() {
 
     say "Fetching complementary artifacts from S3: $s3_arch -> $dest"
     mkdir -pv "$dest"
-    aws s3 sync --no-sign-request "$s3_arch" "$dest" --exclude "*" "${include_args[@]}"
+    AWS_MAX_ATTEMPTS=$AWS_S3_MAX_ATTEMPTS aws s3 sync --no-sign-request "$s3_arch" "$dest" --exclude "*" "${include_args[@]}"
     ok_or_die "Failed to download complementary artifacts using awscli!"
 }
 

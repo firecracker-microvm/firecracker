@@ -71,7 +71,7 @@ since less than 6 months elapsed from their MINOR release time.
 - v2.11.0 released on 2022-07-10
 - v2.12.0 released on 2022-09-11
 
-In case of of an event occurring in 2023-05-04, v2.11 and v2.12 will be patched
+In case of an event occurring in 2023-05-04, v2.11 and v2.12 will be patched
 since those were the last 2 Firecracker major releases and less than an year
 passed since their release time.
 
@@ -81,16 +81,16 @@ passed since their release time.
 - v3.0.0 released on 2022-07-10
 - v3.1.0 released on 2022-09-11
 
-In case of of an event occurring in 2023-01-13, v2.14 will be patched since is
-the last minor of v2 and has less than one year since release while v3.0 and
-v3.1 will be patched since were the last two Firecracker releases and less than
-6 months have passed since release time.
+In case of an event occurring in 2023-01-13, v2.14 will be patched since is the
+last minor of v2 and has less than one year since release while v3.0 and v3.1
+will be patched since were the last two Firecracker releases and less than 6
+months have passed since release time.
 
 ## Release Status
 
 | Release | Release Date | Latest Patch | Min. end of support | Official end of Support         |
 | ------: | -----------: | -----------: | ------------------: | :------------------------------ |
-|   v1.16 |   2026-06-03 |      v1.16.0 |          2026-12-03 | Supported                       |
+|   v1.16 |   2026-06-03 |      v1.16.1 |          2026-12-03 | Supported                       |
 |   v1.15 |   2026-03-09 |      v1.15.1 |          2026-09-09 | Supported                       |
 |   v1.14 |   2025-12-17 |      v1.14.4 |          2026-06-17 | 2026-06-03 (v1.16 released)     |
 |   v1.13 |   2025-08-28 |      v1.13.2 |          2026-02-28 | 2026-03-09 (v1.15 released)     |

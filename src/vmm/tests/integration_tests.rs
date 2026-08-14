@@ -10,7 +10,9 @@ use std::time::Duration;
 
 use vmm::builder::build_and_boot_microvm;
 use vmm::devices::virtio::block::CacheType;
-use vmm::persist::{MicrovmState, MicrovmStateError, VmInfo, snapshot_state_sanity_check};
+use vmm::persist::{
+    MicrovmState, MicrovmStateError, VirtioDevicesState, VmInfo, snapshot_state_sanity_check,
+};
 use vmm::resources::VmResources;
 use vmm::rpc_interface::{
     LoadSnapshotError, PrebootApiController, RuntimeApiController, VmmAction, VmmActionError,
@@ -265,29 +267,20 @@ fn verify_create_snapshot(
 
     // Verify deserialized data.
     // The default vmm has no devices and one vCPU.
-    assert_eq!(
-        restored_microvm_state
-            .device_states
-            .mmio_state
-            .block_devices
-            .len(),
-        0
-    );
-    assert_eq!(
-        restored_microvm_state
-            .device_states
-            .mmio_state
-            .net_devices
-            .len(),
-        0
-    );
-    assert!(
-        restored_microvm_state
-            .device_states
-            .mmio_state
-            .vsock_device
-            .is_none()
-    );
+    match &restored_microvm_state.device_states.virtio_state {
+        VirtioDevicesState::Mmio(state) => {
+            assert!(!pci_enabled);
+            assert_eq!(state.block_devices.len(), 0);
+            assert_eq!(state.net_devices.len(), 0);
+            assert!(state.vsock_device.is_none());
+        }
+        VirtioDevicesState::Pci(state) => {
+            assert!(pci_enabled);
+            assert_eq!(state.block_devices.len(), 0);
+            assert_eq!(state.net_devices.len(), 0);
+            assert!(state.vsock_device.is_none());
+        }
+    }
     assert_eq!(restored_microvm_state.vcpu_states.len(), 1);
 
     (snapshot_file, memory_file)

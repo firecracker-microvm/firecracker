@@ -105,7 +105,7 @@ impl Persist<'_> for Net {
             state.config_space.mtu,
         )?;
 
-        // We trust the MMIODeviceManager::restore to pass us an MMDS data store reference if
+        // We trust the MMIOVirtioDevices::restore to pass us an MMDS data store reference if
         // there is at least one net device having the MMDS NS present and/or the mmds version was
         // persisted in the snapshot.
         if let Some(mmds_ns) = &state.mmds_ns {
@@ -207,13 +207,13 @@ mod tests {
         validate_save_and_restore(default_net(), mmds.as_ref().cloned());
         validate_save_and_restore(default_net_no_mmds(), None);
 
-        // Check what happens if the MMIODeviceManager gives us the reference to the MMDS
+        // Check what happens if MMIOVirtioDevices::restore gives us the reference to the MMDS
         // data store even if this device does not have mmds ns configured.
         // The restore should be conservative and not configure the mmds ns.
         validate_save_and_restore(default_net_no_mmds(), mmds);
 
-        // Check what happens if the MMIODeviceManager does not give us the reference to the MMDS
-        // data store. This will return an error.
+        // Check what happens if MMIOVirtioDevices::restore does not give us the reference to the
+        // MMDS data store. This will return an error.
         validate_save_and_restore(default_net(), None);
     }
 }

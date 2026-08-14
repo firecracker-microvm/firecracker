@@ -35,6 +35,7 @@ and removed in a following release, after its minimum end of support date.
 | --------: | -----------: | -----------: | ------------------: |
 |        4K |        v5.10 |       v1.0.0 |          2024-01-31 |
 |        4K |         v6.1 |       v1.9.0 |          2026-09-02 |
+|        4K |        v6.18 |      v1.16.1 |          2028-06-01 |
 
 The guest kernel configs used in our validation pipelines can be found
 [here](../resources/guest_configs/) while a breakdown of the relevant guest

@@ -10,11 +10,67 @@ and this project adheres to
 
 ### Added
 
+- [#5891](https://github.com/firecracker-microvm/firecracker/pull/5891): Added
+  support for virtio device reset.
+- [#5983](https://github.com/firecracker-microvm/firecracker/pull/5983): Add two
+  optional metrics fields, set via `PUT /metrics` or a config file: `emit_id`
+  emits the microVM instance id under a top-level `id` field, and `properties`
+  emits operator-defined key-value pairs under a top-level `properties` field.
+  Each is opt-in and independent. See [metrics documentation](docs/metrics.md).
+- [#6003](https://github.com/firecracker-microvm/firecracker/pull/6003): Added a
+  new option `Transparent` for the `huge_pages` setting. If set, Firecracker
+  will use transparent huge pages for the guest memory via
+  `madvise(MADV_HUGEPAGE)`. Guest memory must be a multiple of 2MB when using
+  this option.
+- [#6013](https://github.com/firecracker-microvm/firecracker/pull/6013),
+  [#6017](https://github.com/firecracker-microvm/firecracker/pull/6017),
+  [#6021](https://github.com/firecracker-microvm/firecracker/pull/6021): Added
+  official support for 6.18 microVM guest kernels.
+- [#6037](https://github.com/firecracker-microvm/firecracker/pull/6037): Added
+  support for booting `bzImage` guest kernels on x86_64, in addition to the
+  existing uncompressed ELF (`vmlinux`) images. The kernel image format is
+  detected automatically, so no configuration change is required.
+
 ### Changed
 
 ### Deprecated
 
 ### Removed
+
+### Fixed
+
+- [#5956](https://github.com/firecracker-microvm/firecracker/pull/5956): Fixed a
+  TOCTOU race in the aarch64 jailer when setting ownership of the CPU cache and
+  `MIDR_EL1` information files copied into the chroot.
+- [#6076](https://github.com/firecracker-microvm/firecracker/pull/6076): Fixed
+  memory hotplug sizes silently wrapping when converted from MiB to bytes.
+  `requested_size_mib` on `PATCH /hotplug/memory` and `total_size_mib`,
+  `block_size_mib` and `slot_size_mib` on `PUT /hotplug/memory` are now bounded
+  to 32 bits. Values above that previously wrapped to a smaller byte count, so a
+  large enough request was accepted as a 0-byte region instead of being
+  rejected.
+- [#6031](https://github.com/firecracker-microvm/firecracker/pull/6031),
+  [#6041](https://github.com/firecracker-microvm/firecracker/pull/6041),
+  [#6077](https://github.com/firecracker-microvm/firecracker/pull/6077): Fixed
+  the vsock device re-arming its host-stream `EPOLLIN` interest while received
+  data was still awaiting a guest RX buffer, which could busy-spin the event
+  thread until the guest posted buffers. The device now drains the host stream
+  fully across successive RX operations instead of one packet per event loop
+  iteration, reducing the host-side CPU cost per gigabit of host-to-guest
+  traffic by up to ~50% and improving host-to-guest throughput by ~44% (median)
+  in most configurations. On single-vcpu microVMs on the newest Intel hosts
+  (m7i, m8i), host-to-guest throughput may instead decrease by ~15% (median),
+  where the single guest vCPU rather than the host becomes the bottleneck.
+  Terminating a connection now also discards its TX buffer, so the device stops
+  advertising `EPOLLOUT` for a host stream it will never write to again, which
+  could otherwise busy-spin the event thread indefinitely.
+- [#6086](https://github.com/firecracker-microvm/firecracker/pull/6086): Fixed a
+  potential deadlock in the logger: a signal handler that logs while the
+  interrupted thread already held the logger lock would re-acquire it and hang
+  the VMM. The logger now uses an `RwLock` so logging takes a shared lock that a
+  nested (signal-handler) log can re-acquire without blocking.
+
+## [1.16.1]
 
 ### Fixed
 

@@ -939,7 +939,12 @@ impl VirtioDevice for Balloon {
             .zip(end)
             .and_then(|(start, end)| config_space_bytes.get_mut(start..end))
         else {
-            error!("Failed to write config space");
+            warn!(
+                "virtio-balloon: guest driver attempted to write device config out of bounds \
+                 (offset={:#x}, len={:#x})",
+                offset,
+                data.len()
+            );
             return;
         };
 
@@ -976,6 +981,20 @@ impl VirtioDevice for Balloon {
         self.device_state.is_activated()
     }
 
+    fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
+
+    fn _reset(&mut self) -> bool {
+        self.config_space.actual_pages = 0;
+        self.config_space.free_page_hint_cmd_id = FREE_PAGE_HINT_STOP;
+        self.stats_timer.arm(Duration::ZERO, None);
+        self.stats_desc_index = None;
+        self.latest_stats = BalloonStats::default();
+        self.hinting_state = Default::default();
+        true
+    }
+
     fn kick(&mut self) {
         if self.is_activated() {
             if self.free_page_hinting() {
@@ -998,7 +1017,6 @@ pub(crate) mod tests {
     use super::super::BALLOON_CONFIG_SPACE_SIZE;
     use super::*;
     use crate::arch::host_page_size;
-    use crate::check_metric_after_block;
     use crate::devices::virtio::balloon::report_balloon_event_fail;
     use crate::devices::virtio::balloon::test_utils::{
         check_request_completion, invoke_handler_for_queue_event, set_request,
@@ -1009,8 +1027,8 @@ pub(crate) mod tests {
     };
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
     use crate::test_utils::single_region_mem;
-    use crate::utils::align_up;
     use crate::vstate::memory::GuestAddress;
+    use crate::{align_up, check_metric_after_block};
 
     impl VirtioTestDevice for Balloon {
         fn set_queues(&mut self, queues: Vec<Queue>) {
@@ -1570,7 +1588,7 @@ pub(crate) mod tests {
         let page_size_chain = page_size as u32;
         let reporting_idx = th.device().free_page_reporting_idx();
 
-        let safe_addr = align_up(th.data_address(), page_size);
+        let safe_addr = align_up!(th.data_address(), page_size);
 
         th.add_scatter_gather(reporting_idx, 0, &[(0, safe_addr, page_size_chain, 0)]);
         check_metric_after_block!(
@@ -1625,7 +1643,7 @@ pub(crate) mod tests {
 
             let page_size = host_page_size() as u64;
             let hinting_idx = th.device().free_page_hinting_idx();
-            let safe_addr = align_up(th.data_address(), page_size);
+            let safe_addr = align_up!(th.data_address(), page_size);
 
             // Ack the config set on start
             th.device()

@@ -110,6 +110,10 @@ pub struct EntryPoint {
     pub entry_addr: GuestAddress,
     /// Specifies which boot protocol to use
     pub protocol: BootProtocol,
+    /// Setup header from a bzImage kernel, used to seed the zero page.
+    /// `None` for ELF (`vmlinux`) kernels.
+    #[cfg(target_arch = "x86_64")]
+    pub setup_header: Option<linux_loader::loader::bootparam::setup_header>,
 }
 
 /// Adds in [`regions`] the valid memory regions suitable for RAM taking into account a gap in the

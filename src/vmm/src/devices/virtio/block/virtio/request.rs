@@ -417,10 +417,12 @@ impl Request {
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
+    use vm_memory::GuestMemoryBackend;
+
     use super::*;
     use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{VirtQueue, default_mem};
-    use crate::vstate::memory::{Address, GuestAddress, GuestMemory};
+    use crate::vstate::memory::{Address, GuestAddress};
 
     const NUM_DISK_SECTORS: u64 = 1024;
 

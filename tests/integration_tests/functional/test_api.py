@@ -776,12 +776,23 @@ def test_drive_patch(uvm, io_engine):
 @pytest.mark.skipif(
     platform.machine() != "x86_64", reason="not yet implemented on aarch64"
 )
-def test_send_ctrl_alt_del(uvm):
+@pytest.mark.parametrize(
+    "ctrl_alt_del_mode,timeout",
+    [("kernel", 10), ("userspace", 120)],
+    ids=["kernel", "userspace"],
+)
+def test_send_ctrl_alt_del(uvm, ctrl_alt_del_mode, timeout):
     """
-    Test shutting down the microVM gracefully on x86, by sending CTRL+ALT+DEL.
+    Test shutting down the microVM on x86 by sending CTRL+ALT+DEL.
+
+    This relies on the i8042 device and AT Keyboard support being present in
+    the guest kernel.
+
+    - kernel: sets /proc/sys/kernel/ctrl-alt-del to 1 so the kernel triggers an
+      immediate hard reboot, bypassing systemd. 10s timeout is sufficient.
+    - userspace: lets systemd handle graceful shutdown. Uses 120s timeout to
+      accommodate systemd's DefaultTimeoutStopSec (90s) for stuck services.
     """
-    # This relies on the i8042 device and AT Keyboard support being present in
-    # the guest kernel.
     test_microvm = uvm
     test_microvm.spawn()
 
@@ -789,11 +800,16 @@ def test_send_ctrl_alt_del(uvm):
     test_microvm.add_net_iface()
     test_microvm.start()
 
+    if ctrl_alt_del_mode == "kernel":
+        # Make Ctrl+Alt+Del trigger an immediate hard reboot, skipping graceful
+        # shutdown entirely.
+        test_microvm.ssh.run("echo 1 > /proc/sys/kernel/ctrl-alt-del")
+
     test_microvm.api.actions.put(action_type="SendCtrlAltDel")
 
     # If everything goes as expected, the guest OS will issue a reboot,
     # causing Firecracker to exit.
-    test_microvm.mark_killed()
+    test_microvm.mark_killed(timeout=timeout)
 
 
 def _drive_patch(test_microvm, io_engine):

@@ -34,9 +34,11 @@ pub enum MachineConfigError {
 /// Describes the possible (huge)page configurations for a microVM's memory.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HugePageConfig {
-    /// Do not use hugepages, e.g. back guest memory by 4K
+    /// Back guest memory by 4K pages, no hugepage behavior
     #[default]
     None,
+    /// Use madvise(MADV_HUGEPAGE) for transparent huge pages
+    Transparent,
     /// Back guest memory by 2MB hugetlbfs pages
     #[serde(rename = "2M")]
     Hugetlbfs2M,
@@ -49,6 +51,10 @@ impl HugePageConfig {
         let divisor = match self {
             // Any integer memory size expressed in MiB will be a multiple of 4096KiB.
             HugePageConfig::None => 1,
+            // Note: THP technically supports memory not multiple of 2MB, however that disables some optimizations done
+            // by the kernel (e.g. automatic memory alignment on Linux 6.4+).
+            // To avoid performance/fragmentation surprises, having a memory multiple of 2MB is wiser.
+            HugePageConfig::Transparent => 2,
             HugePageConfig::Hugetlbfs2M => 2,
         };
 
@@ -59,8 +65,17 @@ impl HugePageConfig {
     /// create a mapping backed by huge pages as described by this [`HugePageConfig`].
     pub fn mmap_flags(&self) -> libc::c_int {
         match self {
-            HugePageConfig::None => 0,
+            HugePageConfig::None | HugePageConfig::Transparent => 0,
             HugePageConfig::Hugetlbfs2M => libc::MAP_HUGETLB | libc::MAP_HUGE_2MB,
+        }
+    }
+
+    /// Returns the flags required to pass to [libc::madvise], after allocating anonymous guest memory.
+    /// Note: returning [libc::MADV_NORMAL] might skip the call to `madvise` entirely.
+    pub fn madvise_flags(&self) -> libc::c_int {
+        match self {
+            HugePageConfig::Transparent => libc::MADV_HUGEPAGE,
+            HugePageConfig::None | HugePageConfig::Hugetlbfs2M => libc::MADV_NORMAL,
         }
     }
 
@@ -72,7 +87,7 @@ impl HugePageConfig {
     /// Gets the page size in bytes of this [`HugePageConfig`].
     pub fn page_size(&self) -> usize {
         match self {
-            HugePageConfig::None => 4096,
+            HugePageConfig::None | HugePageConfig::Transparent => 4096,
             HugePageConfig::Hugetlbfs2M => 2 * 1024 * 1024,
         }
     }
@@ -81,7 +96,7 @@ impl HugePageConfig {
 impl From<HugePageConfig> for Option<memfd::HugetlbSize> {
     fn from(value: HugePageConfig) -> Self {
         match value {
-            HugePageConfig::None => None,
+            HugePageConfig::None | HugePageConfig::Transparent => None,
             HugePageConfig::Hugetlbfs2M => Some(memfd::HugetlbSize::Huge2MB),
         }
     }

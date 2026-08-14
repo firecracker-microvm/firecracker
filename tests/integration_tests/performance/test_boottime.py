@@ -9,6 +9,7 @@ import time
 import pytest
 
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_rootfs_mode
+from framework.microvm import HugePagesConfig
 
 # Regex for obtaining boot time from some string.
 
@@ -106,6 +107,7 @@ def launch_vm_with_boot_timer(
     mem_size_mib,
     pci_enabled,
     boot_from_pmem,
+    huge_pages=HugePagesConfig.NONE,
 ):
     """Launches a microVM with guest-timer and returns the reported metrics for it"""
     vm = microvm_factory.build(
@@ -119,6 +121,7 @@ def launch_vm_with_boot_timer(
             mem_size_mib=mem_size_mib,
             boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init",
             enable_entropy_device=True,
+            huge_pages=huge_pages,
         )
     else:
         vm.basic_config(
@@ -127,6 +130,7 @@ def launch_vm_with_boot_timer(
             mem_size_mib=mem_size_mib,
             boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init rootflags=dax",
             enable_entropy_device=True,
+            huge_pages=huge_pages,
         )
         vm.add_pmem("pmem", rootfs, True, True)
 
@@ -152,6 +156,9 @@ def test_boot_timer(microvm_factory, guest_kernel, rootfs, pci_enabled):
 )
 @pin_rootfs_mode("rw")
 @pytest.mark.parametrize("boot_from_pmem", [True, False], ids=["PmemBoot", "BlockBoot"])
+@pytest.mark.parametrize(
+    "huge_pages", [HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT], indirect=True
+)
 @pytest.mark.nonci
 def test_boottime(
     microvm_factory,
@@ -161,6 +168,7 @@ def test_boottime(
     mem_size_mib,
     boot_from_pmem,
     pci_enabled,
+    huge_pages,
     metrics,
 ):
     """Test boot time with different guest configurations"""
@@ -174,6 +182,7 @@ def test_boottime(
             mem_size_mib,
             pci_enabled,
             boot_from_pmem,
+            huge_pages,
         )
 
         if i == 0:
@@ -181,6 +190,7 @@ def test_boottime(
                 {
                     "performance_test": "test_boottime",
                     "boot_from_pmem": str(boot_from_pmem),
+                    "huge_pages": str(huge_pages),
                     **vm.dimensions,
                 }
             )

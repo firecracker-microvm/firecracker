@@ -322,6 +322,10 @@ ssh -i $KEY_NAME root@172.16.0.2  "ip route add default via 172.16.0.1 dev eth0"
 # Setup DNS resolution in the guest
 ssh -i $KEY_NAME root@172.16.0.2  "echo 'nameserver 8.8.8.8' > /etc/resolv.conf"
 
+# glibc resolves A/AAAA in parallel; on an IPv6-connected host the AAAA query
+# can stall on host NAT, adding seconds per lookup.
+ssh -i $KEY_NAME root@172.16.0.2  "echo 'options single-request-reopen' >> /etc/resolv.conf"
+
 # SSH into the microVM
 ssh -i $KEY_NAME root@172.16.0.2
 

@@ -7,7 +7,8 @@ use libc::{c_void, iovec, size_t};
 use serde::{Deserialize, Serialize};
 use vm_memory::bitmap::Bitmap;
 use vm_memory::{
-    GuestMemory, GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice, WriteVolatile,
+    GuestMemoryBackend, GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice,
+    WriteVolatile,
 };
 
 use super::iov_deque::{IovDeque, IovDequeError};

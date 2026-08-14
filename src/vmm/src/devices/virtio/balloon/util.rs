@@ -6,7 +6,7 @@ use std::io;
 use super::{MAX_PAGE_COMPACT_BUFFER, RemoveRegionError};
 use crate::logger::error;
 use crate::utils::u64_to_usize;
-use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+use crate::vstate::memory::{GuestAddress, GuestMemoryMmap, GuestMemoryRegion};
 
 /// This takes a vector of page frame numbers, and compacts them
 /// into ranges of consecutive pages. The result is a vector

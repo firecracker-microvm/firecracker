@@ -100,19 +100,28 @@ function clone_amazon_linux_repo {
 }
 
 # prints the git tag corresponding to the newest and best matching the provided kernel version $1
-# this means that if a microvm kernel exists, the tag returned will be of the form
+# Kernel 6.18 follows the regular AL2023 release cadence and uses tags of the form
 #
-#    microvm-kernel-$1.<patch number>.amzn2[023]
+#    kernel.*$1.<patch number>.amzn2023
+#
+# Other versions prefer a microvm kernel tag of the form
+#
+#    microvm-kernel.*$1.<patch number>.amzn2[023]
 #
 # otherwise choose the newest tag matching
 #
-#    kernel-$1.<patch number>.amzn2[023]
+#    kernel.*$1.<patch number>.amzn2[023]
 function get_tag {
     local KERNEL_VERSION=$1
 
+    if [[ "$KERNEL_VERSION" == "6.18" ]]; then
+        git --no-pager tag -l --sort=-v:refname | grep "^kernel.*$KERNEL_VERSION\..*\.amzn2023" | head -n1
+        return
+    fi
+
     # list all tags from newest to oldest
-    (git --no-pager tag -l --sort=-v:refname | grep "microvm-kernel-$1\..*\.amzn2" \
-        || git --no-pager tag -l --sort=-v:refname | grep "kernel-$1\..*\.amzn2") | head -n1
+    (git --no-pager tag -l --sort=-v:refname | grep "microvm-kernel.*$KERNEL_VERSION\..*\.amzn2" \
+        || git --no-pager tag -l --sort=-v:refname | grep "kernel.*$KERNEL_VERSION\..*\.amzn2") | head -n1
 }
 
 function build_al_kernel {
@@ -133,7 +142,7 @@ function build_al_kernel {
 
     # Apply any patchset we have for our kernels
     for patchset in ../patches/*; do
-        [ -d "$patchset" ] || continue
+        [ -d "$patchset/$KERNEL_VERSION" ] || continue
         echo "Applying patchset ${patchset}/${KERNEL_VERSION}"
         git apply ${patchset}/${KERNEL_VERSION}/*.patch
     done
@@ -141,12 +150,14 @@ function build_al_kernel {
     arch=$(uname -m)
     if [ "$arch" = "x86_64" ]; then
         format="elf"
-        target="vmlinux"
-        binary_path="$target"
+        target="vmlinux bzImage"
+        binary_path="vmlinux"
+        bzimage_path="arch/x86/boot/bzImage"
     elif [ "$arch" = "aarch64" ]; then
         format="pe"
         target="Image"
         binary_path="arch/arm64/boot/$target"
+        bzimage_path=""
     else
         echo "FATAL: Unsupported architecture!"
         exit 1
@@ -164,6 +175,9 @@ function build_al_kernel {
     OUTPUT_FILE=$OUTPUT_DIR/vmlinux-$normalized_version$flavour
     cp -v $binary_path $OUTPUT_FILE
     cp -v .config $OUTPUT_FILE.config
+    if [ -n "$bzimage_path" ]; then
+        cp -v $bzimage_path $OUTPUT_DIR/bzImage-$normalized_version$flavour
+    fi
 
     # Undo any patches previously applied, so that we can build the same kernel with different
     # configs, e.g. no-acpi
@@ -217,7 +231,7 @@ function build_al_kernels {
         die "Too many arguments in '$(basename $0) kernels' command. Please use \`$0 help\` for help."
     else
         KERNEL_VERSION=$1
-        if [[ "$KERNEL_VERSION" != @(5.10|5.10-no-acpi|6.1) ]]; then
+        if [[ "$KERNEL_VERSION" != @(5.10|5.10-no-acpi|6.1|6.18) ]]; then
             die "Unsupported kernel version: '$KERNEL_VERSION'. Please use \`$0 help\` for help."
         fi
     fi
@@ -225,15 +239,19 @@ function build_al_kernels {
     clone_amazon_linux_repo
 
     CI_CONFIG="$PWD/guest_configs/ci.config"
+    NVME_CONFIG="$PWD/guest_configs/nvme.config"
 
     if [[ "$KERNEL_VERSION" == @(all|5.10) ]]; then
-        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config "$CI_CONFIG"
+        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config "$CI_CONFIG" "$NVME_CONFIG"
     fi
     if [[ $ARCH == "x86_64" && "$KERNEL_VERSION" == @(all|5.10-no-acpi) ]]; then
-        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config "$CI_CONFIG"
+        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config "$CI_CONFIG" "$NVME_CONFIG"
     fi
     if [[ "$KERNEL_VERSION" == @(all|6.1) ]]; then
-        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config "$CI_CONFIG"
+        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config "$CI_CONFIG" "$NVME_CONFIG"
+    fi
+    if [[ "$KERNEL_VERSION" == @(all|6.18) ]]; then
+        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.18.config "$CI_CONFIG" "$NVME_CONFIG"
     fi
 
     # Build debug kernels
@@ -242,12 +260,16 @@ function build_al_kernels {
     OUTPUT_DIR=$OUTPUT_DIR/debug
     mkdir -pv $OUTPUT_DIR
     if [[ "$KERNEL_VERSION" == @(all|5.10) ]]; then
-        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config" "$CI_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
+        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config" "$CI_CONFIG" "$NVME_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
         vmlinux_split_debuginfo $OUTPUT_DIR/vmlinux-5.10.*
     fi
     if [[ "$KERNEL_VERSION" == @(all|6.1) ]]; then
-        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config" "$CI_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
+        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config" "$CI_CONFIG" "$NVME_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
         vmlinux_split_debuginfo $OUTPUT_DIR/vmlinux-6.1.*
+    fi
+    if [[ "$KERNEL_VERSION" == @(all|6.18) ]]; then
+        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-6.18.config" "$CI_CONFIG" "$NVME_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
+        vmlinux_split_debuginfo $OUTPUT_DIR/vmlinux-6.18.*
     fi
 }
 
@@ -273,7 +295,7 @@ Available commands:
         Builds our the currently supported CI kernels.
 
         version: Optionally choose a kernel version to build. Supported
-                 versions are: 5.10, 5.10-no-acpi or 6.1.
+                 versions are: 5.10, 5.10-no-acpi, 6.1 or 6.18.
 
     help
         Displays the help message and exits.

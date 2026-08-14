@@ -9,11 +9,28 @@ from subprocess import TimeoutExpired
 
 import pytest
 import requests
+from tenacity import Retrying, stop_after_delay, wait_fixed
 
 from framework.guest_stats import MeminfoGuest
 from framework.utils import get_stable_rss_mem
 
 STATS_POLLING_INTERVAL_S = 1
+
+
+def wait_for_balloon_actual(vm, target_mib, timeout_s=5):
+    """
+    Poll the balloon device's reported ``actual_mib`` until it reaches target_mib.
+    """
+    actual_mib = None
+    for attempt in Retrying(
+        stop=stop_after_delay(timeout_s), wait=wait_fixed(0.5), reraise=True
+    ):
+        with attempt:
+            actual_mib = vm.api.balloon_stats.get().json()["actual_mib"]
+            assert (
+                actual_mib == target_mib
+            ), f"balloon actual_mib {actual_mib} did not reach {target_mib}"
+    return actual_mib
 
 
 def check_guest_dmesg_for_stalls(ssh_connection):
@@ -622,3 +639,47 @@ def test_memory_scrub(uvm, method):
 
     microvm.ssh.check_output("/usr/local/bin/readmem {} {}".format(60, 1))
     check_guest_dmesg_for_stalls(microvm.ssh)
+
+
+def test_device_reset(uvm):
+    """
+    Test that virtio-balloon device reset works.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+    vm.api.balloon.put(amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1)
+    vm.start()
+
+    # Inflate the balloon by 64 MiB and confirm the device reports it.
+    vm.api.balloon.patch(amount_mib=64)
+    wait_for_balloon_actual(vm, 64)
+
+    # Find the virtio balloon device.
+    virtio_dev = vm.ssh.check_output(
+        "ls -d /sys/bus/virtio/drivers/virtio_balloon/virtio* | xargs -n1 basename"
+    ).stdout.strip()
+
+    # Reset the device by unbinding the driver.
+    vm.ssh.check_output(
+        f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_balloon/unbind"
+    )
+
+    # Verify the balloon is gone.
+    ret = vm.ssh.run("ls /sys/bus/virtio/drivers/virtio_balloon/virtio*")
+    assert ret.returncode != 0
+
+    # Rebind and make sure the device node is back.
+    vm.ssh.check_output(
+        f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_balloon/bind"
+    )
+    vm.ssh.check_output("ls /sys/bus/virtio/drivers/virtio_balloon/virtio*")
+
+    # The inflation target is preserved across reset; assert the driver
+    # re-inflates the balloon back to the target.
+    wait_for_balloon_actual(vm, 64)
+
+    # Deflate to make sure the device is functional in both directions
+    vm.api.balloon.patch(amount_mib=0)
+    wait_for_balloon_actual(vm, 0)

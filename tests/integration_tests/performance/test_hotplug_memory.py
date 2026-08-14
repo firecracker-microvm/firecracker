@@ -80,7 +80,7 @@ def uvm_resumed_memhp(
     """Restores a VM with the given memory hotplugging config after booting and snapshotting"""
     if vhost_user:
         pytest.skip("vhost-user doesn't support snapshot/restore")
-    if huge_pages and huge_pages != HugePagesConfig.NONE and not uffd_handler:
+    if huge_pages == HugePagesConfig.HUGETLBFS_2MB and not uffd_handler:
         pytest.skip("Hugepages requires a UFFD handler")
     uvm = uvm_booted_memhp(
         uvm,
@@ -102,6 +102,7 @@ def uvm_resumed_memhp(
 @pytest.fixture(
     params=[
         (uvm_booted_memhp, False, HugePagesConfig.NONE, None, None),
+        (uvm_booted_memhp, False, HugePagesConfig.TRANSPARENT, None, None),
         (uvm_booted_memhp, False, HugePagesConfig.HUGETLBFS_2MB, None, None),
         (uvm_booted_memhp, True, HugePagesConfig.NONE, None, None),
         (uvm_resumed_memhp, False, HugePagesConfig.NONE, None, SnapshotType.FULL),
@@ -112,6 +113,13 @@ def uvm_resumed_memhp(
             HugePagesConfig.NONE,
             None,
             SnapshotType.DIFF_MINCORE,
+        ),
+        (
+            uvm_resumed_memhp,
+            False,
+            HugePagesConfig.TRANSPARENT,
+            None,
+            SnapshotType.FULL,
         ),
         (
             uvm_resumed_memhp,
@@ -130,11 +138,13 @@ def uvm_resumed_memhp(
     ],
     ids=[
         "booted",
+        "booted-thp",
         "booted-huge-pages",
         "booted-vhost-user",
         "resumed",
         "resumed-diff",
         "resumed-mincore",
+        "resumed-thp",
         "resumed-uffd",
         "resumed-uffd-huge-pages",
     ],
@@ -469,7 +479,7 @@ def timed_memory_hotplug(uvm, size, metrics, metric_prefix, fc_metric_name):
 )
 @pytest.mark.parametrize(
     "huge_pages",
-    [HugePagesConfig.NONE, HugePagesConfig.HUGETLBFS_2MB],
+    HugePagesConfig,
 )
 def test_memory_hotplug_latency(
     microvm_factory, guest_kernel, rootfs, hotplug_size, huge_pages, metrics
@@ -483,7 +493,7 @@ def test_memory_hotplug_latency(
             "block_size_mib": 2,
         }
         uvm = microvm_factory.build(guest_kernel, rootfs, pci=True)
-        uvm = uvm_booted_memhp(uvm, None, None, False, config, None, None, None)
+        uvm = uvm_booted_memhp(uvm, None, None, False, config, huge_pages, None, None)
 
         if i == 0:
             metrics.set_dimensions(
@@ -502,3 +512,29 @@ def test_memory_hotplug_latency(
         timed_memory_hotplug(uvm, 0, metrics, "hotunplug", "unplug_agg")
         timed_memory_hotplug(uvm, hotplug_size, metrics, "hotplug_2nd", "plug_agg")
         uvm.kill()
+
+
+def test_device_reset(uvm):
+    """
+    Test that virtio-mem device reset works.
+
+    Note: the Linux virtio-mem driver does not support rebinding when memory is
+    plugged (the resource region can't be re-registered), so we reset without
+    any plugged memory and verify the device is functional afterwards.
+    """
+    config = {"total_size_mib": 1024, "slot_size_mib": 128, "block_size_mib": 2}
+    uvm = uvm_booted_memhp(uvm, None, None, False, config, None, None, None)
+
+    # Reset the device via driver unbind/bind.
+    virtio_dev = uvm.ssh.check_output(
+        "ls -d /sys/bus/virtio/drivers/virtio_mem/virtio* | xargs -n1 basename"
+    ).stdout.strip()
+
+    uvm.ssh.check_output(
+        f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_mem/unbind"
+    )
+    uvm.ssh.check_output(f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_mem/bind")
+
+    # Verify the device is functional after reset by hotplugging memory.
+    # check_hotplug() asserts that guest mem_total reflects the new size.
+    check_hotplug(uvm, 256)
