@@ -52,6 +52,10 @@ and this project adheres to
   unless the capability is enabled on the VM.
 - [#6145](https://github.com/firecracker-microvm/firecracker/pull/6145): Added
   official support for AWS Graviton5 (m9g.metal-48xl) instances.
+- [#6098](https://github.com/firecracker-microvm/firecracker/pull/6098): Added
+  new VIRTIO_BLK_F_BLK_SIZE and VIRTIO_BLK_F_TOPOLOGY features to the
+  virtio-block device. More information is in the new [block](docs/block.md)
+  documentation.
 
 ### Changed
 
