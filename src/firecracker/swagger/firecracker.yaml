@@ -1253,6 +1253,13 @@ definitions:
           This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
         enum: ["Sync", "Async"]
         default: "Sync"
+      blk_size:
+        type: integer
+        description:
+          Logical block size advertised to the guest via VIRTIO_BLK_F_BLK_SIZE.
+          This field is optional for virtio-block config and should be omitted
+          for vhost-user-block configuration.
+        default: 512
 
       # VhostUserBlock specific parameters
       socket:
