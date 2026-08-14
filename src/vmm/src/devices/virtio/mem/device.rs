@@ -31,7 +31,7 @@ use crate::devices::virtio::queue::{
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::impl_device_type;
 use crate::logger::{IncMetric, debug, error, info, warn};
-use crate::utils::{bytes_to_mib, mib_to_bytes, u64_to_usize, usize_to_u64};
+use crate::utils::{bytes_to_u32_mib, u32_mib_to_bytes, u64_to_usize, usize_to_u64};
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::{
     ByteValued, GuestMemoryExtension, GuestMemoryMmap, GuestRegionMmap, GuestRegionType,
@@ -106,39 +106,42 @@ pub struct VirtioMem {
 #[serde(deny_unknown_fields)]
 pub struct VirtioMemStatus {
     /// Block size in MiB.
-    pub block_size_mib: usize,
+    pub block_size_mib: u32,
     /// Total memory size in MiB that can be hotplugged.
-    pub total_size_mib: usize,
+    pub total_size_mib: u32,
     /// Size of the KVM slots in MiB.
-    pub slot_size_mib: usize,
+    pub slot_size_mib: u32,
     /// Currently plugged memory size in MiB.
-    pub plugged_size_mib: usize,
+    pub plugged_size_mib: u32,
     /// Requested memory size in MiB.
-    pub requested_size_mib: usize,
+    pub requested_size_mib: u32,
 }
 
 impl VirtioMem {
     pub fn new(
         vm: Arc<KvmVm>,
         addr: GuestAddress,
-        total_size_mib: usize,
-        block_size_mib: usize,
-        slot_size_mib: usize,
+        total_size_mib: u32,
+        block_size_mib: u32,
+        slot_size_mib: u32,
     ) -> Result<Self, VirtioMemError> {
         let queues = vec![Queue::new(FIRECRACKER_MAX_QUEUE_SIZE); MEM_NUM_QUEUES];
         let config = virtio_mem_config {
             addr: addr.raw_value(),
-            region_size: mib_to_bytes(total_size_mib) as u64,
-            block_size: mib_to_bytes(block_size_mib) as u64,
+            region_size: u32_mib_to_bytes(total_size_mib),
+            block_size: u32_mib_to_bytes(block_size_mib),
             ..Default::default()
         };
-        let plugged_blocks = BitVec::repeat(false, total_size_mib / block_size_mib);
+        let plugged_blocks = BitVec::repeat(
+            false,
+            u64_to_usize((total_size_mib / block_size_mib).into()),
+        );
 
         Self::from_state(
             vm,
             queues,
             config,
-            mib_to_bytes(slot_size_mib),
+            u64_to_usize(u32_mib_to_bytes(slot_size_mib)),
             plugged_blocks,
         )
     }
@@ -174,28 +177,28 @@ impl VirtioMem {
     }
 
     /// Gets the total hotpluggable size.
-    pub fn total_size_mib(&self) -> usize {
-        bytes_to_mib(u64_to_usize(self.config.region_size))
+    pub fn total_size_mib(&self) -> u32 {
+        bytes_to_u32_mib(self.config.region_size)
     }
 
     /// Gets the block size.
-    pub fn block_size_mib(&self) -> usize {
-        bytes_to_mib(u64_to_usize(self.config.block_size))
+    pub fn block_size_mib(&self) -> u32 {
+        bytes_to_u32_mib(self.config.block_size)
     }
 
     /// Gets the block size.
-    pub fn slot_size_mib(&self) -> usize {
-        bytes_to_mib(self.slot_size)
+    pub fn slot_size_mib(&self) -> u32 {
+        bytes_to_u32_mib(usize_to_u64(self.slot_size))
     }
 
     /// Gets the total size of the plugged memory blocks.
-    pub fn plugged_size_mib(&self) -> usize {
-        bytes_to_mib(u64_to_usize(self.config.plugged_size))
+    pub fn plugged_size_mib(&self) -> u32 {
+        bytes_to_u32_mib(self.config.plugged_size)
     }
 
     /// Gets the requested size
-    pub fn requested_size_mib(&self) -> usize {
-        bytes_to_mib(u64_to_usize(self.config.requested_size))
+    pub fn requested_size_mib(&self) -> u32 {
+        bytes_to_u32_mib(self.config.requested_size)
     }
 
     pub fn status(&self) -> VirtioMemStatus {
@@ -559,15 +562,12 @@ impl VirtioMem {
     }
 
     /// Updates the requested size of the virtio-mem device.
-    pub fn update_requested_size(
-        &mut self,
-        requested_size_mib: usize,
-    ) -> Result<(), VirtioMemError> {
-        let requested_size = usize_to_u64(mib_to_bytes(requested_size_mib));
+    pub fn update_requested_size(&mut self, requested_size_mib: u32) -> Result<(), VirtioMemError> {
         if !self.is_activated() {
             return Err(VirtioMemError::DeviceNotActive);
         }
 
+        let requested_size = u32_mib_to_bytes(requested_size_mib);
         if !requested_size.is_multiple_of(self.config.block_size) {
             return Err(VirtioMemError::InvalidSize(requested_size));
         }
@@ -714,6 +714,7 @@ pub(crate) mod test_utils {
     use super::*;
     use crate::devices::virtio::test_utils::test::VirtioTestDevice;
     use crate::test_utils::single_region_mem;
+    use crate::utils::mib_to_bytes;
     use crate::vmm_config::machine_config::HugePageConfig;
     use crate::vstate::memory;
     use crate::vstate::vm::tests::setup_vm_with_memory;
@@ -760,6 +761,7 @@ mod tests {
     use crate::devices::virtio::mem::device::test_utils::default_virtio_mem;
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
     use crate::devices::virtio::test_utils::test::VirtioTestHelper;
+    use crate::utils::mib_to_bytes;
     use crate::vstate::vm::tests::setup_vm_with_memory;
 
     #[test]
@@ -788,28 +790,28 @@ mod tests {
         let vm = Arc::new(vm);
         let queues = vec![Queue::new(FIRECRACKER_MAX_QUEUE_SIZE); MEM_NUM_QUEUES];
         let addr = 512 << 30;
-        let region_size_mib = 2048;
-        let block_size_mib = 2;
-        let slot_size_mib = 128;
-        let plugged_size_mib = 512;
-        let usable_region_size = mib_to_bytes(1024) as u64;
+        let region_size_mib: u32 = 2048;
+        let block_size_mib: u32 = 2;
+        let slot_size_mib: u32 = 128;
+        let plugged_size_mib: u32 = 512;
+        let usable_region_size = u32_mib_to_bytes(1024);
         let config = virtio_mem_config {
             addr,
-            region_size: mib_to_bytes(region_size_mib) as u64,
-            block_size: mib_to_bytes(block_size_mib) as u64,
-            plugged_size: mib_to_bytes(plugged_size_mib) as u64,
+            region_size: u32_mib_to_bytes(region_size_mib),
+            block_size: u32_mib_to_bytes(block_size_mib),
+            plugged_size: u32_mib_to_bytes(plugged_size_mib),
             usable_region_size,
             ..Default::default()
         };
         let plugged_blocks = BitVec::repeat(
             false,
-            mib_to_bytes(region_size_mib) / mib_to_bytes(block_size_mib),
+            u64_to_usize((region_size_mib / block_size_mib).into()),
         );
         let mem = VirtioMem::from_state(
             vm,
             queues,
             config,
-            mib_to_bytes(slot_size_mib),
+            u64_to_usize(u32_mib_to_bytes(slot_size_mib)),
             plugged_blocks,
         )
         .unwrap();
@@ -829,7 +831,7 @@ mod tests {
         assert_eq!(config.len(), std::mem::size_of::<virtio_mem_config>());
         assert_eq!(
             u64::from_le_bytes(config[0..8].try_into().unwrap()),
-            mib_to_bytes(mem.block_size_mib()) as u64
+            u32_mib_to_bytes(mem.block_size_mib())
         );
         assert_eq!(
             u64::from_le_bytes(config[16..24].try_into().unwrap()),
@@ -837,7 +839,7 @@ mod tests {
         );
         assert_eq!(
             u64::from_le_bytes(config[24..32].try_into().unwrap()),
-            mib_to_bytes(mem.total_size_mib()) as u64
+            u32_mib_to_bytes(mem.total_size_mib())
         );
     }
 
@@ -1020,6 +1022,14 @@ mod tests {
         // Size too large
         let result = th.device().update_requested_size(2048);
         assert!(matches!(result, Err(VirtioMemError::InvalidSize(_))));
+
+        // The largest request is converted without wrapping.
+        let expected_size = u64::from(u32::MAX) << 20;
+        let result = th.device().update_requested_size(u32::MAX);
+        assert!(matches!(
+            result,
+            Err(VirtioMemError::InvalidSize(size)) if size == expected_size
+        ));
     }
 
     #[test]
