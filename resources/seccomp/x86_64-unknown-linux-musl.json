@@ -697,6 +697,58 @@
                 ]
             },
             {
+                "syscall": "ioctl",
+                "comment": "Needed for querying the logical sector size of a block-device backing file during virtio-block init",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4712,
+                        "comment": "BLKSSZGET"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed for querying the physical block size of a block-device backing file during virtio-block init",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4731,
+                        "comment": "BLKPBSZGET"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed for querying the minimum I/O size of a block-device backing file during virtio-block init",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4728,
+                        "comment": "BLKIOMIN"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed for querying the optimal I/O size of a block-device backing file during virtio-block init",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4729,
+                        "comment": "BLKIOOPT"
+                    }
+                ]
+            },
+            {
                 "syscall": "sched_yield",
                 "comment": "Used by the rust standard library in std::sync::mpmc. Firecracker uses mpsc channels from this module for inter-thread communication"
             },
