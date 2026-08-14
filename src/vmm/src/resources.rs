@@ -623,6 +623,7 @@ mod tests {
                 path_on_host: Some(tmp_file.as_path().to_str().unwrap().to_string()),
                 rate_limiter: Some(RateLimiterConfig::default()),
                 file_engine_type: None,
+                blk_size: None,
 
                 socket: None,
             },
@@ -1237,7 +1238,8 @@ mod tests {
                             "path_on_host": "{}",
                             "is_root_device": true,
                             "is_read_only": false,
-                            "io_engine": "Sync"
+                            "io_engine": "Sync",
+                            "blk_size": 512
                         }}
                     ],
                     "network-interfaces": [
@@ -1312,7 +1314,8 @@ mod tests {
                             "path_on_host": "{}",
                             "is_root_device": true,
                             "is_read_only": false,
-                            "io_engine": "Sync"
+                            "io_engine": "Sync",
+                            "blk_size": 512
                         }}
                     ],
                     "network-interfaces": [
@@ -1372,7 +1375,8 @@ mod tests {
                             "path_on_host": "{}",
                             "is_root_device": true,
                             "is_read_only": false,
-                            "io_engine": "Sync"
+                            "io_engine": "Sync",
+                            "blk_size": 512
                         }}
                     ],
                     "network-interfaces": [
