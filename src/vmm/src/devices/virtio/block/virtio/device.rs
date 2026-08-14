@@ -27,7 +27,7 @@ use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::{
-    VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES,
+    VIRTIO_BLK_F_BLK_SIZE, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES,
 };
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
@@ -158,10 +158,26 @@ impl DiskProperties {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[repr(C)]
 pub struct ConfigSpace {
     pub capacity: u64,
+    pub size_max: u32,
+    pub seg_max: u32,
+    pub geometry: u32,
+    pub blk_size: u32,
+}
+
+impl Default for ConfigSpace {
+    fn default() -> Self {
+        Self {
+            capacity: 0,
+            size_max: 0,
+            seg_max: 0,
+            geometry: 0,
+            blk_size: 512,
+        }
+    }
 }
 
 // SAFETY: `ConfigSpace` contains only PODs in `repr(C)` or `repr(transparent)`, without padding.
@@ -196,6 +212,8 @@ pub struct VirtioBlockConfig {
     #[serde(default)]
     #[serde(rename = "io_engine")]
     pub file_engine_type: FileEngineType,
+    /// Logical block size.
+    pub blk_size: Option<u32>,
 }
 
 impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
@@ -213,6 +231,7 @@ impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
                 path_on_host: path_on_host.clone(),
                 rate_limiter: value.rate_limiter,
                 file_engine_type: value.file_engine_type.unwrap_or_default(),
+                blk_size: value.blk_size,
             })
         } else {
             Err(VirtioBlockError::Config)
@@ -232,6 +251,7 @@ impl From<VirtioBlockConfig> for BlockDeviceConfig {
             path_on_host: Some(value.path_on_host),
             rate_limiter: value.rate_limiter,
             file_engine_type: Some(value.file_engine_type),
+            blk_size: value.blk_size,
 
             socket: None,
         }
@@ -294,7 +314,14 @@ impl VirtioBlock {
             .map(RateLimiter::from)
             .unwrap_or_default();
 
-        let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
+        let mut config_space = ConfigSpace {
+            capacity: disk_properties.nsectors.to_le(),
+            ..Default::default()
+        };
+
+        let mut avail_features = (1u64 << VIRTIO_F_VERSION_1)
+            | (1u64 << VIRTIO_RING_F_EVENT_IDX)
+            | (1u64 << VIRTIO_BLK_F_BLK_SIZE);
 
         if config.cache_type == CacheType::Writeback {
             avail_features |= 1u64 << VIRTIO_BLK_F_FLUSH;
@@ -302,15 +329,15 @@ impl VirtioBlock {
 
         if config.is_read_only {
             avail_features |= 1u64 << VIRTIO_BLK_F_RO;
-        };
+        }
+
+        if let Some(blk_size) = config.blk_size {
+            config_space.blk_size = blk_size;
+        }
 
         let queue_evts = [EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?];
 
         let queues = BLOCK_QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
-
-        let config_space = ConfigSpace {
-            capacity: disk_properties.nsectors.to_le(),
-        };
 
         Ok(VirtioBlock {
             avail_features,
@@ -347,6 +374,7 @@ impl VirtioBlock {
             cache_type: self.cache_type,
             rate_limiter: rl.into_option(),
             file_engine_type: self.file_engine_type(),
+            blk_size: Some(self.config_space.blk_size),
         }
     }
 
@@ -725,6 +753,7 @@ mod tests {
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Default::default(),
+            blk_size: None,
 
             socket: None,
         };
@@ -740,6 +769,7 @@ mod tests {
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: Default::default(),
+            blk_size: None,
 
             socket: Some("sock".to_string()),
         };
@@ -755,6 +785,7 @@ mod tests {
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Default::default(),
+            blk_size: None,
 
             socket: Some("sock".to_string()),
         };
@@ -794,7 +825,9 @@ mod tests {
 
             assert_eq!(block.device_type(), VirtioDeviceType::Block);
 
-            let features: u64 = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
+            let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
+                | (1u64 << VIRTIO_RING_F_EVENT_IDX)
+                | (1u64 << VIRTIO_BLK_F_BLK_SIZE);
 
             assert_eq!(
                 block.avail_features_by_page(0),
@@ -820,7 +853,10 @@ mod tests {
 
             let config = block.config_as_bytes();
             // The block's backing file size is 0x1000, so there are 8 (4096/512) sectors.
-            let expected_config_space = ConfigSpace { capacity: 8 };
+            let expected_config_space = ConfigSpace {
+                capacity: 8,
+                ..Default::default()
+            };
             assert_eq!(config, expected_config_space.as_slice());
         }
     }
@@ -840,6 +876,7 @@ mod tests {
                 0,
                 ConfigSpace {
                     capacity: 0x1122334455667788,
+                    ..Default::default()
                 }
                 .as_slice(),
             );
