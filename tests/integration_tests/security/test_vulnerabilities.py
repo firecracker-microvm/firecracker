@@ -46,6 +46,17 @@ class SpectreMeltdownChecker:
         """Parses the output of `spectre-meltdown-checker.sh --batch json-terse`
         and returns the set of issues for which it reported 'Vulnerable'.
 
+        Firecracker intentionally does not expose the host's microcode update
+        status to guests. KVM instead reports fixed synthetic versions: 1 on
+        Intel and 0x01000065 on AMD. These otherwise arbitrary values exist
+        solely to work around specific issues; they do not identify an actual
+        microcode version. The checker treats the synthetic value as an
+        installed version, which would require test-side exceptions for
+        microcode-only mitigations. This test therefore supplies the host's
+        microcode version for guests without a CPU template. Guests with a CPU
+        template retain the synthetic version because the host's microcode
+        version is not meaningful for their modified CPU model.
+
         Sample stdout:
         ```
         [
@@ -60,7 +71,10 @@ class SpectreMeltdownChecker:
         ```
         """
         vm.ssh.scp_put(self.path, REMOTE_CHECKER_PATH)
-        res = vm.ssh.run(REMOTE_CHECKER_COMMAND)
+        command = REMOTE_CHECKER_COMMAND
+        if vm.cpu_template_name == "None":
+            command = f"SMC_MOCK_CPU_UCODE={global_props.cpu_microcode} {command}"
+        res = vm.ssh.run(command)
         return self._parse_output(res.stdout)
 
     def get_report_for_host(self) -> set:
