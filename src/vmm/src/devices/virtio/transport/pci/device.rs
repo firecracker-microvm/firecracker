@@ -1232,11 +1232,12 @@ mod tests {
 
     use event_manager::MutEventSubscriber;
     use linux_loader::loader::Cmdline;
+    use vm_allocator::{AllocPolicy, RangeInclusive};
     use vm_memory::{ByteValued, Le32};
 
-    use super::{PciCapabilityType, VirtioPciDevice};
+    use super::{EventFd, IoEventAddress, KvmVm, NoDatamatch, PciCapabilityType, VirtioPciDevice};
     use crate::Vmm;
-    use crate::arch::MEM_64BIT_DEVICES_START;
+    use crate::arch::{MEM_64BIT_DEVICES_SIZE, MEM_64BIT_DEVICES_START};
     use crate::builder::tests::default_vmm_with_pci;
     use crate::device_manager::tests::pci_devices;
     use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
@@ -1244,14 +1245,15 @@ mod tests {
     use crate::devices::virtio::rng::Entropy;
     use crate::devices::virtio::transport::pci::common_config_offset::*;
     use crate::devices::virtio::transport::pci::device::{
-        COMMON_CONFIG_BAR_OFFSET, COMMON_CONFIG_SIZE, DEVICE_CONFIG_BAR_OFFSET, DEVICE_CONFIG_SIZE,
-        ISR_CONFIG_BAR_OFFSET, ISR_CONFIG_SIZE, NOTIFICATION_BAR_OFFSET, NOTIFICATION_SIZE,
-        NOTIFY_OFF_MULTIPLIER, PciVirtioSubclass, VirtioPciCap, VirtioPciCfgCap,
-        VirtioPciNotifyCap,
+        CAPABILITY_BAR_SIZE, COMMAND_MEMORY_SPACE_ENABLE, COMMAND_REG, COMMON_CONFIG_BAR_OFFSET,
+        COMMON_CONFIG_SIZE, DEVICE_CONFIG_BAR_OFFSET, DEVICE_CONFIG_SIZE, ISR_CONFIG_BAR_OFFSET,
+        ISR_CONFIG_SIZE, NOTIFICATION_BAR_OFFSET, NOTIFICATION_SIZE, NOTIFY_OFF_MULTIPLIER,
+        PciVirtioSubclass, VirtioPciCap, VirtioPciCfgCap, VirtioPciNotifyCap,
     };
     use crate::devices::virtio::transport::pci::device_status::{
         ACKNOWLEDGE, DRIVER, DRIVER_OK, FEATURES_OK,
     };
+    use crate::pci::configuration::BAR0_REG_IDX;
     use crate::pci::msix::MsixCap;
     use crate::pci::{PciCapabilityId, PciClassCode, PciDevice};
     use crate::rate_limiter::RateLimiter;
@@ -1435,6 +1437,145 @@ mod tests {
 
         // We create a capabilities BAR region of 0x80000 bytes
         assert_eq!(bar_size, 0x80000);
+    }
+
+    fn kvm_vm(vmm: &Vmm) -> &Arc<KvmVm> {
+        vmm.vm.as_kvm().unwrap()
+    }
+
+    fn write_bar_base(device: &mut VirtioPciDevice, base: u64) {
+        device.write_config_register(BAR0_REG_IDX, 0, &(base as u32).to_le_bytes());
+        device.write_config_register(BAR0_REG_IDX + 1, 0, &((base >> 32) as u32).to_le_bytes());
+    }
+
+    fn set_memory_space_enable(device: &mut VirtioPciDevice, enable: bool) {
+        let command = if enable {
+            COMMAND_MEMORY_SPACE_ENABLE as u16
+        } else {
+            0
+        };
+        device.write_config_register(COMMAND_REG, 0, &command.to_le_bytes());
+    }
+
+    fn allocate_bar_range(vmm: &Vmm, base: u64) -> Result<RangeInclusive, vm_allocator::Error> {
+        kvm_vm(vmm).resource_allocator().mmio64_memory.allocate(
+            CAPABILITY_BAR_SIZE,
+            CAPABILITY_BAR_SIZE,
+            AllocPolicy::ExactMatch(base),
+        )
+    }
+
+    /// Try to register an ioeventfd at the notification address of a BAR
+    /// mapped at `base`. KVM returns EEXIST if a colliding MMIO ioeventfd is
+    /// already registered there, which makes the notification ioeventfds of
+    /// the device directly observable.
+    fn register_probe_ioevent(vmm: &Vmm, base: u64) -> Result<(), kvm_ioctls::Error> {
+        let probe = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let notify = IoEventAddress::Mmio(base + u64::from(NOTIFICATION_BAR_OFFSET));
+        kvm_vm(vmm)
+            .fd()
+            .register_ioevent(&probe, &notify, NoDatamatch)
+    }
+
+    #[test]
+    fn test_bar_relocation() {
+        let vmm = create_vmm_with_virtio_pci_device();
+        let device = get_virtio_device(&vmm);
+        let old_base = MEM_64BIT_DEVICES_START;
+        let new_base = old_base + CAPABILITY_BAR_SIZE;
+
+        {
+            let mut device = device.lock().unwrap();
+            assert_eq!(device.bar_address(), old_base);
+
+            // Writing the BAR does not move the device on its own. The
+            // relocation happens when memory space decoding gets enabled.
+            write_bar_base(&mut device, new_base);
+            assert_eq!(device.config_bar_addr(), new_base);
+            assert_eq!(device.bar_address(), old_base);
+
+            set_memory_space_enable(&mut device, true);
+            assert_eq!(device.bar_address(), new_base);
+        }
+
+        // The mmio bus mapping followed the BAR.
+        let mut data = [0u8; 4];
+        kvm_vm(&vmm)
+            .common
+            .mmio_bus
+            .read(new_base, &mut data)
+            .unwrap();
+        kvm_vm(&vmm)
+            .common
+            .mmio_bus
+            .read(old_base, &mut data)
+            .unwrap_err();
+
+        // The old range is free and the new one is taken.
+        allocate_bar_range(&vmm, old_base).unwrap();
+        allocate_bar_range(&vmm, new_base).unwrap_err();
+
+        // The notification ioeventfds followed the BAR: KVM rejects a second
+        // registration at the new notify address and accepts one at the old.
+        register_probe_ioevent(&vmm, new_base).unwrap_err();
+        register_probe_ioevent(&vmm, old_base).unwrap();
+    }
+
+    #[test]
+    fn test_bar_relocation_on_memory_space_enable_only() {
+        let vmm = create_vmm_with_virtio_pci_device();
+        let device = get_virtio_device(&vmm);
+        let mut device = device.lock().unwrap();
+        let old_base = MEM_64BIT_DEVICES_START;
+        let new_base = old_base + CAPABILITY_BAR_SIZE;
+
+        // Enabling memory space decoding with an unchanged BAR is a no-op.
+        set_memory_space_enable(&mut device, true);
+        assert_eq!(device.bar_address(), old_base);
+
+        // A BAR write while memory space decoding is already enabled does not
+        // relocate the device.
+        write_bar_base(&mut device, new_base);
+        assert_eq!(device.bar_address(), old_base);
+
+        // Only the transition from disabled to enabled does.
+        set_memory_space_enable(&mut device, false);
+        assert_eq!(device.bar_address(), old_base);
+        set_memory_space_enable(&mut device, true);
+        assert_eq!(device.bar_address(), new_base);
+    }
+
+    #[test]
+    fn test_bar_relocation_refused() {
+        let vmm = create_vmm_with_virtio_pci_device();
+        let device = get_virtio_device(&vmm);
+        let old_base = MEM_64BIT_DEVICES_START;
+
+        // A range that is already allocated to someone else.
+        let taken_base = old_base + CAPABILITY_BAR_SIZE;
+        allocate_bar_range(&vmm, taken_base).unwrap();
+        // A range outside the 64-bit MMIO window.
+        let outside_base = MEM_64BIT_DEVICES_START + MEM_64BIT_DEVICES_SIZE;
+
+        for base in [taken_base, outside_base] {
+            let mut device = device.lock().unwrap();
+            set_memory_space_enable(&mut device, false);
+            write_bar_base(&mut device, base);
+            set_memory_space_enable(&mut device, true);
+            assert_eq!(device.bar_address(), old_base);
+        }
+
+        // The device is still mapped at its old base.
+        let mut data = [0u8; 4];
+        kvm_vm(&vmm)
+            .common
+            .mmio_bus
+            .read(old_base, &mut data)
+            .unwrap();
+
+        // The notification ioeventfds did not move either: KVM rejects a
+        // second registration at the old notify address
+        register_probe_ioevent(&vmm, old_base).unwrap_err();
     }
 
     fn read_virtio_pci_cap(
