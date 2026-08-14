@@ -66,9 +66,12 @@ class SpectreMeltdownChecker:
     def get_report_for_host(self) -> set:
         """Runs `spectre-meltdown-checker.sh` in the host and returns the set of
         issues for which it reported 'Vulnerable'.
+
+        `--vmm yes` forces VMM host checks even when no Firecracker process is
+        running concurrently for the checker's automatic detection.
         """
 
-        res = utils.check_output(f"sh {self.path} --batch json-terse")
+        res = utils.check_output(f"sh {self.path} --batch json-terse --vmm yes")
         return self._parse_output(res.stdout)
 
     # pylint: disable=too-many-return-statements
