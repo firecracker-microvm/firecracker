@@ -90,32 +90,17 @@ class SpectreMeltdownChecker:
 
     # pylint: disable=too-many-return-statements
     def expected_vulnerabilities(self, cpu_template_name, guest_kernel_version=None):
-        """
-        There is a REPTAR exception reported on INTEL_ICELAKE when spectre-meltdown-checker.sh
-        script is run inside the guest from below the tests:
-            test_spectre_meltdown_checker_on_guest and
-            test_spectre_meltdown_checker_on_restored_guest
-        The same script when run on host doesn't report the
-        exception which means the instances are actually not vulnerable to REPTAR.
-        The only reason why the script cannot determine if the guest
-        is vulnerable or not because Firecracker does not expose the microcode
-        version to the guest.
+        """Return the checker findings expected for the guest configuration."""
 
-        The check in spectre_meltdown_checker is here:
-            https://github.com/speed47/spectre-meltdown-checker/blob/03cc4ffeb1dca9bb8d89f8096dc45015530d3214/spectre-meltdown-checker.sh#L11651-L11657
-
-        Since we have a test on host and the exception in guest is not valid,
-        we add a check to ignore this exception.
-
-        The same applies to BPI (CVE-2024-45332), whose fix is also microcode-only:
-            https://github.com/speed47/spectre-meltdown-checker/blob/03cc4ffeb1dca9bb8d89f8096dc45015530d3214/spectre-meltdown-checker.sh#L12404-L12410
-        """
+        # A BPI exception is reported when the checker runs inside a guest because
+        # Firecracker does not expose the host microcode version.
+        # The check in spectre_meltdown_checker is here:
+        # https://github.com/speed47/spectre-meltdown-checker/blob/03cc4ffeb1dca9bb8d89f8096dc45015530d3214/spectre-meltdown-checker.sh#L12404-L12410
         if (
             global_props.cpu_codename in ["INTEL_ICELAKE", "INTEL_SAPPHIRE_RAPIDS"]
             and cpu_template_name == "None"
         ):
             return {
-                '{"NAME": "REPTAR", "CVE": "CVE-2023-23583", "VULNERABLE": true, "INFOS": "Your microcode is too old to mitigate the vulnerability"}',
                 '{"NAME": "BPI", "CVE": "CVE-2024-45332", "VULNERABLE": true, "INFOS": "Your microcode is too old to mitigate the vulnerability"}',
             }
 
