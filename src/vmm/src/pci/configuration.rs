@@ -1010,4 +1010,72 @@ mod tests {
         assert_eq!(bars.get_bar_size(2), 0x2000);
         assert_eq!(bars.get_bar_size_32(2), 0x2000);
     }
+
+    #[test]
+    fn test_bars_relocate_64bit() {
+        // A 64-bit prefetchable BAR the guest can reprogram.
+        let mut bars = Bars::default();
+        bars.set_bar_64(0, 0x1_0000_0000, 0x1000, BarPrefetchable::Yes);
+        // Low register carries the type/prefetchable flags in its low nibble:
+        // bit 3 (prefetchable) + bits 2:1 = 0b10 (64-bit) => 0b1100 = 0xc.
+        assert_eq!(bars.bars[0].encoded_addr & 0xf, 0b1100);
+
+        // The guest reassigns the BAR to 0x2_0000_0000 by writing the low then
+        // the high half of the address register.
+        bars.write(0, 0, &0x0000_0000u32.to_le_bytes());
+        bars.write(1, 0, &0x0000_0002u32.to_le_bytes());
+        assert_eq!(bars.get_bar_addr_64(0), 0x2_0000_0000);
+        // Size is unchanged and the read-only flag bits are preserved.
+        assert_eq!(bars.get_bar_size_64(0), 0x1000);
+        assert_eq!(bars.bars[0].encoded_addr & 0xf, 0b1100);
+
+        // The low address bits inside the size mask are read-only: a write that
+        // sets them is masked off (0x1234 & !(0x1000-1) == 0x1000).
+        bars.write(0, 0, &0x0000_1234u32.to_le_bytes());
+        assert_eq!(bars.get_bar_addr_64(0), 0x2_0000_1000);
+    }
+
+    #[test]
+    fn test_bars_relocate_partial_write() {
+        // Reprogramming the address one byte at a time must accumulate, and the
+        // read-only flag bits in the low register must be preserved.
+        let mut bars = Bars::default();
+        bars.set_bar_64(0, 0x1_0000_0000, 0x1000, BarPrefetchable::No);
+
+        // Write the high half (upper 32 bits of the address) byte-by-byte to 0x4000.
+        bars.write(1, 0, &[0x00]);
+        bars.write(1, 1, &[0x40]);
+        bars.write(1, 2, &[0x00]);
+        bars.write(1, 3, &[0x00]);
+        // Write the low half so the aligned base becomes 0x0020_0000.
+        bars.write(0, 0, &0x0020_0000u32.to_le_bytes());
+
+        assert_eq!(bars.get_bar_addr_64(0), 0x4000_0020_0000);
+        // The 64-bit type flag (bit 2) survives the low-register writes.
+        assert!(bars.bars[0].is_64bit());
+    }
+
+    #[test]
+    fn test_bars_sizing_probe() {
+        // Writing all 1s leaves the encoded size in the register.
+        let mut bars = Bars::default();
+        bars.set_bar_64(0, 0x1_0000_0000, 0x1000, BarPrefetchable::No);
+
+        bars.write(0, 0, &0xffff_ffffu32.to_le_bytes());
+        let mut v: u32 = 0;
+        bars.read(0, 0, v.as_mut_bytes());
+        // Encoded size of a 4 KiB BAR, with the read-only 64-bit type flag
+        // (bit 2) preserved.
+        assert_eq!(v, 0xffff_f000 | 0b100);
+        // The register keeps reporting the size until the guest writes an
+        // address back, so a second read gives the same value.
+        bars.read(0, 0, v.as_mut_bytes());
+        assert_eq!(v, 0xffff_f000 | 0b100);
+
+        // The guest restores the address it saved before the probe.
+        bars.write(0, 0, &0x0000_0000u32.to_le_bytes());
+        assert_eq!(bars.get_bar_addr_64(0), 0x1_0000_0000);
+        assert_eq!(bars.get_bar_size_64(0), 0x1000);
+        assert!(bars.bars[0].is_64bit());
+    }
 }
