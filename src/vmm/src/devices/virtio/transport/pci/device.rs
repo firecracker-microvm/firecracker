@@ -254,6 +254,8 @@ pub enum VirtioPciDeviceError {
     PciConfiguration(#[from] PciConfigurationError),
     /// Invalid restore state: driver_status {0:#x} is inconsistent with device_activated (expected {1:#x})
     InvalidRestoreState(u8, u8),
+    /// Restored MSI-X vector count ({0}) does not match the expected count ({1}) for this device
+    UnexpectedMsixVectorCount(usize, usize),
 }
 
 pub struct VirtioPciDevice {
@@ -369,8 +371,9 @@ impl VirtioPciDevice {
         device: Arc<Mutex<dyn VirtioDevice>>,
         msix_vectors: Arc<MsixVectorGroup>,
         sbdf: PciSBDF,
-    ) -> Result<Self, VirtioPciDeviceError> {
+    ) -> Self {
         let num_queues = device.lock().expect("Poisoned lock").queues().len();
+        assert_eq!(msix_vectors.vectors.len(), num_queues + 1);
 
         let msix_config = Arc::new(Mutex::new(MsixConfig::new(msix_vectors.clone(), sbdf)));
         let pci_config = Self::pci_configuration(
@@ -394,7 +397,7 @@ impl VirtioPciDevice {
             msix_vectors,
         ));
 
-        let virtio_pci_device = VirtioPciDevice {
+        VirtioPciDevice {
             id,
             sub_id: None,
             sbdf,
@@ -408,9 +411,7 @@ impl VirtioPciDevice {
             bars: Bars::default(),
             msix_config,
             msix_config_cap_offset: 0,
-        };
-
-        Ok(virtio_pci_device)
+        }
     }
 
     pub fn new_from_state(
@@ -421,6 +422,16 @@ impl VirtioPciDevice {
     ) -> Result<Self, VirtioPciDeviceError> {
         let msix_config = MsixConfig::from_state(state.msix_state, vm.clone(), state.sbdf)?;
         let vectors = msix_config.vectors.clone();
+
+        // Expecting one vector per queue, plus one for the configuration
+        let expected_num_vectors = device.lock().expect("Poisoned lock").queues().len() + 1;
+        if vectors.vectors.len() != expected_num_vectors {
+            return Err(VirtioPciDeviceError::UnexpectedMsixVectorCount(
+                vectors.vectors.len(),
+                expected_num_vectors,
+            ));
+        }
+
         let msix_config = Arc::new(Mutex::new(msix_config));
 
         let pci_config = PciConfiguration::type0_from_state(state.pci_configuration_state)?;
@@ -454,7 +465,7 @@ impl VirtioPciDevice {
             vectors,
         ));
 
-        let mut virtio_pci_device = VirtioPciDevice {
+        let virtio_pci_device = VirtioPciDevice {
             id,
             sub_id: None,
             sbdf: state.sbdf,
@@ -482,6 +493,16 @@ impl VirtioPciDevice {
         }
 
         Ok(virtio_pci_device)
+    }
+
+    /// Enable unmasked MSI-X vectors by registering IRQFDs with KVM.
+    ///
+    /// Must be called after the GSI routes have been set up (see [KvmVm::set_gsi_routes]).
+    pub fn enable_unmasked_vectors(&self) -> Result<(), InterruptError> {
+        self.msix_config
+            .lock()
+            .expect("Poisoned lock")
+            .enable_unmasked_vectors()
     }
 
     fn is_driver_ready(&self) -> bool {

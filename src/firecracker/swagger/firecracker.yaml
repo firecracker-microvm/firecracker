@@ -1806,17 +1806,20 @@ definitions:
     properties:
       total_size_mib:
         type: integer
+        maximum: 4294967295
         description: Total size of the hotpluggable memory in MiB.
       slot_size_mib:
         type: integer
         default: 128
         minimum: 128
+        maximum: 4294967295
         description: Slot size for the hotpluggable memory in MiB. This will determine the granularity of
           hot-plug memory from the host. Refer to the device documentation on how to tune this value.
       block_size_mib:
         type: integer
         default: 2
         minimum: 2
+        maximum: 4294967295
         description: (Logical) Block size for the hotpluggable memory in MiB. This will determine the logical
           granularity of hot-plug memory for the guest. Refer to the device documentation on how to tune this value.
 
@@ -1827,6 +1830,8 @@ definitions:
     properties:
       requested_size_mib:
         type: integer
+        minimum: 0
+        maximum: 4294967295
         description: New target region size.
 
   MemoryHotplugStatus:

@@ -12,15 +12,19 @@ Tests verify that:
 import pytest
 
 from framework.artifacts import (
-    GUEST_KERNELS_6_1,
-    GUEST_KERNELS_6_18,
+    ALL_GUEST_KERNELS,
     pin_guest_kernel,
     pin_pci,
     pin_rootfs_mode,
 )
 
+# Linux 5.10 CI kernels are built without CONFIG_CRYPTO_FIPS.
+FIPS_GUEST_KERNELS = [
+    kernel for kernel in ALL_GUEST_KERNELS if not kernel.id.startswith("vmlinux-5.10.")
+]
+
 pytestmark = [
-    pin_guest_kernel(GUEST_KERNELS_6_1 + GUEST_KERNELS_6_18),
+    pin_guest_kernel(FIPS_GUEST_KERNELS),
     pin_rootfs_mode("rw"),
     pin_pci(False),
 ]

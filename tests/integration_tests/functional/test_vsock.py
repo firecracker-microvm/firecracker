@@ -155,6 +155,47 @@ def test_vsock_epipe(vsock_uvm_any, bin_vsock_path, test_fc_session_root_path):
     validate_fc_metrics(metrics)
 
 
+def test_vsock_bare_pause_resume(
+    vsock_uvm_any, bin_vsock_path, test_fc_session_root_path
+):
+    """
+    Test the vsock device across a bare pause/resume cycle (no snapshot).
+
+    A bare pause/resume must leave all vsock traffic working, in particular
+    new host-initiated (host->guest, RX direction) connections made after the
+    resume. These used to hang forever: the resume kick armed the
+    TRANSPORT_RESET RX gate even though no reset event had been sent, so the
+    guest could never acknowledge it and RX delivery stayed suppressed.
+    """
+    vm = vsock_uvm_any
+
+    # Generate the random data blob file.
+    blob_path, blob_hash = make_blob(test_fc_session_root_path)
+    vm_blob_path = "/tmp/vsock/test.blob"
+
+    # Set up a tmpfs drive on the guest, so we can copy the blob there.
+    # Guest-initiated connections (echo workers) will use this blob.
+    _copy_vsock_data_to_guest(vm.ssh, blob_path, vm_blob_path, bin_vsock_path)
+
+    # Start guest echo server and check that host-initiated connections work
+    # before the pause.
+    uds_path = start_guest_echo_server(vm)
+    check_host_connections(uds_path, blob_path, blob_hash)
+
+    vm.pause()
+    vm.resume()
+
+    # Fresh host-initiated connections after the resume must still work.
+    check_host_connections(uds_path, blob_path, blob_hash)
+
+    # Guest-initiated connections must keep working as well.
+    path = os.path.join(vm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT))
+    check_guest_connections(vm, path, vm_blob_path, blob_hash)
+
+    metrics = vm.flush_metrics()
+    validate_fc_metrics(metrics)
+
+
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pytest.mark.parametrize("vsock_uvm", [1, 2], indirect=True, ids=["1vcpu", "2vcpu"])
 def test_vsock_transport_reset_h2g(
