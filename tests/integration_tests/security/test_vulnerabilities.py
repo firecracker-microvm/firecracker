@@ -92,39 +92,21 @@ class SpectreMeltdownChecker:
     def expected_vulnerabilities(self, cpu_template_name, guest_kernel_version=None):
         """Return the checker findings expected for the guest configuration."""
 
-        # A BPI exception is reported when the checker runs inside a guest because
-        # Firecracker does not expose the host microcode version.
-        # The check in spectre_meltdown_checker is here:
-        # https://github.com/speed47/spectre-meltdown-checker/blob/03cc4ffeb1dca9bb8d89f8096dc45015530d3214/spectre-meltdown-checker.sh#L12404-L12410
-        if (
-            global_props.cpu_codename in ["INTEL_ICELAKE", "INTEL_SAPPHIRE_RAPIDS"]
-            and cpu_template_name == "None"
-        ):
-            return {
-                '{"NAME": "BPI", "CVE": "CVE-2024-45332", "VULNERABLE": true, "INFOS": "Your microcode is too old to mitigate the vulnerability"}',
-            }
-
-        # Cascade Lake is affected by BPI as well (Intel confirmed microcode
-        # 0x5003901 as the mitigated release for CPUID 50657, INTEL-SA-01247;
-        # the host test passes). Guests hit the same microcode-invisibility
-        # false positive as above.
         # With the T2S template, guests present a Skylake CPU whose masked-off
         # FLUSH_L1D bit routes them into the MMIO Stale Data microcode-needed
         # branch (SBDR/SBDS/DRPW). FLUSH_L1D is passed through to guests since
         # kernel v6.4, so this only fires on older host kernels.
         # https://github.com/torvalds/linux/commit/da3db168fb671f15e393b227f5c312c698ecb6ea
-        if global_props.cpu_codename == "INTEL_CASCADELAKE":
-            if cpu_template_name == "None":
-                return {
-                    '{"NAME": "BPI", "CVE": "CVE-2024-45332", "VULNERABLE": true, "INFOS": "Your microcode is too old to mitigate the vulnerability"}'
-                }
-            if cpu_template_name == "T2S":
-                if global_props.host_linux_version_tpl < (6, 4):
-                    return {
-                        '{"NAME": "SBDR", "CVE": "CVE-2022-21123", "VULNERABLE": true, "INFOS": "Your kernel supports mitigation, but your CPU microcode also needs to be updated to mitigate the vulnerability"}',
-                        '{"NAME": "SBDS", "CVE": "CVE-2022-21125", "VULNERABLE": true, "INFOS": "Your kernel supports mitigation, but your CPU microcode also needs to be updated to mitigate the vulnerability"}',
-                        '{"NAME": "DRPW", "CVE": "CVE-2022-21166", "VULNERABLE": true, "INFOS": "Your kernel supports mitigation, but your CPU microcode also needs to be updated to mitigate the vulnerability"}',
-                    }
+        if (
+            global_props.cpu_codename == "INTEL_CASCADELAKE"
+            and cpu_template_name == "T2S"
+            and global_props.host_linux_version_tpl < (6, 4)
+        ):
+            return {
+                '{"NAME": "SBDR", "CVE": "CVE-2022-21123", "VULNERABLE": true, "INFOS": "Your kernel supports mitigation, but your CPU microcode also needs to be updated to mitigate the vulnerability"}',
+                '{"NAME": "SBDS", "CVE": "CVE-2022-21125", "VULNERABLE": true, "INFOS": "Your kernel supports mitigation, but your CPU microcode also needs to be updated to mitigate the vulnerability"}',
+                '{"NAME": "DRPW", "CVE": "CVE-2022-21166", "VULNERABLE": true, "INFOS": "Your kernel supports mitigation, but your CPU microcode also needs to be updated to mitigate the vulnerability"}',
+            }
 
         # There is a SRSO / INCEPTION (CVE-2023-20569) exception reported on AMD_MILAN and
         # AMD_GENOA when spectre-meltdown-checker.sh script is run inside the guest
