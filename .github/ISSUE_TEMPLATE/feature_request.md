@@ -1,6 +1,10 @@
-______________________________________________________________________
-
-## name: Feature request about: Suggest an idea for this project title: '[Feature Request] Title' labels: '' assignees: ''
+---
+name: Feature request
+about: Suggest an idea for this project
+title: '[Feature Request] Title'
+labels: ''
+assignees: ''
+---
 
 # Feature Request
 
