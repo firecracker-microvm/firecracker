@@ -852,6 +852,7 @@ mod tests {
       "path_on_host": "{}",
       "rate_limiter": null,
       "io_engine": "Sync",
+      "blk_size": 512,
       "socket": null
     }}
   ],

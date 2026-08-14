@@ -14,6 +14,7 @@
       "path_on_host": "bionic.rootfs.ext4",
       "io_engine": "Sync",
       "rate_limiter": null,
+      "blk_size": 512,
       "socket": null
     }
   ],

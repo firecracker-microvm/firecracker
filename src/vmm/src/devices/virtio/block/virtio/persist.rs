@@ -60,6 +60,7 @@ pub struct VirtioBlockState {
     pub virtio_state: VirtioDeviceState,
     rate_limiter_state: RateLimiterState,
     file_engine_type: FileEngineTypeState,
+    blk_size: u32,
 }
 
 impl Persist<'_> for VirtioBlock {
@@ -78,6 +79,7 @@ impl Persist<'_> for VirtioBlock {
             virtio_state: VirtioDeviceState::from_device(self),
             rate_limiter_state: self.rate_limiter.save(),
             file_engine_type: FileEngineTypeState::from(self.file_engine_type()),
+            blk_size: self.config_space.blk_size,
         }
     }
 
@@ -112,6 +114,8 @@ impl Persist<'_> for VirtioBlock {
 
         let config_space = ConfigSpace {
             capacity: disk_properties.nsectors.to_le(),
+            blk_size: state.blk_size,
+            ..Default::default()
         };
 
         Ok(VirtioBlock {
@@ -162,6 +166,7 @@ mod tests {
             cache_type: CacheType::Writeback,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            blk_size: None,
         };
 
         let block = VirtioBlock::new(config).unwrap();
@@ -203,6 +208,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            blk_size: None,
         };
 
         let block = VirtioBlock::new(config).unwrap();

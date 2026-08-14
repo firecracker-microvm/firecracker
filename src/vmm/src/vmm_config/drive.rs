@@ -61,6 +61,8 @@ pub struct BlockDeviceConfig {
     // pub file_engine_type: FileEngineType,
     #[serde(rename = "io_engine")]
     pub file_engine_type: Option<FileEngineType>,
+    /// Logical block size.
+    pub blk_size: Option<u32>,
 
     // VhostUserBlock specific fields
     /// Path to the vhost-user socket.
@@ -213,6 +215,7 @@ mod tests {
                 path_on_host: self.path_on_host.clone(),
                 rate_limiter: self.rate_limiter,
                 file_engine_type: self.file_engine_type,
+                blk_size: self.blk_size,
 
                 socket: self.socket.clone(),
             }
@@ -240,6 +243,7 @@ mod tests {
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
 
             socket: None,
         };
@@ -274,6 +278,7 @@ mod tests {
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
 
             socket: None,
         };
@@ -306,6 +311,7 @@ mod tests {
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
 
             socket: None,
         };
@@ -335,6 +341,7 @@ mod tests {
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
 
             socket: None,
         };
@@ -351,6 +358,7 @@ mod tests {
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
 
             socket: None,
         };
@@ -378,6 +386,7 @@ mod tests {
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
 
             socket: None,
         };
@@ -394,6 +403,7 @@ mod tests {
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
 
             socket: None,
         };
@@ -410,6 +420,7 @@ mod tests {
             path_on_host: Some(dummy_path_3),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
 
             socket: None,
         };
@@ -451,6 +462,7 @@ mod tests {
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
 
             socket: None,
         };
@@ -467,6 +479,7 @@ mod tests {
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
 
             socket: None,
         };
@@ -483,6 +496,7 @@ mod tests {
             path_on_host: Some(dummy_path_3),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
 
             socket: None,
         };
@@ -525,6 +539,7 @@ mod tests {
             path_on_host: Some(dummy_path_1.clone()),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
 
             socket: None,
         };
@@ -541,6 +556,7 @@ mod tests {
             path_on_host: Some(dummy_path_2.clone()),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
 
             socket: None,
         };
@@ -613,6 +629,7 @@ mod tests {
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
 
             socket: None,
         };
@@ -629,6 +646,7 @@ mod tests {
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
 
             socket: None,
         };
@@ -655,6 +673,7 @@ mod tests {
             path_on_host: Some(dummy_file.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
+            blk_size: None,
 
             socket: None,
         };
@@ -685,6 +704,7 @@ mod tests {
             path_on_host: Some(backing_file.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
 
             socket: None,
         };
