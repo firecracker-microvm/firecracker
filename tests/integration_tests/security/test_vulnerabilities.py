@@ -92,38 +92,47 @@ class SpectreMeltdownChecker:
     def expected_vulnerabilities(self, cpu_template_name, guest_kernel_version=None):
         """Return the checker findings expected for the guest configuration."""
 
-        # There is a SRSO / INCEPTION (CVE-2023-20569) exception reported on AMD_MILAN and
-        # AMD_GENOA when spectre-meltdown-checker.sh script is run inside the guest
-        # in the following tests:
-        #     test_spectre_meltdown_checker_on_guest and
-        #     test_check_vulnerability_files_ab
-        # On kernels >= 6.7, when SRSO safe RET is active but IBPB_BRTYPE CPU flag is
-        # absent, the kernel reports "Vulnerable: Safe RET, no microcode" instead
-        # of the previous "Mitigation: safe RET, no microcode". The checker treats
-        # any status starting with "Vulnerable" as a vulnerability.
-        # This affects guests running on host kernels < 6.7, because KVM did not
-        # synthesize the IBPB_BRTYPE flag for guests prior to v6.7.
+        # SRSO / INCEPTION false positive (CVE-2023-20569)
+        #
+        # Affected configuration:
+        # - AMD Milan or Genoa
+        # - No CPU template
+        # - Host kernel older than v6.7
+        #
+        # Root cause:
+        # CPUID.80000021H:EAX[28] (IBPB_BRTYPE) indicates that IBPB flushes all branch type
+        # predictions. The Milan and Genoa hosts in the test fleet have the required microcode.
+        # The extended IBPB behavior also applies to IBPB commands executed inside guests.
+        #
+        # Before v6.7, KVM did not advertise IBPB_BRTYPE to guests. The guest kernel therefore
+        # reports that the required microcode is missing even though IBPB performs the required
+        # flush, making this finding a false positive.
         # https://github.com/torvalds/linux/commit/6f0f23ef76be
-        # https://github.com/amazonlinux/linux/blob/65171e3dd9bd18f97f48f94d8dd0f50c82eb45d1/arch/x86/kvm/cpuid.c#L1226
-        # With a CPU template (e.g. T2A), the overridden guest-visible FMS is not
-        # classified as affected by SRSO, so the checker does not flag it.
-        # Guest kernels < 6.7 report the same condition as "Mitigation: safe RET,
-        # no microcode" in sysfs (reporting fixed in v6.7,
-        # https://github.com/torvalds/linux/commit/dc6306ad5b0d), which the checker
-        # overrides, appending an explanation to the INFOS:
+        #
+        # Guest reporting:
+        # - Guest kernels >= v6.7 report: "Vulnerable: Safe RET, no microcode".
+        # - Guest kernels < v6.7 incorrectly report: "Mitigation: safe RET, no microcode".
+        # https://github.com/torvalds/linux/commit/dc6306ad5b0d
+        #
+        # For older guest kernels, spectre-meltdown-checker treats "Mitigation: Safe RET, no
+        # microcode" as vulnerable to match the corrected reporting in newer kernels, and appends
+        # an explanation to INFOS.
         # https://github.com/speed47/spectre-meltdown-checker/blob/03cc4ffeb1dca9bb8d89f8096dc45015530d3214/spectre-meltdown-checker.sh#L11044-L11052
+        #
+        # T2A is excluded because its guest-visible FMS is not classified
+        # as affected by SRSO.
         if (
             global_props.cpu_codename in ["AMD_MILAN", "AMD_GENOA"]
             and cpu_template_name == "None"
             and guest_kernel_version
             and global_props.host_linux_version_tpl < (6, 7)
         ):
-            if guest_kernel_version >= (6, 7):
-                return {
-                    '{"NAME": "INCEPTION", "CVE": "CVE-2023-20569", "VULNERABLE": true, "INFOS": "Vulnerable: Safe RET, no microcode"}'
-                }
+            infos_suffix = ""
+            if guest_kernel_version < (6, 7):
+                infos_suffix = " (your kernel incorrectly reports this as mitigated, it was fixed in more recent kernels)"
+
             return {
-                '{"NAME": "INCEPTION", "CVE": "CVE-2023-20569", "VULNERABLE": true, "INFOS": "Vulnerable: Safe RET, no microcode (your kernel incorrectly reports this as mitigated, it was fixed in more recent kernels)"}'
+                f'{{"NAME": "INCEPTION", "CVE": "CVE-2023-20569", "VULNERABLE": true, "INFOS": "Vulnerable: Safe RET, no microcode{infos_suffix}"}}'
             }
 
         # ARM SSBS NOSYNC (erratum 3194386): the CI guest kernels disable the
@@ -205,7 +214,6 @@ def get_vuln_files_exception_dict(template, guest_kernel_version=None):
     # https://github.com/amazonlinux/linux/blob/65171e3dd9bd18f97f48f94d8dd0f50c82eb45d1/kernel/cpu.c#L3192
     # Therefore, we accept any BHI status only if the overall spectre_v2 status
     # starts with "Mitigation:" and no other component reports "Vulnerable".
-
     if (
         global_props.cpu_codename.startswith("INTEL")
         and guest_kernel_version
@@ -213,15 +221,9 @@ def get_vuln_files_exception_dict(template, guest_kernel_version=None):
     ):
         exception_dict["spectre_v2"] = r"^Mitigation:(?!.*(?<!BHI: )Vulnerable).*$"
 
-    # On kernels >= 6.7, when SRSO safe RET is active but IBPB_BRTYPE CPU flag is
-    # absent, the kernel reports "Vulnerable: Safe RET, no microcode" instead
-    # of the previous "Mitigation: safe RET, no microcode". The checker treats
-    # any status starting with "Vulnerable" as a vulnerability.
-    # This only affects guest kernels >= 6.7 running on host kernels < 6.7,
-    # because KVM did not synthesize the IBPB_BRTYPE flag for guests prior to v6.7.
-    # https://github.com/torvalds/linux/commit/6f0f23ef76be
-    # https://github.com/amazonlinux/linux/blob/65171e3dd9bd18f97f48f94d8dd0f50c82eb45d1/arch/x86/kvm/cpuid.c#L1226
-
+    # See SpectreMeltdownChecker.expected_vulnerabilities() for the cause of this SRSO false
+    # positive. Guest kernels >= v6.7 report it as vulnerable in sysfs, so accept the expected
+    # status here.
     if (
         global_props.cpu_codename in ["AMD_MILAN", "AMD_GENOA"]
         and template == "None"
