@@ -89,7 +89,7 @@ class SpectreMeltdownChecker:
         return self._parse_output(res.stdout)
 
     # pylint: disable=too-many-return-statements
-    def expected_vulnerabilities(self, cpu_template_name, guest_kernel_version=None):
+    def expected_vulnerabilities(self, cpu_template_name, guest_kernel_version):
         """Return the checker findings expected for the guest configuration."""
 
         # SRSO / INCEPTION false positive (CVE-2023-20569)
@@ -124,7 +124,6 @@ class SpectreMeltdownChecker:
         if (
             global_props.cpu_codename in ["AMD_MILAN", "AMD_GENOA"]
             and cpu_template_name == "None"
-            and guest_kernel_version
             and global_props.host_linux_version_tpl < (6, 7)
         ):
             infos_suffix = ""
@@ -193,7 +192,7 @@ def test_vulnerabilities_on_host():
     assert res.returncode == 1, res.stdout
 
 
-def get_vuln_files_exception_dict(template, guest_kernel_version=None):
+def get_vuln_files_exception_dict(template, guest_kernel_version):
     """
     Returns a dictionary of expected values for vulnerability files requiring special treatment.
     """
@@ -214,11 +213,7 @@ def get_vuln_files_exception_dict(template, guest_kernel_version=None):
     # https://github.com/amazonlinux/linux/blob/65171e3dd9bd18f97f48f94d8dd0f50c82eb45d1/kernel/cpu.c#L3192
     # Therefore, we accept any BHI status only if the overall spectre_v2 status
     # starts with "Mitigation:" and no other component reports "Vulnerable".
-    if (
-        global_props.cpu_codename.startswith("INTEL")
-        and guest_kernel_version
-        and guest_kernel_version >= (6, 18)
-    ):
+    if global_props.cpu_vendor == "intel" and guest_kernel_version >= (6, 18):
         exception_dict["spectre_v2"] = r"^Mitigation:(?!.*(?<!BHI: )Vulnerable).*$"
 
     # See SpectreMeltdownChecker.expected_vulnerabilities() for the cause of this SRSO false
@@ -227,7 +222,6 @@ def get_vuln_files_exception_dict(template, guest_kernel_version=None):
     if (
         global_props.cpu_codename in ["AMD_MILAN", "AMD_GENOA"]
         and template == "None"
-        and guest_kernel_version
         and guest_kernel_version >= (6, 7)
         and global_props.host_linux_version_tpl < (6, 7)
     ):
