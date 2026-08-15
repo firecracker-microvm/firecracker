@@ -7,7 +7,6 @@
 """Tests vulnerabilities mitigations."""
 
 import json
-import re
 from pathlib import Path
 
 import pytest
@@ -214,7 +213,20 @@ def get_vuln_files_exception_dict(template, guest_kernel_version):
     # Therefore, we accept any BHI status only if the overall spectre_v2 status
     # starts with "Mitigation:" and no other component reports "Vulnerable".
     if global_props.cpu_vendor == "intel" and guest_kernel_version >= (6, 18):
-        exception_dict["spectre_v2"] = r"^Mitigation:(?!.*(?<!BHI: )Vulnerable).*$"
+        exception_dict["spectre_v2"] = {
+            "is_expected": lambda status: (
+                status.startswith("Mitigation:")
+                and all(
+                    "Vulnerable" not in component
+                    or component.strip() == "BHI: Vulnerable"
+                    for component in status.split(";")
+                )
+            ),
+            "expected": (
+                'a status starting with "Mitigation:" and no vulnerable '
+                'component other than "BHI: Vulnerable"'
+            ),
+        }
 
     # See SpectreMeltdownChecker.expected_vulnerabilities() for the cause of this SRSO false
     # positive. Guest kernels >= v6.7 report it as vulnerable in sysfs, so accept the expected
@@ -225,7 +237,12 @@ def get_vuln_files_exception_dict(template, guest_kernel_version):
         and guest_kernel_version >= (6, 7)
         and global_props.host_linux_version_tpl < (6, 7)
     ):
-        exception_dict["spec_rstack_overflow"] = r"^Vulnerable: Safe RET, no microcode"
+        exception_dict["spec_rstack_overflow"] = {
+            "is_expected": lambda status: status.startswith(
+                "Vulnerable: Safe RET, no microcode"
+            ),
+            "expected": 'a status starting with "Vulnerable: Safe RET, no microcode"',
+        }
 
     return exception_dict
 
@@ -252,10 +269,12 @@ def check_vulnerabilities_files_on_guest(microvm):
         filename = Path(vuln_file).name
         if filename in exceptions:
             _, stdout, _ = microvm.ssh.check_output(f"cat {vuln_file}")
-            assert re.search(exceptions[filename], stdout), (
-                f"{vuln_file}: content '{stdout.strip()}' does not match "
-                f"expected pattern r'{exceptions[filename]}'"
+            exception = exceptions[filename]
+            status = stdout.strip()
+            failure_message = (
+                f"{vuln_file}: expected {exception['expected']}, got {status!r}"
             )
+            assert exception["is_expected"](status), failure_message
         else:
             cmd = f"grep Vulnerable {vuln_file}"
             _ecode, stdout, _stderr = microvm.ssh.run(cmd)
