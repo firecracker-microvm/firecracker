@@ -92,22 +92,6 @@ class SpectreMeltdownChecker:
     def expected_vulnerabilities(self, cpu_template_name, guest_kernel_version=None):
         """Return the checker findings expected for the guest configuration."""
 
-        # With the T2S template, guests present a Skylake CPU whose masked-off
-        # FLUSH_L1D bit routes them into the MMIO Stale Data microcode-needed
-        # branch (SBDR/SBDS/DRPW). FLUSH_L1D is passed through to guests since
-        # kernel v6.4, so this only fires on older host kernels.
-        # https://github.com/torvalds/linux/commit/da3db168fb671f15e393b227f5c312c698ecb6ea
-        if (
-            global_props.cpu_codename == "INTEL_CASCADELAKE"
-            and cpu_template_name == "T2S"
-            and global_props.host_linux_version_tpl < (6, 4)
-        ):
-            return {
-                '{"NAME": "SBDR", "CVE": "CVE-2022-21123", "VULNERABLE": true, "INFOS": "Your kernel supports mitigation, but your CPU microcode also needs to be updated to mitigate the vulnerability"}',
-                '{"NAME": "SBDS", "CVE": "CVE-2022-21125", "VULNERABLE": true, "INFOS": "Your kernel supports mitigation, but your CPU microcode also needs to be updated to mitigate the vulnerability"}',
-                '{"NAME": "DRPW", "CVE": "CVE-2022-21166", "VULNERABLE": true, "INFOS": "Your kernel supports mitigation, but your CPU microcode also needs to be updated to mitigate the vulnerability"}',
-            }
-
         # There is a SRSO / INCEPTION (CVE-2023-20569) exception reported on AMD_MILAN and
         # AMD_GENOA when spectre-meltdown-checker.sh script is run inside the guest
         # in the following tests:
@@ -205,30 +189,6 @@ def get_vuln_files_exception_dict(template, guest_kernel_version=None):
     Returns a dictionary of expected values for vulnerability files requiring special treatment.
     """
     exception_dict = {}
-
-    # Exception for mmio_stale_data
-    # =============================
-    #
-    # Guests with T2S template
-    # --------------------------------------------
-    # Whether mmio_stale_data is marked as "Vulnerable" or not is determined by the code here.
-    # https://elixir.bootlin.com/linux/v6.1.46/source/arch/x86/kernel/cpu/bugs.c#L431
-    # Virtualization of FLUSH_L1D has been available and CPUID.(EAX=0x7,ECX=0):EDX[28 (FLUSH_L1D)]
-    # has been passed through to guests only since kernel v6.4.
-    # https://github.com/torvalds/linux/commit/da3db168fb671f15e393b227f5c312c698ecb6ea
-    # Thus, since the FLUSH_L1D bit is masked off prior to kernel v6.4, guests with
-    # IA32_ARCH_CAPABILITIES.FB_CLEAR (bit 17) = 0 (like guests with T2S template which presents
-    # an Intel Skylake CPU) fall into the MMIO_MITIGATION_UCODE_NEEDED branch, marking the
-    # system as vulnerable to MMIO Stale Data.
-    # The value is "Vulnerable: Clear CPU buffers attempted, no microcode" on guests on Intel
-    # Skylake and guests with T2S template but "Mitigation: Clear CPU buffers; SMT Host state
-    # unknown" on kernel v6.4 or later.
-    # In any case, the kernel attempts to clear CPU buffers using VERW instruction and it
-    # is safe to ingore the "Vulnerable" message if the host has the microcode update applied
-    # correctly. Here we expect the common string "Clear CPU buffers" to cover both cases.
-
-    if template == "T2S":
-        exception_dict["mmio_stale_data"] = r"Clear CPU buffers"
 
     # Exception for spectre_v2 (BHI)
     # ==============================
