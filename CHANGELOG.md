@@ -33,6 +33,12 @@ and this project adheres to
 
 ### Changed
 
+- [#6115](https://github.com/firecracker-microvm/firecracker/pull/6115): Changed
+  the T2S CPU template to set the `FB_CLEAR` bit of `MSR_IA32_ARCH_CAPABILITIES`
+  to 1. This lets guest kernels recognize that the `VERW` instruction clears
+  fill buffers, including on host kernels before v6.4 that cannot expose
+  `FLUSH_L1D`.
+
 ### Deprecated
 
 ### Removed
