@@ -77,7 +77,11 @@ Intel Cascade Lake securely by further restricting CPU features for the guest,
 however this comes with a performance penalty. Users are encouraged to carry out
 a performance assessment if they wish to use the T2S template. Note that
 Firecracker expects the host to always be running the latest version of the
-microcode.
+microcode. When this requirement is met, the VERW instruction clears fill
+buffers on both Intel Skylake and Intel Cascade Lake. The T2S template therefore
+sets the FB_CLEAR bit in IA32_ARCH_CAPABILITIES so that guests can discover this
+behavior regardless of the host kernel version. If the requirement is not met,
+guests may observe FB_CLEAR even though VERW does not clear fill buffers.
 
 The T2CL template is mapped to be close to Intel Cascade Lake. It is only safe
 to use it on Intel Cascade Lake and Ice Lake.
