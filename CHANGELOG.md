@@ -39,6 +39,12 @@ and this project adheres to
 
 ### Fixed
 
+- [#6116](https://github.com/firecracker-microvm/firecracker/pull/6116): On
+  aarch64, enable `KVM_CAP_ARM_WRITABLE_IMP_ID_REGS` before vCPU creation when
+  the host kernel offers it (Linux 6.15 and later). Custom CPU templates that
+  modify the implementation ID registers (`MIDR_EL1`, `REVIDR_EL1`, `AIDR_EL1`)
+  previously failed at boot with `Failed to set register ... Invalid argument`
+  because KVM rejects such writes unless the capability is enabled on the VM.
 - [#6100](https://github.com/firecracker-microvm/firecracker/pull/6100): Fixed
   the vsock device permanently suppressing RX (host-to-guest) delivery after a
   bare pause/resume cycle (`PATCH /vm` with `Paused` then `Resumed`, without a
