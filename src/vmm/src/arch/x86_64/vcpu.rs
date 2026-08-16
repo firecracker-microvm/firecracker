@@ -117,7 +117,7 @@ pub struct GetTscError(vmm_sys_util::errno::Error);
 #[error("{0}")]
 pub struct SetTscError(#[from] kvm_ioctls::Error);
 
-/// Error type for [`KvmVcpu::configure`].
+/// Errors associated with configuring an x86_64 vCPU.
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum KvmVcpuConfigureError {
     /// Failed to convert `Cpuid` to `kvm_bindings::CpuId`: {0}
@@ -195,38 +195,60 @@ impl KvmVcpu {
     /// * `kernel_entry_point` - Specifies the boot protocol and offset from `guest_mem` at which
     ///   the kernel starts.
     /// * `vcpu_config` - The vCPU configuration.
-    /// * `cpuid` - The capabilities exposed by this vCPU.
     pub fn configure(
         &mut self,
         guest_mem: &GuestMemoryMmap,
         kernel_entry_point: EntryPoint,
         vcpu_config: &VcpuConfig,
     ) -> Result<(), KvmVcpuConfigureError> {
-        let mut cpuid = vcpu_config.cpu_config.cpuid.clone();
+        let kvm_cpuid = self.configure_cpuid(
+            &vcpu_config.cpu_config.cpuid,
+            vcpu_config.vcpu_count,
+            vcpu_config.smt,
+        )?;
+        self.configure_msrs_for_boot(&vcpu_config.cpu_config.msrs, &kvm_cpuid)?;
+        self.configure_boot_state(guest_mem, kernel_entry_point)
+    }
 
-        // Apply machine specific changes to CPUID.
+    /// Normalizes and configures CPUID for this vCPU.
+    ///
+    /// Returns the KVM CPUID representation installed on the vCPU.
+    pub(super) fn configure_cpuid(
+        &self,
+        cpuid: &cpuid::Cpuid,
+        vcpu_count: u8,
+        smt: bool,
+    ) -> Result<CpuId, KvmVcpuConfigureError> {
+        let mut cpuid = cpuid.clone();
+
         cpuid.normalize(
             // The index of the current logical CPU in the range [0..cpu_count].
             self.index,
             // The total number of logical CPUs.
-            vcpu_config.vcpu_count,
+            vcpu_count,
             // The number of bits needed to enumerate logical CPUs per core.
-            u8::from(vcpu_config.vcpu_count > 1 && vcpu_config.smt),
+            u8::from(vcpu_count > 1 && smt),
         )?;
 
-        // Set CPUID.
-        let kvm_cpuid = kvm_bindings::CpuId::try_from(cpuid)?;
-
-        // Set CPUID in the KVM
+        let kvm_cpuid = CpuId::try_from(cpuid)?;
         self.fd
             .set_cpuid2(&kvm_cpuid)
             .map_err(KvmVcpuConfigureError::SetCpuid)?;
 
-        // Clone MSR entries that are modified by CPU template from `VcpuConfig`.
-        let mut msrs = vcpu_config.cpu_config.msrs.clone();
+        Ok(kvm_cpuid)
+    }
+
+    /// Configures CPU template and Linux boot MSRs for this vCPU.
+    ///
+    /// `configured_cpuid` must be the CPUID installed on this vCPU.
+    pub(super) fn configure_msrs_for_boot(
+        &mut self,
+        msrs: &BTreeMap<u32, u64>,
+        configured_cpuid: &CpuId,
+    ) -> Result<(), KvmVcpuConfigureError> {
+        let mut msrs = msrs.clone();
         self.msrs_to_save.extend(msrs.keys());
 
-        // Apply MSR modification to comply the linux boot protocol.
         create_boot_msr_entries().into_iter().for_each(|entry| {
             msrs.insert(entry.index, entry.data);
         });
@@ -239,15 +261,15 @@ impl KvmVcpu {
         // value when we restore the microVM since the Guest may need that value.
         // Since CPUID tells us what features are enabled for the Guest, we can infer
         // the extra MSRs that we need to save based on a dependency map.
-        let extra_msrs = cpuid::common::msrs_to_save_by_cpuid(&kvm_cpuid);
-        self.msrs_to_save.extend(extra_msrs);
-
         // NOTE: Some MSRs depend on values of other MSRs. This dependency will need to
         // be implemented.
 
         // By this point we know that at snapshot, the list of MSRs we need to
         // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
         // MSRs defined by the template`
+
+        let extra_msrs = cpuid::common::msrs_to_save_by_cpuid(configured_cpuid);
+        self.msrs_to_save.extend(extra_msrs);
 
         let kvm_msrs = msrs
             .into_iter()
@@ -259,6 +281,15 @@ impl KvmVcpu {
             .collect::<Vec<_>>();
 
         crate::arch::x86_64::msr::set_msrs(&self.fd, &kvm_msrs)?;
+        Ok(())
+    }
+
+    /// Configures the remaining Linux boot state for this vCPU.
+    pub(super) fn configure_boot_state(
+        &self,
+        guest_mem: &GuestMemoryMmap,
+        kernel_entry_point: EntryPoint,
+    ) -> Result<(), KvmVcpuConfigureError> {
         crate::arch::x86_64::regs::setup_regs(&self.fd, kernel_entry_point)?;
         crate::arch::x86_64::regs::setup_fpu(&self.fd)?;
         crate::arch::x86_64::regs::setup_sregs(guest_mem, &self.fd, kernel_entry_point.protocol)?;
