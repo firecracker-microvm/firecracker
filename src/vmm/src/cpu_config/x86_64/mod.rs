@@ -12,11 +12,8 @@ pub mod test_utils;
 
 use std::collections::BTreeMap;
 
-use kvm_bindings::CpuId;
-
 use self::custom_cpu_template::CpuidRegister;
 use super::templates::CustomCpuTemplate;
-use crate::Vcpu;
 use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidKey};
 
 /// Errors thrown while configuring templates.
@@ -92,32 +89,6 @@ pub(crate) fn apply_template_to_msrs(
     }
 
     Ok(msrs)
-}
-
-impl CpuConfiguration {
-    /// Create new CpuConfiguration.
-    pub fn new(
-        supported_cpuid: CpuId,
-        cpu_template: &CustomCpuTemplate,
-        first_vcpu: &Vcpu,
-    ) -> Result<Self, CpuConfigurationError> {
-        let cpuid = cpuid::Cpuid::try_from(supported_cpuid)?;
-        let msrs = first_vcpu
-            .kvm_vcpu
-            .get_msrs(cpu_template.msr_index_iter())?;
-        Ok(CpuConfiguration { cpuid, msrs })
-    }
-
-    /// Modifies provided config with changes from template
-    pub fn apply_template(
-        self,
-        template: &CustomCpuTemplate,
-    ) -> Result<Self, CpuConfigurationError> {
-        let cpuid = apply_template_to_cpuid(self.cpuid, template)?;
-        let msrs = apply_template_to_msrs(self.msrs, template)?;
-
-        Ok(Self { cpuid, msrs })
-    }
 }
 
 #[cfg(test)]
@@ -202,56 +173,24 @@ mod tests {
         BTreeMap::from([(0x8000, 0b1000), (0x9999, 0b1010)])
     }
 
-    fn empty_cpu_config() -> CpuConfiguration {
-        CpuConfiguration {
-            cpuid: Cpuid::Intel(IntelCpuid(BTreeMap::new())),
-            msrs: Default::default(),
-        }
-    }
-
-    fn supported_cpu_config() -> CpuConfiguration {
-        CpuConfiguration {
-            cpuid: build_supported_cpuid(),
-            msrs: build_supported_msrs(),
-        }
-    }
-
-    fn unsupported_cpu_config() -> CpuConfiguration {
-        CpuConfiguration {
-            cpuid: build_supported_cpuid(),
-            msrs: BTreeMap::from([(0x8000, 0b1000), (0x8001, 0b1010)]),
-        }
+    fn empty_cpuid() -> Cpuid {
+        Cpuid::Intel(IntelCpuid(BTreeMap::new()))
     }
 
     #[test]
     fn test_empty_template() {
-        let host_configuration = empty_cpu_config();
-        let cpu_config_result = host_configuration
-            .clone()
-            .apply_template(&CustomCpuTemplate::default());
-        assert!(
-            cpu_config_result.is_ok(),
-            "{}",
-            cpu_config_result.unwrap_err()
-        );
-        // CPUID will be comparable, but not MSRs.
-        // The configuration will be configuration required by the template,
-        // not a holistic view of all registers.
-        assert_eq!(cpu_config_result.unwrap().cpuid, host_configuration.cpuid);
-    }
+        let template = CustomCpuTemplate::default();
+        let cpuid = build_supported_cpuid();
+        let msrs = build_supported_msrs();
 
-    #[test]
-    fn test_apply_template() {
-        let host_configuration = supported_cpu_config();
-        let cpu_config_result = host_configuration
-            .clone()
-            .apply_template(&build_test_template());
-        assert!(
-            cpu_config_result.is_ok(),
-            "{}",
-            cpu_config_result.unwrap_err()
+        assert_eq!(
+            apply_template_to_cpuid(cpuid.clone(), &template).unwrap(),
+            cpuid
         );
-        assert_ne!(cpu_config_result.unwrap(), host_configuration);
+        assert_eq!(
+            apply_template_to_msrs(msrs.clone(), &template).unwrap(),
+            msrs
+        );
     }
 
     #[test]
@@ -276,7 +215,7 @@ mod tests {
 
         // Verify that an unsupported CPUID leaf is rejected.
         assert_eq!(
-            apply_template_to_cpuid(empty_cpu_config().cpuid, &template).unwrap_err(),
+            apply_template_to_cpuid(empty_cpuid(), &template).unwrap_err(),
             CpuConfigurationError::CpuidFeatureNotSupported(0x3, 0x0)
         );
     }
@@ -296,41 +235,5 @@ mod tests {
             apply_template_to_msrs(BTreeMap::new(), &template).unwrap_err(),
             CpuConfigurationError::MsrNotSupported(0x9999)
         );
-    }
-
-    /// Invalid test in this context is when the template
-    /// has modifiers for registers that are not supported.
-    #[test]
-    fn test_invalid_template() {
-        // Test CPUID validation
-        let host_configuration = empty_cpu_config();
-        let guest_template = build_test_template();
-        let cpu_config_result = host_configuration.apply_template(&guest_template);
-        assert!(
-            cpu_config_result.is_err(),
-            "Expected an error as template should have failed to modify a CPUID entry that is not \
-             supported by host configuration",
-        );
-        assert_eq!(
-            cpu_config_result.unwrap_err(),
-            CpuConfigurationError::CpuidFeatureNotSupported(
-                guest_template.cpuid_modifiers[0].leaf,
-                guest_template.cpuid_modifiers[0].subleaf
-            )
-        );
-
-        // Test MSR validation
-        let host_configuration = unsupported_cpu_config();
-        let guest_template = build_test_template();
-        let cpu_config_result = host_configuration.apply_template(&guest_template);
-        assert!(
-            cpu_config_result.is_err(),
-            "Expected an error as template should have failed to modify an MSR value that is not \
-             supported by host configuration",
-        );
-        assert_eq!(
-            cpu_config_result.unwrap_err(),
-            CpuConfigurationError::MsrNotSupported(guest_template.msr_modifiers[0].addr)
-        )
     }
 }
