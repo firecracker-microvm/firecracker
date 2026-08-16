@@ -43,6 +43,57 @@ pub struct CpuConfiguration {
     pub msrs: BTreeMap<u32, u64>,
 }
 
+/// Applies the CPUID modifiers from a CPU template.
+pub(crate) fn apply_template_to_cpuid(
+    mut cpuid: Cpuid,
+    template: &CustomCpuTemplate,
+) -> Result<Cpuid, CpuConfigurationError> {
+    let guest_cpuid = cpuid.inner_mut();
+
+    for mod_leaf in &template.cpuid_modifiers {
+        let cpuid_key = CpuidKey {
+            leaf: mod_leaf.leaf,
+            subleaf: mod_leaf.subleaf,
+        };
+        if let Some(entry) = guest_cpuid.get_mut(&cpuid_key) {
+            entry.flags = mod_leaf.flags;
+
+            // Can we modify one reg multiple times????
+            for mod_reg in &mod_leaf.modifiers {
+                match mod_reg.register {
+                    CpuidRegister::Eax => entry.result.eax = mod_reg.bitmap.apply(entry.result.eax),
+                    CpuidRegister::Ebx => entry.result.ebx = mod_reg.bitmap.apply(entry.result.ebx),
+                    CpuidRegister::Ecx => entry.result.ecx = mod_reg.bitmap.apply(entry.result.ecx),
+                    CpuidRegister::Edx => entry.result.edx = mod_reg.bitmap.apply(entry.result.edx),
+                }
+            }
+        } else {
+            return Err(CpuConfigurationError::CpuidFeatureNotSupported(
+                cpuid_key.leaf,
+                cpuid_key.subleaf,
+            ));
+        }
+    }
+
+    Ok(cpuid)
+}
+
+/// Applies the MSR modifiers from a CPU template.
+pub(crate) fn apply_template_to_msrs(
+    mut msrs: BTreeMap<u32, u64>,
+    template: &CustomCpuTemplate,
+) -> Result<BTreeMap<u32, u64>, CpuConfigurationError> {
+    for modifier in &template.msr_modifiers {
+        if let Some(reg_value) = msrs.get_mut(&modifier.addr) {
+            *reg_value = modifier.bitmap.apply(*reg_value);
+        } else {
+            return Err(CpuConfigurationError::MsrNotSupported(modifier.addr));
+        }
+    }
+
+    Ok(msrs)
+}
+
 impl CpuConfiguration {
     /// Create new CpuConfiguration.
     pub fn new(
@@ -62,54 +113,8 @@ impl CpuConfiguration {
         self,
         template: &CustomCpuTemplate,
     ) -> Result<Self, CpuConfigurationError> {
-        let Self {
-            mut cpuid,
-            mut msrs,
-        } = self;
-
-        let guest_cpuid = cpuid.inner_mut();
-
-        // Apply CPUID modifiers
-        for mod_leaf in template.cpuid_modifiers.iter() {
-            let cpuid_key = CpuidKey {
-                leaf: mod_leaf.leaf,
-                subleaf: mod_leaf.subleaf,
-            };
-            if let Some(entry) = guest_cpuid.get_mut(&cpuid_key) {
-                entry.flags = mod_leaf.flags;
-
-                // Can we modify one reg multiple times????
-                for mod_reg in &mod_leaf.modifiers {
-                    match mod_reg.register {
-                        CpuidRegister::Eax => {
-                            entry.result.eax = mod_reg.bitmap.apply(entry.result.eax)
-                        }
-                        CpuidRegister::Ebx => {
-                            entry.result.ebx = mod_reg.bitmap.apply(entry.result.ebx)
-                        }
-                        CpuidRegister::Ecx => {
-                            entry.result.ecx = mod_reg.bitmap.apply(entry.result.ecx)
-                        }
-                        CpuidRegister::Edx => {
-                            entry.result.edx = mod_reg.bitmap.apply(entry.result.edx)
-                        }
-                    }
-                }
-            } else {
-                return Err(CpuConfigurationError::CpuidFeatureNotSupported(
-                    cpuid_key.leaf,
-                    cpuid_key.subleaf,
-                ));
-            }
-        }
-
-        for modifier in &template.msr_modifiers {
-            if let Some(reg_value) = msrs.get_mut(&modifier.addr) {
-                *reg_value = modifier.bitmap.apply(*reg_value);
-            } else {
-                return Err(CpuConfigurationError::MsrNotSupported(modifier.addr));
-            }
-        }
+        let cpuid = apply_template_to_cpuid(self.cpuid, template)?;
+        let msrs = apply_template_to_msrs(self.msrs, template)?;
 
         Ok(Self { cpuid, msrs })
     }
@@ -174,8 +179,8 @@ mod tests {
                 RegisterModifier {
                     addr: 0x8000,
                     bitmap: RegisterValueFilter {
-                        filter: 0,
-                        value: 0,
+                        filter: 0b0111,
+                        value: 0b0101,
                     },
                 },
             ],
@@ -193,6 +198,10 @@ mod tests {
         )])))
     }
 
+    fn build_supported_msrs() -> BTreeMap<u32, u64> {
+        BTreeMap::from([(0x8000, 0b1000), (0x9999, 0b1010)])
+    }
+
     fn empty_cpu_config() -> CpuConfiguration {
         CpuConfiguration {
             cpuid: Cpuid::Intel(IntelCpuid(BTreeMap::new())),
@@ -203,7 +212,7 @@ mod tests {
     fn supported_cpu_config() -> CpuConfiguration {
         CpuConfiguration {
             cpuid: build_supported_cpuid(),
-            msrs: BTreeMap::from([(0x8000, 0b1000), (0x9999, 0b1010)]),
+            msrs: build_supported_msrs(),
         }
     }
 
@@ -243,6 +252,50 @@ mod tests {
             cpu_config_result.unwrap_err()
         );
         assert_ne!(cpu_config_result.unwrap(), host_configuration);
+    }
+
+    #[test]
+    fn test_apply_template_to_cpuid() {
+        let template = build_test_template();
+
+        // Verify that modifiers are applied to a supported CPUID leaf.
+        let cpuid = apply_template_to_cpuid(build_supported_cpuid(), &template).unwrap();
+        let entry = cpuid
+            .inner()
+            .get(&CpuidKey {
+                leaf: 0x3,
+                subleaf: 0x0,
+            })
+            .unwrap();
+
+        assert_eq!(entry.flags, KvmCpuidFlags(KVM_CPUID_FLAG_STATEFUL_FUNC));
+        assert_eq!(entry.result.eax, 0b0101);
+        assert_eq!(entry.result.ebx, 0b0100);
+        assert_eq!(entry.result.ecx, 0b0111);
+        assert_eq!(entry.result.edx, 0b0001);
+
+        // Verify that an unsupported CPUID leaf is rejected.
+        assert_eq!(
+            apply_template_to_cpuid(empty_cpu_config().cpuid, &template).unwrap_err(),
+            CpuConfigurationError::CpuidFeatureNotSupported(0x3, 0x0)
+        );
+    }
+
+    #[test]
+    fn test_apply_template_to_msrs() {
+        let template = build_test_template();
+
+        // Verify that modifiers are applied to a supported MSR.
+        assert_eq!(
+            apply_template_to_msrs(build_supported_msrs(), &template).unwrap(),
+            BTreeMap::from([(0x8000, 0b1101), (0x9999, 0b1010)])
+        );
+
+        // Verify that an unsupported MSR is rejected.
+        assert_eq!(
+            apply_template_to_msrs(BTreeMap::new(), &template).unwrap_err(),
+            CpuConfigurationError::MsrNotSupported(0x9999)
+        );
     }
 
     /// Invalid test in this context is when the template
