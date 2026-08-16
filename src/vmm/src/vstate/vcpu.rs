@@ -918,19 +918,16 @@ pub(crate) mod tests {
         #[cfg(target_arch = "x86_64")]
         {
             use crate::cpu_config::x86_64::cpuid::Cpuid;
+            let cpuid = Cpuid::try_from(vm.kvm().supported_cpuid.clone()).unwrap();
+            let configured_cpuid = vcpu
+                .kvm_vcpu
+                .configure_cpuid(&cpuid, 1, false)
+                .expect("failed to configure vcpu CPUID");
             vcpu.kvm_vcpu
-                .configure(
-                    vm.guest_memory(),
-                    entry_point,
-                    &VcpuConfig {
-                        vcpu_count: 1,
-                        smt: false,
-                        cpu_config: CpuConfiguration {
-                            cpuid: Cpuid::try_from(vm.kvm().supported_cpuid.clone()).unwrap(),
-                            msrs: BTreeMap::new(),
-                        },
-                    },
-                )
+                .configure_msrs_for_boot(&BTreeMap::new(), &configured_cpuid)
+                .expect("failed to configure vcpu MSRs");
+            vcpu.kvm_vcpu
+                .configure_boot_state(vm.guest_memory(), entry_point)
                 .expect("failed to configure vcpu");
         }
 
