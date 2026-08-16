@@ -79,6 +79,15 @@ and this project adheres to
   now uses an `RwLock`, and `sigpipe_handler` only increments the
   `signals.sigpipe` metric instead of logging, so it no longer emits a
   `Received signal 13, code 0.` line.
+- [#6120](https://github.com/firecracker-microvm/firecracker/pull/6120): Fixed a
+  bug caused by a KVM behavior change introduced in Linux 6.13, which requires
+  guest CPUID to be set before userspace reads CPUID-dependent MSRs. On x86_64
+  with Linux 6.18 host kernels, Firecracker read the base values of those MSRs
+  before setting guest CPUID, so KVM returned zero for such MSRs and CPU
+  templates consequently used zero for bits configured for passthrough.
+  Firecracker now sets guest CPUID before reading MSRs to be modified by CPU
+  templates, so passthrough bits retain their KVM-provided values and features
+  such as eIBRS remain exposed to the guest.
 
 ## [1.16.1]
 
