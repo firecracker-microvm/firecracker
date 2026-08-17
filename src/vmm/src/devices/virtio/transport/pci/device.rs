@@ -15,7 +15,7 @@ use std::sync::{Arc, Barrier, Mutex};
 
 use kvm_ioctls::{IoEventAddress, NoDatamatch};
 use serde::{Deserialize, Serialize};
-use vm_allocator::{AddressAllocator, AllocPolicy};
+use vm_allocator::{AddressAllocator, AllocPolicy, RangeInclusive};
 use vm_memory::{ByteValued, Le32};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
@@ -366,6 +366,20 @@ impl VirtioPciDevice {
             BarPrefetchable::No,
         );
         self.add_pci_capabilities();
+    }
+
+    /// Free the PCI BAR of the VirtIO device.
+    pub fn free_bars(&mut self, mmio64_allocator: &mut AddressAllocator) {
+        let bar_end = self
+            .bar_address
+            .checked_add(CAPABILITY_BAR_SIZE - 1)
+            .expect("virtio-pci BAR end address overflows");
+        let range =
+            RangeInclusive::new(self.bar_address, bar_end).expect("Invalid virtio-pci BAR range");
+        mmio64_allocator
+            .free(&range)
+            .expect("virtio-pci BAR is not allocated");
+        self.bar_address = 0;
     }
 
     /// Constructs a new PCI transport for the given virtio device.
