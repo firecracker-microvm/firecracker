@@ -704,7 +704,9 @@ impl VirtioDevice for VirtioMem {
     fn kick(&mut self) {
         if self.is_activated() {
             info!("kick mem {}.", self.id());
-            self.process_virtio_queues();
+            if let Err(err) = self.process_virtio_queues() {
+                error!("virtio-mem: Failed to process queues: {err}");
+            }
         }
     }
 }

@@ -600,7 +600,9 @@ impl VirtioDevice for Pmem {
     fn kick(&mut self) {
         if self.is_activated() {
             info!("kick pmem {}.", self.config.id);
-            self.handle_queue();
+            if let Err(err) = self.handle_queue() {
+                error!("pmem: Failed to process queue: {err}");
+            }
         }
     }
 }
