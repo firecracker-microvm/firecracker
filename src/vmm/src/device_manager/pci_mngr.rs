@@ -211,6 +211,11 @@ impl PciDevices {
             warn!("Failed to remove event subscriber for device {device_id:?}");
         }
 
+        pci_device_arc
+            .lock()
+            .expect("Poisoned lock")
+            .free_bars(&mut vm.resource_allocator().mmio64_memory);
+
         // Ensure no other references to the device remain, so it is freed when
         // this function returns.
         assert_eq!(Arc::strong_count(&pci_device_arc), 1);
