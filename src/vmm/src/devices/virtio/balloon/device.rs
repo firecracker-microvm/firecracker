@@ -1637,7 +1637,7 @@ pub(crate) mod tests {
         fn new(mem: &'a GuestMemoryMmap) -> Self {
             let mut th = VirtioTestHelper::<Balloon>::new(
                 mem,
-                Balloon::new(0, true, 0, true, false).unwrap(),
+                Balloon::new(0, true, 0, true, true).unwrap(),
             );
             th.activate_device(mem);
 
