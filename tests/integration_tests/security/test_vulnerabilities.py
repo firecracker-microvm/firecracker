@@ -248,8 +248,11 @@ def get_vuln_files_exception_dict(template, guest_kernel_version):
 
 
 def check_vulnerabilities_files_on_guest(microvm):
-    """
-    Check that the guest's vulnerabilities files do not contain `Vulnerable`.
+    """Return unexpected findings from the guest's vulnerability files.
+
+    Exception statuses are omitted when they match their expected values and
+    reported as findings otherwise.
+
     See also: https://elixir.bootlin.com/linux/latest/source/Documentation/ABI/testing/sysfs-devices-system-cpu
     and search for `vulnerabilities`.
     """
@@ -264,22 +267,27 @@ def check_vulnerabilities_files_on_guest(microvm):
     # Check that vulnerabilities files in the exception dictionary have the expected values and
     # the others do not contain "Vulnerable".
     exceptions = get_vuln_files_exception_dict(template, microvm.guest_kernel_version)
-    results = []
+    findings = set()
     for vuln_file in vuln_files:
         filename = Path(vuln_file).name
         if filename in exceptions:
             _, stdout, _ = microvm.ssh.check_output(f"cat {vuln_file}")
             exception = exceptions[filename]
             status = stdout.strip()
-            failure_message = (
-                f"{vuln_file}: expected {exception['expected']}, got {status!r}"
-            )
-            assert exception["is_expected"](status), failure_message
+            if not exception["is_expected"](status):
+                findings.add(
+                    f"{vuln_file}: expected {exception['expected']}, got {status!r}"
+                )
         else:
             cmd = f"grep Vulnerable {vuln_file}"
-            _ecode, stdout, _stderr = microvm.ssh.run(cmd)
-            results.append({"file": vuln_file, "stdout": stdout})
-    return results
+            ecode, stdout, stderr = microvm.ssh.run(cmd)
+            # grep returns 0 for a match and 1 for no match; any other code
+            # indicates an error such as an unreadable file.
+            if ecode == 0:
+                findings.add(f"{vuln_file}: {stdout.strip()}")
+            elif ecode != 1:
+                pytest.fail(f"{vuln_file}: grep failed: {stderr.strip()}")
+    return findings
 
 
 @pytest.fixture
@@ -324,9 +332,9 @@ def test_check_vulnerability_files_ab(request, uvm_any):
         # we only get the uvm_any_a fixtures if we need it
         uvm_a = request.getfixturevalue("uvm_any_a")
         res_a = check_vulnerabilities_files_on_guest(uvm_a)
-        assert res_b <= res_a
+        assert res_b.issubset(res_a), f"New vulnerability findings: {res_b - res_a}"
     else:
-        assert not [x for x in res_b if "Vulnerable" in x["stdout"]]
+        assert not res_b, f"Unexpected vulnerability findings: {res_b}"
 
 
 @pin_pci(False)
@@ -342,7 +350,7 @@ def test_spectre_meltdown_checker_on_guest(
         # we only get the uvm_any_a fixtures if we need it
         uvm_a = request.getfixturevalue("uvm_any_a")
         res_a = spectre_meltdown_checker.get_report_for_guest(uvm_a)
-        assert res_b <= res_a
+        assert res_b.issubset(res_a), f"New vulnerability findings: {res_b - res_a}"
     else:
         assert res_b == spectre_meltdown_checker.expected_vulnerabilities(
             uvm_any.cpu_template_name, uvm_any.guest_kernel_version
