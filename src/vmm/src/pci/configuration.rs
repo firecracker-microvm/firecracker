@@ -170,10 +170,6 @@ impl Bars {
     /// Get the address of the 32bit bar
     pub fn get_bar_addr_32(&self, bar_idx: u8) -> u64 {
         assert!(bar_idx < NUM_BAR_REGS);
-        if 0 < bar_idx {
-            let previous_bar = &self.bars[bar_idx as usize - 1];
-            assert!(!previous_bar.is_64bit());
-        }
         let bar = &self.bars[bar_idx as usize];
         u64::from(bar.encoded_addr & !0b1111)
     }
@@ -189,10 +185,6 @@ impl Bars {
     /// Get the size of the 32bit bar
     pub fn get_bar_size_32(&self, bar_idx: u8) -> u64 {
         assert!(bar_idx < NUM_BAR_REGS);
-        if 0 < bar_idx {
-            let previous_bar = &self.bars[bar_idx as usize - 1];
-            assert!(!previous_bar.is_64bit());
-        }
         let bar = &self.bars[bar_idx as usize];
         u64::from(decode_32_bits_bar_size(bar.encoded_size))
     }
