@@ -23,6 +23,7 @@ use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 use zerocopy::IntoBytes;
 
+use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_ids;
 use crate::devices::virtio::queue::Queue;
@@ -257,6 +258,8 @@ pub enum VirtioPciDeviceError {
     InvalidRestoreState(u8, u8),
     /// Restored MSI-X vector count ({0}) does not match the expected count ({1}) for this device
     UnexpectedMsixVectorCount(usize, usize),
+    /// Could not activate restored device: {0}
+    Activate(#[from] ActivateError),
 }
 
 pub struct VirtioPciDevice {
@@ -502,7 +505,7 @@ impl VirtioPciDevice {
                 .activate(
                     virtio_pci_device.memory.clone(),
                     virtio_pci_device.virtio_interrupt.as_ref().unwrap().clone(),
-                );
+                )?;
         }
 
         Ok(virtio_pci_device)
