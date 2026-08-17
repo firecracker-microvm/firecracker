@@ -5,6 +5,7 @@
 
 use device::ConfigSpace;
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::device::{BlockResources, DiskProperties};
@@ -82,7 +83,7 @@ impl Persist<'_> for VirtioBlock {
             root_device: self.config.is_root_device,
             disk_path: self.disk().file_path.clone(),
             virtio_state: VirtioDeviceState::from_device(self, &self.resources().queues),
-            rate_limiter_state: self.rate_limiter().save(),
+            rate_limiter_state: self.lock_rate_limiter().save(),
             file_engine_type: FileEngineTypeState::from(self.file_engine_type()),
             blk_size: self.config_space.blk_size,
             topology: self.config_space.topology,
@@ -144,7 +145,6 @@ impl Persist<'_> for VirtioBlock {
             queues,
             queue_evts,
             disk: disk_properties,
-            rate_limiter,
             is_io_engine_throttled: false,
         };
 
@@ -156,6 +156,7 @@ impl Persist<'_> for VirtioBlock {
 
             device_state: DeviceState::Inactive,
             config,
+            rate_limiter: Arc::new(Mutex::new(rate_limiter)),
             resources,
             metrics: BlockMetricsPerDevice::alloc(state.id.clone()),
         })

@@ -3,6 +3,8 @@
 
 use std::fmt;
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use utils::time::TimerFd;
@@ -301,7 +303,7 @@ pub struct RateLimiter {
 
     timer_fd: TimerFd,
     // Internal flag that quickly determines timer state.
-    timer_active: bool,
+    timer_active: Arc<AtomicBool>,
 }
 
 impl PartialEq for RateLimiter {
@@ -367,7 +369,7 @@ impl RateLimiter {
             bandwidth: bytes_token_bucket,
             ops: ops_token_bucket,
             timer_fd,
-            timer_active: false,
+            timer_active: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -375,7 +377,7 @@ impl RateLimiter {
     fn activate_timer(&mut self, one_shot_duration: Duration) {
         // Register the timer; don't care about its previous state
         self.timer_fd.arm(one_shot_duration, None);
-        self.timer_active = true;
+        self.timer_active.store(true, Ordering::Relaxed);
     }
 
     /// Attempts to consume tokens and returns whether that is possible.
@@ -383,7 +385,7 @@ impl RateLimiter {
     /// If rate limiting is disabled on provided `token_type`, this function will always succeed.
     pub fn consume(&mut self, tokens: u64, token_type: TokenType) -> bool {
         // If the timer is active, we can't consume tokens from any bucket and the function fails.
-        if self.timer_active {
+        if self.is_blocked() {
             return false;
         }
 
@@ -400,7 +402,7 @@ impl RateLimiter {
                 // register a timer to replenish the bucket and resume processing;
                 // make sure there is only one running timer for this limiter.
                 BucketReduction::Failure => {
-                    if !self.timer_active {
+                    if !self.is_blocked() {
                         self.activate_timer(REFILL_TIMER_DURATION);
                     }
                     false
@@ -451,7 +453,7 @@ impl RateLimiter {
     /// budget for it.
     /// An event will be generated on the exported FD when the limiter 'unblocks'.
     pub fn is_blocked(&self) -> bool {
-        self.timer_active
+        self.timer_active.load(Ordering::Relaxed)
     }
 
     /// This function needs to be called every time there is an event on the
@@ -464,7 +466,7 @@ impl RateLimiter {
         match self.timer_fd.read() {
             0 => Err(RateLimiterError::SpuriousRateLimiterEvent),
             _ => {
-                self.timer_active = false;
+                self.timer_active.store(false, Ordering::Relaxed);
                 Ok(())
             }
         }

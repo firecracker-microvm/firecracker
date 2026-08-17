@@ -14,7 +14,7 @@ use std::os::fd::AsRawFd;
 use std::os::linux::fs::MetadataExt;
 use std::os::unix::fs::FileTypeExt;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use block_io::FileEngine;
 use serde::{Deserialize, Serialize};
@@ -390,6 +390,7 @@ pub struct VirtioBlock {
     pub device_state: DeviceState,
 
     pub(crate) config: VirtioBlockConfig,
+    pub(crate) rate_limiter: Arc<Mutex<RateLimiter>>,
     pub(crate) resources: BlockResources,
     pub metrics: Arc<BlockDeviceMetrics>,
 }
@@ -400,7 +401,6 @@ pub(crate) struct BlockResources {
     pub(crate) queues: Vec<Queue>,
     pub(crate) queue_evts: [EventFd; 1],
     pub(crate) disk: DiskProperties,
-    pub(crate) rate_limiter: RateLimiter,
     pub(crate) is_io_engine_throttled: bool,
 }
 
@@ -494,11 +494,11 @@ impl VirtioBlock {
 
             device_state: DeviceState::Inactive,
             config,
+            rate_limiter: Arc::new(Mutex::new(rate_limiter)),
             resources: BlockResources {
                 queues: BLOCK_QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect(),
                 queue_evts: [EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?],
                 disk: disk_properties,
-                rate_limiter,
                 is_io_engine_throttled: false,
             },
             metrics,
@@ -522,8 +522,10 @@ impl VirtioBlock {
         &self.resources.disk
     }
 
-    pub(crate) fn rate_limiter(&self) -> &RateLimiter {
-        &self.resources.rate_limiter
+    pub(crate) fn lock_rate_limiter(&self) -> MutexGuard<'_, RateLimiter> {
+        self.rate_limiter
+            .lock()
+            .expect("Poisoned block rate limiter lock")
     }
 
     /// Process a single event in the Virtio queue.
@@ -535,7 +537,7 @@ impl VirtioBlock {
         if let Err(err) = self.resources.queue_evts[0].read() {
             error!("Failed to get queue event: {:?}", err);
             self.metrics.event_fails.inc();
-        } else if self.resources.rate_limiter.is_blocked() {
+        } else if self.lock_rate_limiter().is_blocked() {
             self.metrics.rate_limiter_throttled_events.inc();
         } else if self.resources.is_io_engine_throttled {
             self.metrics.io_engine_throttled_events.inc();
@@ -553,7 +555,7 @@ impl VirtioBlock {
         self.metrics.rate_limiter_event_count.inc();
         // Upon rate limiter event, call the rate limiter handler
         // and restart processing the queue.
-        if self.resources.rate_limiter.event_handler().is_ok() {
+        if self.lock_rate_limiter().event_handler().is_ok() {
             self.process_queue(0).unwrap()
         }
     }
@@ -563,6 +565,7 @@ impl VirtioBlock {
         // This is safe since we checked in the event handler that the device is activated.
         let active_state = self.device_state.active_state().unwrap();
 
+        let rate_limiter = &self.rate_limiter;
         let queue = &mut self.resources.queues[queue_index];
         let mut used_any = false;
 
@@ -571,7 +574,13 @@ impl VirtioBlock {
             let processing_result =
                 match Request::parse(&head, &active_state.mem, self.resources.disk.nsectors) {
                     Ok(request) => {
-                        if request.rate_limit(&mut self.resources.rate_limiter) {
+                        let is_rate_limited = {
+                            let mut rate_limiter = rate_limiter
+                                .lock()
+                                .expect("Poisoned block rate limiter lock");
+                            request.rate_limit(&mut rate_limiter)
+                        };
+                        if is_rate_limited {
                             // Stop processing the queue and return this descriptor chain to the
                             // avail ring, for later processing.
                             queue.undo_pop();
@@ -728,9 +737,12 @@ impl VirtioBlock {
 
     /// Updates the parameters for the rate limiter
     pub fn update_rate_limiter(&mut self, bytes: BucketUpdate, ops: BucketUpdate) {
-        self.resources.rate_limiter.update_buckets(bytes, ops);
-        let rate_limiter_config: RateLimiterConfig = (&self.resources.rate_limiter).into();
-        self.config.rate_limiter = rate_limiter_config.into_option();
+        let mut rate_limiter = self
+            .rate_limiter
+            .lock()
+            .expect("Poisoned block rate limiter lock");
+        rate_limiter.update_buckets(bytes, ops);
+        self.config.rate_limiter = RateLimiterConfig::from(&*rate_limiter).into_option();
     }
 
     /// Retrieve the file engine type.
@@ -2054,7 +2066,7 @@ mod tests {
                 );
 
                 // Assert that limiter is blocked.
-                assert!(block.rate_limiter().is_blocked());
+                assert!(block.lock_rate_limiter().is_blocked());
                 // Make sure the data is still queued for processing.
                 assert_eq!(vq.used.idx.get(), 0);
             }
@@ -2071,7 +2083,7 @@ mod tests {
                     block.process_rate_limiter_event()
                 );
                 // Validate the rate_limiter is no longer blocked.
-                assert!(!block.rate_limiter().is_blocked());
+                assert!(!block.lock_rate_limiter().is_blocked());
                 // Complete async IO ops if needed
                 simulate_async_completion_event(&mut block, true);
 
@@ -2123,7 +2135,7 @@ mod tests {
                 );
 
                 // Assert that limiter is blocked.
-                assert!(block.rate_limiter().is_blocked());
+                assert!(block.lock_rate_limiter().is_blocked());
                 // Make sure the data is still queued for processing.
                 assert_eq!(vq.used.idx.get(), 0);
             }
@@ -2138,7 +2150,7 @@ mod tests {
                 );
 
                 // Assert that limiter is blocked.
-                assert!(block.rate_limiter().is_blocked());
+                assert!(block.lock_rate_limiter().is_blocked());
                 // Make sure the data is still queued for processing.
                 assert_eq!(vq.used.idx.get(), 0);
             }
@@ -2155,7 +2167,7 @@ mod tests {
                     block.process_rate_limiter_event()
                 );
                 // Validate the rate_limiter is no longer blocked.
-                assert!(!block.rate_limiter().is_blocked());
+                assert!(!block.lock_rate_limiter().is_blocked());
                 // Complete async IO ops if needed
                 simulate_async_completion_event(&mut block, true);
 
