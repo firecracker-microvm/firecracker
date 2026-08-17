@@ -39,6 +39,14 @@ and this project adheres to
 
 ### Fixed
 
+- [#6100](https://github.com/firecracker-microvm/firecracker/pull/6100): Fixed
+  the vsock device permanently suppressing RX (host-to-guest) delivery after a
+  bare pause/resume cycle (`PATCH /vm` with `Paused` then `Resumed`, without a
+  snapshot). The resume kick armed the `TRANSPORT_RESET` RX gate even though no
+  reset event had been sent, so the guest could never acknowledge it and every
+  new host-initiated connection made after the resume hung forever. The gate is
+  now part of the persisted device state and the resume kick respects it instead
+  of arming it.
 - [#5956](https://github.com/firecracker-microvm/firecracker/pull/5956): Fixed a
   TOCTOU race in the aarch64 jailer when setting ownership of the CPU cache and
   `MIDR_EL1` information files copied into the chroot.
