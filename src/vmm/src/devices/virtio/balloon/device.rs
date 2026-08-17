@@ -612,7 +612,7 @@ impl Balloon {
         }
 
         if complete && self.hinting_state.acknowledge_on_finish {
-            self.update_free_page_hint_cmd(FREE_PAGE_HINT_DONE);
+            self.update_free_page_hint_cmd(FREE_PAGE_HINT_DONE)?;
         }
 
         Ok(())
@@ -1003,7 +1003,13 @@ impl VirtioDevice for Balloon {
                     self.device_type(),
                     self.id()
                 );
-                self.update_free_page_hint_cmd(FREE_PAGE_HINT_DONE);
+                if let Err(err) = self.update_free_page_hint_cmd(FREE_PAGE_HINT_DONE) {
+                    error!(
+                        "[{:?}:{}] failed to reset free page hinting: {err}",
+                        self.device_type(),
+                        self.id()
+                    );
+                }
             }
             self.notify_queue_events();
         }

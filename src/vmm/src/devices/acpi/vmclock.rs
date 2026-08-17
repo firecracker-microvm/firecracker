@@ -38,7 +38,7 @@ macro_rules! write_vmclock_field {
             $vmclock
                 .guest_address
                 .unchecked_add(offset_of!(vmclock_abi, $field) as u64),
-        );
+        )?;
     };
 }
 
