@@ -6,6 +6,7 @@
 
 import csv
 import io
+import json
 import os
 import platform
 import re
@@ -30,6 +31,7 @@ from framework.utils_cpu_templates import (
     get_cpu_template_name,
     pin_cpu_template,
 )
+from host_tools import cargo_build
 
 PLATFORM = platform.machine()
 UNSUPPORTED_HOST_KERNEL = (
@@ -341,6 +343,170 @@ def test_cpu_rdmsr(
     baseline_recs = read_msr_csv(baseline_file_path.open())
 
     check_msrs_are_equal(baseline_recs, guest_recs)
+
+
+def _read_guest_msr(vm, msr_reader_bin, msr_index):
+    """Read one MSR from a guest using the MSR reader."""
+    vm.ssh.scp_put(msr_reader_bin, "/tmp/msr_reader")
+    _, stdout, stderr = vm.ssh.run("/tmp/msr_reader")
+    assert stderr == ""
+
+    guest_msrs = {
+        int(record["MSR_ADDR"], 0): int(record["VALUE"], 0)
+        for record in read_msr_csv(io.StringIO(stdout))
+    }
+    assert msr_index in guest_msrs
+    return guest_msrs[msr_index]
+
+
+def _boot_and_read_msr(
+    microvm_factory,
+    guest_kernel,
+    rootfs,
+    msr_reader_bin,
+    msr_index,
+    cpu_template=None,
+):
+    """Boot a guest and read one MSR."""
+    vm = microvm_factory.build(
+        guest_kernel,
+        rootfs,
+        monitor_memory=False,
+        custom_cpu_template=None,
+    )
+    vm.spawn()
+    vm.basic_config(vcpu_count=1)
+    if cpu_template is not None:
+        vm.set_cpu_template(cpu_template)
+    vm.add_net_iface()
+    vm.start()
+    return _read_guest_msr(vm, msr_reader_bin, msr_index)
+
+
+def _get_cpuid_leaf(cpu_config, leaf, subleaf):
+    """Return a CPUID leaf from a dumped CPU configuration."""
+    for leaf_modifier in cpu_config["cpuid_modifiers"]:
+        if (
+            int(leaf_modifier["leaf"], 0) == leaf
+            and int(leaf_modifier["subleaf"], 0) == subleaf
+        ):
+            return leaf_modifier
+
+    return None
+
+
+def _get_cpuid_register(leaf, register):
+    """Return a register from a CPUID leaf."""
+    return next(
+        (
+            modifier
+            for modifier in leaf["modifiers"]
+            if modifier["register"] == register
+        ),
+        None,
+    )
+
+
+@pytest.mark.skipif(
+    cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.INTEL,
+    reason="IA32_ARCH_CAPABILITIES is not exposed to AMD guests",
+)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_cpu_template_msr_passthrough(
+    msr_reader_bin,
+    microvm_factory,
+    guest_kernel,
+    rootfs,
+    tmp_path,
+):
+    """
+    Verify that CPU templates preserve passthrough bits in a CPUID-gated MSR.
+
+    Some MSRs exist only when guest CPUID advertises the corresponding feature.
+    For example, IA32_ARCH_CAPABILITIES MSR is enumerated by CPUID.07H:EDX[29].
+    Since Linux 6.13, KVM applies this existence rule to accesses initiated by
+    userspace VMMs as well: reading IA32_ARCH_CAPABILITIES while its CPUID bit
+    is clear returns zero.
+    https://github.com/torvalds/linux/commit/a5d563890b8f0352c8f915c6acc75b5cd3b28d98
+
+    Firecracker must therefore install guest CPUID before retrieving the base
+    MSR values for a CPU template. Otherwise, the template's passthrough bits
+    would preserve the incorrect zero value instead of the post-CPUID value.
+
+    This test boots without a CPU template to obtain the live baseline for
+    IA32_ARCH_CAPABILITIES. It then applies a template that arbitrarily toggles
+    bit 0 while passing through all other bits and verifies that the passthrough
+    bits retain their baseline values.
+    """
+    # CPUID.07H:EDX[29] enumerates IA32_ARCH_CAPABILITIES.
+    cpuid_leaf = 0x7
+    cpuid_subleaf = 0x0
+    cpuid_register = "edx"
+    cpuid_bit = 29
+
+    # MSR index for IA32_ARCH_CAPABILITIES is 0x10A.
+    msr_index = 0x10A
+
+    # Step 1: Verify that guest CPUID exposes IA32_ARCH_CAPABILITIES.
+    cpu_config_path = tmp_path / "cpu_config.json"
+    cpu_template_helper = cargo_build.get_binary("cpu-template-helper")
+    utils.check_output(
+        [
+            str(cpu_template_helper),
+            "template",
+            "dump",
+            "--output",
+            str(cpu_config_path),
+        ],
+        shell=False,
+    )
+    cpu_config = json.loads(cpu_config_path.read_text(encoding="utf-8"))
+
+    feature_leaf = _get_cpuid_leaf(cpu_config, cpuid_leaf, cpuid_subleaf)
+    if feature_leaf is None:
+        pytest.skip("IA32_ARCH_CAPABILITIES is not exposed by guest CPUID")
+
+    feature_register = _get_cpuid_register(feature_leaf, cpuid_register)
+    if feature_register is None or not int(feature_register["bitmap"], 2) & (
+        1 << cpuid_bit
+    ):
+        pytest.skip("IA32_ARCH_CAPABILITIES is not exposed by guest CPUID")
+
+    # Step 2: Capture a live IA32_ARCH_CAPABILITIES baseline.
+    baseline_msr = _boot_and_read_msr(
+        microvm_factory,
+        guest_kernel,
+        rootfs,
+        msr_reader_bin,
+        msr_index,
+    )
+
+    # Step 3: Build a minimal template that leaves CPUID unchanged, toggles
+    # bit 0, and passes through all other MSR bits.
+    cpu_template = {
+        "msr_modifiers": [
+            {
+                "addr": hex(msr_index),
+                "bitmap": "0b" + "x" * 63 + str(1 - (baseline_msr & 1)),
+            }
+        ],
+    }
+
+    # Step 4: Apply the template and verify that only bit 0 differs from the
+    # baseline.
+    actual_msr = _boot_and_read_msr(
+        microvm_factory,
+        guest_kernel,
+        rootfs,
+        msr_reader_bin,
+        msr_index,
+        cpu_template={
+            "name": "toggle_ia32_arch_capabilities_bit_0",
+            "template": cpu_template,
+        },
+    )
+
+    assert actual_msr == (baseline_msr ^ 1)
 
 
 # These names need to be consistent across the two parts of the snapshot-restore test
