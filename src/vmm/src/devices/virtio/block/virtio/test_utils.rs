@@ -72,11 +72,7 @@ pub fn set_queue(blk: &mut VirtioBlock, idx: usize, q: Queue) {
 }
 
 pub fn set_rate_limiter(blk: &mut VirtioBlock, rl: RateLimiter) {
-    blk.resources_mut().rate_limiter = rl;
-}
-
-pub fn rate_limiter(blk: &mut VirtioBlock) -> &RateLimiter {
-    blk.rate_limiter()
+    *blk.lock_rate_limiter() = rl;
 }
 
 #[cfg(test)]
