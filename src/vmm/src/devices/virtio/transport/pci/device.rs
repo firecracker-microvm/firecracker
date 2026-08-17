@@ -364,6 +364,18 @@ impl VirtioPciDevice {
         self.add_pci_capabilities();
     }
 
+    /// Free the PCI BAR of the VirtIO device.
+    pub fn free_bars(&self, mmio64_allocator: &mut AddressAllocator) {
+        let bar_addr = self.config_bar_addr();
+        let bar_end = bar_addr
+            .checked_add(CAPABILITY_BAR_SIZE - 1)
+            .expect("virtio-pci BAR end address overflows");
+        let range = RangeInclusive::new(bar_addr, bar_end).expect("Invalid virtio-pci BAR range");
+        mmio64_allocator
+            .free(&range)
+            .expect("virtio-pci BAR is not allocated");
+    }
+
     /// Constructs a new PCI transport for the given virtio device.
     pub fn new(
         id: String,
