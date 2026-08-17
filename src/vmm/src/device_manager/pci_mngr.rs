@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
@@ -143,11 +142,10 @@ impl PciDevices {
         let mut virtio_device =
             VirtioPciDevice::new(id.clone(), mem, device, Arc::new(msix_vectors), sbdf);
 
-        // Allocate bars
-        let mut resource_allocator_lock = vm.resource_allocator();
-        let resource_allocator = resource_allocator_lock.deref_mut();
-
-        virtio_device.allocate_bars(&mut resource_allocator.mmio64_memory);
+        // Don't hold the resource allocator lock across attach_common()
+        // below: a device access holds the bus lock and can take the allocator
+        // lock, so the reverse order can deadlock.
+        virtio_device.allocate_bars(&mut vm.resource_allocator().mmio64_memory);
 
         let virtio_device = Arc::new(Mutex::new(virtio_device));
 
