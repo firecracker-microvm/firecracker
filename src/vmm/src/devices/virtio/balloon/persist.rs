@@ -3,17 +3,15 @@
 
 //! Defines the structures needed for saving/restoring balloon devices.
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use super::*;
 use crate::devices::virtio::balloon::device::{BalloonStats, ConfigSpace, HintingState};
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDeviceType};
+use crate::devices::virtio::device::VirtioDeviceType;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
-use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -205,7 +203,7 @@ impl Persist<'_> for Balloon {
 mod tests {
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
-    use crate::devices::virtio::test_utils::{default_interrupt, default_mem};
+    use crate::devices::virtio::test_utils::default_mem;
 
     #[test]
     fn test_persistence() {

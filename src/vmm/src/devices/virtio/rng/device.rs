@@ -247,14 +247,6 @@ impl Entropy {
         self.acked_features = features;
     }
 
-    pub(crate) fn set_activated(
-        &mut self,
-        mem: GuestMemoryMmap,
-        interrupt: Arc<dyn VirtioInterrupt>,
-    ) {
-        self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
-    }
-
     pub(crate) fn activate_event(&self) -> &EventFd {
         &self.activate_event
     }

@@ -1,10 +1,7 @@
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::convert::Infallible;
-
 use acpi_tables::{Aml, aml};
-use aws_lc_rs::error::Unspecified as RandError;
 use aws_lc_rs::rand;
 use serde::{Deserialize, Serialize};
 use vm_memory::{GuestAddress, GuestMemoryError};

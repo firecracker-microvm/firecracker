@@ -1082,7 +1082,7 @@ pub(crate) mod tests {
             false,
         );
 
-        let mut assert_rejected = |d: &mut MmioTransport, new: u32, expected: u32| {
+        let assert_rejected = |d: &mut MmioTransport, new: u32, expected: u32| {
             set_device_status(d, new);
             assert_eq!(
                 read_device_status(d),
