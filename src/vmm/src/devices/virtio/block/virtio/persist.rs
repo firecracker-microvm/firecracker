@@ -12,7 +12,7 @@ use super::*;
 use crate::devices::virtio::block::persist::BlockConstructorArgs;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::devices::virtio::block::virtio::metrics::BlockMetricsPerDevice;
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDeviceType};
+use crate::devices::virtio::device::{DeviceState, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::VIRTIO_BLK_F_RO;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::rate_limiter::RateLimiter;
@@ -145,7 +145,7 @@ mod tests {
     use super::*;
     use crate::devices::virtio::block::virtio::device::VirtioBlockConfig;
     use crate::devices::virtio::device::VirtioDevice;
-    use crate::devices::virtio::test_utils::{default_interrupt, default_mem};
+    use crate::devices::virtio::test_utils::default_mem;
 
     #[test]
     fn test_cache_semantic_ser() {
