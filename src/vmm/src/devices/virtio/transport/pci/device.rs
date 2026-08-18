@@ -356,9 +356,6 @@ impl VirtioPciDevice {
     /// known state, the BARs are already created with the right content, therefore we don't need
     /// to go through this codepath.
     pub fn allocate_bars(&mut self, mmio64_allocator: &mut AddressAllocator) {
-        let device_clone = self.device.clone();
-        let device = device_clone.lock().unwrap();
-
         // Allocate the virtio-pci capability BAR.
         // See http://docs.oasis-open.org/virtio/virtio/v1.0/cs04/virtio-v1.0-cs04.html#x1-740004
         self.bar_address = mmio64_allocator
