@@ -89,21 +89,21 @@ impl Block {
 
     pub fn root_device(&self) -> bool {
         match self {
-            Self::Virtio(b) => b.root_device,
+            Self::Virtio(b) => b.config.is_root_device,
             Self::VhostUser(b) => b.root_device,
         }
     }
 
     pub fn read_only(&self) -> bool {
         match self {
-            Self::Virtio(b) => b.read_only,
+            Self::Virtio(b) => b.config.is_read_only,
             Self::VhostUser(b) => b.read_only,
         }
     }
 
     pub fn partuuid(&self) -> &Option<String> {
         match self {
-            Self::Virtio(b) => &b.partuuid,
+            Self::Virtio(b) => &b.config.partuuid,
             Self::VhostUser(b) => &b.partuuid,
         }
     }
