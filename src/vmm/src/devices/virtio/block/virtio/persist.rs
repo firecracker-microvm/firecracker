@@ -141,7 +141,7 @@ impl Persist<'_> for VirtioBlock {
 
             config,
             rate_limiter: Arc::new(Mutex::new(rate_limiter)),
-            state: BlockState::Configuring(resources),
+            state: BlockState::Configuring(resources, None),
             metrics: BlockMetricsPerDevice::alloc(state.id.clone()),
         })
     }
