@@ -140,7 +140,7 @@ mod tests {
         let mut status = 0i32;
         // SAFETY: pid is a valid child PID returned by fork; status is a valid pointer.
         unsafe { libc::waitpid(pid, &mut status, 0) };
-        assert!(unsafe { libc::WIFEXITED(status) });
-        assert_eq!(unsafe { libc::WEXITSTATUS(status) }, 0);
+        assert!(libc::WIFEXITED(status));
+        assert_eq!(libc::WEXITSTATUS(status), 0);
     }
 }
