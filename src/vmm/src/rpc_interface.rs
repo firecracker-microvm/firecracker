@@ -690,6 +690,7 @@ impl<'a> PrebootApiController<'a> {
 #[derive(Debug)]
 pub struct RuntimeApiController {
     vmm: Arc<Mutex<Vmm>>,
+    seccomp_filters: BpfThreadMap,
 }
 
 impl RuntimeApiController {
@@ -765,19 +766,31 @@ impl RuntimeApiController {
                 .vmm
                 .lock()
                 .expect("Poisoned lock")
-                .hotplug_device(HotplugDeviceConfig::Block(config), event_manager)
+                .hotplug_device(
+                    HotplugDeviceConfig::Block(config),
+                    event_manager,
+                    &self.seccomp_filters,
+                )
                 .map(|()| VmmData::Empty),
             InsertPmemDevice(config) => self
                 .vmm
                 .lock()
                 .expect("Poisoned lock")
-                .hotplug_device(HotplugDeviceConfig::Pmem(config), event_manager)
+                .hotplug_device(
+                    HotplugDeviceConfig::Pmem(config),
+                    event_manager,
+                    &self.seccomp_filters,
+                )
                 .map(|()| VmmData::Empty),
             InsertNetworkDevice(config) => self
                 .vmm
                 .lock()
                 .expect("Poisoned lock")
-                .hotplug_device(HotplugDeviceConfig::Net(config), event_manager)
+                .hotplug_device(
+                    HotplugDeviceConfig::Net(config),
+                    event_manager,
+                    &self.seccomp_filters,
+                )
                 .map(|()| VmmData::Empty),
             HotUnplugDevice(device_id) => self
                 .vmm
@@ -862,8 +875,11 @@ impl RuntimeApiController {
     }
 
     /// Creates a new `RuntimeApiController`.
-    pub fn new(vmm: Arc<Mutex<Vmm>>) -> Self {
-        Self { vmm }
+    pub fn new(vmm: Arc<Mutex<Vmm>>, seccomp_filters: &BpfThreadMap) -> Self {
+        Self {
+            vmm,
+            seccomp_filters: seccomp_filters.clone(),
+        }
     }
 
     /// Pauses the microVM by pausing the vCPUs.
@@ -1253,7 +1269,8 @@ mod tests {
 
     fn runtime_request(request: VmmAction) -> Result<VmmData, VmmActionError> {
         let vmm = Arc::new(Mutex::new(default_vmm()));
-        let mut runtime = RuntimeApiController::new(vmm.clone());
+        let seccomp_filters = BpfThreadMap::new();
+        let mut runtime = RuntimeApiController::new(vmm.clone(), &seccomp_filters);
         let mut event_manager = EventManager::new().unwrap();
         runtime.handle_request(request, &mut event_manager)
     }

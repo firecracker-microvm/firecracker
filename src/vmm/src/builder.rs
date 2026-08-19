@@ -29,6 +29,7 @@ use crate::device_manager::{
     DeviceRestoreArgs,
 };
 use crate::devices::virtio::balloon::Balloon;
+use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::mem::{VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB, VirtioMem};
@@ -109,6 +110,8 @@ pub enum StartMicrovmError {
     NetDeviceNotConfigured,
     /// Cannot open the block device backing file: {0}
     OpenBlockDevice(io::Error),
+    /// Failed to spawn the block worker thread: {0}
+    SpawnBlockWorker(BlockError),
     /// Cannot restore microvm state: {0}
     RestoreMicrovmState(MicrovmStateError),
     /// Cannot set vm resources: {0}
@@ -238,6 +241,7 @@ pub fn build_microvm_for_boot(
         &mut boot_cmdline,
         vm_resources.block.devices.iter(),
         event_manager,
+        seccomp_filters,
     )?;
     attach_net_devices(
         &mut device_manager,
@@ -502,6 +506,7 @@ pub fn build_microvm_from_snapshot(
         vm_resources,
         instance_id: &instance_info.id,
         vcpus_exit_evt: kvm_vm.vcpus_exit_evt(),
+        seccomp_filters,
     };
     #[allow(unused_mut)]
     let mut device_manager =
@@ -659,6 +664,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
     cmdline: &mut LoaderKernelCmdline,
     blocks: I,
     event_manager: &mut EventManager,
+    seccomp_filters: &BpfThreadMap,
 ) -> Result<(), StartMicrovmError> {
     for block in blocks {
         let (id, is_vhost_user) = {
@@ -672,6 +678,13 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
             }
             (locked.id().to_string(), locked.is_vhost_user())
         };
+
+        block
+            .lock()
+            .expect("Poisoned lock")
+            .spawn_worker(seccomp_filters.get("blk_worker").cloned())
+            .map_err(StartMicrovmError::SpawnBlockWorker)?;
+
         // The device mutex mustn't be locked here otherwise it will deadlock.
         device_manager.attach_boot_virtio_device(
             vm,
@@ -778,6 +791,7 @@ pub(crate) mod tests {
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::mmds::data_store::{Mmds, MmdsVersion};
     use crate::mmds::ns::MmdsNetworkStack;
+    use crate::seccomp::get_empty_filters;
     use crate::utils::mib_to_bytes;
     use crate::vmm_config::balloon::{BALLOON_DEV_ID, BalloonBuilder, BalloonDeviceConfig};
     use crate::vmm_config::boot_source::BootSourceConfig;
@@ -917,6 +931,7 @@ pub(crate) mod tests {
             cmdline,
             block_dev_configs.devices.iter(),
             event_manager,
+            &get_empty_filters(),
         )
         .unwrap();
         block_files
