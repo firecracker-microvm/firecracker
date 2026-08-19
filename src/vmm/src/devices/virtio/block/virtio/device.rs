@@ -819,13 +819,14 @@ mod tests {
     use crate::devices::virtio::block::virtio::IO_URING_NUM_ENTRIES;
     use crate::devices::virtio::block::virtio::request::*;
     use crate::devices::virtio::block::virtio::test_utils::{
-        default_block, read_blk_req_descriptors, set_queue, set_rate_limiter,
-        simulate_async_completion_event, simulate_queue_and_async_completion_events,
-        simulate_queue_event,
+        default_block, default_threaded_block, read_blk_req_descriptors, set_queue,
+        set_rate_limiter, simulate_async_completion_event,
+        simulate_queue_and_async_completion_events, simulate_queue_event,
     };
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
-    use crate::rate_limiter::TokenType;
+    use crate::rate_limiter::{TokenBucket, TokenType};
+    use crate::seccomp::BPF_MAX_LEN;
     use crate::vstate::memory::{Address, Bytes, GuestAddress};
 
     #[test]
@@ -1970,6 +1971,185 @@ mod tests {
             );
             assert_eq!(block.disk().image_id, id.as_slice());
         }
+    }
+
+    #[test]
+    fn test_threaded_device() {
+        let mut block = default_threaded_block(FileEngineType::Sync);
+        let mem = default_mem();
+        let interrupt = default_interrupt();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+
+        block.activate(mem.clone(), interrupt).unwrap();
+
+        assert!(block.is_threaded_active());
+        assert_eq!(block.num_queues(), BLOCK_QUEUE_SIZES.len());
+        assert_eq!(block.queue_config(0).unwrap().size, vq.size());
+        assert!(block.queue_config_mut(0).is_some());
+        assert!(block.queue_event(0).is_some());
+    }
+
+    #[test]
+    fn test_threaded_update_disk() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let mut block = default_threaded_block(engine);
+            let mem = default_mem();
+            let interrupt = default_interrupt();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.activate(mem.clone(), interrupt.clone()).unwrap();
+
+            let disk = TempFile::new().unwrap();
+            disk.as_file().set_len(0x2000).unwrap();
+            let disk_path = disk.as_path().to_str().unwrap().to_string();
+
+            block.update_disk_image(disk_path.clone()).unwrap();
+
+            assert_eq!(block.config().path_on_host, disk_path);
+            assert_eq!(u64::from_le(block.config_space.capacity), 16);
+            assert!(
+                interrupt.has_pending_interrupt(VirtioInterruptType::Config),
+                "updating an active disk must notify the guest"
+            );
+        }
+    }
+
+    #[test]
+    fn test_threaded_update_disk_error() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let mut block = default_threaded_block(engine);
+            let original_config = block.config();
+            let original_capacity = block.config_space.capacity;
+
+            let mem = default_mem();
+            let interrupt = default_interrupt();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.activate(mem.clone(), interrupt.clone()).unwrap();
+
+            let mut missing_disk = TempFile::new().unwrap();
+            let missing_path = missing_disk.as_path().to_str().unwrap().to_string();
+            missing_disk.remove().unwrap();
+
+            assert!(block.update_disk_image(missing_path).is_err());
+            assert_eq!(block.config(), original_config);
+            assert_eq!(block.config_space.capacity, original_capacity);
+            assert!(!interrupt.has_pending_interrupt(VirtioInterruptType::Config));
+        }
+    }
+
+    #[test]
+    fn test_threaded_rate_limiter() {
+        let mut block = default_threaded_block(FileEngineType::Sync);
+        let mem = default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        block.activate(mem.clone(), default_interrupt()).unwrap();
+
+        let bandwidth = TokenBucket::new(1000, 1001, 1002).unwrap();
+        let ops = TokenBucket::new(1003, 1004, 1005).unwrap();
+        block.update_rate_limiter(BucketUpdate::Update(bandwidth), BucketUpdate::Update(ops));
+
+        // Reset the device before reactivation.
+        assert!(block.reset());
+        assert_eq!(
+            block.config().rate_limiter,
+            RateLimiterConfig::from(&*block.rate_limiter()).into_option()
+        );
+
+        set_queue(&mut block, 0, vq.create_queue());
+        block.activate(mem, default_interrupt()).unwrap();
+        block.update_rate_limiter(BucketUpdate::Disabled, BucketUpdate::Disabled);
+
+        assert!(block.reset());
+        assert_eq!(block.config().rate_limiter, None);
+        assert!(block.rate_limiter().bandwidth().is_none());
+        assert!(block.rate_limiter().ops().is_none());
+    }
+
+    #[test]
+    fn test_threaded_queue_dirty() {
+        let mut block = default_threaded_block(FileEngineType::Sync);
+        let mem = default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        block.activate(mem.clone(), default_interrupt()).unwrap();
+
+        assert!(matches!(
+            block.mark_queue_memory_dirty(&mem),
+            Err(QueueError::NotReady)
+        ));
+
+        block.prepare_save();
+
+        block.mark_queue_memory_dirty(&mem).unwrap();
+    }
+
+    #[test]
+    fn test_threaded_resume() {
+        let mut block = default_threaded_block(FileEngineType::Sync);
+        let mem = default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        block.activate(mem.clone(), default_interrupt()).unwrap();
+
+        block.prepare_save();
+        read_blk_req_descriptors(&vq);
+        let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
+        let status_addr = GuestAddress(vq.dtable[2].addr.get());
+        vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
+        mem.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, request_type_addr)
+            .unwrap();
+        block.mark_queue_memory_dirty(&mem).unwrap();
+
+        block.kick();
+        // A second pause waits until the resumed worker has processed its queue.
+        block.prepare_save();
+
+        assert_eq!(vq.used.idx.get(), 1);
+        assert_eq!(vq.used.ring[0].get().id, 0);
+        assert_eq!(vq.used.ring[0].get().len, VIRTIO_BLK_ID_BYTES + 1);
+        assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
+    }
+
+    #[test]
+    fn test_threaded_reset_paused() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let mut block = default_threaded_block(engine);
+            let mem = default_mem();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.set_acked_features(1);
+            block.activate(mem, default_interrupt()).unwrap();
+            block.prepare_save();
+
+            assert!(block.reset());
+            assert!(!block.is_activated());
+            assert_eq!(block.acked_features(), 0);
+            assert!(!block.queue_config(0).unwrap().ready);
+            assert!(matches!(&block.state, BlockState::Configuring(_, Some(_))));
+        }
+    }
+
+    #[test]
+    fn test_threaded_reset_error() {
+        let mut block = default_block(FileEngineType::Sync);
+        block.config.threaded = true;
+        block
+            .spawn_worker(Arc::new(vec![0; BPF_MAX_LEN + 1]))
+            .unwrap();
+
+        let mem = default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        block.set_acked_features(1);
+        block.activate(mem, default_interrupt()).unwrap();
+
+        assert!(!block.reset());
+        assert!(block.is_threaded_active());
+        assert_eq!(block.acked_features(), 1);
+        assert!(block.queue_config(0).unwrap().ready);
     }
 
     #[test]

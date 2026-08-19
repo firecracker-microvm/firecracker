@@ -56,6 +56,7 @@ def test_patch_drive_limiter(uvm):
             "bandwidth": {"size": 10 * MB, "refill_time": 100},
             "ops": {"size": 100, "refill_time": 100},
         },
+        threaded=True,
     )
     test_microvm.start()
 
