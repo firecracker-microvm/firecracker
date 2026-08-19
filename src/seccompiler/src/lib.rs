@@ -47,6 +47,8 @@ pub enum CompilationError {
     MemfdCreate(std::io::Error),
     /// Cannot rewind memfd: {0}
     MemfdRewind(std::io::Error),
+    /// Cannot truncate memfd: {0}
+    MemfdTruncate(std::io::Error),
     /// Cannot read from memfd: {0}
     MemfdRead(std::io::Error),
     /// Cannot create output file: {0}
@@ -158,7 +160,12 @@ pub fn compile_bpf(
             }
         }
 
-        // SAFETY: Safe as all args are correect.
+        // `seccomp_export_bpf` does not truncate the output file.
+        // Reset the memfd so a shorter filter cannot retain instructions from a previous export.
+        memfd.set_len(0).map_err(CompilationError::MemfdTruncate)?;
+        memfd.rewind().map_err(CompilationError::MemfdRewind)?;
+
+        // SAFETY: Safe as all args are correct.
         unsafe {
             if seccomp_export_bpf(bpf_filter, memfd.as_raw_fd()) != 0 {
                 return Err(CompilationError::LibSeccompExport);
