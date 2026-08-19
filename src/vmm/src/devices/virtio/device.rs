@@ -69,6 +69,10 @@ pub enum VirtioDeviceType {
     Vsock = virtio_ids::VIRTIO_ID_VSOCK as u8,
     Mem = virtio_ids::VIRTIO_ID_MEM as u8,
     Pmem = virtio_ids::VIRTIO_ID_PMEM as u8,
+    /// Sentinel used as the host-side device-manager map key for generic
+    /// vhost-user devices. The actual virtio device type ID visible to the
+    /// guest is returned by [`VirtioDevice::virtio_device_type_id`] instead.
+    VhostUserGeneric = 0xFF,
 }
 
 /// Unique identifier for a virtio device: its type and string ID.
@@ -125,6 +129,17 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     }
 
     fn interrupt_trigger(&self) -> &dyn VirtioInterrupt;
+
+    /// The virtio device type ID exposed to the guest by the transport (the
+    /// MMIO device type register, or the PCI device ID).
+    ///
+    /// For most devices this equals `self.device_type() as u32`. Devices that
+    /// use [`VirtioDeviceType::VhostUserGeneric`] as a host-side sentinel
+    /// override this to expose the real virtio spec device type ID to the
+    /// guest.
+    fn virtio_device_type_id(&self) -> u32 {
+        self.device_type() as u32
+    }
 
     /// The set of feature bits shifted by `page * 32`.
     fn avail_features_by_page(&self, page: u32) -> u32 {
