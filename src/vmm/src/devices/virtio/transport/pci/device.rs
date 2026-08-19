@@ -22,7 +22,8 @@ use vmm_sys_util::eventfd::EventFd;
 use zerocopy::IntoBytes;
 
 use crate::devices::virtio::ActivateError;
-use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
+use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::generated::virtio_ids;
 use crate::devices::virtio::transport::pci::common_config::{
     VirtioPciCommonConfig, VirtioPciCommonConfigState,
 };
@@ -318,14 +319,21 @@ impl Debug for VirtioPciDevice {
 }
 
 impl VirtioPciDevice {
-    fn pci_configuration(device_type: VirtioDeviceType) -> PciConfiguration {
-        let pci_device_id = VIRTIO_PCI_DEVICE_ID_BASE + device_type as u16;
-        let (class, subclass) = match device_type {
-            VirtioDeviceType::Net => (
+    fn pci_configuration(device_type_id: u32) -> PciConfiguration {
+        // Keyed on the guest-visible virtio type rather than on
+        // `device_type()`, because a generic vhost-user device reports the
+        // host-side sentinel from that and carries its real type here. For
+        // every other device the two are the same value, since
+        // `virtio_device_type_id` defaults to `device_type as u32`.
+        let device_type_id =
+            u16::try_from(device_type_id).expect("virtio device type ID must fit in a u16");
+        let pci_device_id = VIRTIO_PCI_DEVICE_ID_BASE + device_type_id;
+        let (class, subclass) = match u32::from(device_type_id) {
+            virtio_ids::VIRTIO_ID_NET => (
                 PciClassCode::NetworkController,
                 PciNetworkControllerSubclass::EthernetController as u8,
             ),
-            VirtioDeviceType::Block => (
+            virtio_ids::VIRTIO_ID_BLOCK => (
                 PciClassCode::MassStorageController,
                 PciMassStorageSubclass::MassStorage as u8,
             ),
@@ -397,8 +405,11 @@ impl VirtioPciDevice {
         assert_eq!(msix_vectors.vectors.len(), num_queues + 1);
 
         let msix_config = Arc::new(Mutex::new(MsixConfig::new(msix_vectors.clone(), sbdf)));
-        let pci_config =
-            Self::pci_configuration(device.lock().expect("Poisoned lock").device_type());
+        let device_type_id = device
+            .lock()
+            .expect("Poisoned lock")
+            .virtio_device_type_id();
+        let pci_config = Self::pci_configuration(device_type_id);
 
         let virtio_common_config = VirtioPciCommonConfig::new(VirtioPciCommonConfigState {
             driver_status: 0,
