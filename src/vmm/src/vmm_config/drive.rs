@@ -51,6 +51,9 @@ pub struct BlockDeviceConfig {
     /// If set to true, the drive is opened in read-only mode. Otherwise, the
     /// drive is opened as read-write.
     pub is_read_only: Option<bool>,
+    /// If set to true, process requests on a dedicated worker thread.
+    #[serde(default)]
+    pub threaded: bool,
     /// Path of the drive.
     pub path_on_host: Option<String>,
     /// Rate Limiter for I/O operations.
@@ -208,6 +211,7 @@ mod tests {
                 partuuid: self.partuuid.clone(),
                 is_root_device: self.is_root_device,
                 is_read_only: self.is_read_only,
+                threaded: self.threaded,
                 cache_type: self.cache_type,
 
                 path_on_host: self.path_on_host.clone(),
@@ -237,6 +241,7 @@ mod tests {
             cache_type: CacheType::Writeback,
 
             is_read_only: Some(false),
+            threaded: false,
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
@@ -271,6 +276,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(true),
+            threaded: false,
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
@@ -303,6 +309,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(true),
+            threaded: false,
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
@@ -332,6 +339,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            threaded: false,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
@@ -348,6 +356,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            threaded: false,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
@@ -375,6 +384,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            threaded: false,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
@@ -391,6 +401,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            threaded: false,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
@@ -407,6 +418,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            threaded: false,
             path_on_host: Some(dummy_path_3),
             rate_limiter: None,
             file_engine_type: None,
@@ -448,6 +460,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            threaded: false,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
@@ -464,6 +477,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            threaded: false,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
@@ -480,6 +494,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            threaded: false,
             path_on_host: Some(dummy_path_3),
             rate_limiter: None,
             file_engine_type: None,
@@ -522,6 +537,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            threaded: false,
             path_on_host: Some(dummy_path_1.clone()),
             rate_limiter: None,
             file_engine_type: None,
@@ -538,6 +554,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            threaded: false,
             path_on_host: Some(dummy_path_2.clone()),
             rate_limiter: None,
             file_engine_type: None,
@@ -610,6 +627,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            threaded: false,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
@@ -626,6 +644,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            threaded: false,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
@@ -652,6 +671,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(true),
+            threaded: false,
             path_on_host: Some(dummy_file.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
@@ -682,6 +702,7 @@ mod tests {
             cache_type: CacheType::default(),
 
             is_read_only: Some(true),
+            threaded: false,
             path_on_host: Some(backing_file.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: None,
