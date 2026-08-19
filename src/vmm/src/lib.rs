@@ -399,6 +399,9 @@ impl Vmm {
                         memory_hotplug = Some(MemoryHotplugConfig::from(m));
                     }
                 }
+                // Not reported here yet: the device has no API surface to be
+                // reported through until it is wired up.
+                VirtioDeviceType::VhostUserGeneric => {}
             });
 
         let mmds_config = mmds_ref.map(|mmds| {
@@ -443,6 +446,12 @@ impl Vmm {
                     && b.is_vhost_user()
                 {
                     tuples.push(("vhost-user-block", b.id().to_owned()));
+                }
+
+                // The generic device is vhost-user whatever it is configured
+                // as, so the sentinel device type identifies it on its own.
+                if let VirtioDeviceType::VhostUserGeneric = device_type {
+                    tuples.push(("vhost-user-generic", device.id().to_owned()));
                 }
             });
         if tuples.is_empty() {
