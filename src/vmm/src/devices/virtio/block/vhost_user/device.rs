@@ -4,10 +4,8 @@
 // Portions Copyright 2019 Intel Corporation. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::ops::Deref;
 use std::sync::Arc;
 
-use utils::time::{ClockType, get_time_us};
 use vhost::vhost_user::Frontend;
 use vhost::vhost_user::message::*;
 use vmm_sys_util::eventfd::EventFd;
@@ -15,18 +13,16 @@ use vmm_sys_util::eventfd::EventFd;
 use super::{NUM_QUEUES, QUEUE_SIZE, VhostUserBlockError};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::block::CacheType;
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
+use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::{VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
-use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
-use crate::devices::virtio::vhost_user::{VhostUserHandleBackend, VhostUserHandleImpl};
-use crate::devices::virtio::vhost_user_metrics::{
-    VhostUserDeviceMetrics, VhostUserMetricsPerDevice,
+use crate::devices::virtio::transport::VirtioInterrupt;
+use crate::devices::virtio::vhost_user::{
+    VhostUserDevice, VhostUserDeviceSpec, VhostUserHandleBackend,
 };
-use crate::logger::{IncMetric, StoreMetric, log_dev_preview_warning};
-use crate::utils::u64_to_usize;
+use crate::logger::log_dev_preview_warning;
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::{MutEventSubscriber, impl_device_type};
@@ -110,16 +106,8 @@ pub type VhostUserBlock = VhostUserBlockImpl<Frontend>;
 
 /// vhost-user block device.
 pub struct VhostUserBlockImpl<T: VhostUserHandleBackend> {
-    // Virtio fields.
-    pub avail_features: u64,
-    pub acked_features: u64,
-    pub config_space: Vec<u8>,
-    pub activate_evt: EventFd,
-
-    // Transport related fields.
-    pub queues: Vec<Queue>,
-    pub queue_evts: [EventFd; u64_to_usize(NUM_QUEUES)],
-    pub device_state: DeviceState,
+    // Everything that is not specific to block living in the generic frontend.
+    pub vu_device: VhostUserDevice<T>,
 
     // Implementation specific fields.
     pub id: String,
@@ -127,35 +115,18 @@ pub struct VhostUserBlockImpl<T: VhostUserHandleBackend> {
     pub cache_type: CacheType,
     pub root_device: bool,
     pub read_only: bool,
-
-    // Vhost user protocol handle
-    pub vu_handle: VhostUserHandleImpl<T>,
-    pub vu_acked_protocol_features: u64,
-    pub metrics: Arc<VhostUserDeviceMetrics>,
 }
 
 // Need custom implementation because otherwise `Debug` is required for `vhost::Master`
 impl<T: VhostUserHandleBackend> std::fmt::Debug for VhostUserBlockImpl<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VhostUserBlockImpl")
-            .field("avail_features", &self.avail_features)
-            .field("acked_features", &self.acked_features)
-            .field("config_space", &self.config_space)
-            .field("activate_evt", &self.activate_evt)
-            .field("queues", &self.queues)
-            .field("queue_evts", &self.queue_evts)
-            .field("device_state", &self.device_state)
+            .field("vu_device", &self.vu_device)
             .field("id", &self.id)
             .field("partuuid", &self.partuuid)
             .field("cache_type", &self.cache_type)
             .field("root_device", &self.root_device)
             .field("read_only", &self.read_only)
-            .field("vu_handle", &self.vu_handle)
-            .field(
-                "vu_acked_protocol_features",
-                &self.vu_acked_protocol_features,
-            )
-            .field("metrics", &self.metrics)
             .finish()
     }
 }
@@ -163,80 +134,36 @@ impl<T: VhostUserHandleBackend> std::fmt::Debug for VhostUserBlockImpl<T> {
 impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
     pub fn new(config: VhostUserBlockConfig) -> Result<Self, VhostUserBlockError> {
         log_dev_preview_warning("vhost-user-blk device", Option::None);
-        let start_time = get_time_us(ClockType::Monotonic);
-        let mut requested_features = AVAILABLE_FEATURES;
 
+        let mut avail_features = AVAILABLE_FEATURES;
         if config.cache_type == CacheType::Writeback {
-            requested_features |= 1 << VIRTIO_BLK_F_FLUSH;
+            avail_features |= 1 << VIRTIO_BLK_F_FLUSH;
         }
 
-        let requested_protocol_features = VhostUserProtocolFeatures::CONFIG;
+        let vu_device = VhostUserDevice::<T>::new(VhostUserDeviceSpec {
+            socket: config.socket,
+            num_queues: NUM_QUEUES,
+            queue_size: QUEUE_SIZE,
+            avail_features,
+            config_space_size: BLOCK_CONFIG_SPACE_SIZE,
+            // A backend that does not implement CONFIG leaves the config space
+            // empty, which the guest driver reads as a zero-capacity disk.
+            require_config: false,
+            metrics_name: format!("block_{}", config.drive_id),
+        })?;
 
-        let mut vu_handle = VhostUserHandleImpl::<T>::new(&config.socket, NUM_QUEUES)
-            .map_err(VhostUserBlockError::VhostUser)?;
-        let (acked_features, acked_protocol_features) = vu_handle
-            .negotiate_features(requested_features, requested_protocol_features)
-            .map_err(VhostUserBlockError::VhostUser)?;
-
-        // Get config from backend if CONFIG is acked or use empty buffer.
-        let config_space =
-            if acked_protocol_features & VhostUserProtocolFeatures::CONFIG.bits() != 0 {
-                // This buffer is used for config size check in vhost crate.
-                let buffer = [0u8; BLOCK_CONFIG_SPACE_SIZE as usize];
-                let (_, new_config_space) = vu_handle
-                    .vu
-                    .get_config(
-                        0,
-                        BLOCK_CONFIG_SPACE_SIZE,
-                        VhostUserConfigFlags::WRITABLE,
-                        &buffer,
-                    )
-                    .map_err(VhostUserBlockError::Vhost)?;
-                new_config_space
-            } else {
-                vec![]
-            };
-
-        let activate_evt =
-            EventFd::new(libc::EFD_NONBLOCK).map_err(VhostUserBlockError::EventFd)?;
-
-        let queues = vec![Queue::new(QUEUE_SIZE)];
-        let queue_evts = [EventFd::new(libc::EFD_NONBLOCK).map_err(VhostUserBlockError::EventFd)?;
-            u64_to_usize(NUM_QUEUES)];
-        let device_state = DeviceState::Inactive;
-
-        // Read before `acked_features` is narrowed to the protocol bit below.
-        let read_only = acked_features & (1 << VIRTIO_BLK_F_RO) != 0;
-
-        // We negotiated features with backend. Now these acked_features
-        // are available for guest driver to choose from.
-        let avail_features = acked_features;
-        let acked_features = acked_features & VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits();
-        let vhost_user_block_metrics_name = format!("block_{}", config.drive_id);
-
-        let metrics = VhostUserMetricsPerDevice::alloc(vhost_user_block_metrics_name);
-        let delta_us = get_time_us(ClockType::Monotonic) - start_time;
-        metrics.init_time_us.store(delta_us);
+        // What the backend acked is what the guest driver gets offered, so this
+        // is where a readonly backend shows up.
+        let read_only = vu_device.avail_features & (1 << VIRTIO_BLK_F_RO) != 0;
 
         Ok(Self {
-            avail_features,
-            acked_features,
-            config_space,
-            activate_evt,
-
-            queues,
-            queue_evts,
-            device_state,
+            vu_device,
 
             id: config.drive_id,
             partuuid: config.partuuid,
             cache_type: config.cache_type,
             read_only,
             root_device: config.is_root_device,
-
-            vu_handle,
-            vu_acked_protocol_features: acked_protocol_features,
-            metrics,
         })
     }
 
@@ -251,40 +178,12 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
             partuuid: self.partuuid.clone(),
             is_root_device: self.root_device,
             cache_type: self.cache_type,
-            socket: self.vu_handle.socket_path.clone(),
+            socket: self.vu_device.socket_path().to_string(),
         }
     }
 
     pub fn config_update(&mut self) -> Result<(), VhostUserBlockError> {
-        let start_time = get_time_us(ClockType::Monotonic);
-        let interrupt = self
-            .device_state
-            .active_state()
-            .expect("Device is not initialized")
-            .interrupt
-            .clone();
-
-        // This buffer is used for config size check in vhost crate.
-        let buffer = [0u8; BLOCK_CONFIG_SPACE_SIZE as usize];
-        let (_, new_config_space) = self
-            .vu_handle
-            .vu
-            .get_config(
-                0,
-                BLOCK_CONFIG_SPACE_SIZE,
-                VhostUserConfigFlags::WRITABLE,
-                &buffer,
-            )
-            .map_err(VhostUserBlockError::Vhost)?;
-        self.config_space = new_config_space;
-        interrupt
-            .trigger(VirtioInterruptType::Config)
-            .map_err(VhostUserBlockError::Interrupt)?;
-
-        let delta_us = get_time_us(ClockType::Monotonic) - start_time;
-        self.metrics.config_change_time_us.store(delta_us);
-
-        Ok(())
+        Ok(self.vu_device.refresh_config()?)
     }
 }
 
@@ -299,39 +198,35 @@ where
     }
 
     fn avail_features(&self) -> u64 {
-        self.avail_features
+        self.vu_device.avail_features
     }
 
     fn acked_features(&self) -> u64 {
-        self.acked_features
+        self.vu_device.acked_features
     }
 
     fn set_acked_features(&mut self, acked_features: u64) {
-        self.acked_features = acked_features;
+        self.vu_device.acked_features = acked_features;
     }
 
     fn queues(&self) -> &[Queue] {
-        &self.queues
+        &self.vu_device.queues
     }
 
     fn queues_mut(&mut self) -> &mut [Queue] {
-        &mut self.queues
+        &mut self.vu_device.queues
     }
 
     fn queue_events(&self) -> &[EventFd] {
-        &self.queue_evts
+        &self.vu_device.queue_evts
     }
 
     fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
-        self.device_state
-            .active_state()
-            .expect("Device is not initialized")
-            .interrupt
-            .deref()
+        self.vu_device.interrupt()
     }
 
     fn config_as_bytes(&self) -> &[u8] {
-        self.config_space.as_slice()
+        self.vu_device.config_space.as_slice()
     }
 
     fn write_config(&mut self, _offset: u64, _data: &[u8]) {
@@ -345,41 +240,15 @@ where
         mem: GuestMemoryMmap,
         interrupt: Arc<dyn VirtioInterrupt>,
     ) -> Result<(), ActivateError> {
-        assert!(!self.is_activated());
-
-        for q in self.queues.iter_mut() {
-            q.initialize(&mem)
-                .map_err(ActivateError::QueueMemoryError)?;
-        }
-
-        let start_time = get_time_us(ClockType::Monotonic);
-        // Setting features again, because now we negotiated them
-        // with guest driver as well.
-        self.vu_handle
-            .set_features(self.acked_features)
-            .and_then(|()| {
-                self.vu_handle.setup_backend(
-                    &mem,
-                    &[(0, &self.queues[0], &self.queue_evts[0])],
-                    interrupt.clone(),
-                )
-            })
-            .map_err(|err| {
-                self.metrics.activate_fails.inc();
-                ActivateError::VhostUser(err)
-            })?;
-        self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
-        let delta_us = get_time_us(ClockType::Monotonic) - start_time;
-        self.metrics.activate_time_us.store(delta_us);
-        Ok(())
+        self.vu_device.activate(mem, interrupt)
     }
 
     fn is_activated(&self) -> bool {
-        self.device_state.is_activated()
+        self.vu_device.is_activated()
     }
 
     fn deactivate(&mut self) {
-        self.device_state = DeviceState::Inactive;
+        self.vu_device.deactivate();
     }
 
     fn _reset(&mut self) -> bool {
@@ -400,6 +269,7 @@ mod tests {
 
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
+    use crate::devices::virtio::device::{ActiveState, DeviceState};
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
     use crate::devices::virtio::transport::mmio::VIRTIO_MMIO_INT_CONFIG;
     use crate::devices::virtio::vhost_user::tests::create_mem;
@@ -523,6 +393,7 @@ mod tests {
         // no flags should be set.
         assert_eq!(
             vhost_block
+                .vu_device
                 .vu_handle
                 .vu
                 .sock
@@ -534,18 +405,18 @@ mod tests {
                 .unwrap(),
             &tmp_socket_path,
         );
-        assert_eq!(vhost_block.vu_handle.vu.max_queue_num, NUM_QUEUES);
-        assert!(unsafe { *vhost_block.vu_handle.vu.is_owner.get() });
-        assert_eq!(vhost_block.avail_features, 0);
-        assert_eq!(vhost_block.acked_features, 0);
-        assert_eq!(vhost_block.vu_acked_protocol_features, 0);
+        assert_eq!(vhost_block.vu_device.vu_handle.vu.max_queue_num, NUM_QUEUES);
+        assert!(unsafe { *vhost_block.vu_device.vu_handle.vu.is_owner.get() });
+        assert_eq!(vhost_block.vu_device.avail_features, 0);
+        assert_eq!(vhost_block.vu_device.acked_features, 0);
+        assert_eq!(vhost_block.vu_device.vu_acked_protocol_features, 0);
         assert_eq!(
-            unsafe { &*vhost_block.vu_handle.vu.hdr_flags.get() }.bits(),
+            unsafe { &*vhost_block.vu_device.vu_handle.vu.hdr_flags.get() }.bits(),
             VhostUserHeaderFlag::empty().bits()
         );
         assert!(!vhost_block.root_device);
         assert!(!vhost_block.read_only);
-        assert_eq!(vhost_block.config_space, Vec::<u8>::new());
+        assert_eq!(vhost_block.vu_device.config_space, Vec::<u8>::new());
     }
 
     #[test]
@@ -600,11 +471,15 @@ mod tests {
             fn get_config(
                 &mut self,
                 _offset: u32,
-                _size: u32,
+                size: u32,
                 _flags: VhostUserConfigFlags,
                 _buf: &[u8],
             ) -> Result<(VhostUserConfig, VhostUserConfigPayload), vhost::Error> {
-                Ok((VhostUserConfig::default(), vec![0x69, 0x69, 0x69]))
+                // The frontend requires the backend to answer with as many
+                // bytes as were asked for.
+                let mut config = vec![0x69, 0x69, 0x69];
+                config.resize(size as usize, 0);
+                Ok((VhostUserConfig::default(), config))
             }
         }
 
@@ -628,6 +503,7 @@ mod tests {
         // should be negotiated and header flags should be set.
         assert_eq!(
             vhost_block
+                .vu_device
                 .vu_handle
                 .vu
                 .sock
@@ -639,28 +515,35 @@ mod tests {
                 .unwrap(),
             &tmp_socket_path,
         );
-        assert_eq!(vhost_block.vu_handle.vu.max_queue_num, NUM_QUEUES);
-        assert!(unsafe { *vhost_block.vu_handle.vu.is_owner.get() });
+        assert_eq!(vhost_block.vu_device.vu_handle.vu.max_queue_num, NUM_QUEUES);
+        assert!(unsafe { *vhost_block.vu_device.vu_handle.vu.is_owner.get() });
 
         assert_eq!(
-            vhost_block.avail_features,
+            vhost_block.vu_device.avail_features,
             AVAILABLE_FEATURES | (1 << VIRTIO_BLK_F_FLUSH)
         );
         assert_eq!(
-            vhost_block.acked_features,
+            vhost_block.vu_device.acked_features,
             VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits()
         );
         assert_eq!(
-            vhost_block.vu_acked_protocol_features,
+            vhost_block.vu_device.vu_acked_protocol_features,
             VhostUserProtocolFeatures::CONFIG.bits()
         );
         assert_eq!(
-            unsafe { &*vhost_block.vu_handle.vu.hdr_flags.get() }.bits(),
+            unsafe { &*vhost_block.vu_device.vu_handle.vu.hdr_flags.get() }.bits(),
             VhostUserHeaderFlag::empty().bits()
         );
         assert!(!vhost_block.root_device);
         assert!(vhost_block.read_only);
-        assert_eq!(vhost_block.config_space, vec![0x69, 0x69, 0x69]);
+        assert_eq!(
+            vhost_block.vu_device.config_space.len(),
+            BLOCK_CONFIG_SPACE_SIZE as usize
+        );
+        assert_eq!(
+            &vhost_block.vu_device.config_space[..3],
+            &[0x69, 0x69, 0x69]
+        );
 
         // Test some `VirtioDevice` methods
         assert_eq!(
@@ -684,16 +567,30 @@ mod tests {
 
         // Writing to the config does nothing
         vhost_block.write_config(0x69, &[0]);
-        assert_eq!(vhost_block.config_space, vec![0x69, 0x69, 0x69]);
+        assert_eq!(
+            vhost_block.vu_device.config_space.len(),
+            BLOCK_CONFIG_SPACE_SIZE as usize
+        );
+        assert_eq!(
+            &vhost_block.vu_device.config_space[..3],
+            &[0x69, 0x69, 0x69]
+        );
 
         // Testing [`config_update`]
-        vhost_block.device_state = DeviceState::Activated(ActiveState {
+        vhost_block.vu_device.device_state = DeviceState::Activated(ActiveState {
             mem: default_mem(),
             interrupt: default_interrupt(),
         });
-        vhost_block.config_space = vec![];
+        vhost_block.vu_device.config_space = vec![];
         vhost_block.config_update().unwrap();
-        assert_eq!(vhost_block.config_space, vec![0x69, 0x69, 0x69]);
+        assert_eq!(
+            vhost_block.vu_device.config_space.len(),
+            BLOCK_CONFIG_SPACE_SIZE as usize
+        );
+        assert_eq!(
+            &vhost_block.vu_device.config_space[..3],
+            &[0x69, 0x69, 0x69]
+        );
         assert_eq!(
             vhost_block.interrupt_status().load(Ordering::SeqCst),
             VIRTIO_MMIO_INT_CONFIG
@@ -826,14 +723,14 @@ mod tests {
         let regions = vec![(GuestAddress(0x0), region_size)];
         let guest_memory = create_mem(file, &regions);
         let q = VirtQueue::new(GuestAddress(0), &guest_memory, 16);
-        vhost_block.queues[0] = q.create_queue();
+        vhost_block.vu_device.queues[0] = q.create_queue();
         let interrupt = default_interrupt();
 
         // During actiavion of the device features, memory and queues should be set and activated.
         vhost_block.activate(guest_memory, interrupt).unwrap();
-        assert!(unsafe { *vhost_block.vu_handle.vu.features_are_set.get() });
-        assert!(unsafe { *vhost_block.vu_handle.vu.memory_is_set.get() });
-        assert!(unsafe { *vhost_block.vu_handle.vu.vring_enabled.get() });
+        assert!(unsafe { *vhost_block.vu_device.vu_handle.vu.features_are_set.get() });
+        assert!(unsafe { *vhost_block.vu_device.vu_handle.vu.memory_is_set.get() });
+        assert!(unsafe { *vhost_block.vu_device.vu_handle.vu.vring_enabled.get() });
         assert!(vhost_block.is_activated());
     }
 }
