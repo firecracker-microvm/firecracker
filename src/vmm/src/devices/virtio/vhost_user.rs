@@ -510,6 +510,9 @@ pub struct VhostUserDeviceConfig {
     /// and not an upper bound. 0 is for a device type with no config space, and
     /// then nothing is fetched.
     pub config_space_size: u32,
+    /// Whether the CONFIG protocol feature is mandatory. Frontends with no
+    /// device-specific fallback for the config space require it.
+    pub require_config: bool,
     /// Name to report this device's metrics under.
     pub metrics_name: String,
 }
@@ -519,12 +522,15 @@ pub struct VhostUserDeviceConfig {
 pub enum VhostUserDeviceError {
     /// A vhost-user device needs at least one queue, got {0}
     InvalidNumQueues(u64),
-    /// Config space size must be at most 4084 bytes, got {0}
+    /// Config space size must be at most 4084 bytes, and not 0 when CONFIG is
+    /// required, got {0}
     InvalidConfigSpaceSize(u32),
     /// A vhost-user device supports at most {1} queues, got {0}
     TooManyQueues(u64, u64),
     /// Queue size must be a power of two, got {0}
     InvalidQueueSize(u16),
+    /// Backend did not negotiate the mandatory CONFIG protocol feature
+    ConfigFeatureNotNegotiated,
     /// Vhost-user: {0}
     VhostUser(VhostUserError),
     /// Failed to get config space from the backend: {0}
@@ -612,7 +618,11 @@ impl<T: VhostUserHandleBackend> VhostUserDevice<T> {
         // space, which needs the backend to ack CONFIG. Checking here gives the
         // same result whichever backend we talk to, and avoids allocating the
         // buffer first.
-        if config.config_space_size > MAX_CONFIG_SPACE_SIZE {
+        //
+        // Requiring CONFIG while asking for no config space can't be satisfied.
+        if config.config_space_size > MAX_CONFIG_SPACE_SIZE
+            || (config.require_config && config.config_space_size == 0)
+        {
             return Err(VhostUserDeviceError::InvalidConfigSpaceSize(
                 config.config_space_size,
             ));
@@ -628,6 +638,9 @@ impl<T: VhostUserHandleBackend> VhostUserDevice<T> {
 
         let config_acked =
             vu_acked_protocol_features & VhostUserProtocolFeatures::CONFIG.bits() != 0;
+        if config.require_config && !config_acked {
+            return Err(VhostUserDeviceError::ConfigFeatureNotNegotiated);
+        }
 
         let config_space = if config_acked && config.config_space_size > 0 {
             get_config_space(&mut vu_handle, config.config_space_size)?
@@ -895,6 +908,7 @@ pub(crate) mod tests {
             queue_size: 128,
             avail_features: 0,
             config_space_size: 8,
+            require_config: false,
             metrics_name: format!("test_generic_{num_queues}"),
         })
         .unwrap()
@@ -941,6 +955,7 @@ pub(crate) mod tests {
             queue_size: 128,
             avail_features: 0,
             config_space_size,
+            require_config: false,
             metrics_name: "test_invalid_config".to_string(),
         };
 
@@ -959,6 +974,15 @@ pub(crate) mod tests {
             VhostUserDevice::<MockRecorder>::new(config(MAX_QUEUES + 1, 8)),
             Err(VhostUserDeviceError::TooManyQueues(got, MAX_QUEUES))
                 if got == MAX_QUEUES + 1
+        ));
+
+        let required_without_space = VhostUserDeviceConfig {
+            require_config: true,
+            ..config(1, 0)
+        };
+        assert!(matches!(
+            VhostUserDevice::<MockRecorder>::new(required_without_space),
+            Err(VhostUserDeviceError::InvalidConfigSpaceSize(0))
         ));
 
         let odd_queue_size = VhostUserDeviceConfig {
@@ -1008,7 +1032,7 @@ pub(crate) mod tests {
         }
 
         fn get_protocol_features(&mut self) -> Result<VhostUserProtocolFeatures, vhost::Error> {
-            // No CONFIG.
+            // No CONFIG, so a device that requires it has to be rejected.
             Ok(VhostUserProtocolFeatures::empty())
         }
 
@@ -1033,6 +1057,7 @@ pub(crate) mod tests {
             queue_size: 128,
             avail_features: frontend,
             config_space_size: 8,
+            require_config: false,
             metrics_name: "test_features_narrow".to_string(),
         })
         .unwrap();
@@ -1055,11 +1080,53 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_new_rejects_missing_required_config() {
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
+
+        // The backend negotiates the protocol feature but not CONFIG, so a
+        // device that requires a config space has to be rejected rather than
+        // built with an empty one.
+        let result = VhostUserDevice::<MockFeatures>::new(VhostUserDeviceConfig {
+            socket: tmp_socket_path,
+            num_queues: 1,
+            queue_size: 128,
+            avail_features: VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits(),
+            config_space_size: 8,
+            require_config: true,
+            metrics_name: "test_require_config".to_string(),
+        });
+
+        assert!(matches!(
+            result,
+            Err(VhostUserDeviceError::ConfigFeatureNotNegotiated)
+        ));
+    }
+
+    #[test]
+    fn test_new_accepts_required_config_when_acked() {
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
+
+        // CONFIG is required and the backend acks it, so the device is built
+        // with the config space the backend returned.
+        let device = VhostUserDevice::<MockConfig>::new(VhostUserDeviceConfig {
+            socket: tmp_socket_path,
+            num_queues: 1,
+            queue_size: 128,
+            avail_features: VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits(),
+            config_space_size: 8,
+            require_config: true,
+            metrics_name: "test_require_config_acked".to_string(),
+        })
+        .unwrap();
+        assert_eq!(device.config_space, vec![1; 8]);
+    }
+
+    #[test]
     fn test_config_space_empty_without_config_feature() {
         let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
 
-        // The recording backend acks no CONFIG, so there is no config space to
-        // fetch or serve.
+        // The recording backend acks no CONFIG and the device does not require
+        // it, so there is no config space to fetch or serve.
         let device = recording_device(tmp_socket_path, 1);
         assert!(device.config_space.is_empty());
     }
@@ -1122,6 +1189,7 @@ pub(crate) mod tests {
             queue_size: 128,
             avail_features: VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits(),
             config_space_size: 8,
+            require_config: false,
             metrics_name: "test_config_refresh".to_string(),
         })
         .unwrap();
@@ -1156,6 +1224,7 @@ pub(crate) mod tests {
             queue_size: 128,
             avail_features: VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits(),
             config_space_size: 0,
+            require_config: false,
             metrics_name: "test_no_config_space".to_string(),
         })
         .unwrap();
