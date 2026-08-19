@@ -88,7 +88,7 @@ impl PciDevices {
         virtio_device: Arc<Mutex<VirtioPciDevice>>,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
-        let config_bar_addr = {
+        let bar_address = {
             let mut device = virtio_device.lock().unwrap();
 
             device.register_notification_ioevents(vm)?;
@@ -96,7 +96,7 @@ impl PciDevices {
             let sub_id = event_manager.add_subscriber(device.virtio_device());
             device.sub_id = Some(sub_id);
 
-            device.config_bar_addr()
+            device.bar_address()
         };
 
         self.virtio_devices
@@ -110,11 +110,11 @@ impl PciDevices {
 
         debug!(
             "Inserting MMIO BAR region: {:#x}:{:#x}",
-            config_bar_addr, CAPABILITY_BAR_SIZE
+            bar_address, CAPABILITY_BAR_SIZE
         );
         vm.common
             .mmio_bus
-            .insert(virtio_device.clone(), config_bar_addr, CAPABILITY_BAR_SIZE)?;
+            .insert(virtio_device.clone(), bar_address, CAPABILITY_BAR_SIZE)?;
 
         Ok(())
     }
@@ -177,32 +177,33 @@ impl PciDevices {
             .remove(&device_id)
             .expect("device presence should be checked before detach");
 
+        let sbdf_device = pci_device_arc.lock().expect("Poisoned lock").sbdf.device();
+
+        // Remove the device from the PCI bus first. A config space access runs
+        // with the PCI bus lock held and can relocate the BAR, so afterwards
+        // the BAR address of the device can no longer change under us.
+        self.pci_segment
+            .pci_bus
+            .lock()
+            .expect("Poisoned lock")
+            .remove_device(sbdf_device);
+
         // Next operations of removing device from mmio_bus and pci_bus need to wait for any other
         // user of the device to finish. This requires us to not hold the lock for the device in
         // case someone will try to access the device while we are in these several lines of code.
-        let (bar_addr, sbdf_device, sub_id) = {
+        let (bar_addr, sub_id) = {
             let pci_device = pci_device_arc.lock().expect("Poisoned lock");
 
             pci_device
                 .unregister_notification_ioevents(vm)
                 .map_err(PciManagerError::Kvm)?;
-            (
-                pci_device.config_bar_addr(),
-                pci_device.sbdf.device(),
-                pci_device.sub_id,
-            )
+            (pci_device.bar_address(), pci_device.sub_id)
         };
 
         vm.common
             .mmio_bus
             .remove(bar_addr, CAPABILITY_BAR_SIZE)
             .map_err(PciManagerError::Bus)?;
-
-        self.pci_segment
-            .pci_bus
-            .lock()
-            .expect("Poisoned lock")
-            .remove_device(sbdf_device);
 
         if let Some(sub_id) = sub_id
             && event_manager.remove_subscriber(sub_id).is_err()
