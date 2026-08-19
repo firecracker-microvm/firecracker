@@ -12,7 +12,7 @@ impl VhostUserBlock {
 
     fn register_activate_event(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::with_data(
-            &self.activate_evt,
+            &self.vu_device.activate_evt,
             Self::PROCESS_ACTIVATE,
             EventSet::IN,
         )) {
@@ -21,11 +21,11 @@ impl VhostUserBlock {
     }
 
     fn process_activate_event(&self, ops: &mut EventOps) {
-        if let Err(err) = self.activate_evt.read() {
+        if let Err(err) = self.vu_device.activate_evt.read() {
             error!("Failed to consume block activate event: {:?}", err);
         }
         if let Err(err) = ops.remove(Events::with_data(
-            &self.activate_evt,
+            &self.vu_device.activate_evt,
             Self::PROCESS_ACTIVATE,
             EventSet::IN,
         )) {
