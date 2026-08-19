@@ -133,17 +133,6 @@ class SpectreMeltdownChecker:
                 f'{{"NAME": "INCEPTION", "CVE": "CVE-2023-20569", "VULNERABLE": true, "INFOS": "Vulnerable: Safe RET, no microcode{infos_suffix}"}}'
             }
 
-        # ARM SSBS NOSYNC (erratum 3194386): the CI guest kernels disable the
-        # workaround (ci.config unsets CONFIG_ARM64_ERRATUM_3194386) because it
-        # hides the "ssbs" hwcap the CPU-feature tests assert on, so the guest
-        # finding is accurate; the host kernels carry the workaround and pass.
-        # Re-enabling it in the guests is tracked in
-        # test_cpu_features_host_vs_guest.py.
-        # https://github.com/speed47/spectre-meltdown-checker/blob/03cc4ffeb1dca9bb8d89f8096dc45015530d3214/spectre-meltdown-checker.sh#L7307-L7326
-        if global_props.cpu_architecture == "aarch64":
-            return {
-                '{"NAME": "ARM SSBS NOSYNC", "CVE": "CVE-0001-0003", "VULNERABLE": true, "INFOS": "your CPU is affected by this erratum and the kernel does not appear to include the workaround; Spectre V4 (CVE-2018-3639) mitigation may be unreliable on this system"}'
-            }
         return set()
 
 
@@ -355,3 +344,26 @@ def test_spectre_meltdown_checker_on_guest(
         assert res_b == spectre_meltdown_checker.expected_vulnerabilities(
             uvm_any.cpu_template_name, uvm_any.guest_kernel_version
         )
+
+
+# All Graviton generations (Neoverse N1/V1/V2/V3) are affected by erratum
+# 3194386: SSBS writes are not self-synchronizing, so the kernel workaround
+# adds a speculation barrier and hides the "ssbs" hwcap from userspace, which
+# must request the mitigation via prctl(PR_SET_SPECULATION_CTRL) instead of
+# toggling PSTATE.SSBS directly (this is why "ssbs" is absent from the
+# expectations in test_cpu_features_aarch64.py).
+# https://github.com/torvalds/linux/commit/adeec61a4723fd3e39da68db4cc4d924e6d7f641
+#
+# KVM passes the host MIDR through, so the guest kernel must detect the
+# erratum itself, while still seeing SSBS hardware support via the ID
+# registers KVM exposes.
+@pytest.mark.skipif(
+    global_props.cpu_architecture != "aarch64", reason="Only run in aarch64"
+)
+def test_spec_store_bypass_mitigated(uvm_booted):
+    """Check the guest kernel applies the SSBS erratum 3194386 workaround."""
+    dmesg = uvm_booted.ssh.check_output("dmesg").stdout
+    # KVM exposed SSBS hardware support to the guest
+    assert "Speculative Store Bypassing Safe (SSBS)" in dmesg
+    # the guest detected erratum 3194386 via the passed-through MIDR
+    assert "SSBS not fully self-synchronizing" in dmesg
