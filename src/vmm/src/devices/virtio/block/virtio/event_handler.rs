@@ -22,13 +22,6 @@ impl VirtioBlock {
         )) {
             error!("Failed to register queue event: {}", err);
         }
-        if let Err(err) = ops.add(Events::with_data(
-            &self.resources().rate_limiter,
-            Self::PROCESS_RATE_LIMITER,
-            EventSet::IN,
-        )) {
-            error!("Failed to register ratelimiter event: {}", err);
-        }
         if let FileEngine::Async(ref engine) = self.resources().disk.file_engine
             && let Err(err) = ops.add(Events::with_data(
                 engine.completion_evt(),
@@ -37,6 +30,16 @@ impl VirtioBlock {
             ))
         {
             error!("Failed to register IO engine completion event: {}", err);
+        }
+    }
+
+    fn register_rate_limiter_event(&self, ops: &mut EventOps) {
+        if let Err(err) = ops.add(Events::with_data(
+            &*self.rate_limiter(),
+            Self::PROCESS_RATE_LIMITER,
+            EventSet::IN,
+        )) {
+            error!("Failed to register rate limiter event: {}", err);
         }
     }
 
@@ -54,6 +57,7 @@ impl VirtioBlock {
         if let Err(err) = self.activate_evt.read() {
             error!("Failed to consume block activate event: {:?}", err);
         }
+        self.register_rate_limiter_event(ops);
         self.register_runtime_events(ops);
         if let Err(err) = ops.remove(Events::with_data(
             &self.activate_evt,
@@ -98,7 +102,7 @@ impl MutEventSubscriber for VirtioBlock {
             match source {
                 Self::PROCESS_QUEUE => self.drain_queue_events(),
                 Self::PROCESS_RATE_LIMITER => {
-                    self.resources_mut().rate_limiter.event_handler();
+                    self.rate_limiter().event_handler();
                 }
                 Self::PROCESS_ASYNC_COMPLETION => {
                     if let FileEngine::Async(ref engine) = self.resources().disk.file_engine {
@@ -116,6 +120,7 @@ impl MutEventSubscriber for VirtioBlock {
         //  - on device activation (is-activated already true at this point),
         //  - on device restore from snapshot.
         if self.is_activated() {
+            self.register_rate_limiter_event(ops);
             self.register_runtime_events(ops);
         } else {
             self.register_activate_event(ops);
