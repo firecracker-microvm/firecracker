@@ -17,10 +17,12 @@ use crate::devices::virtio::test_utils::{VirtQueue as GuestQ, default_interrupt}
 use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::devices::virtio::vsock::device::{EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};
 use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
+use crate::devices::virtio::vsock::unix::ReadResult;
 use crate::devices::virtio::vsock::{
-    Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
+    Save, Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
 };
 use crate::test_utils::single_region_mem;
+use crate::vmm_config::vsock::VsockType;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug)]
@@ -60,7 +62,7 @@ impl Default for TestBackend {
 }
 
 impl VsockChannel for TestBackend {
-    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<(), VsockError> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<ReadResult, VsockError> {
         let cool_buf = [0xDu8, 0xE, 0xA, 0xD, 0xB, 0xE, 0xE, 0xF];
         match self.rx_err.take() {
             None => {
@@ -73,7 +75,7 @@ impl VsockChannel for TestBackend {
                         .unwrap();
                 }
                 self.rx_ok_cnt += 1;
-                Ok(())
+                Ok(ReadResult::new(buf_size, false))
             }
             Some(err) => Err(err),
         }
@@ -102,12 +104,19 @@ impl VsockEpollListener for TestBackend {
         self.evset = Some(evset);
     }
 }
+
 impl VsockBackend for TestBackend {
     fn activate(&mut self) -> Result<(), VsockError> {
         Ok(())
     }
 
     fn reset(&mut self) {}
+}
+
+impl Save for TestBackend {
+    fn save(&self) -> &VsockType {
+        &VsockType::Stream
+    }
 }
 
 #[derive(Debug)]
@@ -124,7 +133,7 @@ impl TestContext {
         const CID: u64 = 52;
         const MEM_SIZE: usize = 1024 * 1024 * 128;
         let mem = single_region_mem(MEM_SIZE);
-        let mut device = Vsock::new(CID, TestBackend::new()).unwrap();
+        let mut device = Vsock::new(CID, TestBackend::new(), &VsockType::default()).unwrap();
         for q in device.queues_mut() {
             q.ready = true;
             q.size = q.max_size;
@@ -175,7 +184,8 @@ impl TestContext {
             guest_rxvq,
             guest_txvq,
             guest_evvq,
-            device: Vsock::with_queues(self.cid, TestBackend::new(), queues).unwrap(),
+            device: Vsock::with_queues(self.cid, TestBackend::new(), &VsockType::default(), queues)
+                .unwrap(),
         }
     }
 }
