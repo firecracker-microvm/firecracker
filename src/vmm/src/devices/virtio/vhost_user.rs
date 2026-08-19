@@ -578,6 +578,11 @@ impl<T: VhostUserHandleBackend> std::fmt::Debug for VhostUserDevice<T> {
 }
 
 impl<T: VhostUserHandleBackend> VhostUserDevice<T> {
+    /// The size the config space was negotiated to, in bytes.
+    pub fn config_space_size(&self) -> u32 {
+        self.config_space_size
+    }
+
     /// Connect to the backend, negotiate features, fetch the config space and
     /// allocate the queues.
     pub fn new(spec: VhostUserDeviceSpec) -> Result<Self, VhostUserDeviceError> {
