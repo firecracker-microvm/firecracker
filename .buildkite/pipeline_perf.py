@@ -20,11 +20,13 @@ perf_test = {
         "label": "virtio-block-sync",
         "tests": "integration_tests/performance/test_block.py::test_block_performance -k 'not Async'",
         "devtool_opts": "-c 1-10 -m 0",
+        "enclave": True,
     },
     "virtio-block-async": {
         "label": "virtio-block-async",
         "tests": "integration_tests/performance/test_block.py::test_block_performance -k Async",
         "devtool_opts": "-c 1-10 -m 0",
+        "enclave": True,
     },
     "vhost-user-block": {
         "label": "vhost-user-block",
@@ -41,11 +43,13 @@ perf_test = {
         "label": "network",
         "tests": "integration_tests/performance/test_network.py",
         "devtool_opts": "-c 1-10 -m 0",
+        "enclave": True,
     },
     "vsock-throughput": {
         "label": "vsock-throughput",
         "tests": "integration_tests/performance/test_vsock.py",
         "devtool_opts": "-c 1-10 -m 0",
+        "enclave": True,
     },
     "memory-hotplug": {
         "label": "memory-hotplug",
@@ -74,22 +78,26 @@ perf_test = {
         "label": "boottime",
         "tests": "integration_tests/performance/test_boottime.py::test_boottime",
         "devtool_opts": "-c 1-10 -m 0",
+        "enclave": True,
     },
     "process-startup": {
         "label": "process-startup",
         "tests": "integration_tests/performance/test_process_startup_time.py",
         "devtool_opts": "-c 1-10 -m 0",
+        "enclave": True,
     },
     "jailer": {
         "label": "jailer",
         "tests": "integration_tests/performance/test_jailer.py",
         "devtool_opts": "-c 1-10 -m 0",
         "ab_opts": "--noise-threshold startup=0.1",
+        "enclave": True,
     },
     "mmds": {
         "label": "mmds",
         "tests": "integration_tests/performance/test_mmds.py",
         "devtool_opts": "-c 1-10 -m 0",
+        "enclave": True,
         # The latency of consecutive MMDS calls is very correlated.
         # To make datapoints more independent, we run more iterations to spread the datapoint collection over a longer
         # period of time.
@@ -141,6 +149,16 @@ if pipeline.args.test:
 else:
     tests = perf_test.values()
 
+
+def build_command(artifacts, devtool_opts, test_script_opts):
+    """Prefix the artifact download, when there is one, to a devtool run."""
+    command = []
+    if artifacts:
+        command.append(pipeline.devtool_download_artifacts(artifacts))
+    command.extend(pipeline.devtool_test(devtool_opts, test_script_opts))
+    return command
+
+
 for test in tests:
     devtool_opts = test.pop("devtool_opts")
     # Perf tests are marked nonci, so this leaves out the functional tests that
@@ -148,6 +166,9 @@ for test in tests:
     test_selector = f"-m nonci {test.pop('tests')}"
     ab_opts = test.pop("ab_opts", "")
     max_iterations = test.pop("max_iterations", A_B_TEST_DEFAULT_MAX_ITERATIONS)
+    # Unflagged groups exercise what an enclave cannot express -- snapshot
+    # restore, huge pages, virtio-mem, pmem -- and collect nothing there.
+    enclave = test.pop("enclave", False)
     devtool_opts += " --performance"
     test_script_opts = ""
     artifacts = []
@@ -161,15 +182,26 @@ for test in tests:
     else:
         test_script_opts += f" {test_selector}"
 
-    command = []
-    if artifacts:
-        command.append(pipeline.devtool_download_artifacts(artifacts))
-    command.extend(pipeline.devtool_test(devtool_opts, test_script_opts))
     pipeline.build_group(
-        command=command,
+        command=build_command(artifacts, devtool_opts, test_script_opts),
         # and the rest can be command arguments
         **test,
     )
+
+    if enclave:
+        # `devtool_opts` cannot be reused: `-c/-m` pin to metal CPU/NUMA layouts,
+        # `--performance` needs intel_pstate and sizes a huge-page pool only KVM
+        # tests consume, and NE hosts have no /dev/kvm.
+        enclave_devtool_opts = "--no-kvm-check"
+        if REVISION_A:
+            enclave_devtool_opts += " --ab"
+
+        pipeline.build_group(
+            f"{test['label']}-enclave",
+            build_command(artifacts, enclave_devtool_opts, test_script_opts),
+            platforms=[("al2023", "enclave")],
+            instances=["c8i.8xlarge", "m8g.8xlarge"],
+        )
 
 # Stores the info about pinning tests to agents with particular kernel versions.
 # For example, the following:
