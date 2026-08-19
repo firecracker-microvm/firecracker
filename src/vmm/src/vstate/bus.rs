@@ -11,6 +11,8 @@ use std::cmp::Ordering;
 use std::collections::btree_map::BTreeMap;
 use std::sync::{Arc, Barrier, Mutex, RwLock, Weak};
 
+use slab::Slab;
+
 /// Trait for devices that respond to reads or writes in an arbitrary address space.
 ///
 /// The device does not care where it exists in address space as each method is only given an offset
@@ -98,16 +100,40 @@ impl PartialOrd for BusRange {
 ///
 /// This doesn't have any restrictions on what kind of device or address space this applies to. The
 /// only restriction is that no two devices can overlap in this address space.
+///
+/// The address ranges and the device handles are held behind two separate
+/// locks. `ranges` maps an address range to the slot holding the owning
+/// device, while `devices` holds the device handles themselves. Decoupling
+/// them lets a bus access - which holds the `devices` read lock - mutate
+/// `ranges` (for example to relocate a device) without needing the `devices`
+/// write lock.
+///
+/// Lock ordering: whenever both locks are taken, `devices` MUST be acquired
+/// before `ranges`. A bus access holds `devices` (read) and then reaches into
+/// `ranges` (read to resolve the address, or write to relocate a mapping), so
+/// every other path that takes both must use the same order.
 #[derive(Default, Debug)]
 pub struct Bus {
-    devices: RwLock<BTreeMap<BusRange, Weak<Mutex<dyn BusDevice>>>>,
+    /// Device handles keyed by an opaque slot. Held (read) for the duration of
+    /// an access so that [`Bus::remove`] blocks until any in-flight access to
+    /// the device has finished.
+    ///
+    /// Lock ordering: acquire this *before* `ranges`.
+    devices: RwLock<Slab<Weak<Mutex<dyn BusDevice>>>>,
+
+    /// Maps each occupied address range to the slot in `devices` holding the
+    /// owning device.
+    ///
+    /// Lock ordering: acquire this *after* `devices`.
+    ranges: RwLock<BTreeMap<BusRange, usize>>,
 }
 
 impl Bus {
     /// Constructs an a bus with an empty address space.
     pub fn new() -> Bus {
         Bus {
-            devices: RwLock::new(BTreeMap::new()),
+            devices: RwLock::new(Slab::new()),
+            ranges: RwLock::new(BTreeMap::new()),
         }
     }
 
@@ -120,26 +146,18 @@ impl Bus {
     ) -> Result<(), BusError> {
         let new_range = BusRange::new(base, len)?;
 
+        // Acquire both write locks in the right order, to register the device
+        // in both maps atomically.
+        let mut devices = self.devices.write().unwrap();
+        let mut ranges = self.ranges.write().unwrap();
+
         // Reject all cases where the new device's range overlaps with an existing device.
-        if self
-            .devices
-            .read()
-            .unwrap()
-            .iter()
-            .any(|(range, _dev)| range.overlaps(&new_range))
-        {
+        if ranges.keys().any(|range| range.overlaps(&new_range)) {
             return Err(BusError::Overlap);
         }
 
-        if self
-            .devices
-            .write()
-            .unwrap()
-            .insert(new_range, Arc::downgrade(&device))
-            .is_some()
-        {
-            return Err(BusError::Overlap);
-        }
+        let slot = devices.insert(Arc::downgrade(&device));
+        ranges.insert(new_range, slot);
 
         Ok(())
     }
@@ -148,35 +166,77 @@ impl Bus {
     pub fn remove(&self, base: u64, len: u64) -> Result<(), BusError> {
         let bus_range = BusRange::new(base, len)?;
 
-        if self.devices.write().unwrap().remove(&bus_range).is_none() {
-            return Err(BusError::MissingAddressRange);
-        }
+        // Acquire both write locks in the right order, to remove the device
+        // from both maps atomically.
+        let mut devices = self.devices.write().unwrap();
+        let mut ranges = self.ranges.write().unwrap();
+
+        let slot = ranges
+            .remove(&bus_range)
+            .ok_or(BusError::MissingAddressRange)?;
+        devices.remove(slot);
 
         Ok(())
     }
 
-    // Lock the `devices` behind `read` lock, lock the device mutex and perform an operation on the
-    // device.
+    // Perform an operation on the device with the devices read lock held.
+    // The ranges read lock is only held for resolving the address and is
+    // dropped before performing the operation on the device.
     fn with_device<T>(
         &self,
         addr: u64,
         f: impl FnOnce(&mut dyn BusDevice, u64, u64) -> T,
     ) -> Result<T, BusError> {
         let devices = self.devices.read().unwrap();
-        if let Some((range, dev)) = devices
-            .range(..=BusRange::new(addr, 1).unwrap())
-            .next_back()
-            && addr <= range.end()
-            && let Some(device) = dev.upgrade()
-        {
-            let mut device = device.lock().unwrap();
-            let base = range.base();
-            let offset = addr - range.base();
-            let result = f(&mut *device, base, offset);
-            Ok(result)
-        } else {
-            Err(BusError::MissingAddressRange)
+        let (base, slot) = {
+            let ranges = self.ranges.read().unwrap();
+            match ranges.range(..=BusRange::new(addr, 1).unwrap()).next_back() {
+                Some((range, &slot)) if addr <= range.end() => (range.base(), slot),
+                _ => return Err(BusError::MissingAddressRange),
+            }
+        };
+
+        let device = devices
+            .get(slot)
+            .expect("Bus ranges and devices out of sync");
+
+        let Some(device) = device.upgrade() else {
+            return Err(BusError::MissingAddressRange);
+        };
+
+        let mut locked = device.lock().unwrap();
+        let offset = addr - base;
+        Ok(f(&mut *locked, base, offset))
+    }
+
+    /// Relocate an existing device mapping from `old_base` to `new_base`.
+    /// Only the `ranges` lock is taken, not the `devices` lock.
+    pub fn move_range(&self, old_base: u64, new_base: u64, len: u64) -> Result<(), BusError> {
+        let old_range = BusRange::new(old_base, len)?;
+        let new_range = BusRange::new(new_base, len)?;
+
+        let mut ranges = self.ranges.write().unwrap();
+
+        // Remove first because the new range might overlap the old range
+        let (registered, slot) = ranges
+            .remove_entry(&old_range)
+            .ok_or(BusError::MissingAddressRange)?;
+
+        assert_eq!(
+            registered.end(),
+            old_range.end(),
+            "Bus mapping at {old_base:#x} is registered with length {}, not {len}",
+            registered.end() - registered.base() + 1
+        );
+
+        // Reject if the destination overlaps another device
+        if ranges.keys().any(|range| range.overlaps(&new_range)) {
+            ranges.insert(old_range, slot);
+            return Err(BusError::Overlap);
         }
+
+        ranges.insert(new_range, slot);
+        Ok(())
     }
 
     /// Reads data from the device that owns the range containing `addr` and puts it into `data`.
@@ -263,6 +323,72 @@ mod tests {
         assert_eq!(r.end(), 0x13ff);
     }
 
+    /// A device that answers every read with its own id, so that a test can
+    /// tell which device an access was routed to.
+    struct IdDevice(u8);
+    impl BusDevice for IdDevice {
+        fn read(&mut self, _base: u64, _offset: u64, data: &mut [u8]) {
+            data.fill(self.0);
+        }
+    }
+
+    #[test]
+    fn bus_multiple_devices() {
+        let bus = Bus::new();
+        let dev_a = Arc::new(Mutex::new(IdDevice(0xa)));
+        let dev_b = Arc::new(Mutex::new(IdDevice(0xb)));
+        let dev_c = Arc::new(Mutex::new(IdDevice(0xc)));
+        let dev_d = Arc::new(Mutex::new(IdDevice(0xd)));
+        let dev_e = Arc::new(Mutex::new(IdDevice(0xe)));
+
+        let read = |addr| {
+            let mut data = [0u8; 1];
+            bus.read(addr, &mut data).unwrap();
+            data[0]
+        };
+        let slot_of = |base| {
+            *bus.ranges
+                .read()
+                .unwrap()
+                .get(&BusRange::new(base, 0x100).unwrap())
+                .unwrap()
+        };
+
+        bus.insert(dev_a.clone(), 0x1000, 0x100).unwrap();
+        bus.insert(dev_b.clone(), 0x2000, 0x100).unwrap();
+        bus.insert(dev_c.clone(), 0x3000, 0x100).unwrap();
+
+        // Every range decodes to the device that owns it, at both ends.
+        assert_eq!(read(0x1000), 0xa);
+        assert_eq!(read(0x10ff), 0xa);
+        assert_eq!(read(0x2000), 0xb);
+        assert_eq!(read(0x20ff), 0xb);
+        assert_eq!(read(0x3000), 0xc);
+        assert_eq!(read(0x30ff), 0xc);
+
+        // Removing the middle device leaves its range undecoded and does not
+        // disturb the routing of the others.
+        let slot_b = slot_of(0x2000);
+        bus.remove(0x2000, 0x100).unwrap();
+        bus.read(0x2000, &mut [0; 1]).unwrap_err();
+        assert_eq!(read(0x1000), 0xa);
+        assert_eq!(read(0x3000), 0xc);
+
+        // The next insertion recycles the slot freed above. The new device
+        // must only answer within its own range, and the removed range must
+        // stay dead.
+        bus.insert(dev_d.clone(), 0x4000, 0x100).unwrap();
+        assert_eq!(slot_of(0x4000), slot_b);
+        assert_eq!(read(0x4000), 0xd);
+        bus.read(0x2000, &mut [0; 1]).unwrap_err();
+        assert_eq!(read(0x1000), 0xa);
+        assert_eq!(read(0x3000), 0xc);
+
+        // Reusing the freed range rebinds it to the new device
+        bus.insert(dev_e.clone(), 0x2000, 0x100).unwrap();
+        assert_eq!(read(0x2000), 0xe);
+    }
+
     #[test]
     fn bus_insert() {
         let bus = Bus::new();
@@ -295,6 +421,68 @@ mod tests {
         bus.insert(dummy.clone(), 0x13, 0x12).unwrap();
         bus.remove(0x42, 0x42).unwrap_err();
         bus.remove(0x13, 0x12).unwrap();
+    }
+
+    #[test]
+    fn bus_move_range() {
+        let bus = Bus::new();
+        let dev = Arc::new(Mutex::new(ConstantDevice));
+        bus.insert(dev.clone(), 0x10, 0x10).unwrap();
+
+        // A zero length is rejected before the mapping is touched.
+        assert!(matches!(
+            bus.move_range(0x10, 0x30, 0),
+            Err(BusError::ZeroSizedRange)
+        ));
+
+        // Moving a range that is not registered fails and leaves the bus untouched.
+        assert!(matches!(
+            bus.move_range(0x2000, 0x3000, 0x10),
+            Err(BusError::MissingAddressRange)
+        ));
+
+        // The device is reachable at its original base but not at the target.
+        bus.read(0x10, &mut [0; 4]).unwrap();
+        bus.read(0x30, &mut [0; 4]).unwrap_err();
+
+        // Relocate the mapping; reads now resolve at the new base and the
+        // ConstantDevice still answers relative to the (new) range base.
+        bus.move_range(0x10, 0x30, 0x10).unwrap();
+        bus.read(0x10, &mut [0; 4]).unwrap_err();
+        let mut values = [0, 1, 2, 3];
+        bus.read(0x35, &mut values).unwrap();
+        assert_eq!(values, [5, 6, 7, 8]);
+
+        // Moving a mapping onto its own base is a no-op.
+        bus.move_range(0x30, 0x30, 0x10).unwrap();
+        bus.read(0x35, &mut [0; 4]).unwrap();
+
+        // A destination overlapping the source is accepted, because the old
+        // range is removed before the overlap check runs.
+        bus.move_range(0x30, 0x38, 0x10).unwrap();
+        bus.read(0x30, &mut [0; 4]).unwrap_err();
+        let mut values = [0, 1, 2, 3];
+        bus.read(0x3d, &mut values).unwrap();
+        assert_eq!(values, [5, 6, 7, 8]);
+
+        // A move onto a range occupied by another device is rejected, and the
+        // source mapping is left in place so nothing is lost.
+        bus.insert(dev.clone(), 0x10, 0x10).unwrap();
+        assert!(matches!(
+            bus.move_range(0x38, 0x18, 0x10),
+            Err(BusError::Overlap)
+        ));
+        bus.read(0x3d, &mut [0; 4]).unwrap();
+        bus.read(0x15, &mut [0; 4]).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "is registered with length")]
+    fn bus_move_range_wrong_len() {
+        let bus = Bus::new();
+        let dev = Arc::new(Mutex::new(DummyDevice));
+        bus.insert(dev, 0x10, 0x10).unwrap();
+        let _ = bus.move_range(0x10, 0x30, 0x20);
     }
 
     #[test]
