@@ -521,6 +521,8 @@ pub enum VhostUserDeviceError {
     TooManyQueues(u64, u64),
     /// Queue size must be a power of two, got {0}
     InvalidQueueSize(u16),
+    /// Backend returned {0} bytes of config space, expected {1}
+    ShortConfigSpace(usize, u32),
     /// Backend did not negotiate the mandatory CONFIG protocol feature
     ConfigFeatureNotNegotiated,
     /// Vhost-user: {0}
@@ -809,11 +811,23 @@ fn get_config_space<T: VhostUserHandleBackend>(
     vu_handle: &mut VhostUserHandleImpl<T>,
     size: u32,
 ) -> Result<Vec<u8>, VhostUserDeviceError> {
-    let buffer = vec![0u8; u64_to_usize(u64::from(size))];
+    let size_bytes = u64_to_usize(u64::from(size));
+    let buffer = vec![0u8; size_bytes];
     let (_, config_space) = vu_handle
         .vu
         .get_config(0, size, VhostUserConfigFlags::WRITABLE, &buffer)
         .map_err(VhostUserDeviceError::GetConfig)?;
+
+    // vhost 0.17 already refuses a reply whose payload differs from the size
+    // asked for. Checking again here keeps that from depending on the crate
+    // version, so a short reply can never reach the guest as a config space
+    // padded out with zeros.
+    if config_space.len() != size_bytes {
+        return Err(VhostUserDeviceError::ShortConfigSpace(
+            config_space.len(),
+            size,
+        ));
+    }
 
     Ok(config_space)
 }
@@ -1047,6 +1061,68 @@ pub(crate) mod tests {
         assert!(matches!(
             VhostUserDevice::<MockRecorder>::new(spec(1, 0)),
             Err(VhostUserDeviceError::VhostUser(_))
+        ));
+    }
+
+    #[test]
+    fn test_new_rejects_short_config_space() {
+        /// Backend that acks CONFIG and then under-fills the config space.
+        struct MockShortConfig;
+
+        impl VhostUserHandleBackend for MockShortConfig {
+            fn from_stream(_sock: UnixStream, _max_queue_num: u64) -> Self {
+                Self
+            }
+
+            fn set_owner(&self) -> Result<(), vhost::Error> {
+                Ok(())
+            }
+
+            fn set_hdr_flags(&self, _flags: VhostUserHeaderFlag) {}
+
+            fn get_features(&self) -> Result<u64, vhost::Error> {
+                Ok(VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits())
+            }
+
+            fn get_protocol_features(&mut self) -> Result<VhostUserProtocolFeatures, vhost::Error> {
+                Ok(VhostUserProtocolFeatures::CONFIG)
+            }
+
+            fn set_protocol_features(
+                &mut self,
+                _features: VhostUserProtocolFeatures,
+            ) -> Result<(), vhost::Error> {
+                Ok(())
+            }
+
+            fn get_config(
+                &mut self,
+                _offset: u32,
+                _size: u32,
+                _flags: VhostUserConfigFlags,
+                _buf: &[u8],
+            ) -> Result<(VhostUserConfig, VhostUserConfigPayload), vhost::Error> {
+                // Asked for 8 bytes, answers with 3.
+                Ok((VhostUserConfig::default(), vec![0x69, 0x69, 0x69]))
+            }
+        }
+
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
+        let result = VhostUserDevice::<MockShortConfig>::new(VhostUserDeviceSpec {
+            socket: tmp_socket_path,
+            num_queues: 1,
+            queue_size: 128,
+            avail_features: VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits(),
+            config_space_size: 8,
+            require_config: true,
+            metrics_name: "test_short_config".to_string(),
+        });
+
+        // Otherwise the guest would read the bytes the backend did not send as
+        // zeros.
+        assert!(matches!(
+            result,
+            Err(VhostUserDeviceError::ShortConfigSpace(3, 8))
         ));
     }
 
