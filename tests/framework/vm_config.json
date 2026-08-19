@@ -11,6 +11,7 @@
       "is_root_device": true,
       "cache_type": "Unsafe",
       "is_read_only": false,
+      "threaded": false,
       "path_on_host": "bionic.rootfs.ext4",
       "io_engine": "Sync",
       "rate_limiter": null,

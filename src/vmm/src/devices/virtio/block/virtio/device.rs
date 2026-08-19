@@ -188,6 +188,9 @@ pub struct VirtioBlockConfig {
     /// If set to true, the drive is opened in read-only mode. Otherwise, the
     /// drive is opened as read-write.
     pub is_read_only: bool,
+    /// If set to true, process requests on a dedicated worker thread.
+    #[serde(default)]
+    pub threaded: bool,
     /// Path of the backing file on the host
     pub path_on_host: String,
     /// Rate Limiter for I/O operations.
@@ -210,6 +213,7 @@ impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
                 cache_type: value.cache_type,
 
                 is_read_only: value.is_read_only.unwrap_or(false),
+                threaded: value.threaded,
                 path_on_host: path_on_host.clone(),
                 rate_limiter: value.rate_limiter,
                 file_engine_type: value.file_engine_type.unwrap_or_default(),
@@ -229,6 +233,7 @@ impl From<VirtioBlockConfig> for BlockDeviceConfig {
             cache_type: value.cache_type,
 
             is_read_only: Some(value.is_read_only),
+            threaded: value.threaded,
             path_on_host: Some(value.path_on_host),
             rate_limiter: value.rate_limiter,
             file_engine_type: Some(value.file_engine_type),
@@ -832,6 +837,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(true),
+            threaded: false,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Default::default(),
@@ -847,6 +853,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: None,
+            threaded: false,
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: Default::default(),
@@ -862,6 +869,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(true),
+            threaded: false,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Default::default(),
@@ -1970,6 +1978,7 @@ mod tests {
             for threaded in [false, true] {
                 let mut block = default_block(engine);
                 if threaded {
+                    block.config.threaded = true;
                     block.spawn_worker(Arc::new(vec![])).unwrap();
                 }
 

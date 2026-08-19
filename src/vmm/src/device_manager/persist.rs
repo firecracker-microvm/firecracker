@@ -834,6 +834,7 @@ mod tests {
       "is_root_device": true,
       "cache_type": "Unsafe",
       "is_read_only": true,
+      "threaded": false,
       "path_on_host": "{}",
       "rate_limiter": null,
       "io_engine": "Sync",
