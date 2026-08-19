@@ -475,6 +475,13 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
     }
 }
 
+/// Largest number of queues a vhost-user device can be given.
+///
+/// The binding constraint is the PCI notification region: a dword per queue
+/// in a 4KiB capability, so 1024 queues. MSI-X is looser, one vector per
+/// queue plus one for configuration out of the 2048 a device may have.
+const MAX_QUEUES: u64 = 1024;
+
 /// How a device type configures its vhost-user frontend.
 ///
 /// Everything that varies by virtio device type is supplied here, so that
@@ -492,7 +499,8 @@ pub struct VhostUserDeviceSpec {
     pub avail_features: u64,
     /// Size of the config space to fetch from the backend, which has to return
     /// exactly this many bytes. So this is the device type's config space size
-    /// and not an upper bound.
+    /// and not an upper bound. 0 is for a device type with no config space, and
+    /// then nothing is fetched.
     pub config_space_size: u32,
     /// Name to report this device's metrics under.
     pub metrics_name: String,
@@ -501,6 +509,14 @@ pub struct VhostUserDeviceSpec {
 /// Error building a vhost-user frontend.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VhostUserDeviceError {
+    /// A vhost-user device needs at least one queue, got {0}
+    InvalidNumQueues(u64),
+    /// Config space size must be at most 4096 bytes, got {0}
+    InvalidConfigSpaceSize(u32),
+    /// A vhost-user device supports at most {1} queues, got {0}
+    TooManyQueues(u64, u64),
+    /// Queue size must be a power of two, got {0}
+    InvalidQueueSize(u16),
     /// Vhost-user: {0}
     VhostUser(VhostUserError),
     /// Failed to get config space from the backend: {0}
@@ -558,6 +574,40 @@ impl<T: VhostUserHandleBackend> VhostUserDevice<T> {
     /// Connect to the backend, negotiate features, fetch the config space and
     /// allocate the queues.
     pub fn new(spec: VhostUserDeviceSpec) -> Result<Self, VhostUserDeviceError> {
+        // Device-specific minimums (virtio-fs wants a hiprio queue plus at
+        // least one request queue, say) are the caller's business.
+        if spec.num_queues == 0 {
+            return Err(VhostUserDeviceError::InvalidNumQueues(spec.num_queues));
+        }
+
+        // `MAX_QUEUES` is what the PCI notification region can address. Checking
+        // here reports an oversized spec to the caller before an eventfd is
+        // allocated for every queue.
+        if spec.num_queues > MAX_QUEUES {
+            return Err(VhostUserDeviceError::TooManyQueues(
+                spec.num_queues,
+                MAX_QUEUES,
+            ));
+        }
+
+        // Virtio requires a power of two. Nothing else checks the size a
+        // device is built with, only the smaller size a driver later selects,
+        // so an unusable queue would otherwise surface as a guest that
+        // silently refuses to probe the device.
+        if !spec.queue_size.is_power_of_two() {
+            return Err(VhostUserDeviceError::InvalidQueueSize(spec.queue_size));
+        }
+
+        // The vhost crate rejects this too, but only when it fetches the config
+        // space, which needs the backend to ack CONFIG. Checking here gives the
+        // same result whichever backend we talk to, and avoids allocating the
+        // buffer first.
+        if spec.config_space_size > VHOST_USER_CONFIG_SIZE {
+            return Err(VhostUserDeviceError::InvalidConfigSpaceSize(
+                spec.config_space_size,
+            ));
+        }
+
         let start_time = get_time_us(ClockType::Monotonic);
 
         let mut vu_handle = VhostUserHandleImpl::<T>::new(&spec.socket, spec.num_queues)
@@ -569,7 +619,7 @@ impl<T: VhostUserHandleBackend> VhostUserDevice<T> {
         let config_acked =
             vu_acked_protocol_features & VhostUserProtocolFeatures::CONFIG.bits() != 0;
 
-        let config_space = if config_acked {
+        let config_space = if config_acked && spec.config_space_size > 0 {
             get_config_space(&mut vu_handle, spec.config_space_size)?
         } else {
             vec![]
@@ -683,7 +733,8 @@ impl<T: VhostUserHandleBackend> VhostUserDevice<T> {
     }
 
     /// Re-read the config space from the backend and tell the guest driver it
-    /// changed. Fails if the backend did not ack CONFIG.
+    /// changed. Fails if the backend did not ack CONFIG, or if the device has no
+    /// config space.
     ///
     /// # Panics
     ///
@@ -876,6 +927,55 @@ pub(crate) mod tests {
         assert_eq!(calls.enable, vec![0, 1, 2]);
     }
 
+    #[test]
+    fn test_new_rejects_invalid_spec() {
+        let spec = |num_queues, config_space_size| VhostUserDeviceSpec {
+            socket: "no-such-socket".to_string(),
+            num_queues,
+            queue_size: 128,
+            avail_features: 0,
+            config_space_size,
+            metrics_name: "test_invalid_spec".to_string(),
+        };
+
+        // These are all rejected before the socket is touched, so the bogus
+        // path above never gets in the way.
+        assert!(matches!(
+            VhostUserDevice::<MockRecorder>::new(spec(0, 8)),
+            Err(VhostUserDeviceError::InvalidNumQueues(0))
+        ));
+        assert!(matches!(
+            VhostUserDevice::<MockRecorder>::new(spec(1, VHOST_USER_CONFIG_SIZE + 1)),
+            Err(VhostUserDeviceError::InvalidConfigSpaceSize(size))
+                if size == VHOST_USER_CONFIG_SIZE + 1
+        ));
+        assert!(matches!(
+            VhostUserDevice::<MockRecorder>::new(spec(MAX_QUEUES + 1, 8)),
+            Err(VhostUserDeviceError::TooManyQueues(got, MAX_QUEUES))
+                if got == MAX_QUEUES + 1
+        ));
+
+        let odd_queue_size = VhostUserDeviceSpec {
+            queue_size: 100,
+            ..spec(1, 8)
+        };
+        assert!(matches!(
+            VhostUserDevice::<MockRecorder>::new(odd_queue_size),
+            Err(VhostUserDeviceError::InvalidQueueSize(100))
+        ));
+
+        // The limits themselves are accepted, and so is a config space size of
+        // 0, so these get as far as the missing socket.
+        assert!(matches!(
+            VhostUserDevice::<MockRecorder>::new(spec(MAX_QUEUES, VHOST_USER_CONFIG_SIZE)),
+            Err(VhostUserDeviceError::VhostUser(_))
+        ));
+        assert!(matches!(
+            VhostUserDevice::<MockRecorder>::new(spec(1, 0)),
+            Err(VhostUserDeviceError::VhostUser(_))
+        ));
+    }
+
     /// Backend acking a strict subset of what the frontend offers, with the
     /// protocol bit but without the CONFIG protocol feature.
     struct MockFeatures;
@@ -1036,6 +1136,25 @@ pub(crate) mod tests {
                 .interrupt()
                 .has_pending_interrupt(VirtioInterruptType::Config)
         );
+    }
+
+    #[test]
+    fn test_no_config_space_skips_fetch() {
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
+
+        // A device type with no config space asks for none, so nothing is
+        // fetched even though the backend acks CONFIG.
+        let device = VhostUserDevice::<MockConfig>::new(VhostUserDeviceSpec {
+            socket: tmp_socket_path,
+            num_queues: 1,
+            queue_size: 128,
+            avail_features: VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits(),
+            config_space_size: 0,
+            metrics_name: "test_no_config_space".to_string(),
+        })
+        .unwrap();
+        assert!(device.config_space.is_empty());
+        assert_eq!(device.vu_handle.vu.fetches.get(), 0);
     }
 
     pub(crate) fn create_mem(
