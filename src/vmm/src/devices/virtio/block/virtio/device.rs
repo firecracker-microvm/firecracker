@@ -35,6 +35,7 @@ use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::impl_device_type;
 use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
+use crate::seccomp::BpfProgram;
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vmm_config::{RateLimiterConfig, TokenBucketConfig};
 use crate::vstate::memory::GuestMemoryMmap;
@@ -502,7 +503,10 @@ impl VirtioBlock {
     /// Spawn a parked worker thread for the next activation.
     // Currently unused because threaded mode is not exposed through device configuration yet.
     #[allow(dead_code)]
-    pub(crate) fn spawn_worker(&mut self) -> Result<(), VirtioBlockError> {
+    pub(crate) fn spawn_worker(
+        &mut self,
+        seccomp_filter: Arc<BpfProgram>,
+    ) -> Result<(), VirtioBlockError> {
         if let BlockState::Configuring(resources, worker_handle @ None) = &mut self.state {
             let queue_evts = resources
                 .queue_evts
@@ -513,8 +517,10 @@ impl VirtioBlock {
 
             let name = format!("fc_{}", self.config.drive_id);
 
-            *worker_handle =
-                Some(WorkerHandle::spawn(queue_evts, name).map_err(VirtioBlockError::ThreadSpawn)?);
+            *worker_handle = Some(
+                WorkerHandle::spawn(seccomp_filter, queue_evts, name)
+                    .map_err(VirtioBlockError::ThreadSpawn)?,
+            );
         }
         Ok(())
     }
@@ -1968,7 +1974,7 @@ mod tests {
             for threaded in [false, true] {
                 let mut block = default_block(engine);
                 if threaded {
-                    block.spawn_worker().unwrap();
+                    block.spawn_worker(Arc::new(vec![])).unwrap();
                 }
 
                 let mem = default_mem();

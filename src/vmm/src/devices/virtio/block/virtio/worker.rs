@@ -20,6 +20,7 @@ use crate::devices::virtio::queue::{InvalidAvailIdx, QueueError};
 use crate::devices::virtio::transport::VirtioInterruptType;
 use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::RateLimiter;
+use crate::seccomp::{BpfProgram, apply_filter};
 use crate::snapshot::Persist;
 
 /// Runtime state and processing logic for an active block device.
@@ -329,7 +330,11 @@ impl BlockWorker {
 
 impl WorkerHandle {
     /// Spawn a parked block worker thread.
-    pub(crate) fn spawn(queue_evts: Vec<EventFd>, name: String) -> Result<Self, std::io::Error> {
+    pub(crate) fn spawn(
+        seccomp_filter: Arc<BpfProgram>,
+        queue_evts: Vec<EventFd>,
+        name: String,
+    ) -> Result<Self, std::io::Error> {
         // handle writes and worker reads the control eventfd
         let control_evt = EventFd::new(libc::EFD_NONBLOCK)?;
         let handle_evt = control_evt.try_clone()?;
@@ -338,8 +343,14 @@ impl WorkerHandle {
         let (to_vmm, from_worker) = channel::<ControlResponse>();
 
         let join = thread::Builder::new().name(name).spawn(move || {
+            // Create epoll before applying the filter, which does not allow epoll_create1.
             let event_manager =
                 EventManager::new().expect("Failed to create block worker EventManager");
+
+            if let Err(err) = apply_filter(&seccomp_filter) {
+                panic!("Failed to apply seccomp filter on block worker: {err}");
+            }
+
             run_worker_loop(event_manager, control_evt, from_vmm, to_vmm);
         })?;
 
