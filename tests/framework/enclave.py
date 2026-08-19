@@ -19,6 +19,12 @@ NE_DEV_PATH = Path("/dev/nitro_enclaves")
 NE_CPUS_PATH = Path("/sys/module/nitro_enclaves/parameters/ne_cpus")
 CPU0_SIBLINGS_PATH = Path("/sys/devices/system/cpu/cpu0/topology/thread_siblings_list")
 
+NE_SYSFS_PATH = Path("/sys/class/misc/nitro_enclaves")
+# Driver pools, mapped to the divisor for the unit we report: mem_pool is bytes
+# (-> MiB), cpu_pool is a count.
+NE_POOLS = {"mem_pool": 2**20, "cpu_pool": 1}
+NE_FLAT_COUNTERS = ("pcie_slots", "pcie_slots_total", "pcie_slots_in_use")
+
 NE_ENCLAVE_PCIE_MODE = 1 << 6
 NE_ENCLAVE_PCIE_VIRTIO_MODE = 1 << 9
 NE_REQUIRED_FLAGS = NE_ENCLAVE_PCIE_MODE | NE_ENCLAVE_PCIE_VIRTIO_MODE
@@ -142,6 +148,64 @@ def enclave_host_available():
     return True
 
 
+def _read_int(path):
+    """Read a single integer from sysfs, or ``None`` if unavailable."""
+    try:
+        return int(path.read_text(encoding="ascii").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _pool_counters(base, scale=1):
+    """Read a {total,in_use,free} triple, scaling values by `scale`."""
+    out = {}
+    for key in ("total", "in_use", "free"):
+        val = _read_int(base / key)
+        out[key] = val // scale if val is not None else None
+    return out
+
+
+def _pool_stats(name, scale=1):
+    """One pool's counters, global and per NUMA node.
+
+    ``None`` when the driver predates this pool's sysfs tree.
+    """
+    base = NE_SYSFS_PATH / name
+    if not base.is_dir():
+        return None
+    stats = _pool_counters(base, scale)
+    nodes = {
+        d.name: _pool_counters(d, scale)
+        for d in sorted(base.glob("node*"))
+        if d.is_dir()
+    }
+    if nodes:
+        stats["nodes"] = nodes
+    return stats
+
+
+def ne_sysfs_details():
+    """Driver pool accounting for post-mortem diagnostics.
+
+    The pools are NUMA-partitioned, so a request for one node can fail while
+    another still has room; only the per-node breakdown distinguishes the two.
+    Keys are omitted when the running driver does not expose them.
+    """
+    details = {}
+
+    for name, scale in NE_POOLS.items():
+        stats = _pool_stats(name, scale)
+        if stats is not None:
+            details[f"{name}_mib" if scale != 1 else name] = stats
+
+    for counter in NE_FLAT_COUNTERS:
+        val = _read_int(NE_SYSFS_PATH / counter)
+        if val is not None:
+            details[counter] = val
+
+    return details
+
+
 def enclave_probe_details():
     """Return Nitro Enclave probe details for pytest diagnostics."""
     info = get_enclave_info()
@@ -154,6 +218,9 @@ def enclave_probe_details():
         "kernel_release": platform.release(),
         "ne_supported_flags": f"0x{info.supported_flags:04x}" if info else None,
         "smt": _has_smt(),
+        # A run that dies with NE_ERR_NO_MEM_SLOTS_ON_NODE needs the starting
+        # budget to tell an undersized pool from an unevenly consumed one.
+        **ne_sysfs_details(),
     }
 
 
