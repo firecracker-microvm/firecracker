@@ -27,6 +27,7 @@ pub mod rng;
 pub mod test_utils;
 pub mod transport;
 pub mod vhost_user;
+pub mod vhost_user_generic;
 pub mod vhost_user_metrics;
 pub mod vsock;
 
