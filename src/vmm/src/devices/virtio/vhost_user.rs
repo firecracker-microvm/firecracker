@@ -18,12 +18,12 @@ use vmm_sys_util::eventfd::EventFd;
 
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{ActiveState, DeviceState};
-use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::queue::{Queue, QueueError};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vhost_user_metrics::{
     VhostUserDeviceMetrics, VhostUserMetricsPerDevice,
 };
-use crate::logger::{IncMetric, StoreMetric};
+use crate::logger::{IncMetric, StoreMetric, debug};
 use crate::utils::u64_to_usize;
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -677,7 +677,7 @@ impl<T: VhostUserHandleBackend> VhostUserDevice<T> {
         })
     }
 
-    /// Set up the backend's vrings for every queue.
+    /// Set up the backend's vrings for the queues the guest marked ready.
     pub fn activate(
         &mut self,
         mem: GuestMemoryMmap,
@@ -685,19 +685,49 @@ impl<T: VhostUserHandleBackend> VhostUserDevice<T> {
     ) -> Result<(), ActivateError> {
         assert!(!self.is_activated());
 
-        for queue in &mut self.queues {
-            queue
+        // A driver only initializes the queues it intends to use, and how many
+        // that is comes from the backend-owned config space rather than from
+        // the configured queue count (virtio-fs scales its request queues to
+        // the vCPU count, for example). Initializing a queue the guest never
+        // configured returns NotReady and aborts activation, so only the ready
+        // ones are set up here. Real vring indices are preserved, so queues 0
+        // and 2 being ready maps to vrings 0 and 2 rather than 0 and 1.
+        let ready: Vec<usize> = self
+            .queues
+            .iter()
+            .enumerate()
+            .filter(|(_, queue)| queue.ready)
+            .map(|(i, _)| i)
+            .collect();
+
+        // Activating with nothing ready would otherwise set up no vrings at
+        // all and report success.
+        if ready.is_empty() {
+            return Err(ActivateError::QueueMemoryError(QueueError::NotReady));
+        }
+
+        if ready.len() < self.queues.len() {
+            // The queue count a driver uses comes from the backend-owned config
+            // space, so being given more than it wants is normal rather than a
+            // problem worth warning about.
+            debug!(
+                "vhost-user: setting up {} of {} configured vrings, the guest driver did not \
+                 ready the rest",
+                ready.len(),
+                self.queues.len()
+            );
+        }
+
+        for &i in &ready {
+            self.queues[i]
                 .initialize(&mem)
                 .map_err(ActivateError::QueueMemoryError)?;
         }
 
         let start_time = get_time_us(ClockType::Monotonic);
-        let queue_refs: Vec<(usize, &Queue, &EventFd)> = self
-            .queues
+        let queue_refs: Vec<(usize, &Queue, &EventFd)> = ready
             .iter()
-            .zip(&self.queue_evts)
-            .enumerate()
-            .map(|(i, (queue, evt))| (i, queue, evt))
+            .map(|&i| (i, &self.queues[i], &self.queue_evts[i]))
             .collect();
 
         // Set the features again, now they are negotiated with the guest
@@ -802,7 +832,8 @@ pub(crate) mod tests {
     use crate::vstate::memory;
     use crate::vstate::memory::{FileOffset, GuestAddress, GuestRegionMmapExt};
 
-    /// Backend that records the vring index of every per-vring call.
+    /// Backend that records the vring index of every per-vring call, so a test
+    /// can tell an index-preserving setup from an index-compacting one.
     #[derive(Default)]
     pub(crate) struct VringCalls {
         pub num: Vec<usize>,
@@ -921,23 +952,42 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_activate_sets_up_every_vring() {
+    fn test_activate_preserves_vring_indices() {
         let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
         let mut device = recording_device(tmp_socket_path, 3);
-        for i in 0..3 {
-            ready_queue(&mut device, i);
-        }
+
+        // The guest readies vrings 0 and 2 and leaves 1 alone, which is what a
+        // driver using fewer queues than were configured looks like.
+        ready_queue(&mut device, 0);
+        ready_queue(&mut device, 2);
 
         device.activate(test_mem(), default_interrupt()).unwrap();
 
-        // Every queue is set up as the vring with the same index.
+        // Vring 2 has to be set up as vring 2, not renumbered to 1.
         let calls = unsafe { &*device.vu_handle.vu.calls.get() };
-        assert_eq!(calls.num, vec![0, 1, 2]);
-        assert_eq!(calls.addr, vec![0, 1, 2]);
-        assert_eq!(calls.base, vec![0, 1, 2]);
-        assert_eq!(calls.call, vec![0, 1, 2]);
-        assert_eq!(calls.kick, vec![0, 1, 2]);
-        assert_eq!(calls.enable, vec![0, 1, 2]);
+        assert_eq!(calls.num, vec![0, 2]);
+        assert_eq!(calls.addr, vec![0, 2]);
+        assert_eq!(calls.base, vec![0, 2]);
+        assert_eq!(calls.call, vec![0, 2]);
+        assert_eq!(calls.kick, vec![0, 2]);
+        assert_eq!(calls.enable, vec![0, 2]);
+    }
+
+    #[test]
+    fn test_activate_without_ready_queues() {
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
+        let mut device = recording_device(tmp_socket_path, 2);
+
+        // Nothing ready has to fail rather than set up no vrings and report
+        // success.
+        assert!(matches!(
+            device.activate(test_mem(), default_interrupt()),
+            Err(ActivateError::QueueMemoryError(QueueError::NotReady))
+        ));
+        assert!(!device.is_activated());
+
+        let calls = unsafe { &*device.vu_handle.vu.calls.get() };
+        assert!(calls.num.is_empty());
     }
 
     #[test]
