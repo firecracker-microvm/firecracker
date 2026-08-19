@@ -112,6 +112,7 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
         network_overrides: snapshot_config.network_overrides,
         vsock_override: snapshot_config.vsock_override,
         clock_realtime: snapshot_config.clock_realtime,
+        pmem_overrides: snapshot_config.pmem_overrides,
     };
 
     // Construct the `ParsedRequest` object.
@@ -127,7 +128,9 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
 
 #[cfg(test)]
 mod tests {
-    use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType, NetworkOverride};
+    use vmm::vmm_config::snapshot::{
+        MemBackendConfig, MemBackendType, NetworkOverride, PmemOverride,
+    };
 
     use super::*;
     use crate::api_server::parsed_request::tests::{depr_action_from_req, vmm_action_from_request};
@@ -191,6 +194,7 @@ mod tests {
             network_overrides: vec![],
             vsock_override: None,
             clock_realtime: false,
+            pmem_overrides: vec![],
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(
@@ -223,6 +227,7 @@ mod tests {
             network_overrides: vec![],
             vsock_override: None,
             clock_realtime: false,
+            pmem_overrides: vec![],
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(
@@ -255,6 +260,7 @@ mod tests {
             network_overrides: vec![],
             vsock_override: None,
             clock_realtime: false,
+            pmem_overrides: vec![],
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(
@@ -296,6 +302,49 @@ mod tests {
             }],
             vsock_override: None,
             clock_realtime: false,
+            pmem_overrides: vec![],
+        };
+        let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
+        assert!(
+            parsed_request
+                .parsing_info()
+                .take_deprecation_message()
+                .is_none()
+        );
+        assert_eq!(
+            vmm_action_from_request(parsed_request),
+            VmmAction::LoadSnapshot(expected_config)
+        );
+
+        let body = r#"{
+            "snapshot_path": "foo",
+            "mem_backend": {
+                "backend_path": "bar",
+                "backend_type": "File"
+            },
+            "resume_vm": true,
+            "pmem_overrides": [
+                {
+                    "id": "pmem0",
+                    "path_on_host": "/new/path/pmem0.img"
+                }
+            ]
+        }"#;
+        let expected_config = LoadSnapshotParams {
+            snapshot_path: PathBuf::from("foo"),
+            mem_backend: MemBackendConfig {
+                backend_path: PathBuf::from("bar"),
+                backend_type: MemBackendType::File,
+            },
+            track_dirty_pages: false,
+            resume_vm: true,
+            network_overrides: vec![],
+            vsock_override: None,
+            clock_realtime: false,
+            pmem_overrides: vec![PmemOverride {
+                id: String::from("pmem0"),
+                path_on_host: String::from("/new/path/pmem0.img"),
+            }],
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(
@@ -325,6 +374,7 @@ mod tests {
             network_overrides: vec![],
             vsock_override: None,
             clock_realtime: false,
+            pmem_overrides: vec![],
         };
         let parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert_eq!(

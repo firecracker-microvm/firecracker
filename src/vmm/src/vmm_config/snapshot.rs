@@ -64,6 +64,16 @@ pub struct VsockOverride {
     pub uds_path: String,
 }
 
+/// Allows for changing the host backing file of a virtio-pmem device during
+/// snapshot restore.
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+pub struct PmemOverride {
+    /// The ID of the pmem device to modify.
+    pub id: String,
+    /// The new host path for the pmem device's backing file.
+    pub path_on_host: String,
+}
+
 /// Stores the configuration that will be used for loading a snapshot.
 #[derive(Debug, PartialEq, Eq)]
 pub struct LoadSnapshotParams {
@@ -85,6 +95,8 @@ pub struct LoadSnapshotParams {
     /// advancing kvmclock by the wall-clock time elapsed since the snapshot was taken. When false
     /// (default), kvmclock resumes from where it was at snapshot time.
     pub clock_realtime: bool,
+    /// The pmem devices to override on load.
+    pub pmem_overrides: Vec<PmemOverride>,
 }
 
 /// Stores the configuration for loading a snapshot that is provided by the user.
@@ -120,6 +132,9 @@ pub struct LoadSnapshotConfig {
     /// [x86_64 only] When set to true, passes `KVM_CLOCK_REALTIME` to `KVM_SET_CLOCK` on restore.
     #[serde(default)]
     pub clock_realtime: bool,
+    /// The pmem devices to override on load.
+    #[serde(default)]
+    pub pmem_overrides: Vec<PmemOverride>,
 }
 
 /// Stores the configuration used for managing snapshot memory.
