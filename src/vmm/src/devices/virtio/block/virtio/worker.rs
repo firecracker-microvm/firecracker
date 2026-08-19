@@ -15,10 +15,12 @@ use super::metrics::BlockDeviceMetrics;
 use super::{FinishedRequest, IoErr, ProcessingResult, Request, VirtioBlockError};
 use crate::EventManager;
 use crate::devices::virtio::device::ActiveState;
-use crate::devices::virtio::queue::InvalidAvailIdx;
+use crate::devices::virtio::persist::QueueState;
+use crate::devices::virtio::queue::{InvalidAvailIdx, QueueError};
 use crate::devices::virtio::transport::VirtioInterruptType;
 use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::RateLimiter;
+use crate::snapshot::Persist;
 
 /// Runtime state and processing logic for an active block device.
 #[derive(Debug)]
@@ -45,6 +47,7 @@ struct ThreadedWorker {
 enum WorkerState {
     Parked,
     Running(BlockWorker),
+    Paused(BlockWorker),
     Finished,
 }
 
@@ -52,8 +55,11 @@ enum WorkerState {
 enum ControlMsg {
     Start(BlockWorker),
     UpdateDiskImage { path: String, read_only: bool },
-    Kick,
     Reset,
+    Pause,
+    GetQueueStates,
+    MarkQueueMemoryDirty,
+    Kick { resume: bool },
     Finish(FlushMode),
 }
 
@@ -61,6 +67,10 @@ enum ControlMsg {
 enum ControlResponse {
     DiskUpdated(Result<u64, VirtioBlockError>), // returns nsectors on success
     Reset(Option<BlockResources>),
+    Paused,
+    QueueStates(Vec<QueueState>),
+    QueueMemoryDirty(Result<(), QueueError>),
+    InvalidState(String),
 }
 
 /// VMM-side handle for controlling and joining a block worker thread.
@@ -89,6 +99,19 @@ macro_rules! unwrap_async_file_engine_or_return {
             }
         }
     };
+}
+
+impl ControlResponse {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::DiskUpdated(_) => "disk update",
+            Self::Reset(_) => "reset",
+            Self::Paused => "pause",
+            Self::QueueStates(_) => "queue states",
+            Self::QueueMemoryDirty(_) => "queue memory dirty",
+            Self::InvalidState(_) => "invalid state",
+        }
+    }
 }
 
 impl BlockWorker {
@@ -366,8 +389,11 @@ impl WorkerHandle {
         loop {
             match self.from_worker.recv() {
                 Ok(ControlResponse::Reset(resources)) => return resources,
-                Ok(ControlResponse::DiskUpdated(_)) => {
-                    warn!("Ignoring disk update response while waiting for reset");
+                Ok(response) => {
+                    warn!(
+                        "Ignoring {} response while waiting for reset",
+                        response.name()
+                    );
                 }
                 Err(err) => {
                     error!("Block worker failed to acknowledge reset: {:?}", err);
@@ -403,8 +429,11 @@ impl WorkerHandle {
         loop {
             match self.from_worker.recv() {
                 Ok(ControlResponse::DiskUpdated(result)) => return result,
-                Ok(ControlResponse::Reset(_)) => {
-                    warn!("Ignoring reset response while waiting for disk update");
+                Ok(response) => {
+                    warn!(
+                        "Ignoring {} response while waiting for disk update",
+                        response.name()
+                    );
                 }
                 Err(err) => {
                     error!("Block worker failed to acknowledge disk update: {:?}", err);
@@ -416,8 +445,105 @@ impl WorkerHandle {
         }
     }
 
-    pub(crate) fn kick(&self) {
-        if let Err(err) = self.to_worker.send(ControlMsg::Kick) {
+    /// Pause data-path processing after completing pending I/O.
+    pub(crate) fn pause(&self) -> Result<(), VirtioBlockError> {
+        if let Err(err) = self.to_worker.send(ControlMsg::Pause) {
+            error!("Failed to send block worker pause: {:?}", err);
+            return Err(VirtioBlockError::WorkerControl(err.to_string()));
+        }
+
+        if let Err(err) = self.control_evt.write(1) {
+            error!("Failed to notify block worker of pause: {:?}", err);
+            return Err(VirtioBlockError::WorkerControl(err.to_string()));
+        }
+
+        loop {
+            match self.from_worker.recv() {
+                Ok(ControlResponse::Paused) => return Ok(()),
+                Ok(ControlResponse::InvalidState(err)) => {
+                    return Err(VirtioBlockError::WorkerControl(err));
+                }
+                Ok(response) => {
+                    warn!(
+                        "Ignoring {} response while waiting for pause",
+                        response.name()
+                    );
+                }
+                Err(err) => {
+                    error!("Block worker failed to return pause ack: {:?}", err);
+                    return Err(VirtioBlockError::WorkerControl(err.to_string()));
+                }
+            }
+        }
+    }
+
+    /// Read queue state from a paused worker.
+    pub(crate) fn get_queue_states(&self) -> Vec<QueueState> {
+        if let Err(err) = self.to_worker.send(ControlMsg::GetQueueStates) {
+            error!("Failed to request block worker queue states: {:?}", err);
+        }
+
+        if let Err(err) = self.control_evt.write(1) {
+            error!(
+                "Failed to notify block worker of queue state request: {:?}",
+                err
+            );
+        }
+
+        loop {
+            match self.from_worker.recv() {
+                Ok(ControlResponse::QueueStates(states)) => return states,
+                Ok(response) => {
+                    warn!(
+                        "Ignoring {} response while waiting for queue states",
+                        response.name()
+                    );
+                }
+                Err(err) => {
+                    error!("Block worker failed to return queue states: {:?}", err);
+                }
+            }
+        }
+    }
+
+    /// Mark the worker-owned virtqueue memory dirty after a snapshot.
+    pub(crate) fn mark_queue_memory_dirty(&self) -> Result<(), QueueError> {
+        if let Err(err) = self.to_worker.send(ControlMsg::MarkQueueMemoryDirty) {
+            error!(
+                "Failed to request marking block worker queue memory dirty: {:?}",
+                err
+            );
+            return Err(QueueError::NotReady);
+        }
+
+        if let Err(err) = self.control_evt.write(1) {
+            error!(
+                "Failed to notify block worker to mark queue memory dirty: {:?}",
+                err
+            );
+            return Err(QueueError::NotReady);
+        }
+
+        loop {
+            match self.from_worker.recv() {
+                Ok(ControlResponse::QueueMemoryDirty(result)) => return result,
+                Ok(response) => {
+                    warn!(
+                        "Ignoring {} response while waiting for queue memory dirty",
+                        response.name()
+                    );
+                }
+                Err(err) => {
+                    error!("Block worker failed to mark queue memory dirty: {:?}", err);
+                    return Err(QueueError::NotReady);
+                }
+            }
+        }
+    }
+
+    /// Resume a paused worker and process pending queue entries.
+    pub(crate) fn kick(&self, resume: bool) {
+        if let Err(err) = self.to_worker.send(ControlMsg::Kick { resume }) {
             error!("Failed to send block worker kick: {:?}", err);
             return;
         }
@@ -499,7 +625,7 @@ impl ThreadedWorker {
     fn process_control_event(&mut self, ops: &mut EventOps) {
         if let Err(err) = self.control_evt.read() {
             error!("Failed to consume block worker control event: {:?}", err);
-            if let WorkerState::Running(worker) = &self.state {
+            if let WorkerState::Running(worker) | WorkerState::Paused(worker) = &self.state {
                 worker.metrics.event_fails.inc();
             }
             return;
@@ -511,7 +637,10 @@ impl ThreadedWorker {
                 ControlMsg::UpdateDiskImage { path, read_only } => {
                     self.update_disk_image(path, read_only)
                 }
-                ControlMsg::Kick => self.kick_worker(),
+                ControlMsg::Pause => self.pause_worker(ops),
+                ControlMsg::GetQueueStates => self.send_queue_states(),
+                ControlMsg::MarkQueueMemoryDirty => self.mark_queue_memory_dirty(),
+                ControlMsg::Kick { resume } => self.kick_worker(resume, ops),
                 ControlMsg::Reset => self.reset_worker(ops),
                 ControlMsg::Finish(flush_mode) => self.finish_worker(flush_mode, ops),
             }
@@ -534,7 +663,9 @@ impl ThreadedWorker {
 
     fn update_disk_image(&mut self, path: String, read_only: bool) {
         let result = match &mut self.state {
-            WorkerState::Running(worker) => worker.update_disk_image(path, read_only),
+            WorkerState::Running(worker) | WorkerState::Paused(worker) => {
+                worker.update_disk_image(path, read_only)
+            }
             WorkerState::Parked => {
                 warn!("Disk image update requested while block worker is parked");
                 Err(VirtioBlockError::WorkerControl(
@@ -557,26 +688,6 @@ impl ThreadedWorker {
         }
     }
 
-    fn kick_worker(&mut self) {
-        match std::mem::replace(&mut self.state, WorkerState::Parked) {
-            WorkerState::Running(worker) => {
-                self.state = WorkerState::Running(worker);
-            }
-            state => {
-                warn!("Kick requested while block worker is not active");
-                self.state = state;
-                return;
-            }
-        }
-
-        // process directly instead of going through epoll
-        if let WorkerState::Running(worker) = &mut self.state {
-            worker
-                .process_virtio_queues()
-                .unwrap_or_else(|err| error!("Failed to kick block worker queue: {:?}", err));
-        }
-    }
-
     fn reset_worker(&mut self, ops: &mut EventOps) {
         let resources = match std::mem::replace(&mut self.state, WorkerState::Parked) {
             WorkerState::Running(mut worker) => {
@@ -586,6 +697,14 @@ impl ThreadedWorker {
                 } else {
                     Self::register_runtime_events(&worker.resources, ops);
                     self.state = WorkerState::Running(worker);
+                    None
+                }
+            }
+            WorkerState::Paused(mut worker) => {
+                if worker.reset() {
+                    Some(worker.resources)
+                } else {
+                    self.state = WorkerState::Paused(worker);
                     None
                 }
             }
@@ -604,17 +723,118 @@ impl ThreadedWorker {
         }
     }
 
-    fn finish_worker(&mut self, flush_mode: FlushMode, ops: &mut EventOps) {
-        if let WorkerState::Running(mut worker) =
-            std::mem::replace(&mut self.state, WorkerState::Finished)
-        {
-            Self::unregister_runtime_events(&worker.resources, ops);
-            match flush_mode {
-                FlushMode::Drain => worker.drain(true),
-                FlushMode::DrainAndFlush => worker.drain_and_flush(true),
+    fn pause_worker(&mut self, ops: &mut EventOps) {
+        match std::mem::replace(&mut self.state, WorkerState::Parked) {
+            WorkerState::Running(mut worker) => {
+                Self::unregister_runtime_events(&worker.resources, ops);
+                worker.prepare_save();
+                self.state = WorkerState::Paused(worker);
             }
-            worker.resources.is_io_engine_throttled = false;
+            WorkerState::Paused(worker) => {
+                self.state = WorkerState::Paused(worker);
+            }
+            state => {
+                warn!("Pause requested while block worker is not running");
+                self.state = state;
+                if let Err(err) = self.to_vmm.send(ControlResponse::InvalidState(
+                    "pause requested while block worker is not running".to_string(),
+                )) {
+                    error!(
+                        "Failed to send block worker invalid-state response: {:?}",
+                        err
+                    );
+                }
+                return;
+            }
         }
+
+        if let Err(err) = self.to_vmm.send(ControlResponse::Paused) {
+            error!("Failed to send block worker pause response: {:?}", err);
+        }
+    }
+
+    fn send_queue_states(&self) {
+        let WorkerState::Paused(worker) = &self.state else {
+            warn!("Queue states requested while block worker is not paused");
+            return;
+        };
+
+        let states = worker.resources.queues.iter().map(Persist::save).collect();
+
+        if let Err(err) = self.to_vmm.send(ControlResponse::QueueStates(states)) {
+            error!("Failed to send block worker queue states: {:?}", err);
+        }
+    }
+
+    fn mark_queue_memory_dirty(&mut self) {
+        let result = if let WorkerState::Paused(worker) = &mut self.state {
+            let mem = worker.active_state.mem.clone();
+            let mut result = Ok(());
+            for queue in &mut worker.resources.queues {
+                if let Err(err) = queue.initialize(&mem) {
+                    result = Err(err);
+                    break;
+                }
+            }
+            result
+        } else {
+            warn!("Queue memory dirty requested while block worker is not paused");
+            Err(QueueError::NotReady)
+        };
+
+        if let Err(err) = self.to_vmm.send(ControlResponse::QueueMemoryDirty(result)) {
+            error!(
+                "Failed to send block worker queue memory dirty response: {:?}",
+                err
+            );
+        }
+    }
+
+    fn kick_worker(&mut self, resume: bool, ops: &mut EventOps) {
+        match std::mem::replace(&mut self.state, WorkerState::Parked) {
+            WorkerState::Paused(worker) if resume => {
+                Self::register_runtime_events(&worker.resources, ops);
+                self.state = WorkerState::Running(worker);
+            }
+            WorkerState::Paused(worker) => {
+                self.state = WorkerState::Paused(worker);
+                return;
+            }
+            WorkerState::Running(worker) => {
+                self.state = WorkerState::Running(worker);
+            }
+            state => {
+                warn!("Kick requested while block worker is not active");
+                self.state = state;
+                return;
+            }
+        }
+
+        // process directly instead of going through epoll
+        if let WorkerState::Running(worker) = &mut self.state {
+            worker
+                .process_virtio_queues()
+                .unwrap_or_else(|err| error!("Failed to kick block worker queue: {:?}", err));
+        }
+    }
+
+    fn finish_worker(&mut self, flush_mode: FlushMode, ops: &mut EventOps) {
+        match std::mem::replace(&mut self.state, WorkerState::Finished) {
+            WorkerState::Running(mut worker) => {
+                Self::unregister_runtime_events(&worker.resources, ops);
+                Self::flush_worker(&mut worker, flush_mode);
+            }
+            WorkerState::Paused(mut worker) => Self::flush_worker(&mut worker, flush_mode),
+            WorkerState::Parked | WorkerState::Finished => {}
+        }
+    }
+
+    fn flush_worker(worker: &mut BlockWorker, flush_mode: FlushMode) {
+        match flush_mode {
+            FlushMode::Drain => worker.drain(true),
+            FlushMode::DrainAndFlush => worker.drain_and_flush(true),
+        }
+        worker.resources.is_io_engine_throttled = false;
     }
 
     fn is_finished(&self) -> bool {

@@ -277,7 +277,7 @@ pub(crate) enum ActiveBlock {
 /// VMM-side state when data path runs on a worker thread
 #[derive(Debug)]
 pub(crate) struct ThreadedActive {
-    worker_handle: WorkerHandle,
+    pub(crate) worker_handle: WorkerHandle,
     interrupt: Arc<dyn VirtioInterrupt>,
     queue_config: Vec<QueueConfig>,
 }
@@ -427,7 +427,7 @@ impl VirtioBlock {
             BlockState::Active(ActiveBlock::Inline(worker)) => {
                 worker.process_virtio_queues().unwrap();
             }
-            BlockState::Active(ActiveBlock::Threaded(active)) => active.worker_handle.kick(),
+            BlockState::Active(ActiveBlock::Threaded(active)) => active.worker_handle.kick(false),
             BlockState::Configuring(_, _) => {}
             BlockState::Placeholder => unreachable!("not a runtime state"),
         }
@@ -487,8 +487,15 @@ impl VirtioBlock {
 
     /// Prepare device for being snapshotted.
     pub fn prepare_save(&mut self) {
-        if let BlockState::Active(ActiveBlock::Inline(worker)) = &mut self.state {
-            worker.prepare_save();
+        match &mut self.state {
+            BlockState::Active(ActiveBlock::Inline(worker)) => worker.prepare_save(),
+            BlockState::Active(ActiveBlock::Threaded(active)) => {
+                if let Err(err) = active.worker_handle.pause() {
+                    error!("Failed to pause block worker for snapshot: {:?}", err);
+                }
+            }
+            BlockState::Configuring(_, _) => {}
+            BlockState::Placeholder => unreachable!("not a runtime state"),
         }
     }
 
@@ -722,6 +729,15 @@ impl VirtioDevice for VirtioBlock {
         }
     }
 
+    fn kick(&mut self) {
+        match &self.state {
+            BlockState::Active(ActiveBlock::Threaded(active)) => active.worker_handle.kick(true),
+            BlockState::Active(ActiveBlock::Inline(_)) => self.notify_queue_events(),
+            BlockState::Configuring(_, _) => {}
+            BlockState::Placeholder => unreachable!("not a runtime state"),
+        }
+    }
+
     fn mark_queue_memory_dirty(&mut self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
         match &mut self.state {
             BlockState::Configuring(resources, _) => {
@@ -734,7 +750,9 @@ impl VirtioDevice for VirtioBlock {
                     queue.initialize(mem)?;
                 }
             }
-            BlockState::Active(ActiveBlock::Threaded(_)) => {}
+            BlockState::Active(ActiveBlock::Threaded(active)) => {
+                active.worker_handle.mark_queue_memory_dirty()?;
+            }
             BlockState::Placeholder => unreachable!("not a runtime state"),
         }
         Ok(())
