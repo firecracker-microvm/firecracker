@@ -169,7 +169,27 @@ def _aarch64_parse_cache_info(test_microvm, no_cpus):
     return guest_cache_info, host_cache_info
 
 
+def _aarch64_assert_symmetric_cache_leaves(test_microvm, no_cpus):
+    """Every vCPU must expose the same cache index set.
+
+    A CLIDR_EL1 override that sticks only on vCPU0 leaves secondaries with
+    KVM's fabricated topology. Linux then fails to build scheduler domains.
+    """
+    cmd = (
+        f"for i in $(seq 0 {no_cpus - 1}); do "
+        f'printf "cpu%s %s\\n" "$i" '
+        f'"$(ls /sys/devices/system/cpu/cpu$i/cache 2>/dev/null | grep -c "^index" || true)"; '
+        f"done"
+    )
+    _, stdout, stderr = test_microvm.ssh.run(cmd)
+    assert stderr == ""
+    counts = [int(line.split()[1]) for line in stdout.splitlines() if line.strip()]
+    assert counts, "no cache index counts from guest"
+    assert len(set(counts)) == 1, f"asymmetric guest cache leaves per vCPU: {counts}"
+
+
 def _check_cache_topology_arm(test_microvm, no_cpus, kernel_version_tpl):
+    _aarch64_assert_symmetric_cache_leaves(test_microvm, no_cpus)
     guest_cache_info, host_cache_info = _aarch64_parse_cache_info(test_microvm, no_cpus)
 
     # Starting from 6.3 kernel cache representation for aarch64 platform has changed.

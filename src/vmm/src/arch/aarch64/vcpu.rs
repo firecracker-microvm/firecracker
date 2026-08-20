@@ -117,6 +117,12 @@ pub struct KvmVcpu {
     kvi: kvm_vcpu_init,
     /// IPA of steal_time region
     pub pvtime_ipa: Option<GuestAddress>,
+    /// DT-consistent CLIDR_EL1 written at boot. Re-applied after vCPU reset
+    /// (KVM_ARM_VCPU_INIT and in-kernel PSCI CPU_ON).
+    clidr_override: Option<u64>,
+    /// Whether [`Self::prepare_clidr_for_run`] has already restored
+    /// [`Self::clidr_override`] after this secondary was powered on.
+    clidr_reapplied_after_power_on: bool,
 }
 
 /// Vcpu peripherals
@@ -151,7 +157,63 @@ impl KvmVcpu {
             peripherals: Default::default(),
             kvi,
             pvtime_ipa: None,
+            clidr_override: None,
+            clidr_reapplied_after_power_on: false,
         })
+    }
+
+    /// Read CLIDR_EL1.
+    pub fn get_clidr(&self) -> Result<u64, VcpuArchError> {
+        let mut clidr = [0_u8; 8];
+        self.fd
+            .get_one_reg(CLIDR_EL1, &mut clidr)
+            .map_err(|err| VcpuArchError::GetOneReg(CLIDR_EL1, err))?;
+        Ok(u64::from_le_bytes(clidr))
+    }
+
+    /// Write CLIDR_EL1 without recording it as the persistent override.
+    fn set_clidr(&self, value: u64) -> Result<(), VcpuArchError> {
+        self.fd
+            .set_one_reg(CLIDR_EL1, &value.to_le_bytes())
+            .map_err(|err| VcpuArchError::SetOneReg(CLIDR_EL1, format!("{value:#x}"), err))
+    }
+
+    /// Store and write the DT-consistent CLIDR_EL1 override for this vCPU.
+    pub fn apply_clidr_override(&mut self, value: u64) -> Result<(), VcpuArchError> {
+        self.clidr_override = Some(value);
+        self.set_clidr(value)
+    }
+
+    /// Write the stored CLIDR_EL1 override again, if one was configured.
+    pub fn reapply_clidr_override(&self) -> Result<(), VcpuArchError> {
+        if let Some(value) = self.clidr_override {
+            self.set_clidr(value)?;
+        }
+        Ok(())
+    }
+
+    /// Restore the CLIDR_EL1 override after in-kernel PSCI CPU_ON.
+    ///
+    /// Secondary vCPUs are created powered-off. PSCI CPU_ON makes KVM reset
+    /// the target and run `reset_clidr()`, which overwrites userspace's
+    /// SET_ONE_REG. Once the vCPU is no longer STOPPED, this writes the
+    /// override. KVM folds a pending `KVM_REQ_VCPU_RESET` into architected
+    /// state before SET_ONE_REG, so the write lands after reset.
+    ///
+    /// Returns `false` while the vCPU is still powered off so the caller can
+    /// service vCPU events instead of blocking in a poll loop.
+    pub fn prepare_clidr_for_run(&mut self) -> Result<bool, VcpuArchError> {
+        if self.clidr_override.is_none() || self.index == 0 || self.clidr_reapplied_after_power_on {
+            return Ok(true);
+        }
+
+        if self.get_mpstate()?.mp_state == KVM_MP_STATE_STOPPED {
+            return Ok(false);
+        }
+
+        self.reapply_clidr_override()?;
+        self.clidr_reapplied_after_power_on = true;
+        Ok(true)
     }
 
     /// Read the MPIDR - Multiprocessor Affinity Register.
@@ -312,6 +374,11 @@ impl KvmVcpu {
         }
 
         self.fd.vcpu_init(&self.kvi).map_err(KvmVcpuError::Init)?;
+        // KVM_ARM_VCPU_INIT resets sysregs, including CLIDR_EL1. Restore the
+        // DT-consistent override so a secondary that is reset (the same
+        // sequence as PSCI CPU_ON) does not keep KVM's fabricated value.
+        self.reapply_clidr_override()
+            .map_err(KvmVcpuError::ConfigureRegisters)?;
         Ok(())
     }
 
@@ -550,7 +617,7 @@ mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::io::AsRawFd;
 
-    use kvm_bindings::{KVM_ARM_VCPU_PSCI_0_2, KVM_REG_SIZE_U64};
+    use kvm_bindings::{KVM_ARM_VCPU_PSCI_0_2, KVM_MP_STATE_RUNNABLE, KVM_REG_SIZE_U64, kvm_mp_state};
     use vm_memory::GuestAddress;
 
     use super::*;
@@ -755,6 +822,82 @@ mod tests {
         vcpu1.init(&[]).unwrap();
         let mut vcpu2 = KvmVcpu::new(1, &vm).unwrap();
         vcpu2.init(&[]).unwrap();
+    }
+
+    /// Write a sentinel CLIDR_EL1 that is distinct from KVM's reset value.
+    /// Returns `None` when the register is not readable or not writable
+    /// (pre-6.3 kernels pass through the host value and reject the override).
+    fn try_install_clidr_sentinel(vcpu: &mut KvmVcpu) -> Option<u64> {
+        let original = vcpu.get_clidr().ok()?;
+        let override_val = original ^ 0x7;
+        vcpu.apply_clidr_override(override_val).ok()?;
+        (vcpu.get_clidr().ok()? == override_val).then_some(override_val)
+    }
+
+    #[test]
+    fn test_clidr_override_survives_secondary_vcpu_reset() {
+        let vm = setup_vm_with_memory(0x1000);
+        let mut vcpu0 = KvmVcpu::new(0, &vm).unwrap();
+        let mut vcpu1 = KvmVcpu::new(1, &vm).unwrap();
+        vcpu0.init(&[]).unwrap();
+        vcpu1.init(&[]).unwrap();
+
+        let Some(override_val) = try_install_clidr_sentinel(&mut vcpu1) else {
+            return;
+        };
+        vcpu0.apply_clidr_override(override_val).unwrap();
+
+        // KVM_ARM_VCPU_INIT resets sysregs the same way PSCI CPU_ON does
+        // (`kvm_reset_vcpu` → `reset_clidr()`). The Firecracker path that
+        // wraps that ioctl must write the override again; otherwise only
+        // vCPU0 (which is not reset) keeps the DT-consistent value.
+        vcpu1.init_vcpu().unwrap();
+
+        assert_eq!(
+            vcpu1.get_clidr().unwrap(),
+            override_val,
+            "secondary vCPU lost CLIDR_EL1 override after reset"
+        );
+        assert_eq!(
+            vcpu0.get_clidr().unwrap(),
+            override_val,
+            "vCPU0 CLIDR_EL1 override must be unchanged"
+        );
+    }
+
+    #[test]
+    fn test_clidr_override_reapplied_after_secondary_power_on() {
+        let vm = setup_vm_with_memory(0x1000);
+        let mut vcpu1 = KvmVcpu::new(1, &vm).unwrap();
+        vcpu1.init(&[]).unwrap();
+
+        let Some(override_val) = try_install_clidr_sentinel(&mut vcpu1) else {
+            return;
+        };
+
+        // Raw KVM reset, like in-kernel PSCI CPU_ON: clobbers userspace CLIDR
+        // without going through `init_vcpu`.
+        vcpu1.fd.vcpu_init(&vcpu1.kvi).unwrap();
+
+        // Still powered off: do not enter KVM_RUN, so vCPU events stay live.
+        assert!(
+            !vcpu1.prepare_clidr_for_run().unwrap(),
+            "powered-off secondary must not be treated as ready for KVM_RUN"
+        );
+
+        // CPU_ON makes the target runnable. SET_ONE_REG then folds any
+        // pending KVM_REQ_VCPU_RESET and writes the override after it.
+        let mp = kvm_mp_state {
+            mp_state: KVM_MP_STATE_RUNNABLE,
+        };
+        vcpu1.set_mpstate(mp).unwrap();
+
+        assert!(vcpu1.prepare_clidr_for_run().unwrap());
+        assert_eq!(
+            vcpu1.get_clidr().unwrap(),
+            override_val,
+            "CLIDR_EL1 override must be restored after secondary power-on"
+        );
     }
 
     #[test]

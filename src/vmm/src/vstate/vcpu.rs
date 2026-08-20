@@ -411,6 +411,21 @@ impl Vcpu {
             return Ok(VcpuEmulation::Interrupted);
         }
 
+        // Secondary aarch64 vCPUs are powered off until PSCI CPU_ON. That
+        // in-kernel path resets CLIDR_EL1; restore the boot override after
+        // the vCPU becomes runnable and before the first guest entry.
+        #[cfg(target_arch = "aarch64")]
+        match self.kvm_vcpu.prepare_clidr_for_run() {
+            Ok(true) => {}
+            Ok(false) => {
+                thread::sleep(Duration::from_millis(1));
+                return Ok(VcpuEmulation::Interrupted);
+            }
+            Err(err) => {
+                warn!("Failed to restore CLIDR_EL1 after secondary power-on: {err}");
+            }
+        }
+
         match self.kvm_vcpu.fd.run() {
             Err(ref err) if err.errno() == libc::EINTR => {
                 self.kvm_vcpu.fd.set_kvm_immediate_exit(0);

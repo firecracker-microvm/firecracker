@@ -49,6 +49,11 @@ and this project adheres to
 
 ### Fixed
 
+- Fixed aarch64 SMP guests losing the DT-consistent `CLIDR_EL1` override
+  on secondary vCPUs after PSCI `CPU_ON`. KVM resets those vCPUs and
+  restores a fabricated `CLIDR_EL1`, which made guest cache topology
+  asymmetric and disabled Linux load balancing. The same override is now
+  written again after vCPU reset and when a secondary is powered on.
 - [#6100](https://github.com/firecracker-microvm/firecracker/pull/6100): Fixed
   the vsock device permanently suppressing RX (host-to-guest) delivery after a
   bare pause/resume cycle (`PATCH /vm` with `Paused` then `Resumed`, without a

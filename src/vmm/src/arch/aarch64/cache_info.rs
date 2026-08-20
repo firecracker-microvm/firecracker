@@ -413,6 +413,23 @@ pub(crate) fn merge_clidr(current: u64, sysfs: u64) -> u64 {
     (current & !REPLACE_MASK) | (sysfs & REPLACE_MASK)
 }
 
+/// Compute the DT-consistent CLIDR_EL1 value that should be written to each
+/// vCPU, or `None` when the override must be skipped.
+///
+/// Skip when sysfs reports no L1 caches (writing 0 would be worse than KVM's
+/// fabricated value) or when the merged value already matches `current`.
+pub(crate) fn clidr_override_from_current(current: u64) -> Result<Option<u64>, CacheInfoError> {
+    let mut l1_caches = Vec::new();
+    let mut non_l1_caches = Vec::new();
+    read_cache_config(&mut l1_caches, &mut non_l1_caches)?;
+    if l1_caches.is_empty() {
+        warn!("No L1 caches found in sysfs, skipping CLIDR override");
+        return Ok(None);
+    }
+    let new_clidr = merge_clidr(current, build_clidr_from_caches(&l1_caches, &non_l1_caches));
+    Ok((new_clidr != current).then_some(new_clidr))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -771,5 +788,20 @@ mod tests {
         let current = 0x0000_0000_0300_0123_u64;
         let sysfs = 0x0000_0000_0300_0123_u64;
         assert_eq!(merge_clidr(current, sysfs), current);
+    }
+
+    #[test]
+    fn test_clidr_override_from_current() {
+        // Mock store: L1 Data + L1 Instruction + L2 Unified (ctype1=3, ctype2=4, LoC=2).
+        let current_fabricated: u64 = 4; // unified L1 only
+        let override_val = clidr_override_from_current(current_fabricated)
+            .unwrap()
+            .expect("fabricated CLIDR should be overridden from mock sysfs");
+        assert_eq!(override_val & 0x7, 3, "L1 should be Separate");
+        assert_eq!((override_val >> 3) & 0x7, 4, "L2 should be Unified");
+        assert_eq!((override_val >> 24) & 0x7, 2, "LoC should be 2");
+
+        // Already-matching current is a no-op.
+        assert_eq!(clidr_override_from_current(override_val).unwrap(), None);
     }
 }

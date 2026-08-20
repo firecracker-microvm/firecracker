@@ -28,7 +28,6 @@ use crate::arch::{BootProtocol, EntryPoint, arch_memory_regions_with_gap};
 use crate::cpu_config::aarch64::{CpuConfiguration, CpuConfigurationError};
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::initrd::InitrdConfig;
-use zerocopy::IntoBytes;
 
 use crate::logger::warn;
 use crate::utils::{u64_to_usize, usize_to_u64};
@@ -124,7 +123,8 @@ pub fn configure_system_for_boot(
     }
 
     // Override CLIDR_EL1 ctype/LoC fields on each vCPU to match the host's
-    // real cache topology. See `override_clidr` for details.
+    // real cache topology. See `override_clidr` for details. The value is
+    // stored on each vCPU so it can be written again after PSCI CPU_ON.
     override_clidr(vcpus)?;
 
     let vcpu_mpidr = vcpus
@@ -166,49 +166,29 @@ pub fn configure_system_for_boot(
 /// and LoC fields with values derived from sysfs, and preserve all other fields
 /// (LoUU, LoUIS, ICB, Ttype). This is safe on pre-6.3 kernels where CLIDR
 /// already matches sysfs — the write is skipped as a no-op.
-fn override_clidr(vcpus: &[Vcpu]) -> Result<(), ConfigurationError> {
-    let mut l1_caches = Vec::new();
-    let mut non_l1_caches = Vec::new();
-    cache_info::read_cache_config(&mut l1_caches, &mut non_l1_caches)?;
-
-    // If sysfs reports no L1 caches, we cannot build a meaningful CLIDR.
-    // Writing an all-zero CLIDR would tell the guest there are no caches,
-    // which is worse than whatever KVM fabricated. Leave it alone.
-    if l1_caches.is_empty() {
-        warn!("No L1 caches found in sysfs, skipping CLIDR override");
-        return Ok(());
-    }
-
-    let sysfs_clidr = cache_info::build_clidr_from_caches(&l1_caches, &non_l1_caches);
-
-    let mut cur_clidr: u64 = 0;
+fn override_clidr(vcpus: &mut [Vcpu]) -> Result<(), ConfigurationError> {
     // Reading/writing CLIDR_EL1 via KVM_SET_ONE_REG may not be supported on
     // older kernels (pre-6.3). In that case KVM passes through the real host
     // CLIDR and the override is unnecessary, so we warn and continue.
-    if let Err(e) = vcpus[0]
-        .kvm_vcpu
-        .fd
-        .get_one_reg(regs::CLIDR_EL1, cur_clidr.as_mut_bytes())
-    {
-        warn!("Failed to read CLIDR_EL1, skipping override: {e}");
+    let cur_clidr = match vcpus[0].kvm_vcpu.get_clidr() {
+        Ok(value) => value,
+        Err(e) => {
+            warn!("Failed to read CLIDR_EL1, skipping override: {e}");
+            return Ok(());
+        }
+    };
+
+    let Some(new_clidr) = cache_info::clidr_override_from_current(cur_clidr)? else {
         return Ok(());
-    }
+    };
 
-    let new_clidr = cache_info::merge_clidr(cur_clidr, sysfs_clidr);
-
-    if new_clidr != cur_clidr {
-        for vcpu in vcpus.iter() {
-            if let Err(e) = vcpu
-                .kvm_vcpu
-                .fd
-                .set_one_reg(regs::CLIDR_EL1, new_clidr.as_bytes())
-            {
-                warn!(
-                    "Failed to set CLIDR_EL1 to {:#x} on vCPU {}, skipping override: {e}",
-                    new_clidr, vcpu.kvm_vcpu.index
-                );
-                return Ok(());
-            }
+    for vcpu in vcpus.iter_mut() {
+        if let Err(e) = vcpu.kvm_vcpu.apply_clidr_override(new_clidr) {
+            warn!(
+                "Failed to set CLIDR_EL1 to {:#x} on vCPU {}, skipping override: {e}",
+                new_clidr, vcpu.kvm_vcpu.index
+            );
+            return Ok(());
         }
     }
 
