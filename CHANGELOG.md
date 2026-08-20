@@ -10,6 +10,13 @@ and this project adheres to
 
 ### Added
 
+- [#5687](https://github.com/firecracker-microvm/firecracker/issues/5687): Added
+  developer preview support for a generic vhost-user frontend device. This
+  allows attaching any virtio device type (e.g. virtio-fs, virtio-scsi) via the
+  vhost-user protocol without requiring a dedicated Firecracker frontend for
+  each device type, configured via the `PUT /vhost-user-devices/{id}` API
+  endpoint. Config space is owned by the backend via the mandatory CONFIG
+  protocol feature. Snapshotting is not supported.
 - [#5891](https://github.com/firecracker-microvm/firecracker/pull/5891): Added
   support for virtio device reset.
 - [#5983](https://github.com/firecracker-microvm/firecracker/pull/5983): Add two
