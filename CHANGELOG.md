@@ -82,11 +82,15 @@ and this project adheres to
   Terminating a connection now also discards its TX buffer, so the device stops
   advertising `EPOLLOUT` for a host stream it will never write to again, which
   could otherwise busy-spin the event thread indefinitely.
-- [#6086](https://github.com/firecracker-microvm/firecracker/pull/6086): Fixed a
-  potential deadlock in the logger: a signal handler that logs while the
-  interrupted thread already held the logger lock would re-acquire it and hang
-  the VMM. The logger now uses an `RwLock` so logging takes a shared lock that a
-  nested (signal-handler) log can re-acquire without blocking.
+- [#6086](https://github.com/firecracker-microvm/firecracker/pull/6086),
+  [#6143](https://github.com/firecracker-microvm/firecracker/pull/6143): Fixed a
+  deadlock in the logger: a signal handler that logs while the interrupted
+  thread is already logging would hang the VMM and its API socket. This is
+  reachable whenever a `SIGPIPE` is raised by Firecracker's own log write, for
+  example when logging to `stdout` and the reader of that pipe exits. The logger
+  now uses an `RwLock`, and `sigpipe_handler` only increments the
+  `signals.sigpipe` metric instead of logging, so it no longer emits a
+  `Received signal 13, code 0.` line.
 - [#6120](https://github.com/firecracker-microvm/firecracker/pull/6120): Fixed a
   bug caused by a KVM behavior change introduced in Linux 6.13, which requires
   guest CPUID to be set before userspace reads CPUID-dependent MSRs. On x86_64
