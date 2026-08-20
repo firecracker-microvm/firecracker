@@ -241,6 +241,8 @@ def validate_fc_metrics(metrics):
             "serial_fails",
             "hotplug_memory_count",
             "hotplug_memory_fails",
+            "vhost_user_count",
+            "vhost_user_fails",
         ],
         "seccomp": [
             "num_faults",
