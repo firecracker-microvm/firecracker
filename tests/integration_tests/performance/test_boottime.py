@@ -131,6 +131,9 @@ def launch_boottime_vm(
     # aarch64 is where an enclave puts the base of guest RAM, so without a boot
     # timer the poke corrupts the guest instead of signalling anything.
     boot_args = DEFAULT_BOOT_ARGS
+    if vm_backend.is_enclave:
+        # Enclaves have no i8042 device, skip its init to save 500ms of boot time.
+        boot_args += " initcall_blacklist=i8042_init"
     if vm_backend.has_boot_timer:
         boot_args += " init=/usr/local/bin/init"
     if not boot_from_pmem:
