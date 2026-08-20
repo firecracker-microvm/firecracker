@@ -205,3 +205,27 @@ def test_vhost_user_generic_disconnect(uvm_vhost_user_generic_booted_ro):
 
     # Verify that Firecracker is still responsive
     _config = vm.api.vm_config.get().json()
+
+
+def test_vhost_user_generic_snapshot_refused(uvm_vhost_user_generic_booted_ro):
+    """
+    Test that snapshotting a VM with a generic vhost-user device is refused.
+
+    The device does not support snapshotting, so the request has to fail the
+    way it does for vhost-user-block rather than produce a snapshot with the
+    device missing.
+    """
+
+    vm = uvm_vhost_user_generic_booted_ro
+
+    # Pause first, otherwise the request is refused for running while a
+    # snapshot is taken and never reaches the device save path at all.
+    vm.api.vm.patch(state="Paused")
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"Devices without snapshot support are present: vhost-user-generic\(id: rootfs\)",
+    ):
+        vm.api.snapshot_create.put(
+            mem_file_path="memfile", snapshot_path="statefile", snapshot_type="Full"
+        )
