@@ -1644,6 +1644,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
 
     # We should expect a null entropy device
     expected_cfg["entropy"] = None
+    expected_cfg["vhost-user-devices"] = []
 
     # No passthrough devices configured
     expected_cfg["device-passthrough"] = []
@@ -1841,6 +1842,7 @@ def test_get_full_config(uvm):
 
     # We should expect a null entropy device
     expected_cfg["entropy"] = None
+    expected_cfg["vhost-user-devices"] = []
 
     # No passthrough devices configured
     expected_cfg["device-passthrough"] = []

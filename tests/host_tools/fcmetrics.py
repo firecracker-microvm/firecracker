@@ -246,6 +246,8 @@ def validate_fc_metrics(metrics):
             "enclave_fails",
             "device_passthrough_count",
             "device_passthrough_fails",
+            "vhost_user_count",
+            "vhost_user_fails",
         ],
         "seccomp": [
             "num_faults",

@@ -35,6 +35,9 @@ use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::pmem::{PmemBuilder, PmemConfig, PmemConfigError};
 use crate::vmm_config::serial::SerialConfig;
+use crate::vmm_config::vhost_user_device::{
+    VhostUserGenericBuilder, VhostUserGenericConfig, VhostUserGenericConfigError,
+};
 use crate::vmm_config::vsock::*;
 use crate::vstate::memory;
 use crate::vstate::memory::{GuestRegionMmap, MemfdBacking, MemoryError};
@@ -84,6 +87,8 @@ pub enum ResourcesError {
     DevicePassthroughWithBalloon,
     /// Passthrough devices are not compatible with pmem device
     DevicePassthroughWithPmem,
+    /// Generic vhost-user device error: {0}
+    VhostUserDevice(#[from] VhostUserGenericConfigError),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -113,6 +118,8 @@ pub struct VmmConfig {
     pub entropy: Option<EntropyDeviceConfig>,
     #[serde(default, rename = "pmem")]
     pub pmem_devices: Vec<PmemConfig>,
+    #[serde(default, rename = "vhost-user-devices")]
+    pub vhost_user_devices: Vec<VhostUserGenericConfig>,
     #[serde(skip)]
     pub serial_config: Option<SerialConfig>,
     pub memory_hotplug: Option<MemoryHotplugConfig>,
@@ -143,6 +150,8 @@ pub struct VmResources {
     pub entropy: EntropyDeviceBuilder,
     /// The pmem device configs.
     pub pmem: PmemBuilder,
+    /// The generic vhost-user devices.
+    pub vhost_user: VhostUserGenericBuilder,
     /// The memory hotplug configuration.
     pub memory_hotplug: Option<MemoryHotplugConfig>,
     /// The optional Mmds data store.
@@ -274,6 +283,10 @@ impl VmResources {
 
         for pmem_config in vmm_config.pmem_devices.into_iter() {
             resources.build_pmem_device(pmem_config)?;
+        }
+
+        for vu_config in vmm_config.vhost_user_devices.into_iter() {
+            resources.build_vhost_user_device(vu_config)?;
         }
 
         if let Some(serial_cfg) = vmm_config.serial_config {
@@ -521,6 +534,14 @@ impl VmResources {
         self.pmem.build(body, has_block_root)
     }
 
+    /// Builds a generic vhost-user device to be attached when the VM starts.
+    pub fn build_vhost_user_device(
+        &mut self,
+        body: VhostUserGenericConfig,
+    ) -> Result<(), VhostUserGenericConfigError> {
+        self.vhost_user.build(body)
+    }
+
     /// Sets the memory hotplug configuration.
     pub fn set_memory_hotplug_config(
         &mut self,
@@ -608,12 +629,15 @@ impl VmResources {
     ///
     /// Page faults are more expensive for shared memory mappings, including memfd. For this
     /// reason, guest memory is only backed by a memfd when something outside of Firecracker
-    /// has to see it, which today means a vhost-user-blk device.
+    /// has to see it, which today means a vhost-user device: either a vhost-user-blk device or
+    /// a generic vhost-user device.
     fn memfd_required(&self) -> bool {
-        self.block
-            .devices
-            .iter()
-            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user())
+        !self.vhost_user.devices.is_empty()
+            || self
+                .block
+                .devices
+                .iter()
+                .any(|b| b.lock().expect("Poisoned lock").is_vhost_user())
     }
 
     /// Total size in bytes of guest memory: the given DRAM regions plus the virtio-mem
@@ -718,6 +742,7 @@ impl From<&VmResources> for VmmConfig {
             vsock: resources.vsock.config(),
             entropy: resources.entropy.config(),
             pmem_devices: resources.pmem.configs.clone(),
+            vhost_user_devices: resources.vhost_user.configs(),
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots.
             serial_config: None,
             memory_hotplug: resources.memory_hotplug.clone(),
@@ -844,6 +869,7 @@ mod tests {
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
             entropy: Default::default(),
             pmem: Default::default(),
+            vhost_user: Default::default(),
             pci_enabled: false,
             serial_out_path: None,
             serial_rate_limiter_cfg: None,
