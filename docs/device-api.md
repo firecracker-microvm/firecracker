@@ -48,6 +48,7 @@ fields whatever devices it has, for example hot-unplug (a `DELETE` with
 | `entropy`                 |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |      O      |     O      |       O        |
 | `pmem/{id}`               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
 | `serial`                  |    O     |     **R**      |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `vhost-user-devices/{id}` |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 
 ## Input Schema
 
