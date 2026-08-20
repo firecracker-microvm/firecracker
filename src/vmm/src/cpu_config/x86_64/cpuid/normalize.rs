@@ -273,17 +273,20 @@ impl super::Cpuid {
         // The following commit changed the behavior of KVM_GET_SUPPORTED_CPUID to no longer
         // include CPUID.(EAX=0BH,ECX=1).
         // https://lore.kernel.org/all/20221027092036.2698180-1-pbonzini@redhat.com/
-        self.inner_mut()
-            .entry(CpuidKey::subleaf(0xB, 0x1))
-            .or_insert(CpuidEntry {
-                flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
-                result: CpuidRegisters {
-                    eax: 0x0,
-                    ebx: 0x0,
-                    ecx: 0x0,
-                    edx: 0x0,
+        if self.get(&CpuidKey::subleaf(0xB, 0x1)).is_none() {
+            self.insert(
+                CpuidKey::subleaf(0xB, 0x1),
+                CpuidEntry {
+                    flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+                    result: CpuidRegisters {
+                        eax: 0x0,
+                        ebx: 0x0,
+                        ecx: 0x0,
+                        edx: 0x0,
+                    },
                 },
-            });
+            );
+        }
 
         for index in 0.. {
             if let Some(subleaf) = self.get_mut(&CpuidKey::subleaf(0xB, index)) {
@@ -425,10 +428,24 @@ const fn get_max_cpus_per_package(cpu_count: u8) -> Result<u8, GetMaxCpusPerPack
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use super::*;
-    use crate::cpu_config::x86_64::cpuid::{AmdCpuid, Cpuid, IntelCpuid};
+    use crate::cpu_config::x86_64::cpuid::Cpuid;
+
+    fn make_cpuid_with_entries(entries: &[kvm_bindings::kvm_cpuid_entry2]) -> Cpuid {
+        // Prepend an Intel leaf 0 so Cpuid::try_from succeeds
+        let mut all = vec![kvm_bindings::kvm_cpuid_entry2 {
+            function: 0x0,
+            index: 0x0,
+            flags: 0x0,
+            eax: 0x16,
+            ebx: 0x756E6547, // Genu
+            ecx: 0x6C65746E, // ntel
+            edx: 0x49656E69, // ineI
+            ..Default::default()
+        }];
+        all.extend_from_slice(entries);
+        Cpuid::try_from(kvm_bindings::CpuId::from_entries(&all).unwrap()).unwrap()
+    }
 
     #[test]
     fn get_max_cpus_per_package_test() {
@@ -463,34 +480,19 @@ mod tests {
     #[test]
     fn test_update_vendor_id() {
         // Check `update_vendor_id()` passes through the vendor ID from the host correctly.
+        let mut guest_cpuid = make_cpuid_with_entries(&[]);
 
-        // Pseudo CPUID with invalid vendor ID.
-        let mut guest_cpuid = Cpuid::Intel(IntelCpuid(BTreeMap::from([(
-            CpuidKey {
-                leaf: 0x0,
-                subleaf: 0x0,
-            },
-            CpuidEntry {
-                flags: KvmCpuidFlags::EMPTY,
-                result: CpuidRegisters {
-                    eax: 0,
-                    ebx: 0x0123_4567,
-                    ecx: 0x89ab_cdef,
-                    edx: 0x55aa_55aa,
-                },
-            },
-        )])));
+        // Overwrite vendor ID with garbage (pseudo CPUID with invalid vendor ID)
+        let leaf0 = guest_cpuid.get_mut(&CpuidKey::leaf(0x0)).unwrap();
+        leaf0.result.ebx = 0x0123_4567;
+        leaf0.result.ecx = 0x89ab_cdef;
+        leaf0.result.edx = 0x55aa_55aa;
 
         // Pass through vendor ID from host.
         guest_cpuid.update_vendor_id().unwrap();
 
         // Check if the guest vendor ID matches the host one.
-        let guest_leaf_0 = guest_cpuid
-            .get(&CpuidKey {
-                leaf: 0x0,
-                subleaf: 0x0,
-            })
-            .unwrap();
+        let guest_leaf_0 = guest_cpuid.get(&CpuidKey::leaf(0x0)).unwrap();
         let host_leaf_0 = cpuid(0x0);
         assert_eq!(guest_leaf_0.result.ebx, host_leaf_0.ebx);
         assert_eq!(guest_leaf_0.result.ecx, host_leaf_0.ecx);
@@ -512,56 +514,16 @@ mod tests {
             .ok_or(NormalizeCpuidError::CpuBits(cpu_bits))
             .unwrap();
 
-        // Case 1: Intel CPUID
-        let mut intel_cpuid = Cpuid::Intel(IntelCpuid(BTreeMap::from([(
-            CpuidKey {
-                leaf: 0xb,
-                subleaf: 0,
-            },
-            CpuidEntry {
-                flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
-                result: CpuidRegisters {
-                    eax: 0,
-                    ebx: 0,
-                    ecx: 0,
-                    edx: 0,
-                },
-            },
-        )])));
-        let result = intel_cpuid.update_extended_topology_entry(
-            cpu_index,
-            cpu_count,
-            cpu_bits,
-            cpus_per_core,
-        );
-        result.unwrap();
-        assert!(intel_cpuid.inner().contains_key(&CpuidKey {
-            leaf: 0xb,
-            subleaf: 0x1
-        }));
+        let mut cpuid = make_cpuid_with_entries(&[kvm_bindings::kvm_cpuid_entry2 {
+            function: 0xb,
+            index: 0,
+            flags: KvmCpuidFlags::SIGNIFICANT_INDEX.0,
+            ..Default::default()
+        }]);
 
-        // Case 2: AMD CPUID
-        let mut amd_cpuid = Cpuid::Amd(AmdCpuid(BTreeMap::from([(
-            CpuidKey {
-                leaf: 0xb,
-                subleaf: 0,
-            },
-            CpuidEntry {
-                flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
-                result: CpuidRegisters {
-                    eax: 0,
-                    ebx: 0,
-                    ecx: 0,
-                    edx: 0,
-                },
-            },
-        )])));
-        let result =
-            amd_cpuid.update_extended_topology_entry(cpu_index, cpu_count, cpu_bits, cpus_per_core);
-        result.unwrap();
-        assert!(amd_cpuid.inner().contains_key(&CpuidKey {
-            leaf: 0xb,
-            subleaf: 0x1
-        }));
+        cpuid
+            .update_extended_topology_entry(cpu_index, cpu_count, cpu_bits, cpus_per_core)
+            .unwrap();
+        assert!(cpuid.get(&CpuidKey::subleaf(0xb, 0x1)).is_some());
     }
 }
