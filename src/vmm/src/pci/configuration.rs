@@ -23,6 +23,8 @@ pub enum PciConfigurationError {
     InvalidBarsLength(usize),
     /// Invalid cap_pci_cfg length: {0}
     InvalidCapPciCfgLength(usize),
+    /// Invalid bar_idx: {0}
+    InvalidBarIdx(u8),
 }
 
 // The number of 32bit registers in the config space, 4096 bytes.
