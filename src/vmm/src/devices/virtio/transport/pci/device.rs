@@ -477,6 +477,12 @@ impl VirtioPciDevice {
             vectors,
         ));
 
+        if !state.bars.bar_idx_valid(VIRTIO_BAR_INDEX)
+            || !state.bars.bars[VIRTIO_BAR_INDEX as usize].is_64bit()
+        {
+            return Err(PciConfigurationError::InvalidBarIdx(VIRTIO_BAR_INDEX).into());
+        }
+
         let virtio_pci_device = VirtioPciDevice {
             id,
             sub_id: None,
