@@ -229,3 +229,38 @@ def test_vhost_user_generic_snapshot_refused(uvm_vhost_user_generic_booted_ro):
         vm.api.snapshot_create.put(
             mem_file_path="memfile", snapshot_path="statefile", snapshot_type="Full"
         )
+
+
+def test_vhost_user_generic_config_round_trip(uvm_vhost_user_generic_plain, rootfs):
+    """
+    Test that a configured generic vhost-user device is reported back.
+
+    A non-default queue size is configured so the reported value has to
+    travel from the request through to GET /vm/config, rather than the
+    assertion passing on the 256 default whatever the report actually
+    carries. The report is the size the queue was built with, so this does
+    not need the guest to boot.
+    """
+
+    vm = uvm_vhost_user_generic_plain
+    vm.spawn()
+    vm.basic_config(add_root_device=False)
+    rootfs_rw = Path(vm.chroot()) / "rootfs"
+    shutil.copy(rootfs, rootfs_rw)
+    vm.add_vhost_user_generic_device(
+        "rootfs",
+        rootfs_rw,
+        device_type=VIRTIO_BLK_TYPE,
+        num_queues=BACKEND_NUM_QUEUES,
+        queue_size=128,
+        is_read_only=False,
+    )
+
+    devices = vm.api.vm_config.get().json()["vhost-user-devices"]
+    assert len(devices) == 1
+
+    device = devices[0]
+    assert device["id"] == "rootfs"
+    assert device["device_type"] == VIRTIO_BLK_TYPE
+    assert device["num_queues"] == BACKEND_NUM_QUEUES
+    assert device["queue_size"] == 128
