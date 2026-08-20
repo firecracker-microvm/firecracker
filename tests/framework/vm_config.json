@@ -40,5 +40,6 @@
   "mmds-config": null,
   "entropy": null,
   "pmem": [],
+  "vhost-user-devices": [],
   "memory-hotplug": null
 }
