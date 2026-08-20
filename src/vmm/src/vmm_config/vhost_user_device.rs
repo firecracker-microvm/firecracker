@@ -82,7 +82,7 @@ impl VhostUserDeviceBuilder {
                     device_type: d.device_type_id,
                     socket: d.vu_device.socket_path().to_string(),
                     num_queues: d.vu_device.queues.len() as u64,
-                    queue_size: d.vu_device.queues.first().map(|q| q.size),
+                    queue_size: d.vu_device.queues.first().map(|q| q.max_size),
                     config_space_size: Some(d.config_space_size),
                 }
             })
