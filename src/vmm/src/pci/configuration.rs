@@ -987,23 +987,29 @@ mod tests {
     #[test]
     fn test_bars_add_pci_bar() {
         let mut bars = Bars::default();
-        bars.set_bar_64(0, 0x1_0000_0000, 0x1000, BarPrefetchable::No);
+        // Explicitly use 0x4_0000_0000 address for 64bit bar so the top half of the BAR contains a
+        // value with the bit 2 set. This bit would qualify the top half as a 64bit BAR by itself
+        // if any code would use `is_64bit` call on it directly, but this must never happen.
+        bars.set_bar_64(0, 0x4_0000_0000, 0x1000, BarPrefetchable::No);
         assert!(bars.bars[0].used());
         assert!(bars.bars[0].is_64bit());
         assert!(bars.bars[1].used());
-        assert_eq!(bars.get_bar_addr(0), 0x1_0000_0000);
-        assert_eq!(bars.get_bar_addr_64(0), 0x1_0000_0000);
+        assert!(bars.bar_idx_valid(0));
+        assert!(!bars.bar_idx_valid(1));
+        assert_eq!(bars.get_bar_addr(0), 0x4_0000_0000);
+        assert_eq!(bars.get_bar_addr_64(0), 0x4_0000_0000);
         assert_eq!(bars.get_bar_size(0), 0x1000);
         assert_eq!(bars.get_bar_size_64(0), 0x1000);
         let mut v: u32 = 0;
         bars.read(0, 0, v.as_mut_bytes());
         assert_eq!(v & 0xffff_fff0, 0x0);
         bars.read(1, 0, v.as_mut_bytes());
-        assert_eq!(v, 1);
+        assert_eq!(v, 4);
 
         bars.set_bar_32(2, 0x2_0000, 0x2000, BarPrefetchable::Yes);
         assert!(bars.bars[2].used());
         assert!(!bars.bars[2].is_64bit());
+        assert!(bars.bar_idx_valid(2));
         assert_eq!(bars.get_bar_addr(2), 0x2_0000);
         assert_eq!(bars.get_bar_addr_32(2), 0x2_0000);
         assert_eq!(bars.get_bar_size(2), 0x2000);
