@@ -792,6 +792,10 @@
                 "comment": "rt_sigprocmask is used by Rust stdlib to remove custom signal handler during thread teardown."
             },
             {
+                "syscall": "rt_sigreturn",
+                "comment": "rt_sigreturn is needed so sigpipe_handler can return and resume the thread."
+            },
+            {
                 "syscall": "sigaltstack",
                 "comment": "sigaltstack is used by Rust stdlib to remove alternative signal stack during thread teardown."
             },
