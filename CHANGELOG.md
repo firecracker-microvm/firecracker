@@ -50,6 +50,8 @@ and this project adheres to
   templates previously failed at boot with
   `Failed to set register ... Invalid argument` because KVM rejects the write
   unless the capability is enabled on the VM.
+- [#6145](https://github.com/firecracker-microvm/firecracker/pull/6145): Added
+  official support for AWS Graviton5 (m9g.metal-48xl) instances.
 
 ### Changed
 

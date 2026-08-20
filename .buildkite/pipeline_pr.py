@@ -77,8 +77,8 @@ if not pipeline.args.no_kani and (
         "kani",
         "./tools/devtool -y test --no-build -- ../tests/integration_tests/test_kani.py -n auto",
         # Kani step default
-        # Kani runs fastest on m6a.metal
-        instances=["m6a.metal", "m7g.metal"],
+        # Kani runs fastest on m6a.metal (x86) and m9g.metal-48xl (aarch64)
+        instances=["m6a.metal", "m9g.metal-48xl"],
         platforms=[("al2023", "linux_6.1")],
         timeout_in_minutes=300,
         **DEFAULTS_PERF,
