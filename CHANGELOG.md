@@ -34,6 +34,8 @@ and this project adheres to
   the `huge_pages` field to `PUT /snapshot/load`, allowing the restored microVM
   to reuse the snapshot's host page configuration or select `None`,
   `Transparent`, or `2M`.
+- [#6145](https://github.com/firecracker-microvm/firecracker/pull/6145): Added
+  official support for AWS Graviton5 (m9g.metal-48xl) instances.
 
 ### Changed
 
