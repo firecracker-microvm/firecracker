@@ -229,3 +229,26 @@ def test_vhost_user_generic_snapshot_refused(uvm_vhost_user_generic_booted_ro):
         vm.api.snapshot_create.put(
             mem_file_path="memfile", snapshot_path="statefile", snapshot_type="Full"
         )
+
+
+def test_vhost_user_generic_config_round_trip(uvm_vhost_user_generic_booted_rw):
+    """
+    Test that a configured generic vhost-user device is reported back.
+
+    Note this does not pin down the queue size the report should carry.
+    The device is meant to report the size it was built with rather than
+    a smaller one the guest driver negotiated since, but the driver here
+    takes the whole 256, so the two are equal and this test cannot tell
+    them apart.
+    """
+
+    vm = uvm_vhost_user_generic_booted_rw
+
+    devices = vm.api.vm_config.get().json()["vhost-user-devices"]
+    assert len(devices) == 1
+
+    device = devices[0]
+    assert device["id"] == "rootfs"
+    assert device["device_type"] == VIRTIO_BLK_TYPE
+    assert device["num_queues"] == BACKEND_NUM_QUEUES
+    assert device["queue_size"] == 256
