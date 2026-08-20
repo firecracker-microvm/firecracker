@@ -62,7 +62,7 @@ following in the Firecracker root directory:
 
 ```
 cat >> .git/hooks/pre-commit << EOF
-./tools/devtool checkstyle || exit 1
+./tools/devtool checkstyle --no-clippy || exit 1
 ./tools/devtool checkbuild --all || exit 1
 EOF
 ```
@@ -72,7 +72,8 @@ when running `git commit`, as well as running any other checks our CI validates
 as part of its 'Style' step. Most reported violations can be automatically fixed
 using `./tools/devtool fmt`. The second command will then check that the code
 correctly compiles on all supported architectures, and that it passes Rust
-clippy rules defined for the project.
+clippy rules defined for the project. `--no-clippy` skips the clippy runs that
+the second command covers too; drop it if you run `checkstyle` on its own.
 
 Your contribution needs to meet the following standards:
 

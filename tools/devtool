@@ -508,8 +508,9 @@ cmd_help() {
     mkdocs
         Use 'cargo doc' to generate rustdoc documentation
 
-    checkstyle
-        Run style checks
+    checkstyle [--no-clippy]
+        Run style checks. --no-clippy skips the clippy runs that
+        'checkbuild' already covers.
 
     checkbuild [--all|-m x86_64|aarch64]
         Run cargo check on the target architecture (supports cross compilation).
@@ -1245,6 +1246,18 @@ cmd_mkdocs() {
 }
 
 cmd_checkstyle() {
+    local clippy_tests=(integration_tests/build/test_clippy.py)
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help")  { cmd_help; exit 1; } ;;
+            "--no-clippy")  { clippy_tests=(); } ;;
+            *)
+                die "Unknown argument: $1. Please use --help for help."
+            ;;
+        esac
+        shift
+    done
+
     if [[ -z "$BUILDKITE" ]]; then
       cmd_sh "git-secrets --register-aws && git-secrets --scan"
     fi
@@ -1253,7 +1266,7 @@ cmd_checkstyle() {
     cmd_test --no-build --no-kvm-check --no-build-dir-check --no-artifacts-check -- \
         -n 4 --dist worksteal \
         integration_tests/style \
-        integration_tests/build/test_clippy.py \
+        "${clippy_tests[@]}" \
         --doctest-modules framework \
         || exit 1
 }
