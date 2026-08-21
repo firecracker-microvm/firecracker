@@ -575,6 +575,7 @@ impl KvmVm {
         &self,
         mem_file_path: &Path,
         snapshot_type: SnapshotType,
+        sync_snapshot_files: bool,
     ) -> Result<(), CreateSnapshotError> {
         use self::CreateSnapshotError::*;
 
@@ -629,8 +630,11 @@ impl KvmVm {
 
         file.flush()
             .map_err(|err| MemoryBackingFile("flush", err))?;
-        file.sync_all()
-            .map_err(|err| MemoryBackingFile("sync_all", err))
+        if sync_snapshot_files {
+            file.sync_all()
+                .map_err(|err| MemoryBackingFile("sync_all", err))?;
+        }
+        Ok(())
     }
 
     /// Register a device IRQ

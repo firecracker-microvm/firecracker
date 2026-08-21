@@ -17,6 +17,7 @@
   - [Creating snapshots](#creating-snapshots)
     - [Creating full snapshots](#creating-full-snapshots)
     - [Creating diff snapshots](#creating-diff-snapshots)
+    - [Syncing snapshot files](#syncing-snapshot-files)
   - [Resuming the microVM](#resuming-the-microvm)
   - [Loading snapshots](#loading-snapshots)
 - [Provisioning host disk space for snapshots](#provisioning-host-disk-space-for-snapshots)
@@ -276,10 +277,10 @@ Details about the required and optional fields can be found in the
     memory.
   - The generated snapshot files are immediately available to be used (current
     process releases ownership). At this point, the block devices backing files
-    should be backed up externally by the user. Please note that block device
-    contents are only guaranteed to be committed/flushed to the host FS, but not
-    necessarily to the underlying persistent storage (could still live in host
-    FS cache).
+    should be backed up externally by the user. The block device backing files
+    are drained and `fsync`'d to the host during snapshot creation, so their
+    contents are committed to the underlying persistent storage regardless of
+    the `sync_snapshot_files` setting.
   - If dirty page tracking is enabled, the snapshot creation resets then the
     dirtied page bitmap and marks all pages clean (from a dirty page tracking
     point of view).
@@ -371,6 +372,20 @@ Creating a snapshot has some minor effects on the currently running microVM:
   terminate connection on resumption.
 - On x86_64, a notification for KVM-clock is injected to notify the guest about
   being paused.
+
+#### Syncing snapshot files
+
+The optional `sync_snapshot_files` field of the `PUT /snapshot/create` API
+controls whether the snapshot state and guest memory files are synced to disk
+(`fsync`) before the request returns. It applies to both full and diff snapshots
+and defaults to `true`, guaranteeing durability across host crashes.
+
+Setting it to `false` returns without waiting for the writeback, making snapshot
+creation faster. The data stays in the host page cache, so same-host reads still
+see the full contents; only durability across a host crash is lost. This is
+useful when durability isn't required (e.g. a pipeline further transforms the
+snapshot). Block device backing files are always `fsync`'d regardless of this
+setting.
 
 ### Resuming the microVM
 
