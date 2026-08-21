@@ -190,7 +190,17 @@ impl KvmVcpu {
     /// Normalizes and configures CPUID for this vCPU.
     ///
     /// Returns the KVM CPUID representation installed on the vCPU.
-    pub(crate) fn configure_cpuid(
+    ///
+    /// # Arguments
+    ///
+    /// * `cpuid` - The shared guest CPUID configuration.
+    /// * `vcpu_count` - The total number of logical vCPUs.
+    /// * `smt` - Whether simultaneous multithreading is enabled.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if CPUID cannot be normalized, converted, or installed on the vCPU.
+    pub fn configure_cpuid(
         &self,
         cpuid: &cpuid::Cpuid,
         vcpu_count: u8,
@@ -218,7 +228,16 @@ impl KvmVcpu {
     /// Configures CPU template and Linux boot MSRs for this vCPU.
     ///
     /// `configured_cpuid` must be the CPUID installed on this vCPU.
-    pub(crate) fn configure_msrs_for_boot(
+    ///
+    /// # Arguments
+    ///
+    /// * `msrs` - The CPU template MSR values to configure and save in snapshots.
+    /// * `configured_cpuid` - The value returned by [`Self::configure_cpuid`] for this vCPU.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the MSRs cannot be installed on the vCPU.
+    pub fn configure_msrs_for_boot(
         &mut self,
         msrs: &BTreeMap<u32, u64>,
         configured_cpuid: &CpuId,
@@ -261,8 +280,17 @@ impl KvmVcpu {
         Ok(())
     }
 
-    /// Configures the remaining Linux boot state for this vCPU.
-    pub(crate) fn configure_boot_state(
+    /// Configures the remaining Linux boot state after CPUID and MSRs for this vCPU.
+    ///
+    /// # Arguments
+    ///
+    /// * `guest_mem` - The guest memory used by the microVM.
+    /// * `kernel_entry_point` - The boot protocol and guest address of the kernel entry point.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the register, FPU, special register, or LINT setup fails.
+    pub fn configure_boot_state(
         &self,
         guest_mem: &GuestMemoryMmap,
         kernel_entry_point: EntryPoint,
