@@ -36,20 +36,24 @@
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
-use crate::logger::SharedIncMetric;
+use crate::logger::{IncMetric, SharedIncMetric};
+use std::sync::{Arc, OnceLock};
 
-/// Stores aggregated entropy metrics
-pub(super) static METRICS: EntropyDeviceMetrics = EntropyDeviceMetrics::new();
-
-/// Called by METRICS.flush(), this function facilitates serialization of entropy device metrics.
+/// This function facilitates aggregation and serialization of rng metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_map(Some(1))?;
-    seq.serialize_entry("entropy", &METRICS)?;
+    let dev_name = "entropy";
+    match METRICS.get() {
+        Some(metrics) => seq.serialize_entry(dev_name, &metrics)?,
+        None => seq.serialize_entry(dev_name, &EntropyDeviceMetrics::default())?,
+    }
+
     seq.end()
 }
 
-#[derive(Debug, Serialize)]
-pub(super) struct EntropyDeviceMetrics {
+pub static METRICS: OnceLock<Arc<EntropyDeviceMetrics>> = OnceLock::new();
+#[derive(Debug, Serialize, Default)]
+pub struct EntropyDeviceMetrics {
     /// Number of device activation failures
     pub activate_fails: SharedIncMetric,
     /// Number of entropy queue event handling failures
@@ -84,17 +88,17 @@ impl EntropyDeviceMetrics {
 pub mod tests {
     use super::*;
     use crate::logger::IncMetric;
+    use std::sync::Arc;
 
     #[test]
-    fn test_entropy_dev_metrics() {
-        let entropy_metrics: EntropyDeviceMetrics = EntropyDeviceMetrics::new();
-        let entropy_metrics_local: String = serde_json::to_string(&entropy_metrics).unwrap();
-        // the 1st serialize flushes the metrics and resets values to 0 so that
-        // we can compare the values with local metrics.
-        serde_json::to_string(&METRICS).unwrap();
-        let entropy_metrics_global: String = serde_json::to_string(&METRICS).unwrap();
-        assert_eq!(entropy_metrics_local, entropy_metrics_global);
-        entropy_metrics.entropy_event_count.inc();
-        assert_eq!(entropy_metrics.entropy_event_count.count(), 1);
+    fn test_rng_dev_metrics() {
+        let metrics_instance = EntropyDeviceMetrics::new();
+        metrics_instance.activate_fails.inc();
+        metrics_instance.entropy_bytes.add(10);
+        metrics_instance.host_rng_fails.add(5);
+
+        assert!(metrics_instance.activate_fails.count() >= 1);
+        assert!(metrics_instance.entropy_bytes.count() >= 10);
+        assert_eq!(metrics_instance.host_rng_fails.count(), 5);
     }
 }
