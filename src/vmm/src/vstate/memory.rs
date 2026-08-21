@@ -870,7 +870,10 @@ pub fn memfd_backed(
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    let size = regions.iter().map(|&(_, size)| size as u64).sum();
+    let size = regions
+        .iter()
+        .try_fold(0u64, |acc, &(_, size)| acc.checked_add(size as u64))
+        .ok_or(MemoryError::OffsetTooLarge)?;
     let memfd_file = create_memfd(size, huge_pages.into())?.into_file();
 
     create(
