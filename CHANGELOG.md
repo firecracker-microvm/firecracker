@@ -82,6 +82,11 @@ and this project adheres to
   Terminating a connection now also discards its TX buffer, so the device stops
   advertising `EPOLLOUT` for a host stream it will never write to again, which
   could otherwise busy-spin the event thread indefinitely.
+- [#6083](https://github.com/firecracker-microvm/firecracker/pull/6083): Fixed a
+  vhost-user-block device backed by a readonly backend not being treated as
+  readonly. The `VIRTIO_BLK_F_RO` check read the acked feature set after it had
+  been narrowed to the vhost-user protocol bit, so it never matched, and a
+  readonly vhost-user root device was given `rw` on the guest kernel cmdline.
 - [#6086](https://github.com/firecracker-microvm/firecracker/pull/6086): Fixed a
   potential deadlock in the logger: a signal handler that logs while the
   interrupted thread already held the logger lock would re-acquire it and hang
