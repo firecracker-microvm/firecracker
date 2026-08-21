@@ -7,8 +7,6 @@
 
 //! Emulates virtual and hardware devices.
 
-#![allow(unused)]
-
 use std::io;
 
 pub mod acpi;

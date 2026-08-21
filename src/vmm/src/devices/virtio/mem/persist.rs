@@ -7,17 +7,14 @@ use std::sync::Arc;
 
 use bitvec::vec::BitVec;
 use serde::{Deserialize, Serialize};
-use vm_memory::Address;
 
 use crate::devices::virtio::device::VirtioDeviceType;
-use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_MEM;
 use crate::devices::virtio::generated::virtio_mem::virtio_mem_config;
 use crate::devices::virtio::mem::{MEM_NUM_QUEUES, VirtioMem, VirtioMemError};
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::snapshot::Persist;
 use crate::utils::usize_to_u64;
-use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap};
 use crate::vstate::vm::KvmVm;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

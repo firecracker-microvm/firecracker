@@ -38,7 +38,7 @@ use super::EntryPoint;
 use crate::acpi::create_acpi_tables;
 use crate::arch::{BootProtocol, SYSTEM_MEM_SIZE, SYSTEM_MEM_START, arch_memory_regions_with_gap};
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
-use crate::cpu_config::x86_64::CpuConfiguration;
+use crate::cpu_config::x86_64::{apply_template_to_cpuid, apply_template_to_msrs, cpuid::Cpuid};
 use crate::device_manager::DeviceManager;
 use crate::initrd::InitrdConfig;
 use crate::logger::debug;
@@ -49,7 +49,7 @@ use crate::vstate::memory::{
 };
 use crate::vstate::vcpu::KvmVcpuConfigureError;
 use crate::vstate::vm::KvmVm;
-use crate::{Vcpu, VcpuConfig, align_down, logger};
+use crate::{Vcpu, align_down, logger};
 use kvm::Kvm;
 use layout::{
     CMDLINE_START, MMIO32_MEM_SIZE, MMIO32_MEM_START, MMIO64_MEM_SIZE, MMIO64_MEM_START,
@@ -178,6 +178,60 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Opti
     ))
 }
 
+/// Configures the vCPUs for booting Linux.
+///
+/// KVM determines support for CPUID-dependent MSRs from guest CPUID. Install
+/// guest CPUID before retrieving MSRs for CPU templates; otherwise,
+/// `KVM_GET_MSRS` returns zero for an MSR that guest CPUID does not support.
+///
+/// CPU configuration follows this order:
+///
+/// 1. Apply CPUID modifiers.
+/// 2. Set each vCPU's normalized CPUID with `KVM_SET_CPUID2`.
+/// 3. Retrieve CPUID-dependent MSRs from vCPU 0 with `KVM_GET_MSRS`.
+/// 4. Apply MSR modifiers.
+/// 5. Add Linux boot MSRs and update CPUID-derived MSR snapshot bookkeeping.
+/// 6. Set each vCPU's MSRs with `KVM_SET_MSRS`.
+///
+/// The remaining Linux boot state is configured after CPU configuration.
+fn configure_vcpus_for_boot(
+    kvm: &Kvm,
+    vcpus: &mut [Vcpu],
+    machine_config: &MachineConfig,
+    cpu_template: &CustomCpuTemplate,
+    guest_mem: &GuestMemoryMmap,
+    entry_point: EntryPoint,
+) -> Result<(), ConfigurationError> {
+    // Phase 1: construct the shared, templated guest CPUID.
+    let cpuid = Cpuid::try_from(kvm.supported_cpuid.clone()).map_err(GuestConfigError::from)?;
+    let cpuid = apply_template_to_cpuid(cpuid, cpu_template)?;
+
+    // Phase 2: set each normalized CPUID before reading CPUID-dependent MSRs.
+    let configured_cpuids = vcpus
+        .iter()
+        .map(|vcpu| {
+            vcpu.kvm_vcpu
+                .configure_cpuid(&cpuid, machine_config.vcpu_count, machine_config.smt)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Phase 3: construct the shared, templated MSRs from vCPU 0's post-CPUID state.
+    let msrs = vcpus[0]
+        .kvm_vcpu
+        .get_msrs(cpu_template.msr_index_iter())
+        .map_err(GuestConfigError::from)?;
+    let msrs = apply_template_to_msrs(msrs, cpu_template)?;
+
+    // Phase 4: set MSRs and the remaining Linux boot state on each vCPU.
+    for (vcpu, configured_cpuid) in vcpus.iter_mut().zip(&configured_cpuids) {
+        vcpu.kvm_vcpu
+            .configure_msrs_for_boot(&msrs, configured_cpuid)?;
+        vcpu.kvm_vcpu.configure_boot_state(guest_mem, entry_point)?;
+    }
+
+    Ok(())
+}
+
 /// Configures the system for booting Linux.
 #[allow(clippy::too_many_arguments)]
 pub fn configure_system_for_boot(
@@ -191,22 +245,14 @@ pub fn configure_system_for_boot(
     initrd: &Option<InitrdConfig>,
     boot_cmdline: Cmdline,
 ) -> Result<(), ConfigurationError> {
-    // Construct the base CpuConfiguration to apply CPU template onto.
-    let cpu_config = CpuConfiguration::new(kvm.supported_cpuid.clone(), cpu_template, &vcpus[0])?;
-    // Apply CPU template to the base CpuConfiguration.
-    let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template)?;
-
-    let vcpu_config = VcpuConfig {
-        vcpu_count: machine_config.vcpu_count,
-        smt: machine_config.smt,
-        cpu_config,
-    };
-
-    // Configure vCPUs with normalizing and setting the generated CPU configuration.
-    for vcpu in vcpus.iter_mut() {
-        vcpu.kvm_vcpu
-            .configure(vm.guest_memory(), entry_point, &vcpu_config)?;
-    }
+    configure_vcpus_for_boot(
+        kvm,
+        vcpus,
+        machine_config,
+        cpu_template,
+        vm.guest_memory(),
+        entry_point,
+    )?;
 
     // Write the kernel command line to guest memory. This is x86_64 specific, since on
     // aarch64 the command line will be specified through the FDT.
@@ -226,7 +272,7 @@ pub fn configure_system_for_boot(
     mptable::setup_mptable(
         vm.guest_memory(),
         &mut vm.resource_allocator(),
-        vcpu_config.vcpu_count,
+        machine_config.vcpu_count,
     )
     .map_err(ConfigurationError::MpTableSetup)?;
 

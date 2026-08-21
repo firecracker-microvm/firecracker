@@ -1,16 +1,15 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::ops::Deref;
 use std::os::fd::AsRawFd;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use kvm_bindings::{KVM_MEM_READONLY, kvm_userspace_memory_region};
 use serde::{Deserialize, Serialize};
 use vm_allocator::{AllocPolicy, RangeInclusive};
-use vm_memory::mmap::{MmapRegionBuilder, MmapRegionError};
-use vm_memory::{GuestAddress, GuestMemoryError};
+use vm_memory::GuestMemoryError;
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::devices::virtio::ActivateError;
@@ -23,7 +22,6 @@ use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{IncMetric, error, info, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use crate::utils::u64_to_usize;
-use crate::vmm_config::RateLimiterConfig;
 use crate::vmm_config::pmem::PmemConfig;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};
 use crate::vstate::vm::{KvmVm, VmError};
@@ -187,7 +185,7 @@ impl PmemMmap {
             .open(path)
             .map_err(PmemError::BackingFile)?;
         let file_len = file.metadata().unwrap().len();
-        if (file_len == 0) {
+        if file_len == 0 {
             return Err(PmemError::BackingFileZeroSize);
         }
 
@@ -197,7 +195,7 @@ impl PmemMmap {
         }
 
         let mmap_len = align_up!(file_len, Self::ALIGNMENT);
-        let mmap_ptr = if (mmap_len == file_len) {
+        let mmap_ptr = if mmap_len == file_len {
             // SAFETY: We are calling the system call with valid arguments and checking the returned
             // value
             unsafe {
@@ -600,13 +598,16 @@ impl VirtioDevice for Pmem {
     fn kick(&mut self) {
         if self.is_activated() {
             info!("kick pmem {}.", self.config.id);
-            self.handle_queue();
+            if let Err(err) = self.handle_queue() {
+                error!("pmem: Failed to process queue: {err}");
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use vm_memory::GuestAddress;
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
@@ -645,7 +646,7 @@ mod tests {
             PmemError::BackingFileZeroSize,
         ));
 
-        dummy_file.as_file().set_len(0x20_0000);
+        dummy_file.as_file().set_len(0x20_0000).unwrap();
         let config = PmemConfig {
             id: "1".into(),
             path_on_host: dummy_path,
@@ -662,7 +663,7 @@ mod tests {
         let vm = Arc::new(KvmVm::new(kvm).unwrap());
 
         let dummy_file = TempFile::new().unwrap();
-        dummy_file.as_file().set_len(0x20_0000);
+        dummy_file.as_file().set_len(0x20_0000).unwrap();
         let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
         let config = PmemConfig {
             id: "1".into(),

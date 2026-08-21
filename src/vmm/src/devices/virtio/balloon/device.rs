@@ -32,7 +32,6 @@ use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::queue::InvalidAvailIdx;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{IncMetric, debug, error, info, log_dev_preview_warning, warn};
-use crate::utils::u64_to_usize;
 use crate::vstate::memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap,
 };
@@ -550,8 +549,6 @@ impl Balloon {
         let mut complete = false;
 
         while let Some(head) = queue.pop()? {
-            let head_index = head.index;
-
             let mut last_desc = Some(head);
             while let Some(desc) = last_desc {
                 last_desc = desc.next_descriptor();
@@ -612,7 +609,7 @@ impl Balloon {
         }
 
         if complete && self.hinting_state.acknowledge_on_finish {
-            self.update_free_page_hint_cmd(FREE_PAGE_HINT_DONE);
+            self.update_free_page_hint_cmd(FREE_PAGE_HINT_DONE)?;
         }
 
         Ok(())
@@ -630,8 +627,6 @@ impl Balloon {
         let mut needs_interrupt = false;
 
         while let Some(head) = queue.pop()? {
-            let head_index = head.index;
-
             let mut last_desc = Some(head);
             while let Some(desc) = last_desc {
                 METRICS.free_page_report_count.inc();
@@ -1003,7 +998,13 @@ impl VirtioDevice for Balloon {
                     self.device_type(),
                     self.id()
                 );
-                self.update_free_page_hint_cmd(FREE_PAGE_HINT_DONE);
+                if let Err(err) = self.update_free_page_hint_cmd(FREE_PAGE_HINT_DONE) {
+                    error!(
+                        "[{:?}:{}] failed to reset free page hinting: {err}",
+                        self.device_type(),
+                        self.id()
+                    );
+                }
             }
             self.notify_queue_events();
         }
@@ -1590,7 +1591,7 @@ pub(crate) mod tests {
 
         let safe_addr = align_up!(th.data_address(), page_size);
 
-        th.add_scatter_gather(reporting_idx, 0, &[(0, safe_addr, page_size_chain, 0)]);
+        th.add_scatter_gather(reporting_idx, &[(0, safe_addr, page_size_chain, 0)]);
         check_metric_after_block!(
             METRICS.free_page_report_freed,
             page_size,
@@ -1600,7 +1601,6 @@ pub(crate) mod tests {
         // Test with multiple items
         th.add_scatter_gather(
             reporting_idx,
-            0,
             &[
                 (0, safe_addr, page_size_chain, 0),
                 (1, safe_addr + page_size, page_size_chain, 0),
@@ -1615,7 +1615,7 @@ pub(crate) mod tests {
         );
 
         // Test with unaligned length
-        th.add_scatter_gather(reporting_idx, 0, &[(1, safe_addr + 1, page_size_chain, 0)]);
+        th.add_scatter_gather(reporting_idx, &[(1, safe_addr + 1, page_size_chain, 0)]);
 
         check_metric_after_block!(
             METRICS.free_page_report_fails,
@@ -1637,7 +1637,7 @@ pub(crate) mod tests {
         fn new(mem: &'a GuestMemoryMmap) -> Self {
             let mut th = VirtioTestHelper::<Balloon>::new(
                 mem,
-                Balloon::new(0, true, 0, true, false).unwrap(),
+                Balloon::new(0, true, 0, true, true).unwrap(),
             );
             th.activate_device(mem);
 
@@ -1685,7 +1685,6 @@ pub(crate) mod tests {
                 .unwrap();
             self.th.add_scatter_gather(
                 self.hinting_idx,
-                0,
                 &[
                     (0, self.safe_addr, 4, VIRTQ_DESC_F_WRITE),
                     (
@@ -1738,7 +1737,7 @@ pub(crate) mod tests {
                     )]
                 }
             };
-            self.th.add_scatter_gather(self.hinting_idx, 0, &payload);
+            self.th.add_scatter_gather(self.hinting_idx, &payload);
             check_metric_after_block!(
                 METRICS.free_page_hint_freed,
                 expected,
@@ -1815,7 +1814,6 @@ pub(crate) mod tests {
 
         // Test the good case
         ht.start_hinting(None);
-        let mut host_cmd = ht.th.device().get_hinting_status().unwrap().host_cmd;
 
         // Simulate the driver finishing a run. Any reported values after
         // should be ignored
@@ -1825,7 +1823,7 @@ pub(crate) mod tests {
         ht.test_hinting(None, 0);
 
         // As we had auto ack on finish the host cmd should be set to done
-        host_cmd = ht.th.device().get_hinting_status().unwrap().host_cmd;
+        let host_cmd = ht.th.device().get_hinting_status().unwrap().host_cmd;
         assert_eq!(host_cmd, FREE_PAGE_HINT_DONE);
     }
 
@@ -1836,14 +1834,13 @@ pub(crate) mod tests {
 
         // Test the good case
         ht.start_hinting(None);
-        let mut host_cmd = ht.th.device().get_hinting_status().unwrap().host_cmd;
 
         // Test no ack on stop behaviour
         ht.start_hinting(Some(StartHintingCmd {
             acknowledge_on_stop: false,
         }));
 
-        host_cmd = ht.th.device().get_hinting_status().unwrap().host_cmd;
+        let host_cmd = ht.th.device().get_hinting_status().unwrap().host_cmd;
         ht.test_hinting(Some(host_cmd), ht.page_size);
         ht.test_hinting(None, ht.page_size);
 
@@ -1859,14 +1856,13 @@ pub(crate) mod tests {
 
         // Test the good case
         ht.start_hinting(None);
-        let mut host_cmd = ht.th.device().get_hinting_status().unwrap().host_cmd;
+        let host_cmd = ht.th.device().get_hinting_status().unwrap().host_cmd;
 
         ht.test_hinting(Some(host_cmd), ht.page_size);
         ht.test_hinting(None, ht.page_size);
 
         ht.th.add_scatter_gather(
             ht.hinting_idx,
-            0,
             &[(0, ht.safe_addr + ht.page_size + 1, ht.page_size_chain, 0)],
         );
 

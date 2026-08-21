@@ -3,15 +3,12 @@
 
 //! Defines the structures needed for saving/restoring entropy devices.
 
-use std::sync::Arc;
-
 use serde::{Deserialize, Serialize};
 
 use crate::devices::virtio::device::VirtioDeviceType;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::rng::{Entropy, EntropyError, RNG_NUM_QUEUES};
-use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::rate_limiter::RateLimiter;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::snapshot::Persist;
@@ -76,7 +73,6 @@ mod tests {
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
-    use crate::devices::virtio::test_utils::default_interrupt;
     use crate::devices::virtio::test_utils::test::create_virtio_mem;
 
     #[test]

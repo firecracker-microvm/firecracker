@@ -96,7 +96,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use event_manager::{EventManager, SubscriberOps};
-    use vmm_sys_util::epoll::EventSet;
 
     use super::*;
     use crate::devices::virtio::ActivateError;

@@ -1,12 +1,8 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io;
-
-use super::{MAX_PAGE_COMPACT_BUFFER, RemoveRegionError};
+use super::MAX_PAGE_COMPACT_BUFFER;
 use crate::logger::error;
-use crate::utils::u64_to_usize;
-use crate::vstate::memory::{GuestAddress, GuestMemoryMmap, GuestMemoryRegion};
 
 /// This takes a vector of page frame numbers, and compacts them
 /// into ranges of consecutive pages. The result is a vector
@@ -70,12 +66,6 @@ mod tests {
     use std::fmt::Debug;
 
     use super::*;
-    use crate::vstate::memory::Bytes;
-
-    /// This asserts that $lhs matches $rhs.
-    macro_rules! assert_match {
-        ($lhs:expr, $rhs:pat) => {{ assert!(matches!($lhs, $rhs)) }};
-    }
 
     #[test]
     fn test_compact_page_indices() {
@@ -126,8 +116,6 @@ mod tests {
     /// -------------------------------------
     /// BEGIN PROPERTY BASED TESTING
     use proptest::prelude::*;
-
-    use crate::test_utils::single_region_mem;
 
     #[allow(clippy::let_with_type_underscore)]
     fn random_pfn_u32_max() -> impl Strategy<Value = Vec<u32>> {

@@ -100,20 +100,6 @@ pub enum BalloonError {
     InvalidAvailIdx(#[from] InvalidAvailIdx),
 }
 
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum RemoveRegionError {
-    /// Address translation error.
-    AddressTranslation,
-    /// Malformed guest address range.
-    MalformedRange,
-    /// Error calling madvise: {0}
-    MadviseFail(std::io::Error),
-    /// Error calling mmap: {0}
-    MmapFail(std::io::Error),
-    /// Region not found.
-    RegionNotFound,
-}
-
 pub(super) fn report_balloon_event_fail(err: BalloonError) {
     if let BalloonError::InvalidAvailIdx(err) = err {
         panic!("{}", err);

@@ -8,24 +8,21 @@
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
 use std::cmp;
-use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::io::{ErrorKind, Write};
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicUsize, Ordering};
+use std::io::Write;
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 
 use kvm_ioctls::{IoEventAddress, NoDatamatch};
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
-use vm_allocator::{AddressAllocator, AllocPolicy, RangeInclusive};
-use vm_memory::{Address, ByteValued, GuestAddress, Le32};
+use vm_allocator::{AddressAllocator, AllocPolicy};
+use vm_memory::{ByteValued, Le32};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 use zerocopy::IntoBytes;
 
+use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
-use crate::devices::virtio::generated::virtio_ids;
-use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::pci::common_config::{
     VirtioPciCommonConfig, VirtioPciCommonConfigState,
 };
@@ -38,10 +35,9 @@ use crate::pci::configuration::{
 };
 use crate::pci::msix::{MsixCap, MsixConfig, MsixConfigState};
 use crate::pci::{
-    BarReprogrammingParams, PciCapabilityId, PciClassCode, PciDevice, PciMassStorageSubclass,
-    PciNetworkControllerSubclass, PciSBDF,
+    PciCapabilityId, PciClassCode, PciDevice, PciMassStorageSubclass, PciNetworkControllerSubclass,
+    PciSBDF,
 };
-use crate::snapshot::Persist;
 use crate::vstate::bus::BusDevice;
 use crate::vstate::interrupts::{InterruptError, MsixVectorGroup};
 use crate::vstate::memory::GuestMemoryMmap;
@@ -59,6 +55,7 @@ enum PciCapabilityType {
     Isr = 3,
     Device = 4,
     Pci = 5,
+    #[allow(dead_code)] // Defined by the virtio spec, but not used by us
     SharedMemory = 8,
 }
 
@@ -257,6 +254,8 @@ pub enum VirtioPciDeviceError {
     InvalidRestoreState(u8, u8),
     /// Restored MSI-X vector count ({0}) does not match the expected count ({1}) for this device
     UnexpectedMsixVectorCount(usize, usize),
+    /// Could not activate restored device: {0}
+    Activate(#[from] ActivateError),
 }
 
 pub struct VirtioPciDevice {
@@ -316,10 +315,7 @@ impl Debug for VirtioPciDevice {
 }
 
 impl VirtioPciDevice {
-    fn pci_configuration(
-        device_type: VirtioDeviceType,
-        msix_config: &Arc<Mutex<MsixConfig>>,
-    ) -> PciConfiguration {
+    fn pci_configuration(device_type: VirtioDeviceType) -> PciConfiguration {
         let pci_device_id = VIRTIO_PCI_DEVICE_ID_BASE + device_type as u16;
         let (class, subclass) = match device_type {
             VirtioDeviceType::Net => (
@@ -353,9 +349,6 @@ impl VirtioPciDevice {
     /// known state, the BARs are already created with the right content, therefore we don't need
     /// to go through this codepath.
     pub fn allocate_bars(&mut self, mmio64_allocator: &mut AddressAllocator) {
-        let device_clone = self.device.clone();
-        let device = device_clone.lock().unwrap();
-
         // Allocate the virtio-pci capability BAR.
         // See http://docs.oasis-open.org/virtio/virtio/v1.0/cs04/virtio-v1.0-cs04.html#x1-740004
         self.bar_address = mmio64_allocator
@@ -387,10 +380,8 @@ impl VirtioPciDevice {
         assert_eq!(msix_vectors.vectors.len(), num_queues + 1);
 
         let msix_config = Arc::new(Mutex::new(MsixConfig::new(msix_vectors.clone(), sbdf)));
-        let pci_config = Self::pci_configuration(
-            device.lock().expect("Poisoned lock").device_type(),
-            &msix_config,
-        );
+        let pci_config =
+            Self::pci_configuration(device.lock().expect("Poisoned lock").device_type());
 
         let virtio_common_config = VirtioPciCommonConfig::new(VirtioPciCommonConfigState {
             driver_status: 0,
@@ -502,7 +493,7 @@ impl VirtioPciDevice {
                 .activate(
                     virtio_pci_device.memory.clone(),
                     virtio_pci_device.virtio_interrupt.as_ref().unwrap().clone(),
-                );
+                )?;
         }
 
         Ok(virtio_pci_device)
@@ -519,7 +510,7 @@ impl VirtioPciDevice {
     }
 
     fn is_driver_ready(&self) -> bool {
-        let ready_bits = (ACKNOWLEDGE | DRIVER | DRIVER_OK | FEATURES_OK);
+        let ready_bits = ACKNOWLEDGE | DRIVER | DRIVER_OK | FEATURES_OK;
         self.common_config.driver_status == ready_bits
     }
 
@@ -868,12 +859,12 @@ impl VirtioInterrupt for VirtioInterruptMsix {
     }
 
     #[cfg(test)]
-    fn has_pending_interrupt(&self, interrupt_type: VirtioInterruptType) -> bool {
+    fn has_pending_interrupt(&self, _interrupt_type: VirtioInterruptType) -> bool {
         false
     }
 
     #[cfg(test)]
-    fn ack_interrupt(&self, interrupt_type: VirtioInterruptType) {
+    fn ack_interrupt(&self, _interrupt_type: VirtioInterruptType) {
         // Do nothing here
     }
 }
@@ -1138,7 +1129,6 @@ mod tests {
     use std::sync::atomic::Ordering;
     use std::sync::{Arc, Mutex};
 
-    use event_manager::MutEventSubscriber;
     use linux_loader::loader::Cmdline;
     use vm_memory::{ByteValued, Le32};
 
@@ -1147,7 +1137,7 @@ mod tests {
     use crate::arch::MEM_64BIT_DEVICES_START;
     use crate::builder::tests::default_vmm_with_pci;
     use crate::device_manager::tests::pci_devices;
-    use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
+    use crate::devices::virtio::device::VirtioDeviceType;
     use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
     use crate::devices::virtio::rng::Entropy;
     use crate::devices::virtio::transport::pci::common_config_offset::*;
@@ -1163,8 +1153,6 @@ mod tests {
     use crate::pci::msix::MsixCap;
     use crate::pci::{PciCapabilityId, PciClassCode, PciDevice};
     use crate::rate_limiter::RateLimiter;
-    use crate::snapshot::Persist;
-    use crate::vstate::resources::ResourceAllocator;
 
     fn create_vmm_with_virtio_pci_device() -> Vmm {
         let mut vmm = default_vmm_with_pci();
@@ -1192,7 +1180,7 @@ mod tests {
 
     #[test]
     fn test_pci_device_config() {
-        let mut vmm = create_vmm_with_virtio_pci_device();
+        let vmm = create_vmm_with_virtio_pci_device();
         let device = get_virtio_device(&vmm);
         let mut locked_virtio_pci_device = device.lock().unwrap();
 
@@ -1290,7 +1278,7 @@ mod tests {
 
     #[test]
     fn test_reading_bars() {
-        let mut vmm = create_vmm_with_virtio_pci_device();
+        let vmm = create_vmm_with_virtio_pci_device();
         let device = get_virtio_device(&vmm);
         let mut locked_virtio_pci_device = device.lock().unwrap();
 
@@ -1426,7 +1414,7 @@ mod tests {
 
     #[test]
     fn test_capabilities() {
-        let mut vmm = create_vmm_with_virtio_pci_device();
+        let vmm = create_vmm_with_virtio_pci_device();
         let device = get_virtio_device(&vmm);
         let mut locked_virtio_pci_device = device.lock().unwrap();
 
@@ -1510,7 +1498,7 @@ mod tests {
         assert_eq!(next as u32, pci_config_cap_offset + cap.cap.cap_len as u32);
 
         let msix_cap_offset = next as u32;
-        let (id, next, cap) = read_msix_cap(&mut locked_virtio_pci_device, msix_cap_offset);
+        let (id, next, _cap) = read_msix_cap(&mut locked_virtio_pci_device, msix_cap_offset);
         assert_eq!(id, PciCapabilityId::MsiX);
         assert_eq!(next, 0);
     }
@@ -1553,7 +1541,7 @@ mod tests {
 
     #[test]
     fn test_pci_configuration_cap() {
-        let mut vmm = create_vmm_with_virtio_pci_device();
+        let vmm = create_vmm_with_virtio_pci_device();
         let device = get_virtio_device(&vmm);
         let mut locked_virtio_pci_device = device.lock().unwrap();
 
@@ -1626,7 +1614,7 @@ mod tests {
 
     #[test]
     fn test_isr_capability() {
-        let mut vmm = create_vmm_with_virtio_pci_device();
+        let vmm = create_vmm_with_virtio_pci_device();
         let device = get_virtio_device(&vmm);
         let mut locked_virtio_pci_device = device.lock().unwrap();
 
@@ -1639,7 +1627,7 @@ mod tests {
 
     #[test]
     fn test_notification_capability() {
-        let mut vmm = create_vmm_with_virtio_pci_device();
+        let vmm = create_vmm_with_virtio_pci_device();
         let device = get_virtio_device(&vmm);
         let mut locked_virtio_pci_device = device.lock().unwrap();
 
@@ -1723,7 +1711,7 @@ mod tests {
 
     #[test]
     fn test_device_initialization() {
-        let mut vmm = create_vmm_with_virtio_pci_device();
+        let vmm = create_vmm_with_virtio_pci_device();
         let device = get_virtio_device(&vmm);
         let mut locked_virtio_pci_device = device.lock().unwrap();
 
@@ -1789,7 +1777,7 @@ mod tests {
         // Verify that DEVICE_NEEDS_RESET is set in driver_status when device activation fails.
         use crate::devices::virtio::transport::pci::device_status::DEVICE_NEEDS_RESET;
 
-        let mut vmm = create_vmm_with_virtio_pci_device();
+        let vmm = create_vmm_with_virtio_pci_device();
         let device = get_virtio_device(&vmm);
         let mut locked = device.lock().unwrap();
 
@@ -1809,7 +1797,7 @@ mod tests {
 
     #[test]
     fn test_reset_and_reinitialization() {
-        let mut vmm = create_vmm_with_virtio_pci_device();
+        let vmm = create_vmm_with_virtio_pci_device();
         let device = get_virtio_device(&vmm);
         let mut locked = device.lock().unwrap();
 

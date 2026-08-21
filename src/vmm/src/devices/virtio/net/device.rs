@@ -44,7 +44,6 @@ use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use crate::utils::net::mac::MacAddr;
-use crate::utils::u64_to_usize;
 use crate::vstate::memory::{ByteValued, GuestMemoryMmap};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
@@ -1231,7 +1230,7 @@ pub mod tests {
     #[test]
     fn test_mtu_advertised() {
         // "net-device%d" asks the kernel to assign a unique tap index.
-        let mut net = Net::new(
+        let net = Net::new(
             "mtu-test".to_string(),
             "net-device%d",
             None,
