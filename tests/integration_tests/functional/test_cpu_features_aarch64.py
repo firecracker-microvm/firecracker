@@ -15,7 +15,7 @@ pytestmark = pytest.mark.skipif(
 G2_FEATS = set(
     (
         "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
-        "asimdhp cpuid asimdrdm lrcpc dcpop asimddp ssbs"
+        "asimdhp cpuid asimdrdm lrcpc dcpop asimddp"
     ).split()
 )
 
