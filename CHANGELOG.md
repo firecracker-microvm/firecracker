@@ -34,6 +34,10 @@ and this project adheres to
   the `huge_pages` field to `PUT /snapshot/load`, allowing the restored microVM
   to reuse the snapshot's host page configuration or select `None`,
   `Transparent`, or `2M`.
+- [#5908](https://github.com/firecracker-microvm/firecracker/pull/5908): Add
+  opt-in virtio-blk discard support for writable `Sync` IO engine drives through
+  the `discard` drive configuration field. See the
+  [block discard documentation](docs/api_requests/block-discard.md).
 
 ### Changed
 
