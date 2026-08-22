@@ -3,7 +3,11 @@
 
 use std::sync::Mutex;
 
+use kvm_bindings::{KVM_CAP_ARM_WRITABLE_IMP_ID_REGS, KVMIO, kvm_enable_cap};
 use serde::{Deserialize, Serialize};
+use vmm_sys_util::errno;
+use vmm_sys_util::ioctl::ioctl_with_ref;
+use vmm_sys_util::ioctl_iow_nr;
 
 use crate::Kvm;
 use crate::arch::aarch64::gic::GicState;
@@ -11,6 +15,13 @@ use crate::snapshot::Persist;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
 use crate::vstate::resources::{ResourceAllocator, ResourceAllocatorState};
 use crate::vstate::vm::{VmCommon, VmError};
+
+// Not exposed for aarch64 by kvm-ioctls; same definition it uses internally.
+#[allow(missing_docs)]
+mod ioctls {
+    use super::*;
+    ioctl_iow_nr!(KVM_ENABLE_CAP, KVMIO, 0xa3, kvm_enable_cap);
+}
 
 /// Structure representing the current architecture's understand of what a "virtual machine" is.
 #[derive(Debug)]
@@ -26,6 +37,8 @@ pub struct KvmVm {
 pub enum KvmVmError {
     /// Error creating the global interrupt controller: {0}
     VmCreateGIC(crate::arch::aarch64::gic::GicError),
+    /// Failed to enable KVM_CAP_ARM_WRITABLE_IMP_ID_REGS: {0}
+    EnableWritableImpIdRegs(errno::Error),
     /// Failed to save the VM's GIC state: {0}
     SaveGic(crate::arch::aarch64::gic::GicError),
     /// Failed to restore the VM's GIC state: {0}
@@ -46,6 +59,34 @@ impl KvmVm {
 
     /// Pre-vCPU creation setup.
     pub fn arch_pre_create_vcpus(&mut self, _: u8) -> Result<(), KvmVmError> {
+        // KVM gates writes to the implementation ID registers (MIDR_EL1,
+        // REVIDR_EL1, AIDR_EL1) behind KVM_CAP_ARM_WRITABLE_IMP_ID_REGS,
+        // which must be enabled before any vCPU is created. Without it, a
+        // custom CPU template that modifies these registers fails at boot
+        // with EINVAL when the template is applied. Enabling the capability
+        // on its own does not change guest-visible state: the registers keep
+        // their host values unless a template rewrites them, and writes of
+        // unchanged values (e.g. on snapshot restore) were already accepted
+        // before this capability existed.
+        if self
+            .fd()
+            .check_extension_raw(u64::from(KVM_CAP_ARM_WRITABLE_IMP_ID_REGS))
+            == 1
+        {
+            let cap = kvm_enable_cap {
+                cap: KVM_CAP_ARM_WRITABLE_IMP_ID_REGS,
+                ..Default::default()
+            };
+            // `VmFd::enable_cap` is not exposed on aarch64 by kvm-ioctls, so
+            // issue the ioctl directly, mirroring what `enable_cap` does on
+            // the other architectures.
+            // SAFETY: The ioctl is safe because we allocated the struct and
+            // the kernel will only read the size of the struct.
+            let ret = unsafe { ioctl_with_ref(self.fd(), ioctls::KVM_ENABLE_CAP(), &cap) };
+            if ret != 0 {
+                return Err(KvmVmError::EnableWritableImpIdRegs(errno::Error::last()));
+            }
+        }
         Ok(())
     }
 
