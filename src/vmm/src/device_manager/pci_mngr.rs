@@ -480,6 +480,14 @@ impl<'a> Persist<'a> for PciDevices {
                         transport_state,
                     })
                 }
+                VirtioDeviceType::VhostUserGeneric => {
+                    // `Vmm::check_unsnapshottable_devices` rejects these before
+                    // a save can start. Skipping one here instead would hand
+                    // back a snapshot missing a device the guest driver has.
+                    unreachable!(
+                        "generic vhost-user device reached the save path without snapshot support"
+                    )
+                }
             }
         }
 
