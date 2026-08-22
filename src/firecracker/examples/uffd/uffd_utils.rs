@@ -3,7 +3,9 @@
 
 #![allow(
     clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
     clippy::cast_sign_loss,
+    clippy::ptr_as_ptr,
     clippy::undocumented_unsafe_blocks,
     // Not everything is used by both binaries
     dead_code

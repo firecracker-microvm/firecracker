@@ -52,11 +52,14 @@ impl<V: Numeric> DiffString<V> for V {
             });
         }
 
+        #[allow(clippy::cast_possible_truncation)]
+        let width = V::BITS as usize;
+
         format!(
             "* CPU template     : 0b{template:0width$b}\n\
              * CPU configuration: 0b{config:0width$b}\n\
              * Diff             :   {diff}",
-            width = V::BITS as usize,
+            width = width,
         )
     }
 }

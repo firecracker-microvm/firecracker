@@ -11,6 +11,17 @@
 #![warn(missing_docs)]
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![allow(clippy::blanket_clippy_restriction_lints)]
+#![allow(
+    clippy::cast_lossless,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_ptr_alignment,
+    clippy::cast_sign_loss,
+    clippy::fn_to_numeric_cast_any,
+    clippy::ptr_as_ptr,
+    clippy::unnecessary_cast
+)]
 
 /// Implements platform specific functionality.
 /// Supported platforms: x86_64 and aarch64.
@@ -202,6 +213,26 @@ pub enum FcExitCode {
     BadConfiguration = 152,
     /// Command line arguments parsing error.
     ArgParsing = 153,
+}
+
+impl From<FcExitCode> for u8 {
+    fn from(value: FcExitCode) -> Self {
+        match value {
+            FcExitCode::Ok => 0,
+            FcExitCode::GenericError => 1,
+            FcExitCode::UnexpectedError => 2,
+            FcExitCode::BadSyscall => 148,
+            FcExitCode::SIGBUS => 149,
+            FcExitCode::SIGSEGV => 150,
+            FcExitCode::SIGXFSZ => 151,
+            FcExitCode::SIGXCPU => 154,
+            FcExitCode::SIGPIPE => 155,
+            FcExitCode::SIGHUP => 156,
+            FcExitCode::SIGILL => 157,
+            FcExitCode::BadConfiguration => 152,
+            FcExitCode::ArgParsing => 153,
+        }
+    }
 }
 
 /// Timeout used in recv_timeout, when waiting for a vcpu response on
