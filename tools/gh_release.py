@@ -14,10 +14,12 @@ import subprocess
 import tarfile
 from pathlib import Path
 
-from github import Github
+CUSTOM_CPU_TEMPLATE_DIR = (
+    Path(__file__).resolve().parent.parent / "tests/data/custom_cpu_templates"
+)
 
 
-def build_tarball(release_dir, release_tgz, arch):
+def build_tarball(release_dir, release_tgz, arch, tag_version):
     """Build a release tarball with local assets"""
     # Do not include signatures in GitHub release since we aren't
     # making those keys public.
@@ -26,7 +28,10 @@ def build_tarball(release_dir, release_tgz, arch):
     exclude_files = {
         "RELEASE_NOTES",
         "SHA256SUMS.sig",
-        *[f.stem for f in Path("tests/data/custom_cpu_templates").glob("*.json")],
+        *[
+            f"{template_path.stem}-{tag_version}.json"
+            for template_path in CUSTOM_CPU_TEMPLATE_DIR.glob("*.json")
+        ],
     }
     with tarfile.open(release_tgz, "w:gz") as tar:
         files = [x for x in release_dir.rglob("*") if x.is_file()]
@@ -43,6 +48,9 @@ def build_tarball(release_dir, release_tgz, arch):
 
 def github_release(tag_version, repo, github_token):
     """Create a draft release in GitHub"""
+    # Import lazily so tarball-building helpers can be tested without PyGithub.
+    from github import Github  # pylint: disable=import-outside-toplevel
+
     prerelease = False
     assets = []
     for arch in ["x86_64", "aarch64"]:
@@ -50,7 +58,7 @@ def github_release(tag_version, repo, github_token):
         # Build tarball
         release_tgz = Path(f"firecracker-{tag_version}-{arch}.tgz")
         print(f"Creating release archive {release_tgz} ...")
-        build_tarball(release_dir, release_tgz, arch)
+        build_tarball(release_dir, release_tgz, arch, tag_version)
         print("Done. Archive successfully created. sha256sum result:")
         sha256sums = release_tgz.with_suffix(release_tgz.suffix + ".sha256.txt")
         subprocess.run(
