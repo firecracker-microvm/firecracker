@@ -29,6 +29,10 @@
                 "syscall": "read"
             },
             {
+                "syscall": "readlink",
+                "comment": "Used to canonicalize VMDK descriptor paths on drive patch"
+            },
+            {
                 "syscall": "write"
             },
             {
@@ -832,9 +836,6 @@
                 "syscall": "open"
             },
             {
-                "syscall": "openat"
-            },
-            {
                 "syscall": "read"
             },
             {
@@ -1129,9 +1130,6 @@
             },
             {
                 "syscall": "open"
-            },
-            {
-                "syscall": "openat"
             },
             {
                 "syscall": "close"

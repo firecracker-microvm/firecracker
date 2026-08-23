@@ -26,6 +26,10 @@
                 "syscall": "read"
             },
             {
+                "syscall": "readlinkat",
+                "comment": "Used to canonicalize VMDK descriptor paths on drive patch"
+            },
+            {
                 "syscall": "write"
             },
             {

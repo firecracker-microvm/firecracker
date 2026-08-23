@@ -70,6 +70,36 @@ def test_vmdk_readonly_read(uvm):
     assert "Operation not permitted" in stderr
 
 
+def test_vmdk_readonly_read_at_sector_offset(uvm):
+    """Boot with a VMDK whose extent data does not start at the extent's beginning.
+
+    Extent offsets are in 512-byte sectors, so reading from the raw byte value
+    would return the padding in front of the data and fail the md5 check.
+    """
+    test_microvm = uvm
+    test_microvm.spawn()
+    test_microvm.basic_config()
+    test_microvm.add_net_iface()
+
+    vmdk = drive_tools.VmdkFile(
+        os.path.join(test_microvm.fsfiles, "vmdk.vmdk"),
+        size=16,
+        extent_offset_sectors=8,
+    )
+    test_microvm.create_jailed_resource(vmdk.extent_path)
+    test_microvm.add_drive("vmdk", vmdk.descriptor_path, is_read_only=True)
+
+    test_microvm.start()
+
+    _check_vmdk_data(
+        test_microvm.ssh,
+        "/dev/vdb",
+        vmdk.extent_path,
+        vmdk.extent_offset_sectors * 512,
+    )
+    _check_vmdk_size(test_microvm.ssh, "/dev/vdb", vmdk.size * MB)
+
+
 def test_vmdk_requires_read_only(uvm):
     """A VMDK drive must be attached with ``is_read_only=true``."""
     test_microvm = uvm

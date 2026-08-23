@@ -115,7 +115,14 @@ impl VmdkImplicitOpenGate {
         }
 
         // SAFETY: fd was returned by openat and ownership is transferred to std::fs::File.
-        ImagoFile::try_from(unsafe { fs::File::from_raw_fd(fd) })
+        // from_open_file (not TryFrom) skips fcntl(F_GETFL) / alignment probes.
+        ImagoFile::from_open_file(
+            unsafe { fs::File::from_raw_fd(fd) },
+            StorageOpenOptions::new()
+                .filename(path)
+                .write(false)
+                .direct(false),
+        )
     }
 }
 
@@ -242,6 +249,18 @@ RW {extent_sectors} FLAT "{extent}" {extent_offset_sectors}
         fs::write(&descriptor_file, descriptor_content).unwrap();
 
         (dir, descriptor_file)
+    }
+
+    /// Extent offsets are in 512-byte sectors, so `8` means byte 4096. Reading from the
+    /// raw byte value would return the zero padding in front of the data.
+    #[test]
+    fn test_vmdk_engine_reads_at_sector_offset() {
+        let (_dir, descriptor) = create_test_vmdk("extent", 8);
+        let engine = VmdkFileEngine::from_path(&descriptor).unwrap();
+
+        let mut buf = vec![0u8; 512];
+        engine.access.read(&mut buf[..], 0).unwrap();
+        assert_eq!(&buf[..28], b"Hello VMDK from Firecracker!");
     }
 
     #[test]
