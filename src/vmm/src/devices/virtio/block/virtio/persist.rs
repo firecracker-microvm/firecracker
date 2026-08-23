@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::device::DiskProperties;
+use super::io::FileEngine;
 use super::*;
 use crate::devices::virtio::block::persist::BlockConstructorArgs;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
@@ -49,6 +50,25 @@ impl From<FileEngineTypeState> for FileEngineType {
     }
 }
 
+/// Holds the disk image format saved in the snapshot.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DiskImageFormatState {
+    /// Raw disk image.
+    #[default]
+    Raw,
+    /// VMDK disk image.
+    Vmdk,
+}
+
+impl From<&FileEngine> for DiskImageFormatState {
+    fn from(file_engine: &FileEngine) -> Self {
+        match file_engine {
+            FileEngine::Sync(_) | FileEngine::Async(_) => DiskImageFormatState::Raw,
+            FileEngine::Vmdk(_) => DiskImageFormatState::Vmdk,
+        }
+    }
+}
+
 /// Holds info about the block device. Gets saved in snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VirtioBlockState {
@@ -60,6 +80,8 @@ pub struct VirtioBlockState {
     pub virtio_state: VirtioDeviceState,
     rate_limiter_state: RateLimiterState,
     file_engine_type: FileEngineTypeState,
+    #[serde(default)]
+    disk_image_format: DiskImageFormatState,
 }
 
 impl Persist<'_> for VirtioBlock {
@@ -78,6 +100,7 @@ impl Persist<'_> for VirtioBlock {
             virtio_state: VirtioDeviceState::from_device(self),
             rate_limiter_state: self.rate_limiter.save(),
             file_engine_type: FileEngineTypeState::from(self.file_engine_type()),
+            disk_image_format: DiskImageFormatState::from(&self.disk.file_engine),
         }
     }
 
