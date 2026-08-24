@@ -228,8 +228,7 @@ def enclave_probe_details():
 # backend, mirroring the KVM helpers in framework/kvm.py; `Microvm` delegates
 # to them via `VmBackend` (framework.vm_backend). Spawning the Firecracker
 # process is backend-agnostic and stays on `Microvm`; `spawn` honors the
-# spawn-time policies (`validates_api`, `enforces_api_timing`) declared on
-# `VmBackend`.
+# spawn-time API timing policy declared on `VmBackend`.
 
 
 class EnclaveConfigError(AssertionError):

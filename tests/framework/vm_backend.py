@@ -45,11 +45,6 @@ class VmBackend(str, Enum):
         return self in self.enclaves()
 
     @property
-    def validates_api(self):
-        """Whether API calls should be validated against the Swagger spec."""
-        return not self.is_enclave
-
-    @property
     def enforces_api_timing(self):
         """Whether API call durations are asserted against the timing budget.
 
