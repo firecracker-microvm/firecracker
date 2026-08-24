@@ -685,22 +685,15 @@ class Microvm:
         no readiness check is then performed, and it is up to the caller to
         assert on the failure.
 
-        Spawning is backend-agnostic apart from two policies the backend
-        declares (a KVM VM and a Nitro Enclave start the same parent process;
-        an enclave diverges later, in ``start``):
-
-        * ``backend.validates_api`` — whether to validate API calls against the
-          swagger spec (the ``/enclave`` route is not in the spec yet).
-        * ``backend.enforces_api_timing`` — whether API call durations are
-          asserted against ``MAX_API_CALL_DURATION_MS``.
+        Spawning is backend-agnostic apart from the API timing policy declared by
+        ``backend.enforces_api_timing``. A KVM VM and a Nitro Enclave start the
+        same parent process; an enclave diverges later, in ``start``.
         """
         # pylint: disable=subprocess-run-check
         # pylint: disable=too-many-branches
         # Firecracker matches `--level` case-insensitively, so normalise the
         # value to the one spelling the comparisons below are written against.
         log_level = log_level.capitalize()
-        if not self.backend.validates_api:
-            validate_api = False
         if not self.backend.enforces_api_timing:
             self.time_api_requests = False
 
