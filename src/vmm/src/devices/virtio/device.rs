@@ -244,7 +244,7 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     /// is being reset and before it's activated again.
     fn drain_queue_events(&self) {
         for event in self.queue_events() {
-            event.read();
+            let _ = event.read();
         }
     }
 

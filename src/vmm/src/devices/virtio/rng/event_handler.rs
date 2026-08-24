@@ -86,7 +86,7 @@ impl MutEventSubscriber for Entropy {
             match source {
                 Self::PROCESS_ENTROPY_QUEUE => self.drain_queue_events(),
                 Self::PROCESS_RATE_LIMITER => {
-                    self.rate_limiter.event_handler();
+                    let _ = self.rate_limiter.event_handler();
                 }
                 _ => (),
             }

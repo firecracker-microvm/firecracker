@@ -1,7 +1,7 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use vm_memory::{Address, ByteValued, GuestAddress};
+use vm_memory::{ByteValued, GuestAddress};
 
 use crate::devices::virtio::generated::virtio_mem;
 
@@ -101,10 +101,12 @@ impl Response {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn is_ack(&self) -> bool {
         self.resp_type == ResponseType::Ack
     }
 
+    #[cfg(test)]
     pub(crate) fn is_error(&self) -> bool {
         self.resp_type == ResponseType::Error
     }
@@ -128,6 +130,8 @@ impl From<Response> for virtio_mem::virtio_mem_resp {
 
 #[cfg(test)]
 mod test_util {
+    use vm_memory::Address;
+
     use super::*;
 
     // Implement the reverse conversions to use in test code.
@@ -192,7 +196,7 @@ mod test_util {
                 },
                 // There is no way to know whether this is present or not as it depends on the
                 // request types. Callers should ignore this value if the request wasn't STATE
-                /// SAFETY: test code only. Uninitialized values are 0 and recognized as PLUGGED.
+                // SAFETY: test code only. Uninitialized values are 0 and recognized as PLUGGED.
                 state: Some(unsafe {
                     match resp.u.state.state.into() {
                         virtio_mem::VIRTIO_MEM_STATE_PLUGGED => BlockRangeState::Plugged,

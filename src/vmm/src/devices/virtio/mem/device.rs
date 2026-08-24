@@ -4,14 +4,10 @@
 use std::io;
 use std::ops::{Deref, Range};
 use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
 
 use bitvec::vec::BitVec;
 use serde::{Deserialize, Serialize};
-use vm_memory::{
-    Address, Bytes, GuestAddress, GuestMemory, GuestMemoryBackend, GuestMemoryError,
-    GuestMemoryRegion, GuestUsize,
-};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryBackend};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::{MEM_NUM_QUEUES, MEM_QUEUE};
@@ -21,7 +17,6 @@ use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_mem::{
     self, VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE, virtio_mem_config,
 };
-use crate::devices::virtio::iov_deque::IovDequeError;
 use crate::devices::virtio::mem::VIRTIO_MEM_DEV_ID;
 use crate::devices::virtio::mem::metrics::METRICS;
 use crate::devices::virtio::mem::request::{BlockRangeState, Request, RequestedRange, Response};
@@ -33,9 +28,7 @@ use crate::impl_device_type;
 use crate::logger::{IncMetric, debug, error, info, warn};
 use crate::utils::{bytes_to_u32_mib, u32_mib_to_bytes, u64_to_usize, usize_to_u64};
 use crate::vstate::interrupts::InterruptError;
-use crate::vstate::memory::{
-    ByteValued, GuestMemoryExtension, GuestMemoryMmap, GuestRegionMmap, GuestRegionType,
-};
+use crate::vstate::memory::{ByteValued, GuestMemoryExtension, GuestMemoryMmap, GuestRegionType};
 use crate::vstate::vm::{KvmVm, VmError};
 
 // SAFETY: virtio_mem_config only contains plain data types
@@ -315,7 +308,7 @@ impl VirtioMem {
             .ok_or(VirtioMemError::InvalidRange(*range))?;
 
         // Ensure the end offset (exclusive) is within the usable region
-        let end_off = start_off
+        let _end_off = start_off
             .checked_add(usize_to_u64(self.nb_blocks_to_len(range.nb_blocks)))
             .filter(|&end_off| end_off <= self.config.usable_region_size)
             .ok_or(VirtioMemError::InvalidRange(*range))?;
@@ -451,8 +444,6 @@ impl VirtioMem {
 
     fn process_mem_queue(&mut self) -> Result<(), VirtioMemError> {
         while let Some(desc) = self.queues[MEM_QUEUE].pop()? {
-            let index = desc.index;
-
             let (req, resp_addr, used_idx) = self.parse_request(&desc)?;
             debug!("virtio-mem: Request: {:?}", req);
             // Handle request and write response
@@ -548,15 +539,15 @@ impl VirtioMem {
         self.update_kvm_slots(range)?;
 
         // If unplugging, discard the range
-        if !plug {
-            self.guest_memory()
+        if !plug
+            && let Err(err) = self
+                .guest_memory()
                 .discard_range(range.addr, self.nb_blocks_to_len(range.nb_blocks))
-                .inspect_err(|err| {
-                    // Failure to discard is not fatal and is not reported to the driver. It only
-                    // gets logged.
-                    METRICS.unplug_discard_fails.inc();
-                    error!("virtio-mem: Failed to discard memory range: {}", err);
-                });
+        {
+            // Failure to discard is not fatal and is not reported to the driver. It only
+            // gets logged.
+            METRICS.unplug_discard_fails.inc();
+            error!("virtio-mem: Failed to discard memory range: {}", err);
         }
         Ok(())
     }
@@ -704,7 +695,9 @@ impl VirtioDevice for VirtioMem {
     fn kick(&mut self) {
         if self.is_activated() {
             info!("kick mem {}.", self.id());
-            self.process_virtio_queues();
+            if let Err(err) = self.process_virtio_queues() {
+                error!("virtio-mem: Failed to process queues: {err}");
+            }
         }
     }
 }
@@ -713,7 +706,6 @@ impl VirtioDevice for VirtioMem {
 pub(crate) mod test_utils {
     use super::*;
     use crate::devices::virtio::test_utils::test::VirtioTestDevice;
-    use crate::test_utils::single_region_mem;
     use crate::utils::mib_to_bytes;
     use crate::vmm_config::machine_config::HugePageConfig;
     use crate::vstate::memory;
@@ -742,7 +734,8 @@ pub(crate) mod test_utils {
             .pop()
             .unwrap(),
             mib_to_bytes(128),
-        );
+        )
+        .unwrap();
         let vm = Arc::new(vm);
         VirtioMem::new(vm, addr, 1024, 2, 128).unwrap()
     }
@@ -750,11 +743,6 @@ pub(crate) mod test_utils {
 
 #[cfg(test)]
 mod tests {
-    use std::ptr::null_mut;
-
-    use serde_json::de;
-    use vm_memory::guest_memory;
-    use vm_memory::mmap::MmapRegionBuilder;
 
     use super::*;
     use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
@@ -867,7 +855,7 @@ mod tests {
 
     #[test]
     fn test_status() {
-        let mut mem = default_virtio_mem();
+        let mem = default_virtio_mem();
         let status = mem.status();
         assert_eq!(
             status,
@@ -920,7 +908,7 @@ mod tests {
 
     #[test]
     fn test_event_fail_descriptor_chain_too_short() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
 
@@ -936,7 +924,7 @@ mod tests {
 
     #[test]
     fn test_event_fail_descriptor_length_too_small() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
 
@@ -952,7 +940,7 @@ mod tests {
 
     #[test]
     fn test_event_fail_unexpected_writeonly_descriptor() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
 
@@ -968,7 +956,7 @@ mod tests {
 
     #[test]
     fn test_event_fail_unexpected_readonly_descriptor() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
 
@@ -984,7 +972,7 @@ mod tests {
 
     #[test]
     fn test_event_fail_response_descriptor_length_too_small() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
 
@@ -1011,7 +999,7 @@ mod tests {
 
     #[test]
     fn test_update_requested_size_invalid_size() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
 
@@ -1034,7 +1022,7 @@ mod tests {
 
     #[test]
     fn test_update_requested_size_success() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
 
@@ -1044,10 +1032,10 @@ mod tests {
 
     #[test]
     fn test_plug_request_success() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
-        th.device().update_requested_size(1024);
+        th.device().update_requested_size(1024).unwrap();
         let addr = th.device().guest_address();
 
         let queue_event_count = METRICS.queue_event_count.count();
@@ -1073,10 +1061,10 @@ mod tests {
 
     #[test]
     fn test_plug_request_too_big() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
-        th.device().update_requested_size(2);
+        th.device().update_requested_size(2).unwrap();
         let addr = th.device().guest_address();
 
         let plug_count = METRICS.plug_count.count();
@@ -1097,10 +1085,10 @@ mod tests {
 
     #[test]
     fn test_plug_request_already_plugged() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
-        th.device().update_requested_size(1024);
+        th.device().update_requested_size(1024).unwrap();
         let addr = th.device().guest_address();
 
         // First plug succeeds
@@ -1122,10 +1110,10 @@ mod tests {
 
     #[test]
     fn test_unplug_request_success() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
-        th.device().update_requested_size(1024);
+        th.device().update_requested_size(1024).unwrap();
         let addr = th.device().guest_address();
 
         let unplug_count = METRICS.unplug_count.count();
@@ -1157,10 +1145,10 @@ mod tests {
 
     #[test]
     fn test_unplug_request_not_plugged() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
-        th.device().update_requested_size(1024);
+        th.device().update_requested_size(1024).unwrap();
         let addr = th.device().guest_address();
 
         let unplug_count = METRICS.unplug_count.count();
@@ -1181,10 +1169,10 @@ mod tests {
 
     #[test]
     fn test_unplug_all_request() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
-        th.device().update_requested_size(1024);
+        th.device().update_requested_size(1024).unwrap();
         let addr = th.device().guest_address();
 
         let unplug_all_count = METRICS.unplug_all_count.count();
@@ -1210,10 +1198,10 @@ mod tests {
 
     #[test]
     fn test_state_request_unplugged() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
-        th.device().update_requested_size(1024);
+        th.device().update_requested_size(1024).unwrap();
         let addr = th.device().guest_address();
 
         let state_count = METRICS.state_count.count();
@@ -1232,10 +1220,10 @@ mod tests {
 
     #[test]
     fn test_state_request_plugged() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
-        th.device().update_requested_size(1024);
+        th.device().update_requested_size(1024).unwrap();
         let addr = th.device().guest_address();
 
         // Plug first
@@ -1257,10 +1245,10 @@ mod tests {
 
     #[test]
     fn test_state_request_mixed() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
-        th.device().update_requested_size(1024);
+        th.device().update_requested_size(1024).unwrap();
         let addr = th.device().guest_address();
 
         // Plug first block only
@@ -1282,10 +1270,10 @@ mod tests {
 
     #[test]
     fn test_invalid_range_unaligned() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
-        th.device().update_requested_size(1024);
+        th.device().update_requested_size(1024).unwrap();
         let addr = th.device().guest_address().unchecked_add(1);
 
         let state_count = METRICS.state_count.count();
@@ -1304,10 +1292,10 @@ mod tests {
 
     #[test]
     fn test_invalid_range_zero_blocks() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
-        th.device().update_requested_size(1024);
+        th.device().update_requested_size(1024).unwrap();
         let addr = th.device().guest_address();
 
         let resp = emulate_request(
@@ -1320,10 +1308,10 @@ mod tests {
 
     #[test]
     fn test_invalid_range_out_of_bounds() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
-        th.device().update_requested_size(4);
+        th.device().update_requested_size(4).unwrap();
         let addr = th.device().guest_address();
 
         let resp = emulate_request(
@@ -1339,7 +1327,7 @@ mod tests {
 
     #[test]
     fn test_unsupported_request() {
-        let mut mem_dev = default_virtio_mem();
+        let mem_dev = default_virtio_mem();
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
 

@@ -11,7 +11,7 @@ use vm_memory::GuestMemoryBackend;
 
 use crate::logger::error;
 use crate::utils::u64_to_usize;
-use crate::vstate::memory::{Bitmap, ByteValued, GuestAddress, GuestMemoryMmap};
+use crate::vstate::memory::{Bitmap, ByteValued, GuestAddress};
 
 pub const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub const VIRTQ_DESC_F_WRITE: u16 = 0x2;
@@ -1345,7 +1345,6 @@ mod tests {
             q.initialize(m).unwrap_err(),
             QueueError::PointerNotAligned(_, _)
         ));
-        q.used_ring_address = vq.used_start();
     }
 
     #[test]
