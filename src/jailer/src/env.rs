@@ -1496,8 +1496,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         let mut args = arg_parser.arguments().clone();
         args.parse(&args_vec).unwrap();
-        let env =
-            Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap();
+        let env = Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap();
         assert!(env.landlock);
     }
 

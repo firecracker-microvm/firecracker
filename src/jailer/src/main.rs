@@ -234,11 +234,15 @@ pub fn build_arg_parser() -> ArgParser<'static> {
                 .takes_value(false)
                 .help("Print the binary version number."),
         )
-        .arg(Argument::new("landlock-restrict-fs").takes_value(false).help(
-            "Restrict the jailed process's filesystem access to the jail directory using \
+        .arg(
+            Argument::new("landlock-restrict-fs")
+                .takes_value(false)
+                .help(
+                    "Restrict the jailed process's filesystem access to the jail directory using \
                      the Linux Landlock LSM (best-effort). On kernels without Landlock support \
                      (< 5.13) this flag has no effect.",
-        ))
+                ),
+        )
 }
 
 // It's called writeln_special because we have to use this rather convoluted way of writing

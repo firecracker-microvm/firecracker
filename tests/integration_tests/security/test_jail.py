@@ -828,7 +828,7 @@ def test_cgroupsv2_written_only_once(uvm, cgroups_info):
     assert len(mkdir_lines) == 1
 
 
-def test_landlock_restrict_fs(uvm_plain):
+def test_landlock_restrict_fs(uvm):
     """
     Test that Firecracker runs normally when the jailer is started with the
     --landlock-restrict-fs flag.
@@ -837,7 +837,7 @@ def test_landlock_restrict_fs(uvm_plain):
     restrictions (or silently skips them on kernels < 5.13) and Firecracker
     boots and runs correctly within the jail.
     """
-    microvm = uvm_plain
+    microvm = uvm
     microvm.jailer.landlock = True
     microvm.spawn()
     microvm.basic_config()
