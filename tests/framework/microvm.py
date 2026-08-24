@@ -32,6 +32,7 @@ from tenacity import Retrying, retry, stop_after_attempt, stop_after_delay, wait
 import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
 from framework import utils
+from framework.artifacts import GuestKernel
 from framework.defs import DEFAULT_BINARY_DIR, MAX_API_CALL_DURATION_MS
 from framework.guest import GuestDistro
 from framework.http_api import Api
@@ -40,7 +41,9 @@ from framework.microvm_helpers import MicrovmHelpers
 from framework.properties import global_props
 from framework.utils_cpu_templates import get_cpu_template_name
 from framework.utils_drive import VhostUserBlkBackend, VhostUserBlkBackendType
+from framework.utils_hugepages import HugePagesConfig
 from framework.utils_uffd import spawn_pf_handler, uffd_handler
+from framework.vm_backend import VmBackend
 from host_tools.fcmetrics import FCMetricsMonitor
 from host_tools.memory import MemoryMonitor
 
@@ -183,14 +186,6 @@ class Snapshot:
         self.vmstate.unlink()
 
 
-class HugePagesConfig(str, Enum):
-    """Enum describing the huge pages configurations supported Firecracker"""
-
-    NONE = "None"
-    TRANSPARENT = "Transparent"
-    HUGETLBFS_2MB = "2M"
-
-
 # pylint: disable=R0904
 class Microvm:
     """Class to represent a Firecracker microvm.
@@ -208,6 +203,7 @@ class Microvm:
         fc_binary_path: Path,
         jailer_binary_path: Path,
         netns: net_tools.NetNs,
+        backend: VmBackend,
         monitor_memory: bool = True,
         jailer_kwargs: Optional[dict] = None,
         numa_node=None,
@@ -218,9 +214,10 @@ class Microvm:
         # pylint: disable=too-many-statements
         # Unique identifier for this machine.
         assert microvm_id is not None
+        assert backend is not None
         self._microvm_id = microvm_id
 
-        self.kernel_file = None
+        self.guest_kernel = None
         self.rootfs_file = None
         self.distro = None
         self.ssh_key = None
@@ -270,6 +267,9 @@ class Microvm:
         self.metrics_file = None
         self._spawned = False
         self._killed = False
+
+        # The spawn/basic_config/start verbs delegate to the configured backend.
+        self.backend = backend
 
         # device dictionaries
         self.iface = {}
@@ -520,12 +520,22 @@ class Microvm:
             "instance": global_props.instance,
             "cpu_model": global_props.cpu_model,
             "host_kernel": f"linux-{global_props.host_linux_version}",
-            "guest_kernel": self.kernel_file.stem[2:],
+            "guest_kernel": self.guest_kernel.metric_id,
             "rootfs": self.rootfs_file.name,
             "vcpus": str(self.vcpus_count),
             "guest_memory": f"{self.mem_size_bytes / (1024 * 1024)}MB",
             "pci": f"{self.pci_enabled}",
         }
+
+    @property
+    def kernel_file(self):
+        """Concrete boot image this VM boots.
+
+        Derived from the logical `guest_kernel` by the configured backend.
+        """
+        if self.guest_kernel is None:
+            return None
+        return Path(self.backend.kernel_image_for(self.guest_kernel))
 
     @property
     def guest_kernel_version(self):
@@ -809,88 +819,9 @@ class Microvm:
         input_cmd = f'screen -S {self.screen_session} -p 0 -X stuff "{input_string}"'
         return utils.check_output(input_cmd)
 
-    def basic_config(
-        self,
-        vcpu_count: int = 2,
-        smt: bool = None,
-        mem_size_mib: int = 256,
-        add_root_device: bool = True,
-        boot_args: str = None,
-        use_initrd: bool = False,
-        track_dirty_pages: bool = False,
-        huge_pages: HugePagesConfig = HugePagesConfig.NONE,
-        rootfs_io_engine=None,
-        cpu_template: Optional[str] = None,
-        enable_entropy_device=False,
-    ):
-        """Shortcut for quickly configuring a microVM.
-
-        It handles:
-        - CPU and memory.
-        - Kernel image (will load the one in the microVM allocated path).
-        - Root File System (will use the one in the microVM allocated path).
-        - Does not start the microvm.
-
-        The function checks the response status code and asserts that
-        the response is within the interval [200, 300).
-
-        If boot_args is None, the default boot_args used in tests is
-            reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0 [pci=off]
-        which differs from Firecracker's default only in the enabling of the serial console.
-        Reference: file:../../src/vmm/src/vmm_config/boot_source.rs::DEFAULT_KERNEL_CMDLINE
-        """
-        self.api.machine_config.put(
-            vcpu_count=vcpu_count,
-            smt=smt,
-            mem_size_mib=mem_size_mib,
-            track_dirty_pages=track_dirty_pages,
-            huge_pages=huge_pages,
-        )
-        self.huge_pages = huge_pages
-        self.vcpus_count = vcpu_count
-        self.mem_size_bytes = mem_size_mib * 2**20
-
-        if self.custom_cpu_template is not None:
-            self.set_cpu_template(self.custom_cpu_template)
-
-        if cpu_template is not None:
-            self.set_cpu_template(cpu_template)
-
-        if self.memory_monitor:
-            self.memory_monitor.start()
-
-        if boot_args is not None:
-            self.boot_args = boot_args
-        else:
-            self.boot_args = "reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0 cryptomgr.notests"
-            if not self.pci_enabled:
-                self.boot_args += " pci=off"
-        boot_source_args = {
-            "kernel_image_path": self.create_jailed_resource(self.kernel_file),
-            "boot_args": self.boot_args,
-        }
-
-        if use_initrd and self.initrd_file is not None:
-            boot_source_args.update(
-                initrd_path=self.create_jailed_resource(self.initrd_file)
-            )
-
-        self.api.boot.put(**boot_source_args)
-
-        if add_root_device and self.rootfs_file is not None:
-            read_only = self.rootfs_file.suffix == ".squashfs"
-
-            # Add the root file system
-            self.add_drive(
-                drive_id="rootfs",
-                path_on_host=self.rootfs_file,
-                is_root_device=True,
-                is_read_only=read_only,
-                io_engine=rootfs_io_engine,
-            )
-
-        if enable_entropy_device:
-            self.enable_entropy_device()
+    def basic_config(self, *args, **kwargs):
+        """Configure the microVM, delegating to the configured backend."""
+        return self.backend.basic_config(self, *args, **kwargs)
 
     def set_cpu_template(self, cpu_template):
         """Set guest CPU template."""
@@ -1016,14 +947,11 @@ class Microvm:
         )
         self.disks[pmem_id] = path_on_host
 
-    def start(self):
-        """Start the microvm.
-
-        This function validates that the microvm boot succeeds.
-        """
-        # Check that the VM has not started yet
+    def start(self, *args, **kwargs):
+        """Prepare and start the microVM."""
         assert self.state == "Not started"
 
+        self.backend.prepare_start(self, *args, **kwargs)
         self.api.actions.put(action_type="InstanceStart")
 
         # Check that the VM has started
@@ -1135,9 +1063,18 @@ class Microvm:
             }
 
         for key, value in jailed_snapshot.meta.items():
+            if key == "kernel_file":
+                # Meta records the concrete boot image; recover the logical
+                # kernel it came from, which is what the VM tracks.
+                try:
+                    self.guest_kernel = GuestKernel.from_vmlinux(Path(value))
+                except ValueError as exc:
+                    raise ValueError(
+                        f"snapshot {snapshot.vmstate.parent} records guest kernel "
+                        f"{value!r}, which is not a recognised artifact"
+                    ) from exc
+                continue
             setattr(self, key, value)
-        # Adjust things just in case
-        self.kernel_file = Path(self.kernel_file)
         if self.rootfs_file:
             self.rootfs_file = Path(self.rootfs_file)
             self.distro = GuestDistro.from_rootfs(self.rootfs_file)
@@ -1284,9 +1221,11 @@ class Microvm:
 class MicroVMFactory:
     """MicroVM factory"""
 
-    def __init__(self, binary_path: Path, **kwargs):
+    def __init__(self, binary_path: Path, backend: VmBackend, **kwargs):
+        assert backend is not None
         self.vms = []
         self.binary_path = binary_path
+        self.backend = backend
         self.netns_factory = kwargs.pop("netns_factory", net_tools.NetNs)
         self.kwargs = kwargs
 
@@ -1303,10 +1242,11 @@ class MicroVMFactory:
         """The path to the jailer binary using which this factory will build VMs"""
         return self.binary_path / "jailer"
 
-    def build(self, kernel=None, rootfs=None, **kwargs):
+    def build(self, kernel: GuestKernel = None, rootfs=None, **kwargs):
         """Build a microvm"""
         kwargs = self.kwargs | kwargs
         microvm_id = kwargs.pop("microvm_id", str(uuid.uuid4()))
+        backend = kwargs.pop("backend", self.backend)
         vm = Microvm(
             microvm_id=microvm_id,
             fc_binary_path=kwargs.pop("fc_binary_path", self.fc_binary_path),
@@ -1314,12 +1254,16 @@ class MicroVMFactory:
                 "jailer_binary_path", self.jailer_binary_path
             ),
             netns=kwargs.pop("netns", self.netns_factory(microvm_id)),
+            backend=backend,
             **kwargs,
         )
         vm.netns.setup()
         self.vms.append(vm)
         if kernel is not None:
-            vm.kernel_file = kernel
+            vm.guest_kernel = kernel
+            # Resolve eagerly so an impossible kernel/backend combination
+            # surfaces at build time (normally deselected at collection).
+            backend.kernel_image_for(kernel)
         if rootfs is not None:
             ssh_key = rootfs.with_suffix(".id_rsa")
             # copy only iff not a read-only rootfs
@@ -1346,12 +1290,16 @@ class MicroVMFactory:
         )
         return vm
 
-    def build_booted(self, kernel, rootfs, *, pci=False, **basic_config_kwargs):
+    def build_booted(
+        self, kernel, rootfs, *, pci=False, backend=None, **basic_config_kwargs
+    ):
         """Build, spawn, basic_config, add a default net iface, start.
 
+        `backend` defaults to the factory backend.
         Extra keyword arguments are forwarded to `Microvm.basic_config`.
         """
-        vm = self.build(kernel, rootfs, pci=pci)
+        build_kwargs = {"backend": backend} if backend is not None else {}
+        vm = self.build(kernel, rootfs, pci=pci, **build_kwargs)
         vm.spawn()
         vm.basic_config(**basic_config_kwargs)
         vm.add_net_iface()

@@ -8,23 +8,18 @@ SYSGENID_BIN_PATH = "/tmp/sysgenid"
 SYSGENID_OUT_PATH = "/tmp/sysgenid.out"
 
 
-@pytest.fixture(scope="function")
-def vm_with_sysgenid(uvm, bin_sysgenid_path):
-    """Create a VM with SysGenID support and the `sysgenid` test binary under `/tmp/sysgenid`"""
-    basevm = uvm
-    basevm.spawn()
-
-    basevm.basic_config()
-    basevm.add_net_iface()
-    basevm.start()
-    basevm.ssh.scp_put(bin_sysgenid_path, SYSGENID_BIN_PATH)
-
-    yield basevm
+# Decorates the shared `uvm_booted` stage via same-name chaining: every booted
+# VM in this module carries the sysgenid test binary at SYSGENID_BIN_PATH.
+@pytest.fixture
+def uvm_booted(uvm_booted, bin_sysgenid_path):
+    """Booted microVM with the sysgenid test binary installed."""
+    uvm_booted.ssh.scp_put(bin_sysgenid_path, SYSGENID_BIN_PATH)
+    return uvm_booted
 
 
-def test_sysgenid_via_blocking_read(vm_with_sysgenid):
+def test_sysgenid_via_blocking_read(uvm_booted):
     """Read the SysGenID value via blocking read()"""
-    vm = vm_with_sysgenid
+    vm = uvm_booted
 
     # Start blocking read()/write() loop.
     vm.ssh.check_output(f"{SYSGENID_BIN_PATH} -r >{SYSGENID_OUT_PATH} 2>&1 &")
@@ -35,9 +30,9 @@ def test_sysgenid_via_blocking_read(vm_with_sysgenid):
         assert stdout.strip() == f"SysGenID: {i + 1}"
 
 
-def test_sysgenid_via_poll_and_nonblocking_read(vm_with_sysgenid):
+def test_sysgenid_via_poll_and_nonblocking_read(uvm_booted):
     """Read the SysGenID value via poll() and non-blocking read()"""
-    vm = vm_with_sysgenid
+    vm = uvm_booted
 
     # Start poll() / non-blocking read() loop.
     vm.ssh.check_output(f"{SYSGENID_BIN_PATH} -p >{SYSGENID_OUT_PATH} 2>&1 &")
@@ -48,9 +43,9 @@ def test_sysgenid_via_poll_and_nonblocking_read(vm_with_sysgenid):
         assert stdout.strip() == f"SysGenID: {i + 1}"
 
 
-def test_sysgenid_via_mmap(vm_with_sysgenid):
+def test_sysgenid_via_mmap(uvm_booted):
     """Read the SysGenID value via mmap()"""
-    vm = vm_with_sysgenid
+    vm = uvm_booted
 
     vm.ssh.check_output(f"{SYSGENID_BIN_PATH} -m >{SYSGENID_OUT_PATH} 2>&1 &")
 

@@ -19,6 +19,7 @@ from framework.artifacts import pin_pci
 from framework.microvm import MicroVMFactory
 from framework.properties import global_props
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
+from framework.vm_lifecycle import VmLifecycle
 
 CHECKER_URL = "https://raw.githubusercontent.com/speed47/spectre-meltdown-checker/master/spectre-meltdown-checker.sh"
 CHECKER_FILENAME = "spectre-meltdown-checker.sh"
@@ -291,12 +292,12 @@ def check_vulnerabilities_files_on_guest(microvm):
 
 
 @pytest.fixture
-def microvm_factory_a(record_property):
+def microvm_factory_a(record_property, vm_backend):
     """MicroVMFactory using revision A binaries"""
     revision_a = global_props.buildkite_revision_a
     bin_dir = git_clone(Path("../build") / revision_a, revision_a).resolve()
     record_property("firecracker_bin", str(bin_dir / "firecracker"))
-    uvm_factory = MicroVMFactory(bin_dir)
+    uvm_factory = MicroVMFactory(bin_dir, backend=vm_backend)
     yield uvm_factory
     uvm_factory.kill()
 
@@ -317,7 +318,7 @@ def uvm_any_a(
     """
     builder = (
         microvm_factory_a.build_booted
-        if uvm_lifecycle == "booted"
+        if uvm_lifecycle is VmLifecycle.BOOTED
         else microvm_factory_a.build_restored
     )
     return builder(guest_kernel, rootfs, pci=pci_enabled, cpu_template=cpu_template)

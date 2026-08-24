@@ -20,10 +20,10 @@ import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_rootfs_mode
-from framework.microvm import HugePagesConfig
 from framework.properties import global_props
 from framework.utils import check_filesystem, check_output
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
+from framework.utils_hugepages import HugePagesConfig
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
