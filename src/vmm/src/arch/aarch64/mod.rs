@@ -139,6 +139,7 @@ pub fn configure_system_for_boot(
     let fdt = fdt::create_fdt(
         vm.guest_memory(),
         vcpu_mpidr,
+        vcpu_config.smt,
         cmdline,
         device_manager,
         vm.get_irqchip(),
