@@ -243,7 +243,6 @@ def test_spectre_meltdown_checker_on_guest(
         )
 
 
-
 # All Graviton generations (Neoverse N1/V1/V2/V3) are affected by erratum
 # 3194386: SSBS writes are not self-synchronizing, so the kernel workaround
 # adds a speculation barrier and hides the "ssbs" hwcap from userspace, which
