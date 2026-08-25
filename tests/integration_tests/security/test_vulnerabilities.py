@@ -241,3 +241,31 @@ def test_spectre_meltdown_checker_on_guest(
         assert res_b == spectre_meltdown_checker.expected_vulnerabilities(
             uvm_any_without_pci.cpu_template_name
         )
+
+
+
+# All Graviton generations (Neoverse N1/V1/V2/V3) are affected by erratum
+# 3194386: SSBS writes are not self-synchronizing, so the kernel workaround
+# adds a speculation barrier and hides the "ssbs" hwcap from userspace, which
+# must request the mitigation via prctl(PR_SET_SPECULATION_CTRL) instead of
+# toggling PSTATE.SSBS directly (this is why "ssbs" is absent from the
+# expectations in test_cpu_features_aarch64.py).
+# https://github.com/torvalds/linux/commit/adeec61a4723fd3e39da68db4cc4d924e6d7f641
+#
+# KVM passes the host MIDR through, so the guest kernel must detect the
+# erratum itself, while still seeing SSBS hardware support via the ID
+# registers KVM exposes.
+@pytest.mark.skipif(
+    global_props.cpu_architecture != "aarch64", reason="Only run in aarch64"
+)
+def test_spec_store_bypass_mitigated(uvm_plain):
+    """Check the guest kernel applies the SSBS erratum 3194386 workaround."""
+    uvm_plain.spawn()
+    uvm_plain.basic_config()
+    uvm_plain.add_net_iface()
+    uvm_plain.start()
+    dmesg = uvm_plain.ssh.check_output("dmesg").stdout
+    # KVM exposed SSBS hardware support to the guest
+    assert "Speculative Store Bypassing Safe (SSBS)" in dmesg
+    # the guest detected erratum 3194386 via the passed-through MIDR
+    assert "SSBS not fully self-synchronizing" in dmesg
