@@ -47,6 +47,15 @@ pub struct CreateSnapshotParams {
     pub snapshot_path: PathBuf,
     /// Path to the file that will contain the guest memory.
     pub mem_file_path: PathBuf,
+    /// Whether to fsync the snapshot state and guest memory files.
+    /// Activated virtio-block devices are always fsync'd, independently of this.
+    #[serde(default = "default_sync_snapshot_files")]
+    pub sync_snapshot_files: bool,
+}
+
+/// Default value for [CreateSnapshotParams::sync_snapshot_files].
+fn default_sync_snapshot_files() -> bool {
+    true
 }
 
 /// Allows for changing the mapping between tap devices and host devices
