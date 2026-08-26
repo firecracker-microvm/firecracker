@@ -16,7 +16,12 @@ import semver
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 from framework import utils, utils_cpuid
-from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.artifacts import (
+    GUEST_KERNEL_DEFAULT,
+    GUEST_KERNELS_6_1,
+    pin_guest_kernel,
+    pin_rootfs_mode,
+)
 from framework.utils import get_firecracker_version_from_toml
 from framework.utils_cpu_templates import (
     CUSTOM_CPU_TEMPLATES,
@@ -773,23 +778,48 @@ def test_drive_patch(uvm, io_engine):
     _drive_patch(test_microvm, io_engine)
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64", reason="not yet implemented on aarch64"
-)
+def _pin_aarch64_logind(func):
+    """Pin the dimensions the aarch64 power button needs, and only there.
+
+    On aarch64 the press is consumed by systemd-logind, which is only
+    functional on the AL23 rootfs shipped with the 6.1 kernels and needs a `rw`
+    rootfs to trigger the reboot. x86_64 goes through the i8042 device instead
+    and keeps its full guest kernel / rootfs coverage.
+    """
+    if platform.machine() != "aarch64":
+        return func
+    return pin_rootfs_mode("rw")(pin_guest_kernel(GUEST_KERNELS_6_1)(func))
+
+
+@_pin_aarch64_logind
 @pytest.mark.parametrize(
     "ctrl_alt_del_mode,timeout",
-    [("kernel", 10), ("userspace", 120)],
+    [
+        pytest.param(
+            "kernel",
+            10,
+            marks=pytest.mark.skipif(
+                platform.machine() != "x86_64",
+                reason="aarch64 delivers the press as a KEY_POWER input event, "
+                "which /proc/sys/kernel/ctrl-alt-del does not act on",
+            ),
+        ),
+        ("userspace", 120),
+    ],
     ids=["kernel", "userspace"],
 )
 def test_send_ctrl_alt_del(uvm, ctrl_alt_del_mode, timeout):
     """
-    Test shutting down the microVM on x86 by sending CTRL+ALT+DEL.
+    Test shutting down the microVM gracefully by sending CTRL+ALT+DEL.
 
-    This relies on the i8042 device and AT Keyboard support being present in
-    the guest kernel.
+    On x86_64 this relies on the i8042 device and AT Keyboard support being
+    present in the guest kernel. On aarch64 it relies on the PL061 GPIO power
+    button (gpio-keys in the guest kernel) and systemd-logind handling the
+    resulting KEY_POWER event.
 
     - kernel: sets /proc/sys/kernel/ctrl-alt-del to 1 so the kernel triggers an
       immediate hard reboot, bypassing systemd. 10s timeout is sufficient.
+      x86_64 only.
     - userspace: lets systemd handle graceful shutdown. Uses 120s timeout to
       accommodate systemd's DefaultTimeoutStopSec (90s) for stuck services.
     """
@@ -810,6 +840,33 @@ def test_send_ctrl_alt_del(uvm, ctrl_alt_del_mode, timeout):
     # If everything goes as expected, the guest OS will issue a reboot,
     # causing Firecracker to exit.
     test_microvm.mark_killed(timeout=timeout)
+
+
+@_pin_aarch64_logind
+def test_send_ctrl_alt_del_while_paused(uvm):
+    """
+    Test that a SendCtrlAltDel issued while the microVM is paused is not lost.
+
+    The guest cannot observe the request until its vCPUs run again, so the
+    action has to stay pending across the pause rather than being delivered
+    into a stopped guest and dropped. On x86_64 the keystroke stays queued in
+    the i8042; on aarch64 the virtual power button stays pressed until the
+    guest reads the GPIO line back.
+    """
+    test_microvm = uvm
+    test_microvm.spawn()
+
+    test_microvm.basic_config()
+    test_microvm.add_net_iface()
+    test_microvm.start()
+
+    test_microvm.pause()
+    test_microvm.api.actions.put(action_type="SendCtrlAltDel")
+    test_microvm.resume()
+
+    # The press must be delivered after the resume, so the guest still powers
+    # off and Firecracker still exits.
+    test_microvm.mark_killed(timeout=120)
 
 
 def _drive_patch(test_microvm, io_engine):
