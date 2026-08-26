@@ -20,9 +20,9 @@ use vm_allocator::AllocPolicy;
 use crate::EventManager;
 use crate::arch::BOOT_DEVICE_MEM_START;
 #[cfg(target_arch = "aarch64")]
-use crate::arch::{RTC_MEM_START, SERIAL_MEM_START};
+use crate::arch::{GPIO_PL061_MEM_START, RTC_MEM_START, SERIAL_MEM_START};
 #[cfg(target_arch = "aarch64")]
-use crate::devices::legacy::{RTCDevice, SerialDevice};
+use crate::devices::legacy::{PL061Device, RTCDevice, SerialDevice};
 use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceType};
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
@@ -356,6 +356,9 @@ pub struct MMIOPlatformDevices {
     #[cfg(target_arch = "aarch64")]
     /// Serial device on Aarch64 platforms
     pub(crate) serial: Option<MMIODevice<SerialDevice>>,
+    #[cfg(target_arch = "aarch64")]
+    /// PL061 GPIO controller on Aarch64 platforms
+    pub(crate) gpio_pl061: Option<MMIODevice<PL061Device>>,
 }
 
 impl MMIOPlatformDevices {
@@ -497,6 +500,52 @@ impl MMIOPlatformDevices {
     }
 
     #[cfg(target_arch = "aarch64")]
+    /// Create and register a MMIO PL061 GPIO device at the specified MMIO configuration if
+    /// given as parameter, otherwise allocate a new MMIO resources for it.
+    pub fn register_mmio_gpio_pl061(
+        &mut self,
+        vm: &KvmVm,
+        gpio_pl061: Arc<Mutex<PL061Device>>,
+        device_info_opt: Option<MMIODeviceInfo>,
+    ) -> Result<(), MmioError> {
+        // Create a new MMIODeviceInfo object on boot path or unwrap the
+        // existing object on restore path.
+        let device_info = if let Some(device_info) = device_info_opt {
+            vm.resource_allocator()
+                .gsi_legacy_allocator
+                .allocate_id_at(device_info.gsi.ok_or(MmioError::InvalidIrqConfig)?)?;
+            device_info
+        } else {
+            let gsi = vm.resource_allocator().allocate_gsi_legacy(1)?;
+            MMIODeviceInfo {
+                addr: GPIO_PL061_MEM_START,
+                len: MMIO_LEN,
+                gsi: Some(gsi[0]),
+            }
+        };
+
+        vm.register_irq(
+            &gpio_pl061.lock().expect("Poisoned lock").interrupt_evt,
+            device_info.gsi.ok_or(MmioError::InvalidIrqConfig)?,
+        )
+        .map_err(MmioError::RegisterIrqFd)?;
+
+        let device = MMIODevice {
+            resources: device_info,
+            inner: gpio_pl061,
+            sub_id: None,
+        };
+
+        vm.common.mmio_bus.insert(
+            device.inner.clone(),
+            device.resources.addr,
+            device.resources.len,
+        )?;
+        self.gpio_pl061 = Some(device);
+        Ok(())
+    }
+
+    #[cfg(target_arch = "aarch64")]
     pub fn rtc_device_info(&self) -> Option<&MMIODeviceInfo> {
         self.rtc.as_ref().map(|device| &device.resources)
     }
@@ -504,6 +553,11 @@ impl MMIOPlatformDevices {
     #[cfg(target_arch = "aarch64")]
     pub fn serial_device_info(&self) -> Option<&MMIODeviceInfo> {
         self.serial.as_ref().map(|device| &device.resources)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    pub fn gpio_pl061_device_info(&self) -> Option<&MMIODeviceInfo> {
+        self.gpio_pl061.as_ref().map(|device| &device.resources)
     }
 }
 
