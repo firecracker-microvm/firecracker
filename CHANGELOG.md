@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.2]
+
+### Fixed
+
+- [#5956](https://github.com/firecracker-microvm/firecracker/pull/5956): Fixed a
+  TOCTOU race in the aarch64 jailer when setting ownership of the CPU cache and
+  `MIDR_EL1` information files copied into the chroot.
+
 ## [1.16.1]
 
 ### Fixed
