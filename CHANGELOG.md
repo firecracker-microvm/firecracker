@@ -28,6 +28,15 @@ and this project adheres to
   Terminating a connection now also discards its TX buffer, so the device stops
   advertising `EPOLLOUT` for a host stream it will never write to again, which
   could otherwise busy-spin the event thread indefinitely.
+- [#6086](https://github.com/firecracker-microvm/firecracker/pull/6086),
+  [#6143](https://github.com/firecracker-microvm/firecracker/pull/6143): Fixed a
+  deadlock in the logger: a signal handler that logs while the interrupted
+  thread is already logging would hang the VMM and its API socket. This is
+  reachable whenever a `SIGPIPE` is raised by Firecracker's own log write, for
+  example when logging to `stdout` and the reader of that pipe exits. The logger
+  now uses an `RwLock`, and `sigpipe_handler` only increments the
+  `signals.sigpipe` metric instead of logging, so it no longer emits a
+  `Received signal 13, code 0.` line.
 
 ## [1.16.1]
 
