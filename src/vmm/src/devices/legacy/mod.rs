@@ -6,6 +6,8 @@
 // found in the THIRD-PARTY file.
 
 //! Implements legacy devices (UART, RTC etc).
+#[cfg(target_arch = "aarch64")]
+pub mod gpio_pl061;
 mod i8042;
 #[cfg(target_arch = "aarch64")]
 pub mod rtc_pl031;
@@ -19,6 +21,8 @@ use serde::ser::SerializeMap;
 use vm_superio::Trigger;
 use vmm_sys_util::eventfd::EventFd;
 
+#[cfg(target_arch = "aarch64")]
+pub use self::gpio_pl061::{PL061Device, PL061Error, PL061State};
 pub use self::i8042::{I8042Device, I8042Error as I8042DeviceError};
 #[cfg(target_arch = "aarch64")]
 pub use self::rtc_pl031::RTCDevice;
@@ -66,6 +70,8 @@ impl EventFdTrigger {
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_map(Some(1))?;
     seq.serialize_entry("i8042", &i8042::METRICS)?;
+    #[cfg(target_arch = "aarch64")]
+    seq.serialize_entry("gpio_pl061", &gpio_pl061::METRICS)?;
     #[cfg(target_arch = "aarch64")]
     seq.serialize_entry("rtc", &rtc_pl031::METRICS)?;
     seq.serialize_entry("uart", &serial::METRICS)?;
