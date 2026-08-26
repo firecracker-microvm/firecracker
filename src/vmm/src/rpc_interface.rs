@@ -132,9 +132,10 @@ pub enum VmmAction {
     UpdateMemoryHotplugSize(MemoryHotplugSizeUpdate),
     /// Launch the microVM. This action can only be called before the microVM has booted.
     StartMicroVm,
-    /// Send CTRL+ALT+DEL to the microVM, using the i8042 keyboard function. If an AT-keyboard
-    /// driver is listening on the guest end, this can be used to shut down the microVM gracefully.
-    #[cfg(target_arch = "x86_64")]
+    /// Send an external graceful shutdown input to the microVM.
+    ///
+    /// On x86_64 this injects CTRL+ALT+DEL through the i8042 keyboard device. On aarch64 this
+    /// injects a virtual power-button press through the PL061 GPIO device.
     SendCtrlAltDel,
     /// Update the balloon size, after microVM start.
     UpdateBalloon(BalloonUpdateConfig),
@@ -518,9 +519,8 @@ impl<'a> PrebootApiController<'a> {
             | StartFreePageHinting(_)
             | GetFreePageHintingStatus
             | StopFreePageHinting
-            | HotUnplugDevice(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
-            #[cfg(target_arch = "x86_64")]
-            SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
+            | HotUnplugDevice(_)
+            | SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
     }
 
@@ -800,7 +800,6 @@ impl RuntimeApiController {
                 value,
             ),
             Resume => self.resume(),
-            #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => self.send_ctrl_alt_del(),
             UpdateBalloon(balloon_update) => self
                 .vmm
@@ -912,8 +911,7 @@ impl RuntimeApiController {
             .map_err(VmmActionError::InternalVmm)
     }
 
-    /// Injects CTRL+ALT+DEL keystroke combo to the inner Vmm (if present).
-    #[cfg(target_arch = "x86_64")]
+    /// Injects the external graceful-shutdown event to the inner Vmm (if present).
     fn send_ctrl_alt_del(&mut self) -> Result<VmmData, VmmActionError> {
         self.vmm
             .lock()
@@ -1251,7 +1249,6 @@ mod tests {
                 sync_snapshot_files: true,
             },
         )));
-        #[cfg(target_arch = "x86_64")]
         check_unsupported(preboot_request(VmmAction::SendCtrlAltDel));
         check_unsupported(preboot_request(VmmAction::UpdateMemoryHotplugSize(
             MemoryHotplugSizeUpdate {

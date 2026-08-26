@@ -30,10 +30,10 @@ use crate::EventManager;
 use crate::device_manager::acpi::ACPIDeviceError;
 #[cfg(target_arch = "x86_64")]
 use crate::devices::legacy::I8042Device;
-#[cfg(target_arch = "aarch64")]
-use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::SerialDevice;
 use crate::devices::legacy::serial::{SerialOut, SerialOutInner};
+#[cfg(target_arch = "aarch64")]
+use crate::devices::legacy::{PL061Device, PL061Error, RTCDevice};
 use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::balloon::BalloonError;
@@ -102,6 +102,9 @@ pub enum AttachDeviceError {
     #[cfg(target_arch = "aarch64")]
     /// Error creating serial device: {0}
     CreateSerial(#[from] std::io::Error),
+    #[cfg(target_arch = "aarch64")]
+    /// Error creating PL061 GPIO device: {0}
+    CreateGpioPl061(#[from] PL061Error),
     /// Error attach PCI device: {0}
     PciTransport(#[from] PciManagerError),
     /// Operation not supported on this VM type
@@ -379,6 +382,9 @@ impl DeviceManager {
         let rtc = Arc::new(Mutex::new(RTCDevice::new()));
         self.mmio_platform_devices
             .register_mmio_rtc(vm, rtc, None)?;
+        let gpio_pl061 = Arc::new(Mutex::new(PL061Device::new()?));
+        self.mmio_platform_devices
+            .register_mmio_gpio_pl061(vm, gpio_pl061, None)?;
         Ok(())
     }
 
@@ -631,6 +637,9 @@ pub enum DevicePersistError {
     #[cfg(target_arch = "aarch64")]
     /// Legacy: {0}
     Legacy(#[from] std::io::Error),
+    #[cfg(target_arch = "aarch64")]
+    /// PL061 GPIO: {0}
+    GpioPl061(#[from] PL061Error),
     /// Net: {0}
     Net(#[from] NetPersistError),
     /// Vsock: {0}
@@ -855,6 +864,12 @@ pub(crate) mod tests {
         let mut vmm = default_vmm();
         assert!(vmm.device_manager.mmio_platform_devices.rtc.is_none());
         assert!(vmm.device_manager.mmio_platform_devices.serial.is_none());
+        assert!(
+            vmm.device_manager
+                .mmio_platform_devices
+                .gpio_pl061
+                .is_none()
+        );
 
         let mut cmdline = Cmdline::new(4096).unwrap();
         let mut event_manager = EventManager::new().unwrap();
@@ -869,6 +884,12 @@ pub(crate) mod tests {
             .unwrap();
         assert!(vmm.device_manager.mmio_platform_devices.rtc.is_some());
         assert!(vmm.device_manager.mmio_platform_devices.serial.is_none());
+        assert!(
+            vmm.device_manager
+                .mmio_platform_devices
+                .gpio_pl061
+                .is_some()
+        );
 
         let mut vmm = default_vmm();
         cmdline.insert("console", "/dev/blah").unwrap();
@@ -883,6 +904,12 @@ pub(crate) mod tests {
             .unwrap();
         assert!(vmm.device_manager.mmio_platform_devices.rtc.is_some());
         assert!(vmm.device_manager.mmio_platform_devices.serial.is_some());
+        assert!(
+            vmm.device_manager
+                .mmio_platform_devices
+                .gpio_pl061
+                .is_some()
+        );
 
         assert!(
             cmdline
