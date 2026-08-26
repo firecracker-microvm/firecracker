@@ -167,97 +167,6 @@ impl PciSegment {
 }
 
 #[cfg(target_arch = "x86_64")]
-struct PciDevSlot {
-    device_id: u8,
-}
-
-#[cfg(target_arch = "x86_64")]
-impl Aml for PciDevSlot {
-    fn append_aml_bytes(&self, v: &mut Vec<u8>) -> Result<(), aml::AmlError> {
-        let sun = self.device_id;
-        let adr: u32 = (self.device_id as u32) << 16;
-        aml::Device::new(
-            format!("S{:03}", self.device_id).as_str().try_into()?,
-            vec![
-                &aml::Name::new("_SUN".try_into()?, &sun)?,
-                &aml::Name::new("_ADR".try_into()?, &adr)?,
-                &aml::Method::new(
-                    "_EJ0".try_into()?,
-                    1,
-                    true,
-                    vec![&aml::MethodCall::new(
-                        "\\_SB_.PHPR.PCEJ".try_into()?,
-                        vec![&aml::Path::new("_SUN")?, &aml::Path::new("_SEG")?],
-                    )],
-                ),
-            ],
-        )
-        .append_aml_bytes(v)
-    }
-}
-
-#[cfg(target_arch = "x86_64")]
-struct PciDevSlotNotify {
-    device_id: u8,
-}
-
-#[cfg(target_arch = "x86_64")]
-impl Aml for PciDevSlotNotify {
-    fn append_aml_bytes(&self, v: &mut Vec<u8>) -> Result<(), aml::AmlError> {
-        let device_id_mask: u32 = 1 << self.device_id;
-        let object = aml::Path::new(&format!("S{:03}", self.device_id))?;
-        aml::And::new(&aml::Local(0), &aml::Arg(0), &device_id_mask).append_aml_bytes(v)?;
-        aml::If::new(
-            &aml::Equal::new(&aml::Local(0), &device_id_mask),
-            vec![&aml::Notify::new(&object, &aml::Arg(1))],
-        )
-        .append_aml_bytes(v)
-    }
-}
-
-#[cfg(target_arch = "x86_64")]
-struct PciDevSlotMethods {}
-
-#[cfg(target_arch = "x86_64")]
-impl Aml for PciDevSlotMethods {
-    fn append_aml_bytes(&self, v: &mut Vec<u8>) -> Result<(), aml::AmlError> {
-        let mut device_notifies = Vec::new();
-        for device_id in 0..32 {
-            device_notifies.push(PciDevSlotNotify { device_id });
-        }
-
-        let mut device_notifies_refs: Vec<&dyn Aml> = Vec::new();
-        for device_notify in device_notifies.iter() {
-            device_notifies_refs.push(device_notify);
-        }
-
-        aml::Method::new("DVNT".try_into()?, 2, true, device_notifies_refs).append_aml_bytes(v)?;
-        aml::Method::new(
-            "PCNT".try_into()?,
-            0,
-            true,
-            vec![
-                &aml::Acquire::new("\\_SB_.PHPR.BLCK".try_into()?, 0xffff),
-                &aml::Store::new(
-                    &aml::Path::new("\\_SB_.PHPR.PSEG")?,
-                    &aml::Path::new("_SEG")?,
-                ),
-                &aml::MethodCall::new(
-                    "DVNT".try_into()?,
-                    vec![&aml::Path::new("\\_SB_.PHPR.PCIU")?, &aml::ONE],
-                ),
-                &aml::MethodCall::new(
-                    "DVNT".try_into()?,
-                    vec![&aml::Path::new("\\_SB_.PHPR.PCID")?, &3usize],
-                ),
-                &aml::Release::new("\\_SB_.PHPR.BLCK".try_into()?),
-            ],
-        )
-        .append_aml_bytes(v)
-    }
-}
-
-#[cfg(target_arch = "x86_64")]
 struct PciDsmMethod {}
 
 #[cfg(target_arch = "x86_64")]
@@ -405,18 +314,6 @@ impl Aml for PciSegment {
             )?
         };
         pci_dsdt_inner_data.push(&crs);
-
-        let mut pci_devices = Vec::new();
-        for device_id in 0..32 {
-            let pci_device = PciDevSlot { device_id };
-            pci_devices.push(pci_device);
-        }
-        for pci_device in pci_devices.iter() {
-            pci_dsdt_inner_data.push(pci_device);
-        }
-
-        let pci_device_methods = PciDevSlotMethods {};
-        pci_dsdt_inner_data.push(&pci_device_methods);
 
         // Build PCI routing table, listing IRQs assigned to PCI devices.
         let prt_package_list: Vec<(u32, u32)> = self
