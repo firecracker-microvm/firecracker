@@ -356,6 +356,12 @@ def validate_fc_metrics(metrics):
             "missed_read_count",
             "missed_write_count",
         ]
+        firecracker_metrics["gpio_pl061"] = [
+            "error_count",
+            "interrupt_count",
+            "missed_read_count",
+            "missed_write_count",
+        ]
 
     # add vhost-user metrics to the schema if applicable
     vhost_user_devices = []
@@ -406,6 +412,14 @@ def validate_fc_metrics(metrics):
             ):
                 jsonschema.validate(instance=metrics, schema=firecracker_metrics_schema)
             metrics["rtc"]["error_count"] = temp_pop_metrics
+
+            temp_pop_metrics = metrics["gpio_pl061"].pop("interrupt_count")
+            with pytest.raises(
+                jsonschema.ValidationError,
+                match="'interrupt_count' is a required property",
+            ):
+                jsonschema.validate(instance=metrics, schema=firecracker_metrics_schema)
+            metrics["gpio_pl061"]["interrupt_count"] = temp_pop_metrics
 
         for vhost_user_dev in vhost_user_devices:
             temp_pop_metrics = metrics[vhost_user_dev].pop("activate_time_us")
