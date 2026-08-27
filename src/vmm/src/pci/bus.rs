@@ -129,6 +129,17 @@ impl PciBus {
     }
 }
 
+/// Maximum number of PCI buses
+pub const MAX_PCI_BUSES: u8 = 32;
+
+/// ECAM space for a single PCI bus: 4096 bytes of configuration space for each
+/// of the 8 functions of each of the 32 devices that can sit on it.
+const PCI_MMIO_CONFIG_SIZE_PER_BUS: u64 = 4096 * 8 * 32;
+
+/// ECAM space per PCIe segment
+pub const PCI_MMIO_CONFIG_SIZE_PER_SEGMENT: u64 =
+    PCI_MMIO_CONFIG_SIZE_PER_BUS * MAX_PCI_BUSES as u64;
+
 /// The buses of a PCI segment, indexed by bus number. Only buses that exist
 /// are present: bus 0, the root bus carrying the host bridge and the Root
 /// Ports, and one secondary bus per root port.
