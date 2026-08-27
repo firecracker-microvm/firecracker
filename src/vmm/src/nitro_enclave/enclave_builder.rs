@@ -83,6 +83,8 @@ pub enum EnclaveBuilderError {
     MissingSeccompFilters,
     /// Invalid numa_nodes config: {0}
     NumaValidationError(String),
+    /// A Nitro Enclave does not support a {0} device
+    UnsupportedDevice(&'static str),
 }
 
 /// Resolve the kernel command line for the enclave.
@@ -147,6 +149,31 @@ fn validate_enclave_vcpu_count(vcpu_count: u16) -> Result<(), EnclaveBuilderErro
     Ok(())
 }
 
+/// Reject devices the enclave cannot serve.
+///
+/// Balloon, pmem and memory hotplug have no Nitro Enclave transport, so they
+/// would be configured successfully and then never reach the guest. A vhost-user
+/// block is attached like any other block, but its backend maps guest memory by
+/// fd, and an enclave's names /dev/nitro_enclaves rather than something a
+/// backend can map.
+fn validate_supported_devices(vm_resources: &VmResources) -> Result<(), EnclaveBuilderError> {
+    let has_vhost_user_block = vm_resources
+        .block
+        .devices
+        .iter()
+        .any(|b| b.lock().expect("Poisoned lock").is_vhost_user());
+    for (present, name) in [
+        (vm_resources.balloon.get().is_some(), "balloon"),
+        (!vm_resources.pmem.configs.is_empty(), "pmem"),
+        (vm_resources.memory_hotplug.is_some(), "memory hotplug"),
+        (has_vhost_user_block, "vhost-user block"),
+    ] {
+        if present {
+            return Err(EnclaveBuilderError::UnsupportedDevice(name));
+        }
+    }
+    Ok(())
+}
 /// Build and boot a Nitro Enclave from the given VM resources and enclave config.
 ///
 /// If `kernel_image_path` points to a pre-built EIF file (detected by magic bytes),
@@ -172,6 +199,8 @@ pub fn build_and_boot_enclave(
     if !mem_size_mib.is_multiple_of(2) {
         return Err(EnclaveBuilderError::MemSizeNotAligned(mem_size_mib));
     }
+
+    validate_supported_devices(vm_resources)?;
 
     let vcpu_count = vm_resources.machine_config.vcpu_count;
     validate_enclave_vcpu_count(vcpu_count)?;
@@ -533,6 +562,45 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn test_validate_supported_devices() {
+        use crate::vmm_config::balloon::BalloonBuilder;
+        use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
+        use crate::vmm_config::pmem::PmemConfig;
+
+        // BalloonBuilder's Default installs a balloon under cfg(test), so start
+        // from an explicitly empty one.
+        let clean = || VmResources {
+            balloon: BalloonBuilder::new(),
+            ..Default::default()
+        };
+
+        // Nothing configured is accepted.
+        validate_supported_devices(&clean()).unwrap();
+
+        // The cfg(test) Default is itself the balloon case.
+        let balloon = VmResources::default();
+
+        let mut pmem = clean();
+        pmem.pmem.configs.push(PmemConfig::default());
+
+        let mut hotplug = clean();
+        hotplug.memory_hotplug = Some(MemoryHotplugConfig::default());
+
+        for (expected, resources) in [
+            ("balloon", balloon),
+            ("pmem", pmem),
+            ("memory hotplug", hotplug),
+        ] {
+            let err = validate_supported_devices(&resources).unwrap_err();
+            assert!(
+                matches!(err, EnclaveBuilderError::UnsupportedDevice(name) if name == expected),
+                "{err:?}"
+            );
+        }
+        // The vhost-user case needs a built Block, so it is left to the
+        // integration tests.
+    }
     fn machine(vcpu_count: u16, mem_size_mib: usize) -> MachineConfig {
         MachineConfig {
             vcpu_count,
