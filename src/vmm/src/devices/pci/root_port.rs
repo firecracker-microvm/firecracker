@@ -19,6 +19,7 @@ use crate::pci::pcie_cap::{
     PciExpressCap,
 };
 use crate::pci::{PciBridgeSubclass, PciClassCode, PciDevice, PciSBDF};
+use crate::vstate::bus::BusDevice;
 use crate::vstate::interrupts::MsixVectorGroup;
 
 const VENDOR_ID_AMAZON: u16 = 0x1d0f;
@@ -328,6 +329,17 @@ impl PciDevice for PciRootPort {
         None
     }
 }
+
+impl BusDevice for PciRootPort {
+    fn read(&mut self, base: u64, offset: u64, data: &mut [u8]) {
+        self.read_bar(base, offset, data)
+    }
+
+    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+        self.write_bar(base, offset, data)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
