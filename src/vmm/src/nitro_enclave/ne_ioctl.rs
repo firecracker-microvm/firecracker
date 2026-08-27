@@ -13,7 +13,7 @@ use vm_memory::{FileOffset, GuestAddress};
 use vmm_sys_util::ioctl::{ioctl_with_mut_ref, ioctl_with_ref};
 use vmm_sys_util::{ioctl_ior_nr, ioctl_iow_nr, ioctl_iowr_nr};
 
-use crate::logger::info;
+use crate::logger::{error, info};
 use crate::vstate::memory::{GuestRegionMmap, MemoryError};
 
 /// Path to the Nitro Enclaves device node.
@@ -587,7 +587,14 @@ impl NitroEnclavesDevFd {
             libc::MAP_SHARED | libc::MAP_POPULATE,
             Some(FileOffset::from_arc(Arc::clone(&self.fd), mmap_offset)),
             false,
-        )?;
+        )
+        .inspect_err(|e| {
+            error!(
+                "CMA allocation failed: size={size} bytes gpa={:#x} parent_numa={parent_numa} \
+                 prot={prot:#x}: {e}",
+                guest_base.0
+            );
+        })?;
         // NE requires 2 MiB-aligned regions; the allocator's alignment is a
         // KVM/THP concern that could drift, so assert rather than assume.
         assert_eq!(
