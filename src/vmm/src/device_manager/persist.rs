@@ -851,7 +851,8 @@ mod tests {
     "mem_size_mib": 128,
     "smt": false,
     "track_dirty_pages": false,
-    "huge_pages": "None"
+    "huge_pages": "None",
+    "pcie_hotplug_ports": 0
   }},
   "metrics": null,
   "mmds-config": {{

@@ -1490,6 +1490,16 @@ definitions:
           Which huge pages configuration should be used to back guest memory.
           "None" uses regular 4K pages. "Transparent" enables THP via
           madvise(MADV_HUGEPAGE). "2M" uses explicit hugetlbfs 2MB pages.
+      pcie_hotplug_ports:
+        type: integer
+        minimum: 0
+        maximum: 31
+        default: 0
+        description: >-
+          Number of PCIe root ports to create. Each port accepts a single
+          hot-plugged device, and a device present at boot time and marked as
+          "removable" occupies one of them. Requires PCI to be enabled with
+          the --enable-pci command line flag.
 
   MemoryBackend:
     type: object

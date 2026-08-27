@@ -59,6 +59,8 @@ pub struct VmInfo {
     pub boot_source: BootSourceConfig,
     /// Huge page configuration
     pub huge_pages: HugePageConfig,
+    /// Number of PCIe hot-plug ports
+    pub pcie_hotplug_ports: u8,
 }
 
 impl From<&VmResources> for VmInfo {
@@ -69,6 +71,7 @@ impl From<&VmResources> for VmInfo {
             cpu_template: StaticCpuTemplate::from(&value.machine_config.cpu_template),
             boot_source: value.boot_source.config.clone(),
             huge_pages: value.machine_config.huge_pages,
+            pcie_hotplug_ports: value.machine_config.pcie_hotplug_ports,
         }
     }
 }
@@ -82,6 +85,7 @@ impl From<&Vmm> for VmInfo {
             cpu_template: StaticCpuTemplate::from(&machine_config.cpu_template),
             boot_source: value.boot_source_config.clone(),
             huge_pages: machine_config.huge_pages,
+            pcie_hotplug_ports: machine_config.pcie_hotplug_ports,
         }
     }
 }
@@ -457,6 +461,7 @@ pub fn restore_from_snapshot(
             cpu_template: Some(microvm_state.vm_info.cpu_template),
             track_dirty_pages: Some(track_dirty_pages),
             huge_pages: Some(params.huge_pages.resolve(microvm_state.vm_info.huge_pages)),
+            pcie_hotplug_ports: Some(microvm_state.vm_info.pcie_hotplug_ports),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         })
