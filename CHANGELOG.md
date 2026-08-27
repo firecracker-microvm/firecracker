@@ -34,6 +34,24 @@ and this project adheres to
   the `huge_pages` field to `PUT /snapshot/load`, allowing the restored microVM
   to reuse the snapshot's host page configuration or select `None`,
   `Transparent`, or `2M`.
+- [#6109](https://github.com/firecracker-microvm/firecracker/pull/6109): Added
+  an optional `sync_snapshot_files` field to the `PUT /snapshot/create` API,
+  defaulting to `true`. It controls whether the snapshot state and guest memory
+  files are synced to disk (`fsync`) before the request returns. Setting it to
+  `false` returns without waiting for the writeback, making snapshot creation
+  faster at the cost of durability across a host crash; the data stays in the
+  host page cache, so same-host reads still see the full contents. Block device
+  backing files are always `fsync`'d regardless. See
+  [snapshot documentation](docs/snapshotting/snapshot-support.md).
+- [#6116](https://github.com/firecracker-microvm/firecracker/pull/6116): On
+  aarch64, enable `KVM_CAP_ARM_WRITABLE_IMP_ID_REGS` when the host kernel offers
+  it (Linux 6.15 and later), adding support for custom CPU templates that modify
+  the implementation ID registers (`MIDR_EL1`, `REVIDR_EL1`, `AIDR_EL1`). Such
+  templates previously failed at boot with
+  `Failed to set register ... Invalid argument` because KVM rejects the write
+  unless the capability is enabled on the VM.
+- [#6145](https://github.com/firecracker-microvm/firecracker/pull/6145): Added
+  official support for AWS Graviton5 (m9g.metal-48xl) instances.
 
 ### Changed
 
@@ -82,11 +100,15 @@ and this project adheres to
   Terminating a connection now also discards its TX buffer, so the device stops
   advertising `EPOLLOUT` for a host stream it will never write to again, which
   could otherwise busy-spin the event thread indefinitely.
-- [#6086](https://github.com/firecracker-microvm/firecracker/pull/6086): Fixed a
-  potential deadlock in the logger: a signal handler that logs while the
-  interrupted thread already held the logger lock would re-acquire it and hang
-  the VMM. The logger now uses an `RwLock` so logging takes a shared lock that a
-  nested (signal-handler) log can re-acquire without blocking.
+- [#6086](https://github.com/firecracker-microvm/firecracker/pull/6086),
+  [#6143](https://github.com/firecracker-microvm/firecracker/pull/6143): Fixed a
+  deadlock in the logger: a signal handler that logs while the interrupted
+  thread is already logging would hang the VMM and its API socket. This is
+  reachable whenever a `SIGPIPE` is raised by Firecracker's own log write, for
+  example when logging to `stdout` and the reader of that pipe exits. The logger
+  now uses an `RwLock`, and `sigpipe_handler` only increments the
+  `signals.sigpipe` metric instead of logging, so it no longer emits a
+  `Received signal 13, code 0.` line.
 - [#6120](https://github.com/firecracker-microvm/firecracker/pull/6120): Fixed a
   bug caused by a KVM behavior change introduced in Linux 6.13, which requires
   guest CPUID to be set before userspace reads CPUID-dependent MSRs. On x86_64
