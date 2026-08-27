@@ -103,7 +103,8 @@ impl PciDevices {
             .insert((device_type, id), virtio_device.clone());
 
         self.pci_segment
-            .pci_bus
+            .pci_buses
+            .root_bus()
             .lock()
             .expect("Poisoned lock")
             .add_device(sbdf.device(), virtio_device.clone())?;
@@ -182,7 +183,8 @@ impl PciDevices {
         // with the PCI bus lock held and can relocate the BAR, so afterwards
         // the BAR address of the device can no longer change under us.
         self.pci_segment
-            .pci_bus
+            .pci_buses
+            .root_bus()
             .lock()
             .expect("Poisoned lock")
             .remove_device(sbdf_device);
