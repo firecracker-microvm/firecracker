@@ -172,6 +172,11 @@ impl PciBuses {
     pub fn root_bus(&self) -> Arc<Mutex<PciBus>> {
         self.buses[0].clone()
     }
+
+    /// Total Number of buses in the segment, including the primary.
+    pub fn num_buses(&self) -> u8 {
+        u8::try_from(self.buses.len()).expect("MAX_PCI_BUSES does not fit in a u8")
+    }
 }
 
 #[cfg(target_arch = "x86_64")]

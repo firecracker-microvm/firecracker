@@ -267,12 +267,14 @@ impl Aml for PciSegment {
         let pci_dsm = PciDsmMethod {};
         pci_dsdt_inner_data.push(&pci_dsm);
 
+        let last_bus = u16::from(self.pci_buses.num_buses() - 1);
+
         #[allow(clippy::if_same_then_else)]
         let crs = if self.id == 0 {
             aml::Name::new(
                 "_CRS".try_into()?,
                 &aml::ResourceTemplate::new(vec![
-                    &aml::AddressSpace::new_bus_number(0x0u16, 0x0u16)?,
+                    &aml::AddressSpace::new_bus_number(0x0u16, last_bus)?,
                     &aml::Io::new(0xcf8, 0xcf8, 1, 0x8),
                     &aml::Memory32Fixed::new(
                         true,
@@ -299,7 +301,7 @@ impl Aml for PciSegment {
             aml::Name::new(
                 "_CRS".try_into()?,
                 &aml::ResourceTemplate::new(vec![
-                    &aml::AddressSpace::new_bus_number(0x0u16, 0x0u16)?,
+                    &aml::AddressSpace::new_bus_number(0x0u16, last_bus)?,
                     &aml::Memory32Fixed::new(
                         true,
                         self.mmio_config_address.try_into().unwrap(),
