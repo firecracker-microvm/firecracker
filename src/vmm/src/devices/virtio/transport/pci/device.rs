@@ -351,10 +351,10 @@ impl VirtioPciDevice {
     /// This must happen only during the creation of a brand new VM. When a VM is restored from a
     /// known state, the BARs are already created with the right content, therefore we don't need
     /// to go through this codepath.
-    pub fn allocate_bars(&mut self, mmio64_allocator: &mut AddressAllocator) {
+    pub fn allocate_bars(&mut self, allocator: &mut AddressAllocator) {
         // Allocate the virtio-pci capability BAR.
         // See http://docs.oasis-open.org/virtio/virtio/v1.0/cs04/virtio-v1.0-cs04.html#x1-740004
-        self.bar_address = mmio64_allocator
+        self.bar_address = allocator
             .allocate(
                 CAPABILITY_BAR_SIZE,
                 CAPABILITY_BAR_SIZE,
@@ -372,14 +372,14 @@ impl VirtioPciDevice {
     }
 
     /// Free the PCI BAR of the VirtIO device.
-    pub fn free_bars(&mut self, mmio64_allocator: &mut AddressAllocator) {
+    pub fn free_bars(&mut self, allocator: &mut AddressAllocator) {
         let bar_end = self
             .bar_address
             .checked_add(CAPABILITY_BAR_SIZE - 1)
             .expect("virtio-pci BAR end address overflows");
         let range =
             RangeInclusive::new(self.bar_address, bar_end).expect("Invalid virtio-pci BAR range");
-        mmio64_allocator
+        allocator
             .free(&range)
             .expect("virtio-pci BAR is not allocated");
         self.bar_address = 0;
@@ -720,7 +720,7 @@ impl VirtioPciDevice {
         }
 
         // Try to allocate the new range from the resource allocator.
-        let new_range = match self.vm.resource_allocator().mmio64_memory.allocate(
+        let new_range = match self.vm.resource_allocator().mmio32_memory.allocate(
             CAPABILITY_BAR_SIZE,
             CAPABILITY_BAR_SIZE,
             AllocPolicy::ExactMatch(new_base),
@@ -738,7 +738,7 @@ impl VirtioPciDevice {
             error!("Failed to add notification ioeventfds at {new_base:#x}: {err:?}");
             // set_notification_ioevents() might leave some ioeventfds
             // registered in case of failure. Do not return the possibly
-            // "poisoned" address range to the mmio64_allocator.
+            // "poisoned" address range to the memory allocator.
             return;
         }
 
@@ -753,7 +753,7 @@ impl VirtioPciDevice {
                 error!("Failed to remove notification ioeventfds at {new_base:#x}: {err:?}");
                 // As above, only release the old range if it has no ioeventfds left.
             } else {
-                let _ = self.vm.resource_allocator().mmio64_memory.free(&new_range);
+                let _ = self.vm.resource_allocator().mmio32_memory.free(&new_range);
             }
             return;
         }
@@ -769,7 +769,7 @@ impl VirtioPciDevice {
                 .checked_add(CAPABILITY_BAR_SIZE - 1)
                 .expect("BAR end address overflows");
             let old_range = RangeInclusive::new(old_base, old_end).expect("Invalid BAR range");
-            let _ = self.vm.resource_allocator().mmio64_memory.free(&old_range);
+            let _ = self.vm.resource_allocator().mmio32_memory.free(&old_range);
         }
 
         self.bar_address = new_base;
@@ -1233,7 +1233,7 @@ mod tests {
 
     use super::{EventFd, IoEventAddress, KvmVm, NoDatamatch, PciCapabilityType, VirtioPciDevice};
     use crate::Vmm;
-    use crate::arch::{MEM_64BIT_DEVICES_SIZE, MEM_64BIT_DEVICES_START};
+    use crate::arch::{MEM_32BIT_DEVICES_SIZE, MEM_32BIT_DEVICES_START};
     use crate::builder::tests::default_vmm_with_pci;
     use crate::device_manager::tests::pci_devices;
     use crate::devices::virtio::device::VirtioDeviceType;
@@ -1253,6 +1253,11 @@ mod tests {
     use crate::pci::msix::MsixCap;
     use crate::pci::{PciCapabilityId, PciClassCode, PciDevice};
     use crate::rate_limiter::RateLimiter;
+
+    /// The address the single virtio-pci BAR of a freshly booted VM ends up
+    /// at: the first CAPABILITY_BAR_SIZE-aligned address of the 32-bit MMIO
+    /// window.
+    const FIRST_BAR_BASE: u64 = MEM_32BIT_DEVICES_START.next_multiple_of(CAPABILITY_BAR_SIZE);
 
     fn create_vmm_with_virtio_pci_device() -> Vmm {
         let mut vmm = default_vmm_with_pci();
@@ -1410,9 +1415,9 @@ mod tests {
         assert_eq!(bar_addr & 0x1, 0);
         // Type is 0x2 meaning 64-bit BAR
         assert_eq!((bar_addr & 0x6) >> 1, 2);
-        // The actual address of the BAR should be the first available address of our 64-bit MMIO
-        // region
-        assert_eq!(bar_addr & 0xffff_ffff_ffff_fff0, MEM_64BIT_DEVICES_START);
+        // The BAR is 64-bit wide but lives in the 32-bit MMIO region, because it is
+        // non-prefetchable
+        assert_eq!(bar_addr & 0xffff_ffff_ffff_fff0, FIRST_BAR_BASE);
 
         // Reading the BAR size is a bit more convoluted. According to OSDev wiki:
         //
@@ -1452,7 +1457,7 @@ mod tests {
     }
 
     fn allocate_bar_range(vmm: &Vmm, base: u64) -> Result<RangeInclusive, vm_allocator::Error> {
-        kvm_vm(vmm).resource_allocator().mmio64_memory.allocate(
+        kvm_vm(vmm).resource_allocator().mmio32_memory.allocate(
             CAPABILITY_BAR_SIZE,
             CAPABILITY_BAR_SIZE,
             AllocPolicy::ExactMatch(base),
@@ -1475,7 +1480,7 @@ mod tests {
     fn test_bar_relocation() {
         let vmm = create_vmm_with_virtio_pci_device();
         let device = get_virtio_device(&vmm);
-        let old_base = MEM_64BIT_DEVICES_START;
+        let old_base = FIRST_BAR_BASE;
         let new_base = old_base + CAPABILITY_BAR_SIZE;
 
         {
@@ -1520,7 +1525,7 @@ mod tests {
         let vmm = create_vmm_with_virtio_pci_device();
         let device = get_virtio_device(&vmm);
         let mut device = device.lock().unwrap();
-        let old_base = MEM_64BIT_DEVICES_START;
+        let old_base = FIRST_BAR_BASE;
         let new_base = old_base + CAPABILITY_BAR_SIZE;
 
         // Enabling memory space decoding with an unchanged BAR is a no-op.
@@ -1543,13 +1548,13 @@ mod tests {
     fn test_bar_relocation_refused() {
         let vmm = create_vmm_with_virtio_pci_device();
         let device = get_virtio_device(&vmm);
-        let old_base = MEM_64BIT_DEVICES_START;
+        let old_base = FIRST_BAR_BASE;
 
         // A range that is already allocated to someone else.
         let taken_base = old_base + CAPABILITY_BAR_SIZE;
         allocate_bar_range(&vmm, taken_base).unwrap();
-        // A range outside the 64-bit MMIO window.
-        let outside_base = MEM_64BIT_DEVICES_START + MEM_64BIT_DEVICES_SIZE;
+        // A range outside the 32-bit MMIO window.
+        let outside_base = MEM_32BIT_DEVICES_START + MEM_32BIT_DEVICES_SIZE;
 
         for base in [taken_base, outside_base] {
             let mut device = device.lock().unwrap();
