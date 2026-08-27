@@ -157,6 +157,7 @@ def validate_fc_metrics(metrics):
             "mmds_count",
             "vmm_version_count",
             "hotplug_memory_count",
+            "enclave_count",
         ],
         "i8042": [
             "error_count",
@@ -241,6 +242,8 @@ def validate_fc_metrics(metrics):
             "serial_fails",
             "hotplug_memory_count",
             "hotplug_memory_fails",
+            "enclave_count",
+            "enclave_fails",
         ],
         "seccomp": [
             "num_faults",

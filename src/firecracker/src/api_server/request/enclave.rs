@@ -1,6 +1,7 @@
 // Copyright 2026 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::enclave::EnclaveConfig;
 
@@ -11,19 +12,24 @@ pub(crate) fn parse_put_enclave<'a>(
     body: &Body,
     mut path_tokens: impl Iterator<Item = &'a str>,
 ) -> Result<ParsedRequest, RequestError> {
+    METRICS.put_api_requests.enclave_count.inc();
     if path_tokens.next().is_some() {
+        METRICS.put_api_requests.enclave_fails.inc();
         return Err(RequestError::Generic(
             micro_http::StatusCode::BadRequest,
             "Enclave endpoint does not support sub-paths.".into(),
         ));
     }
-    let config = serde_json::from_slice::<EnclaveConfig>(body.raw())?;
+    let config = serde_json::from_slice::<EnclaveConfig>(body.raw()).inspect_err(|_| {
+        METRICS.put_api_requests.enclave_fails.inc();
+    })?;
     Ok(ParsedRequest::new_sync(VmmAction::SetEnclaveConfig(config)))
 }
 
 pub(crate) fn parse_get_enclave<'a>(
     mut path_tokens: impl Iterator<Item = &'a str>,
 ) -> Result<ParsedRequest, RequestError> {
+    METRICS.get_api_requests.enclave_count.inc();
     if path_tokens.next().is_some() {
         return Err(RequestError::Generic(
             micro_http::StatusCode::BadRequest,
