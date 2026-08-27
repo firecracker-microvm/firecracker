@@ -279,7 +279,7 @@ impl Aml for PciSegment {
                         self.end_of_mem32_area,
                     )?,
                     &aml::AddressSpace::new_memory(
-                        aml::AddressSpaceCacheable::NotCacheable,
+                        aml::AddressSpaceCacheable::PreFetchable,
                         true,
                         self.start_of_mem64_area,
                         self.end_of_mem64_area,
@@ -305,7 +305,7 @@ impl Aml for PciSegment {
                         self.end_of_mem32_area,
                     )?,
                     &aml::AddressSpace::new_memory(
-                        aml::AddressSpaceCacheable::NotCacheable,
+                        aml::AddressSpaceCacheable::PreFetchable,
                         true,
                         self.start_of_mem64_area,
                         self.end_of_mem64_area,
