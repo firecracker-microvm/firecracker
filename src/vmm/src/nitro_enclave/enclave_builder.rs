@@ -331,7 +331,7 @@ pub fn build_and_boot_enclave(
     normalized_config.numa_nodes = Some(numa_nodes.clone());
     let mut enclave_vm = EnclaveVm::new(dev_fd, create_flags, normalized_config)?;
     info!(
-        "Enclave VM created: slot_uid={}, direct_mode={}, cpu_overcommit={}, \
+        "Enclave VM created: slot={:#x}, direct_mode={}, cpu_overcommit={}, \
          cpu_accounting={}, create_flags=0x{:x}",
         enclave_vm.slot_uid(),
         enclave_config.direct_mode,
@@ -401,7 +401,10 @@ pub fn build_and_boot_enclave(
     // CID 0 tells the kernel to auto-assign the enclave's vsock CID.
     // The assigned CID is unused since enclave mode doesn't use vhost-vsock.
     let assigned_cid = enclave_vm.start(start_flags, 0)?;
-    info!("Enclave started with CID={assigned_cid}");
+    info!(
+        "Enclave started: slot={:#x} cid={assigned_cid}",
+        enclave_vm.slot_uid()
+    );
 
     let info_page = enclave_vm
         .info_page()
