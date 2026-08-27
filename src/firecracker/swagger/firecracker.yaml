@@ -289,6 +289,11 @@ paths:
           description: Nitro Enclave configuration
           schema:
             $ref: "#/definitions/EnclaveConfig"
+        400:
+          description:
+            No enclave was configured, or this is not a Nitro Enclave VM
+          schema:
+            $ref: "#/definitions/Error"
         default:
           description: Internal server error
           schema:

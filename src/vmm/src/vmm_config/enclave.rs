@@ -21,6 +21,8 @@ const DMB_GRANULARITY_MIB: u64 = 2;
 /// Errors validating an [`EnclaveConfig`].
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum EnclaveConfigError {
+    /// No enclave has been configured
+    NotConfigured,
     /// dmb_size_mib ({0}) must be a multiple of 2 between 2 and 256 MiB
     InvalidDmbSize(u64),
     /// dmb_size_mib cannot be set in direct mode (no DMB is used)
