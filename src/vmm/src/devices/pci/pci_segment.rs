@@ -21,7 +21,7 @@ use crate::logger::info;
 use crate::pci::PciSBDF;
 #[cfg(target_arch = "x86_64")]
 use crate::pci::bus::{PCI_CONFIG_IO_PORT, PCI_CONFIG_IO_PORT_SIZE, PciConfigIo};
-use crate::pci::bus::{PciBus, PciConfigMmio, PciRoot, PciRootError};
+use crate::pci::bus::{PciBus, PciBusError, PciConfigMmio, PciHostBridge};
 use crate::vstate::bus::BusError;
 use crate::vstate::vm::KvmVm;
 
@@ -65,8 +65,8 @@ impl std::fmt::Debug for PciSegment {
 
 impl PciSegment {
     fn build(id: u16, vm: &Arc<KvmVm>, pci_irq_slots: &[u8; 32]) -> Result<PciSegment, BusError> {
-        let pci_root = PciRoot::new(None);
-        let pci_bus = Arc::new(Mutex::new(PciBus::new(pci_root)));
+        let host_bridge = PciHostBridge::new(None);
+        let pci_bus = Arc::new(Mutex::new(PciBus::new(host_bridge)));
 
         let pci_config_mmio = Arc::new(Mutex::new(PciConfigMmio::new(Arc::clone(&pci_bus))));
         let mmio_config_address = PCI_MMCONFIG_START + PCI_MMIO_CONFIG_SIZE_PER_SEGMENT * id as u64;
@@ -156,7 +156,7 @@ impl PciSegment {
         Ok(segment)
     }
 
-    pub(crate) fn next_device_sbdf(&self) -> Result<PciSBDF, PciRootError> {
+    pub(crate) fn next_device_sbdf(&self) -> Result<PciSBDF, PciBusError> {
         Ok(PciSBDF::new(
             self.id,
             0,

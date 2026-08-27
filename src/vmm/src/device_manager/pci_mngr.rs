@@ -34,7 +34,7 @@ use crate::devices::virtio::vsock::persist::{
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{debug, warn};
 use crate::pci::PciSBDF;
-use crate::pci::bus::PciRootError;
+use crate::pci::bus::PciBusError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
@@ -57,8 +57,8 @@ pub enum PciManagerError {
     ResourceAllocation(#[from] vm_allocator::Error),
     /// Bus error: {0}
     Bus(#[from] BusError),
-    /// PCI root error: {0}
-    PciRoot(#[from] PciRootError),
+    /// PCI bus error: {0}
+    PciBus(#[from] PciBusError),
     /// MSI error: {0}
     Msi(#[from] InterruptError),
     /// VirtIO PCI device error: {0}
