@@ -15,6 +15,7 @@ use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceT
 use crate::devices::virtio::transport::nitro_enclave::{
     DeviceDmaMemory, NeTransport, NeTransportError,
 };
+use crate::logger::info;
 use crate::nitro_enclave::enclave_vm::{EnclaveVm, EnclaveVmError};
 use crate::nitro_enclave::ne_ioctl::EnclaveFd;
 use crate::utils::{mib_to_bytes, u64_to_usize};
@@ -72,6 +73,10 @@ impl NeDevices {
         let dma_memory = match dmb_size_mib {
             Some(size_mib) => {
                 let dmb = enclave_vm.create_dmb(mib_to_bytes(u64_to_usize(size_mib)))?;
+                info!(
+                    "Allocated {size_mib} MiB DMB for {:?} id={}",
+                    device_id.0, device_id.1
+                );
                 DeviceDmaMemory::Dmb(dmb)
             }
             None => {
