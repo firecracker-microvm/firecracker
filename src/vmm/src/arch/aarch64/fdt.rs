@@ -16,7 +16,7 @@ use super::cache_info::{CacheEntry, read_cache_config};
 use super::gic::GICDevice;
 use crate::arch::{
     MEM_32BIT_DEVICES_SIZE, MEM_32BIT_DEVICES_START, MEM_64BIT_DEVICES_SIZE,
-    MEM_64BIT_DEVICES_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT,
+    MEM_64BIT_DEVICES_START,
 };
 use crate::device_manager::DeviceManager;
 use crate::device_manager::mmio::MMIODeviceInfo;
@@ -24,6 +24,7 @@ use crate::devices::acpi::vmclock::{VMCLOCK_SIZE, VmClock};
 use crate::devices::acpi::vmgenid::{VMGENID_MEM_SIZE, VmGenId};
 use crate::devices::pci::PciSegment;
 use crate::initrd::InitrdConfig;
+use crate::pci::bus::PCI_MMIO_CONFIG_SIZE_PER_SEGMENT;
 use crate::vstate::memory::{Address, GuestMemoryMmap, GuestRegionType};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.

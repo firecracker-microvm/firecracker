@@ -105,8 +105,6 @@ pub const MMIO32_MEM_START: u64 = FIRST_ADDR_PAST_32BITS - MMIO32_MEM_SIZE;
 pub const PCI_MMCONFIG_SIZE: u64 = 256 << 20;
 /// Start of MMIO region for PCIe configuration accesses.
 pub const PCI_MMCONFIG_START: u64 = IOAPIC_ADDR as u64 - PCI_MMCONFIG_SIZE;
-/// MMIO space per PCIe segment
-pub const PCI_MMIO_CONFIG_SIZE_PER_SEGMENT: u64 = 4096 * 256;
 
 // We reserve 768 MiB for devices at the beginning of the MMIO region. This includes space both for
 // pure MMIO and PCIe devices.
