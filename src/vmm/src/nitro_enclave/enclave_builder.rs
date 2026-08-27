@@ -6,6 +6,8 @@
 //! Loads a pre-built EIF image or builds one from kernel+initrd+boot_args,
 //! then boots a Nitro Enclave from `VmResources`.
 
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
 
 use event_manager::SubscriberOps;
@@ -41,8 +43,10 @@ pub enum EnclaveBuilderError {
     MemSizeNotAligned(usize),
     /// Failed to open /dev/nitro_enclaves: {0}
     OpenDevice(std::io::Error),
-    /// Failed to read EIF image {path}: {source}
+    /// Failed to {op} EIF image {path}: {source}
     ReadEif {
+        /// The operation that failed, "seek" or "read".
+        op: &'static str,
         /// Path the EIF was read from.
         path: String,
         /// Underlying I/O error.
@@ -109,6 +113,27 @@ pub enum EnclaveBuilderError {
     NumaValidationError(String),
     /// A Nitro Enclave does not support a {0} device
     UnsupportedDevice(&'static str),
+}
+
+/// Read a pre-built EIF from the descriptor `is_eif` validated.
+///
+/// Reading the already-open descriptor rather than re-opening `path` keeps the
+/// bytes that were sniffed and the bytes that are loaded the same file, and
+/// makes a retried `InstanceStart` behave like the build-from-kernel branch.
+fn read_prebuilt_eif(mut file: &File, path: &str) -> Result<Vec<u8>, EnclaveBuilderError> {
+    // One variant for both steps -- they address the same descriptor -- but the
+    // operation is named, so a rewind failure does not report itself as a read.
+    let err = |op| {
+        move |source| EnclaveBuilderError::ReadEif {
+            op,
+            path: path.to_string(),
+            source,
+        }
+    };
+    file.seek(SeekFrom::Start(0)).map_err(err("seek"))?;
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).map_err(err("read"))?;
+    Ok(data)
 }
 
 /// Resolve the kernel command line for the enclave.
@@ -256,10 +281,7 @@ pub fn build_and_boot_enclave(
     // TODO(enclave): write EIF directly into CMA memory instead of buffering in a Vec
     let eif_data = if eif::is_eif(&boot_config.kernel_file) {
         info!("Loading pre-built EIF from {kernel_path}");
-        std::fs::read(kernel_path).map_err(|source| EnclaveBuilderError::ReadEif {
-            path: kernel_path.clone(),
-            source,
-        })?
+        read_prebuilt_eif(&boot_config.kernel_file, kernel_path)?
     } else {
         let boot_args = resolve_enclave_cmdline(boot_config, enclave_config, vm_resources)?;
         let default_mem = mib_to_bytes(vm_resources.machine_config.mem_size_mib) as u64;

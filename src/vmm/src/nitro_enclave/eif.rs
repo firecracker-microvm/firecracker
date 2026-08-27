@@ -14,7 +14,7 @@
 //! the upstream crate.  Until then we roll our own in-memory builder.
 
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::mem::size_of;
 use std::os::unix::fs::FileExt;
 
@@ -124,10 +124,20 @@ pub fn is_eif(file: &File) -> bool {
 /// Errors from EIF building.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum EifError {
-    /// Failed to read kernel image: {0}
-    ReadKernel(std::io::Error),
-    /// Failed to read initrd image: {0}
-    ReadInitrd(std::io::Error),
+    /// Failed to {op} kernel image: {source}
+    ReadKernel {
+        /// The operation that failed, "seek" or "read".
+        op: &'static str,
+        /// Underlying I/O error.
+        source: std::io::Error,
+    },
+    /// Failed to {op} initrd image: {source}
+    ReadInitrd {
+        /// The operation that failed, "seek" or "read".
+        op: &'static str,
+        /// Underlying I/O error.
+        source: std::io::Error,
+    },
     /// Kernel image is empty
     EmptyKernel,
 }
@@ -151,16 +161,24 @@ pub fn build_eif(
     pcie_flags: u16,
 ) -> Result<Vec<u8>, EifError> {
     let mut kernel_data = Vec::new();
+    // InstanceStart is retryable, so these descriptors may already have been
+    // read to EOF by an earlier attempt.
+    kernel_file
+        .seek(SeekFrom::Start(0))
+        .map_err(|source| EifError::ReadKernel { op: "seek", source })?;
     kernel_file
         .read_to_end(&mut kernel_data)
-        .map_err(EifError::ReadKernel)?;
+        .map_err(|source| EifError::ReadKernel { op: "read", source })?;
     if kernel_data.is_empty() {
         return Err(EifError::EmptyKernel);
     }
     let initrd_data = match initrd_file {
         Some(mut file) => {
             let mut data = Vec::new();
-            file.read_to_end(&mut data).map_err(EifError::ReadInitrd)?;
+            file.seek(SeekFrom::Start(0))
+                .map_err(|source| EifError::ReadInitrd { op: "seek", source })?;
+            file.read_to_end(&mut data)
+                .map_err(|source| EifError::ReadInitrd { op: "read", source })?;
             Some(data)
         }
         None => None,
@@ -263,6 +281,40 @@ mod tests {
     use vmm_sys_util::tempdir::TempDir;
 
     use super::*;
+
+    #[test]
+    fn test_eif_builder_reuses_descriptors() {
+        let dir = TempDir::new().unwrap();
+        let kernel_path = dir.as_path().join("kernel");
+        let initrd_path = dir.as_path().join("initrd");
+        fs::write(&kernel_path, b"FAKE_KERNEL_DATA_1234").unwrap();
+        fs::write(&initrd_path, b"FAKE_INITRD_DATA_5678").unwrap();
+        let kernel_file = File::open(&kernel_path).unwrap();
+        let initrd_file = File::open(&initrd_path).unwrap();
+
+        // A failed InstanceStart is retryable, so build_eif can be called more
+        // than once on the same descriptors.
+        let first = build_eif(
+            &kernel_file,
+            Some(&initrd_file),
+            "",
+            256 * 1024 * 1024,
+            2,
+            0,
+        )
+        .unwrap();
+        let second = build_eif(
+            &kernel_file,
+            Some(&initrd_file),
+            "",
+            256 * 1024 * 1024,
+            2,
+            0,
+        )
+        .unwrap();
+
+        assert_eq!(first, second);
+    }
 
     #[test]
     fn test_eif_builder() {
