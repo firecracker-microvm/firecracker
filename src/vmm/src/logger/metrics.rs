@@ -408,6 +408,8 @@ pub struct GetRequestsMetrics {
     pub vmm_version_count: SharedIncMetric,
     /// Number of GETs for getting hotpluggable memory status.
     pub hotplug_memory_count: SharedIncMetric,
+    /// Number of GETs for getting the enclave configuration.
+    pub enclave_count: SharedIncMetric,
 }
 impl GetRequestsMetrics {
     /// Const default construction.
@@ -418,6 +420,7 @@ impl GetRequestsMetrics {
             mmds_count: SharedIncMetric::new(),
             vmm_version_count: SharedIncMetric::new(),
             hotplug_memory_count: SharedIncMetric::new(),
+            enclave_count: SharedIncMetric::new(),
         }
     }
 }
@@ -465,6 +468,10 @@ pub struct PutRequestsMetrics {
     pub vsock_count: SharedIncMetric,
     /// Number of failures in creating a vsock device.
     pub vsock_fails: SharedIncMetric,
+    /// Number of PUTs for configuring an enclave.
+    pub enclave_count: SharedIncMetric,
+    /// Number of failures in configuring an enclave.
+    pub enclave_fails: SharedIncMetric,
     /// Number of PUTs triggering a pmem attach.
     pub pmem_count: SharedIncMetric,
     /// Number of failures in attaching a pmem device.
@@ -502,6 +509,8 @@ impl PutRequestsMetrics {
             mmds_fails: SharedIncMetric::new(),
             vsock_count: SharedIncMetric::new(),
             vsock_fails: SharedIncMetric::new(),
+            enclave_count: SharedIncMetric::new(),
+            enclave_fails: SharedIncMetric::new(),
             pmem_count: SharedIncMetric::new(),
             pmem_fails: SharedIncMetric::new(),
             serial_count: SharedIncMetric::new(),
