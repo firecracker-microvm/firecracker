@@ -919,12 +919,14 @@ impl MutEventSubscriber for Vmm {
                 // boot still reaches the log.
                 enclave_vm.flush_console();
                 if event_set.contains(EventSet::ERROR) {
-                    error!("Enclave exited with error");
+                    error!("Enclave exited with error (event_set={event_set:?})");
                     self.stop(FcExitCode::GenericError);
                 } else if event_set.contains(EventSet::HANG_UP) || event_set.contains(EventSet::IN)
                 {
-                    info!("Enclave exited");
+                    info!("Enclave exited (event_set={event_set:?})");
                     self.stop(FcExitCode::Ok);
+                } else {
+                    debug!("Unhandled enclave fd event set {event_set:?}; not stopping");
                 }
             }
         }
