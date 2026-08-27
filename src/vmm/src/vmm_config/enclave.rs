@@ -34,6 +34,7 @@ pub enum EnclaveConfigError {
 /// The `vcpu_count` and `mem_size_mib` sums across all nodes must equal
 /// `MachineConfig::vcpu_count` and `MachineConfig::mem_size_mib`.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct EnclaveNumaNode {
     /// Parent NUMA node id to place this slice of vCPUs and memory on.
     pub parent_numa: u16,
@@ -47,6 +48,7 @@ pub struct EnclaveNumaNode {
 /// vcpu_count, mem_size_mib) is reused from existing `BootSourceConfig` and
 /// `MachineConfig`.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct EnclaveConfig {
     /// Specific CPU IDs from the NE CPU pool.
     ///
@@ -127,6 +129,21 @@ impl EnclaveConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_deserialize_rejects_unknown_field() {
+        // A misspelled flag must not be silently ignored.
+        serde_json::from_str::<EnclaveConfig>(r#"{"debug": true}"#).unwrap_err();
+        serde_json::from_str::<EnclaveConfig>(
+            r#"{"numa_nodes":[{"parent_numa":0,"vcpu_count":1,"mem_size_mib":256,"nope":1}]}"#,
+        )
+        .unwrap_err();
+        assert!(
+            serde_json::from_str::<EnclaveConfig>(r#"{"debug_mode": true}"#)
+                .unwrap()
+                .debug_mode
+        );
+    }
 
     #[test]
     fn test_enclave_config_default() {
