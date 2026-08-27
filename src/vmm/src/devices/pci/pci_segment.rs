@@ -241,6 +241,29 @@ impl Aml for PciDsmMethod {
 }
 
 #[cfg(target_arch = "x86_64")]
+struct PciOscMethod {}
+
+#[cfg(target_arch = "x86_64")]
+impl Aml for PciOscMethod {
+    fn append_aml_bytes(&self, v: &mut Vec<u8>) -> Result<(), aml::AmlError> {
+        // _OSC (Operating System Capabilities), such as PCIeHotplug.
+        //
+        // Grant whatever the OS asks for by returning the capabilities buffer
+        // (Arg3) unchanged, so the control field it gets back is the one it
+        // requested. Granting control of features Firecracker does not
+        // implement is harmless: the OS only drives a feature if it also finds
+        // the corresponding PCI capability.
+        aml::Method::new(
+            "_OSC".try_into()?,
+            4,
+            false,
+            vec![&aml::Return::new(&aml::Arg(3))],
+        )
+        .append_aml_bytes(v)
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
 impl Aml for PciSegment {
     fn append_aml_bytes(&self, v: &mut Vec<u8>) -> Result<(), aml::AmlError> {
         let mut pci_dsdt_inner_data: Vec<&dyn Aml> = Vec::new();
@@ -266,6 +289,9 @@ impl Aml for PciSegment {
 
         let pci_dsm = PciDsmMethod {};
         pci_dsdt_inner_data.push(&pci_dsm);
+
+        let pci_osc = PciOscMethod {};
+        pci_dsdt_inner_data.push(&pci_osc);
 
         let last_bus = u16::from(self.pci_buses.num_buses() - 1);
 
