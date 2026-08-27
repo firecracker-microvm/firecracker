@@ -16,12 +16,14 @@ use acpi_tables::{Aml, aml};
 #[cfg(target_arch = "x86_64")]
 use uuid::Uuid;
 
-use crate::arch::{PCI_MMCONFIG_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT};
+use crate::arch::PCI_MMCONFIG_START;
 use crate::logger::info;
 use crate::pci::PciSBDF;
 #[cfg(target_arch = "x86_64")]
 use crate::pci::bus::{PCI_CONFIG_IO_PORT, PCI_CONFIG_IO_PORT_SIZE, PciConfigIo};
-use crate::pci::bus::{PciBusError, PciBuses, PciConfigMmio, PciHostBridge};
+use crate::pci::bus::{
+    PCI_MMIO_CONFIG_SIZE_PER_SEGMENT, PciBusError, PciBuses, PciConfigMmio, PciHostBridge,
+};
 use crate::vstate::bus::BusError;
 use crate::vstate::vm::KvmVm;
 
@@ -357,6 +359,7 @@ mod tests {
     use super::*;
     use crate::arch;
     use crate::builder::tests::default_vmm;
+    #[cfg(target_arch = "x86_64")]
     use crate::utils::u64_to_usize;
 
     #[test]
@@ -412,13 +415,32 @@ mod tests {
         let pci_irq_slots = &[0u8; 32];
         let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots).unwrap();
 
-        let mut data = [0u8; u64_to_usize(PCI_MMIO_CONFIG_SIZE_PER_SEGMENT)];
+        let mut data = [0u8; 4];
 
+        // Test that we can access the start and end of the ECAM region.
         kvm_vm
             .common
             .mmio_bus
             .read(pci_segment.mmio_config_address, &mut data)
             .unwrap();
+        kvm_vm
+            .common
+            .mmio_bus
+            .read(
+                pci_segment.mmio_config_address + PCI_MMIO_CONFIG_SIZE_PER_SEGMENT
+                    - data.len() as u64,
+                &mut data,
+            )
+            .unwrap();
+        // Test that accesses outside the ECAM region fail.
+        kvm_vm
+            .common
+            .mmio_bus
+            .read(
+                pci_segment.mmio_config_address - data.len() as u64,
+                &mut data,
+            )
+            .unwrap_err();
         kvm_vm
             .common
             .mmio_bus
