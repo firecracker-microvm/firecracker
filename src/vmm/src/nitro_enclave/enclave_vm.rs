@@ -40,6 +40,13 @@ pub enum EnclaveVmError {
         /// Underlying error.
         source: std::io::Error,
     },
+    /// Failed to add a vCPU on parent NUMA node {numa_hint}: {source}
+    AddAnyVcpu {
+        /// Parent NUMA node the vCPU was requested on.
+        numa_hint: i32,
+        /// Underlying error.
+        source: std::io::Error,
+    },
     /// Failed to set user memory region: {0}
     SetMemoryRegion(std::io::Error),
     /// Failed to revoke parent access to donated enclave memory: {0}
@@ -271,10 +278,7 @@ impl EnclaveVm {
     pub fn add_any_vcpu(&mut self, numa_hint: i32) -> Result<(), EnclaveVmError> {
         self.enclave_fd
             .add_any_vcpu(numa_hint)
-            .map_err(|e| EnclaveVmError::AddVcpu {
-                cpu_id: 0,
-                source: e,
-            })?;
+            .map_err(|source| EnclaveVmError::AddAnyVcpu { numa_hint, source })?;
         Ok(())
     }
 
