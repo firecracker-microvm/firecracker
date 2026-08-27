@@ -508,9 +508,14 @@ impl<'a> PrebootApiController<'a> {
             StartMicroVm => self.start_microvm(),
             UpdateMachineConfiguration(config) => self.update_machine_config(config),
             SetEnclaveConfig(config) => self.set_enclave_config(config),
-            GetEnclaveConfig => Ok(VmmData::EnclaveConfiguration(
-                self.vm_resources.enclave.clone().unwrap_or_default(),
-            )),
+            GetEnclaveConfig => self
+                .vm_resources
+                .enclave
+                .clone()
+                .map(VmmData::EnclaveConfiguration)
+                .ok_or(VmmActionError::EnclaveConfig(
+                    EnclaveConfigError::NotConfigured,
+                )),
             SetEntropyDevice(config) => self.set_entropy_device(config),
             SetMemoryHotplugDevice(config) => self.set_memory_hotplug_device(config),
             // Operations not allowed pre-boot.
@@ -873,13 +878,16 @@ impl RuntimeApiController {
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::BalloonUpdate),
             UpdateBlockDevice(new_cfg) => self.update_block_device(new_cfg),
-            GetEnclaveConfig => Ok(VmmData::EnclaveConfiguration(
-                self.vmm
-                    .lock()
-                    .expect("Poisoned lock")
-                    .enclave_config()
-                    .unwrap_or_default(),
-            )),
+            GetEnclaveConfig => {
+                let vmm = self.vmm.lock().expect("Poisoned lock");
+                vmm.enclave_config()
+                    .map(VmmData::EnclaveConfiguration)
+                    .ok_or_else(|| {
+                        VmmActionError::InternalVmm(VmmError::NotSupportedOnVmType(
+                            vmm.vm.type_name(),
+                        ))
+                    })
+            }
             UpdateNetworkInterface(netif_update) => self.update_net_rate_limiters(netif_update),
             UpdatePmemDevice(new_cfg) => self.update_pmem_device(new_cfg),
             UpdateMemoryHotplugSize(cfg) => self
@@ -1125,6 +1133,22 @@ mod tests {
             preboot_request(VmmAction::GetVmMachineConfig).unwrap(),
             VmmData::MachineConfiguration(MachineConfig::default())
         );
+    }
+
+    #[test]
+    fn test_preboot_get_enclave_config_without_enclave() {
+        // A VM that was never configured as an enclave has no enclave config to
+        // report, and must not be handed a fabricated default.
+        let err = preboot_request(VmmAction::GetEnclaveConfig).unwrap_err();
+        assert!(matches!(
+            err,
+            VmmActionError::EnclaveConfig(EnclaveConfigError::NotConfigured)
+        ));
+    }
+
+    #[test]
+    fn test_runtime_get_enclave_config_on_kvm_vm() {
+        runtime_request(VmmAction::GetEnclaveConfig).unwrap_err();
     }
 
     #[test]
