@@ -158,6 +158,7 @@ impl VmResources {
         instance_info: &InstanceInfo,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
+        pci_enabled: bool,
     ) -> Result<Self, ResourcesError> {
         let vmm_config = serde_json::from_str::<VmmConfig>(config_json)?;
 
@@ -171,6 +172,7 @@ impl VmResources {
 
         let mut resources: Self = Self {
             mmds_size_limit,
+            pci_enabled,
             ..Default::default()
         };
         if let Some(machine_config) = vmm_config.machine_config {
@@ -686,9 +688,14 @@ mod tests {
         // these resources, it is considered an invalid json and the test will crash.
 
         // Invalid JSON string must yield a `serde_json` error.
-        let error =
-            VmResources::from_json(r#"}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
-                .unwrap_err();
+        let error = VmResources::from_json(
+            r#"}"#,
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+            false,
+        )
+        .unwrap_err();
         assert!(
             matches!(error, ResourcesError::InvalidJson(_)),
             "{:?}",
@@ -697,9 +704,14 @@ mod tests {
 
         // Valid JSON string without the configuration for kernel or rootfs
         // result in an invalid JSON error.
-        let error =
-            VmResources::from_json(r#"{}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
-                .unwrap_err();
+        let error = VmResources::from_json(
+            r#"{}"#,
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+            false,
+        )
+        .unwrap_err();
         assert!(
             matches!(error, ResourcesError::InvalidJson(_)),
             "{:?}",
@@ -730,6 +742,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap_err();
         assert!(
@@ -765,6 +778,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap_err();
         assert!(
@@ -807,6 +821,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap();
         #[cfg(target_arch = "aarch64")]
@@ -815,6 +830,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap_err();
 
@@ -847,6 +863,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap_err();
         assert!(
@@ -886,6 +903,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap_err();
         assert!(
@@ -925,6 +943,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap_err();
         assert!(
@@ -971,6 +990,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap_err();
 
@@ -1027,6 +1047,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap();
 
@@ -1085,6 +1106,7 @@ mod tests {
             &default_instance_info,
             1200,
             Some(r#"{"key": "value"}"#),
+            false,
         )
         .unwrap();
         let mut map = Map::new();
@@ -1128,6 +1150,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap_err();
         assert!(matches!(error, ResourcesError::File(_)), "{:?}", error);
@@ -1166,6 +1189,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap();
     }
@@ -1209,6 +1233,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap();
         assert_eq!(
@@ -1278,6 +1303,7 @@ mod tests {
                     &InstanceInfo::default(),
                     HTTP_MAX_PAYLOAD_SIZE,
                     None,
+                    false,
                 )
                 .unwrap();
 
@@ -1293,6 +1319,7 @@ mod tests {
                     &InstanceInfo::default(),
                     HTTP_MAX_PAYLOAD_SIZE,
                     Some(r#"{"key": "value"}"#),
+                    false,
                 )
                 .unwrap();
 
@@ -1362,6 +1389,7 @@ mod tests {
                 &InstanceInfo::default(),
                 HTTP_MAX_PAYLOAD_SIZE,
                 None,
+                false,
             )
             .unwrap();
 
@@ -1430,6 +1458,7 @@ mod tests {
                 &InstanceInfo::default(),
                 HTTP_MAX_PAYLOAD_SIZE,
                 None,
+                false,
             )
             .unwrap();
 
