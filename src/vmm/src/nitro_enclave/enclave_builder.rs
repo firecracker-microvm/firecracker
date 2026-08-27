@@ -235,6 +235,7 @@ pub fn build_and_boot_enclave(
     event_manager: &mut EventManager,
     seccomp_filters: &BpfThreadMap,
 ) -> Result<Arc<Mutex<Vmm>>, EnclaveBuilderError> {
+    debug!("event_start: build microvm for boot");
     let boot_config = vm_resources
         .boot_source
         .builder
@@ -255,6 +256,8 @@ pub fn build_and_boot_enclave(
     validate_enclave_vcpu_count(vcpu_count)?;
 
     let numa_nodes = validate_numa_config(enclave_config, &vm_resources.machine_config)?;
+    info!("Enclave NUMA layout: {} node(s)", numa_nodes.len());
+    debug!("Enclave NUMA nodes: {numa_nodes:?}");
     let multi_numa = numa_nodes.len() > 1;
 
     let mut required_matched = ne_ioctl::start_flags::NE_ENCLAVE_PCIE_MODE
@@ -392,7 +395,10 @@ pub fn build_and_boot_enclave(
         enclave_vm.dmb_size_mib(),
         event_manager,
     )?;
+    debug!("event_end: build microvm for boot");
 
+    // Same names as the KVM builder, so the two backends are comparable.
+    debug!("event_start: boot microvm");
     let mut start_flags: u64 = 0;
     if enclave_config.debug_mode {
         start_flags |= ne_ioctl::start_flags::NE_ENCLAVE_DEBUG_MODE;
@@ -405,6 +411,7 @@ pub fn build_and_boot_enclave(
     // CID 0 tells the kernel to auto-assign the enclave's vsock CID.
     // The assigned CID is unused since enclave mode doesn't use vhost-vsock.
     let assigned_cid = enclave_vm.start(start_flags, 0)?;
+    debug!("event_end: boot microvm");
     info!(
         "Enclave started: slot={:#x} cid={assigned_cid}",
         enclave_vm.slot_uid()
@@ -459,6 +466,7 @@ pub fn build_and_boot_enclave(
     // paused/resume lifecycle like KVM VMs, so go straight to Running.
     vmm.lock().unwrap().instance_info.state = VmState::Running;
     event_manager.add_subscriber(vmm.clone());
+    info!("Enclave boot complete");
 
     Ok(vmm)
 }
@@ -474,11 +482,13 @@ fn attach_enclave_devices(
     dmb_size_mib: Option<u64>,
     event_manager: &mut EventManager,
 ) -> Result<(), EnclaveBuilderError> {
+    let mut count: usize = 0;
     if let Some(entropy) = vm_resources.entropy.get() {
         info!("Attaching enclave entropy device");
         device_manager
             .attach_ne_virtio_device(entropy.clone(), enclave_vm, dmb_size_mib, event_manager)
             .map_err(EnclaveBuilderError::AttachEntropy)?;
+        count += 1;
     }
 
     for block in &vm_resources.block.devices {
@@ -487,6 +497,7 @@ fn attach_enclave_devices(
         device_manager
             .attach_ne_virtio_device(block.clone(), enclave_vm, dmb_size_mib, event_manager)
             .map_err(|source| EnclaveBuilderError::AttachBlock { id, source })?;
+        count += 1;
     }
 
     for net in vm_resources.net_builder.iter() {
@@ -495,6 +506,7 @@ fn attach_enclave_devices(
         device_manager
             .attach_ne_virtio_device(net.clone(), enclave_vm, dmb_size_mib, event_manager)
             .map_err(|source| EnclaveBuilderError::AttachNet { id, source })?;
+        count += 1;
     }
 
     if let Some(vsock) = vm_resources.vsock.get() {
@@ -502,8 +514,10 @@ fn attach_enclave_devices(
         device_manager
             .attach_ne_virtio_device(vsock.clone(), enclave_vm, dmb_size_mib, event_manager)
             .map_err(EnclaveBuilderError::AttachVsock)?;
+        count += 1;
     }
 
+    info!("Attached {count} enclave device(s)");
     Ok(())
 }
 
