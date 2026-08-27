@@ -24,7 +24,7 @@ use super::pci::device_status;
 use super::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_IOMMU_PLATFORM;
-use crate::logger::{debug, error, info, warn};
+use crate::logger::{IncMetric, METRICS, debug, error, info, warn};
 use crate::nitro_enclave::info_page::InfoPage;
 use crate::nitro_enclave::ne_ioctl::{self, EnclaveFd, NeAddDevice};
 use crate::vstate::interrupts::InterruptError;
@@ -83,6 +83,7 @@ impl VirtioInterrupt for NeInterrupt {
                     .get(idx as usize)
                     .ok_or(InterruptError::InvalidVectorIndex(idx as usize))?;
                 fd.write(1).map_err(InterruptError::Io)?;
+                METRICS.interrupts.triggers.inc();
             }
             VirtioInterruptType::Config => {
                 // No-op: unlike the MSI-X transport (which fires a config
