@@ -37,6 +37,7 @@ impl Mcfg {
         oem_table_id: [u8; 8],
         oem_revision: u32,
         pci_mmio_config_addr: u64,
+        end_bus: u8,
     ) -> Self {
         let header = SdtHeader::new(
             *b"MCFG",
@@ -53,7 +54,7 @@ impl Mcfg {
                 base_address: pci_mmio_config_addr,
                 segment: 0,
                 start: 0,
-                end: 0,
+                end: end_bus,
                 ..Default::default()
             },
             ..Default::default()
