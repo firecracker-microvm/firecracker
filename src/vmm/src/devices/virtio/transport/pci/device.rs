@@ -1307,6 +1307,7 @@ mod tests {
                 &mut Cmdline::new(1024).unwrap(),
                 &mut event_manager,
                 false,
+                crate::device_manager::pci_mngr::PciPlacement::RootBus,
             )
             .unwrap();
         vmm
