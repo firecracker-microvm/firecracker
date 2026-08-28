@@ -228,6 +228,9 @@ pub enum VmmError {
     DirtyBitmap(kvm_ioctls::Error),
     /// I8042 error: {0}
     I8042Error(devices::legacy::I8042DeviceError),
+    #[cfg(target_arch = "aarch64")]
+    /// PL061 GPIO error: {0}
+    PL061Error(devices::legacy::PL061Error),
     #[cfg(target_arch = "x86_64")]
     /// Cannot add devices to the legacy I/O Bus. {0}
     LegacyIOBus(device_manager::legacy::LegacyDeviceError),
@@ -482,18 +485,43 @@ impl Vmm {
         Ok(())
     }
 
-    /// Injects CTRL+ALT+DEL keystroke combo in the i8042 device.
-    #[cfg(target_arch = "x86_64")]
+    /// Injects the external graceful-shutdown event into the guest.
     pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
-        self.device_manager
-            .legacy_devices
-            .as_ref()
-            .ok_or(VmmError::NotSupported)?
-            .i8042
-            .lock()
-            .expect("i8042 lock was poisoned")
-            .trigger_ctrl_alt_del()
-            .map_err(VmmError::I8042Error)
+        #[cfg(target_arch = "x86_64")]
+        {
+            self.device_manager
+                .legacy_devices
+                .as_ref()
+                .ok_or(VmmError::NotSupported)?
+                .i8042
+                .lock()
+                .expect("i8042 lock was poisoned")
+                .trigger_ctrl_alt_del()
+                .map_err(VmmError::I8042Error)
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            let gpio = self
+                .device_manager
+                .mmio_platform_devices
+                .gpio_pl061
+                .as_ref()
+                .ok_or(device_manager::FindDeviceError::DeviceNotFound)?
+                .inner
+                .clone();
+
+            // Press the virtual power button. The device holds the line asserted until the
+            // guest reads it back and then releases it itself, so there is nothing to time
+            // out here: the press survives a paused vCPU and is delivered on resume, and it
+            // is carried across a snapshot as part of the PL061 register state.
+            gpio.lock()
+                .expect("PL061 lock was poisoned")
+                .trigger_power_button()
+                .map_err(VmmError::PL061Error)?;
+
+            Ok(())
+        }
     }
 
     /// Saves the state of a paused Microvm.

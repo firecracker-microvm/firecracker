@@ -129,9 +129,10 @@ pub enum VmmAction {
     UpdateMemoryHotplugSize(MemoryHotplugSizeUpdate),
     /// Launch the microVM. This action can only be called before the microVM has booted.
     StartMicroVm,
-    /// Send CTRL+ALT+DEL to the microVM, using the i8042 keyboard function. If an AT-keyboard
-    /// driver is listening on the guest end, this can be used to shut down the microVM gracefully.
-    #[cfg(target_arch = "x86_64")]
+    /// Send an external graceful shutdown input to the microVM.
+    ///
+    /// On x86_64 this injects CTRL+ALT+DEL through the i8042 keyboard device. On aarch64 this
+    /// injects a virtual power-button press through the PL061 GPIO device.
     SendCtrlAltDel,
     /// Update the balloon size, after microVM start.
     UpdateBalloon(BalloonUpdateConfig),
@@ -515,9 +516,8 @@ impl<'a> PrebootApiController<'a> {
             | StartFreePageHinting(_)
             | GetFreePageHintingStatus
             | StopFreePageHinting
-            | HotUnplugDevice(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
-            #[cfg(target_arch = "x86_64")]
-            SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
+            | HotUnplugDevice(_)
+            | SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
     }
 
@@ -797,7 +797,6 @@ impl RuntimeApiController {
                 value,
             ),
             Resume => self.resume(),
-            #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => self.send_ctrl_alt_del(),
             UpdateBalloon(balloon_update) => self
                 .vmm
@@ -906,8 +905,7 @@ impl RuntimeApiController {
             .map_err(VmmActionError::InternalVmm)
     }
 
-    /// Injects CTRL+ALT+DEL keystroke combo to the inner Vmm (if present).
-    #[cfg(target_arch = "x86_64")]
+    /// Injects the external graceful-shutdown event to the inner Vmm (if present).
     fn send_ctrl_alt_del(&mut self) -> Result<VmmData, VmmActionError> {
         self.vmm
             .lock()
@@ -1245,7 +1243,6 @@ mod tests {
                 sync_snapshot_files: true,
             },
         )));
-        #[cfg(target_arch = "x86_64")]
         check_unsupported(preboot_request(VmmAction::SendCtrlAltDel));
         check_unsupported(preboot_request(VmmAction::UpdateMemoryHotplugSize(
             MemoryHotplugSizeUpdate {
@@ -1259,6 +1256,66 @@ mod tests {
         let mut runtime = RuntimeApiController::new(vmm.clone());
         let mut event_manager = EventManager::new().unwrap();
         runtime.handle_request(request, &mut event_manager)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn test_runtime_send_ctrl_alt_del() {
+        use crate::builder::tests::default_kernel_cmdline;
+
+        let mut vmm = default_vmm();
+        let mut cmdline = default_kernel_cmdline();
+        let mut event_manager = EventManager::new().unwrap();
+        vmm.device_manager
+            .attach_legacy_devices_aarch64(
+                vmm.vm.as_kvm().unwrap(),
+                &mut event_manager,
+                &mut cmdline,
+                None,
+                None,
+            )
+            .unwrap();
+
+        let gpio = vmm
+            .device_manager
+            .mmio_platform_devices
+            .gpio_pl061
+            .as_ref()
+            .unwrap()
+            .inner
+            .clone();
+        {
+            let mut gpio = gpio.lock().unwrap();
+            gpio.bus_write(0x40c, &1u32.to_le_bytes());
+            gpio.bus_write(0x410, &1u32.to_le_bytes());
+        }
+
+        let vmm = Arc::new(Mutex::new(vmm));
+        let mut runtime = RuntimeApiController::new(vmm);
+
+        assert_eq!(
+            runtime
+                .handle_request(VmmAction::SendCtrlAltDel, &mut event_manager)
+                .unwrap(),
+            VmmData::Empty
+        );
+
+        // The press is latched rather than released after a delay: the action returns with the
+        // line still asserted, which is what lets a press issued against a paused vCPU be
+        // observed once the guest runs again.
+        let mut data = [0u8; 4];
+        let mut gpio = gpio.lock().unwrap();
+        gpio.bus_read(0x004, &mut data);
+        assert_eq!(
+            u32::from_le_bytes(data),
+            1,
+            "the power button must still read as pressed until the guest observes it"
+        );
+        assert_eq!(gpio.interrupt_evt.read().unwrap(), 1);
+
+        // That read is the guest observing the line, so the button is released behind it.
+        gpio.bus_read(0x004, &mut data);
+        assert_eq!(u32::from_le_bytes(data), 0);
     }
 
     #[test]

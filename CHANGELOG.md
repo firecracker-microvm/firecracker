@@ -52,6 +52,11 @@ and this project adheres to
   unless the capability is enabled on the VM.
 - [#6145](https://github.com/firecracker-microvm/firecracker/pull/6145): Added
   official support for AWS Graviton5 (m9g.metal-48xl) instances.
+- [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
+  `SendCtrlAltDel` action is now supported on aarch64. It injects a virtual
+  power-button press through a new PL061 GPIO controller exposed to the guest as
+  a `gpio-keys` power button, enabling external graceful shutdown (aarch64
+  previously rejected the action with a 400).
 
 ### Changed
 
