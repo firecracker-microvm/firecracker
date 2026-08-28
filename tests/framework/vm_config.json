@@ -22,7 +22,8 @@
         "min_io_size": 0,
         "opt_io_size": 128
       },
-      "socket": null
+      "socket": null,
+      "removable": false
     }
   ],
   "machine-config": {

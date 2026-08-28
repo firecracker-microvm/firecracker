@@ -740,6 +740,7 @@ mod tests {
                 mtu: None,
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
+                removable: false,
             };
             insert_net_device_with_mmds(
                 &mut vmm,
@@ -836,7 +837,8 @@ mod tests {
         "min_io_size": 0,
         "opt_io_size": 128
       }},
-      "socket": null
+      "socket": null,
+      "removable": false
     }}
   ],
   "boot-source": {{
@@ -870,7 +872,8 @@ mod tests {
       "guest_mac": null,
       "mtu": null,
       "rx_rate_limiter": null,
-      "tx_rate_limiter": null
+      "tx_rate_limiter": null,
+      "removable": false
     }}
   ],
   "vsock": {{
@@ -886,7 +889,8 @@ mod tests {
       "path_on_host": "{}",
       "root_device": true,
       "read_only": true,
-      "rate_limiter": null
+      "rate_limiter": null,
+      "removable": false
     }}
   ],
   "memory-hotplug": {{

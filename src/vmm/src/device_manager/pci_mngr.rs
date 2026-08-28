@@ -310,6 +310,13 @@ impl PciDevices {
             .get(&(device_type, device_id.to_string()))
     }
 
+    /// Return whether the device sits behind a PCIe root port, and is therefore
+    /// hot-unpluggable.
+    pub(crate) fn is_removable(&self, device_type: VirtioDeviceType, device_id: &str) -> bool {
+        self.get_virtio_device(device_type, device_id)
+            .is_some_and(|device| device.lock().expect("Poisoned lock").sbdf.bus() != 0)
+    }
+
     pub(crate) fn get_device(
         &self,
         device_type: VirtioDeviceType,
@@ -808,6 +815,7 @@ mod tests {
                 mtu: None,
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
+                removable: false,
             };
             insert_net_device_with_mmds(
                 &mut vmm,
@@ -913,7 +921,8 @@ mod tests {
         "min_io_size": 0,
         "opt_io_size": 128
       }},
-      "socket": null
+      "socket": null,
+      "removable": false
     }}
   ],
   "boot-source": {{
@@ -947,7 +956,8 @@ mod tests {
       "guest_mac": null,
       "mtu": null,
       "rx_rate_limiter": null,
-      "tx_rate_limiter": null
+      "tx_rate_limiter": null,
+      "removable": false
     }}
   ],
   "vsock": {{
@@ -963,7 +973,8 @@ mod tests {
       "path_on_host": "{}",
       "root_device": true,
       "read_only": true,
-      "rate_limiter": null
+      "rate_limiter": null,
+      "removable": false
     }}
   ],
   "memory-hotplug": {{

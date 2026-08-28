@@ -355,16 +355,24 @@ impl Vmm {
         let mut mmds_ipv4_address = None;
         let mut mmds_ref = None;
 
+        let device_manager = &self.device_manager;
+        let is_removable =
+            |device_type, id: &str| device_manager.is_device_removable(device_type, id);
+
         self.device_manager
             .for_each_virtio_device(|device_type, device| match device_type {
                 VirtioDeviceType::Block => {
                     if let Some(b) = device.as_any().downcast_ref::<Block>() {
-                        block.push(b.config());
+                        let mut config = b.config();
+                        config.removable = is_removable(device_type, &config.drive_id);
+                        block.push(config);
                     }
                 }
                 VirtioDeviceType::Net => {
                     if let Some(n) = device.as_any().downcast_ref::<Net>() {
-                        net.push(NetworkInterfaceConfig::from(n));
+                        let mut config = NetworkInterfaceConfig::from(n);
+                        config.removable = is_removable(device_type, &config.iface_id);
+                        net.push(config);
                         if let Some(mmds_ns) = &n.mmds_ns {
                             net_with_mmds.push(n.id.clone());
                             if mmds_ref.is_none() {
@@ -376,7 +384,9 @@ impl Vmm {
                 }
                 VirtioDeviceType::Pmem => {
                     if let Some(p) = device.as_any().downcast_ref::<Pmem>() {
-                        pmem.push(p.config.clone());
+                        let mut config = p.config.clone();
+                        config.removable = is_removable(device_type, &config.id);
+                        pmem.push(config);
                     }
                 }
                 VirtioDeviceType::Balloon => {

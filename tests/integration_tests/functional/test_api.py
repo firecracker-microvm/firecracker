@@ -977,6 +977,7 @@ def _drive_patch(test_microvm, io_engine):
                 "opt_io_size": 128,
             },
             "socket": None,
+            "removable": False,
         },
         {
             "drive_id": "scratch",
@@ -999,6 +1000,7 @@ def _drive_patch(test_microvm, io_engine):
                 "opt_io_size": 128,
             },
             "socket": None,
+            "removable": False,
         },
         {
             "drive_id": "scratch_vub",
@@ -1016,6 +1018,7 @@ def _drive_patch(test_microvm, io_engine):
                 Path("/")
                 / test_microvm.disks_vhost_user["scratch_vub"].socket_path.name
             ),
+            "removable": False,
         },
     ]
     assert sorted(response["drives"], key=lambda d: d["drive_id"]) == sorted(
@@ -1411,6 +1414,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
                 "opt_io_size": 128,
             },
             "socket": None,
+            "removable": False,
         }
     ]
 
@@ -1427,6 +1431,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
             "root_device": False,
             "read_only": False,
             "rate_limiter": None,
+            "removable": False,
         }
     ]
 
@@ -1480,6 +1485,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
             "mtu": None,
             "rx_rate_limiter": None,
             "tx_rate_limiter": tx_rl,
+            "removable": False,
         }
     ]
 
@@ -1560,6 +1566,7 @@ def test_get_full_config(uvm):
                 "opt_io_size": 128,
             },
             "socket": None,
+            "removable": False,
         }
     ]
 
@@ -1576,6 +1583,7 @@ def test_get_full_config(uvm):
             "root_device": False,
             "read_only": False,
             "rate_limiter": None,
+            "removable": False,
         }
     ]
 
@@ -1624,6 +1632,7 @@ def test_get_full_config(uvm):
             "mtu": None,
             "rx_rate_limiter": None,
             "tx_rate_limiter": tx_rl,
+            "removable": False,
         }
     ]
 

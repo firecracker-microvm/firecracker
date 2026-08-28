@@ -1279,6 +1279,13 @@ definitions:
         description:
           Path to the socket of vhost-user-block backend.
           This field is required for vhost-user-block config should be omitted for virtio-block configuration.
+      removable:
+        type: boolean
+        default: false
+        description:
+          If true, the device is placed behind a PCIe root port, which is what
+          makes it possible to hot-unplug it later. It consumes one of the ports
+          set aside by `pcie_hotplug_ports`. Requires PCI to be enabled.
 
   BlockTopology:
     type: object
@@ -1327,6 +1334,13 @@ definitions:
           Flag to map backing file in read-only mode.
       rate_limiter:
         $ref: "#/definitions/RateLimiter"
+      removable:
+        type: boolean
+        default: false
+        description:
+          If true, the device is placed behind a PCIe root port, which is what
+          makes it possible to hot-unplug it later. It consumes one of the ports
+          set aside by `pcie_hotplug_ports`. Requires PCI to be enabled.
 
   Error:
     type: object
@@ -1615,6 +1629,13 @@ definitions:
         $ref: "#/definitions/RateLimiter"
       tx_rate_limiter:
         $ref: "#/definitions/RateLimiter"
+      removable:
+        type: boolean
+        default: false
+        description:
+          If true, the device is placed behind a PCIe root port, which is what
+          makes it possible to hot-unplug it later. It consumes one of the ports
+          set aside by `pcie_hotplug_ports`. Requires PCI to be enabled.
 
   PartialDrive:
     type: object
