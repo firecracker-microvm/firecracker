@@ -234,14 +234,14 @@
             },
             {
                 "syscall": "mmap",
-                "comment": "Used by the VirtIO balloon device",
+                "comment": "Used by discard_range for the VirtIO balloon and memory (virtio-mem) devices",
                 "args": [
                     {
                         "index": 3,
                         "type": "dword",
                         "op": "eq",
-                        "val": 50,
-                        "comment": "libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE"
+                        "val": 16434,
+                        "comment": "libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE | libc::MAP_NORESERVE"
                     },
                     {
                         "index": 2,
