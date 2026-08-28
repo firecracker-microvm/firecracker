@@ -80,6 +80,8 @@ The configuration items that may be relevant for Firecracker are:
   - `CONFIG_VIRTIO_PCI`
   - `CONFIG_PCI_HOST_COMMON`
   - `CONFIG_PCI_HOST_GENERIC`
+  - `CONFIG_HOTPLUG_PCI`
+  - `CONFIG_HOTPLUG_PCI_PCIE`
 
 There are also guest config options which are dependant on the platform on which
 Firecracker is run:
