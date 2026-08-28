@@ -79,6 +79,15 @@ and this project adheres to
   new host-initiated connection made after the resume hung forever. The gate is
   now part of the persisted device state and the resume kick respects it instead
   of arming it.
+- [#6174](https://github.com/firecracker-microvm/firecracker/pull/6174): Fixed
+  `virtio-mem` leaving unplugged memory writable by the VMM, and potentially
+  unmapped, on microVMs restored from a snapshot memory file. Firecracker now
+  maps each slot straight to the protection it should have, with the
+  `MAP_NORESERVE` flag, and aborts if the re-map fails.
+- [#6174](https://github.com/firecracker-microvm/firecracker/pull/6174): Fixed
+  `virtio-mem` discarding the whole hotpluggable region on every `UNPLUG_ALL`
+  request, even when nothing was plugged. The discard is now skipped when the
+  range has no plugged blocks.
 - [#5956](https://github.com/firecracker-microvm/firecracker/pull/5956): Fixed a
   TOCTOU race in the aarch64 jailer when setting ownership of the CPU cache and
   `MIDR_EL1` information files copied into the chroot.
