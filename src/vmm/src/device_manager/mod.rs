@@ -913,6 +913,8 @@ pub(crate) mod tests {
             path_on_host: Some(f.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
             socket: None,
         }
     }
@@ -964,6 +966,38 @@ pub(crate) mod tests {
                 .virtio_devices
                 .contains_key(&device_id)
         );
+    }
+
+    #[test]
+    fn test_pci_bar_is_freed_on_unplug() {
+        let mut evt_manager = EventManager::new().unwrap();
+        let mut vmm = default_vmm_with_pci();
+        let f = TempFile::new().unwrap();
+
+        let bar_addr = |vmm: &crate::Vmm, id: &str| {
+            pci_devices(&vmm.device_manager)
+                .get_virtio_device(VirtioDeviceType::Block, id)
+                .unwrap()
+                .lock()
+                .unwrap()
+                .bar_address()
+        };
+
+        let cfg = HotplugDeviceConfig::Block(make_hotplug_block_cfg("block0", &f, false));
+        vmm.hotplug_device(cfg, &mut evt_manager).unwrap();
+        let first_addr = bar_addr(&vmm, "block0");
+
+        vmm.hot_unplug_device(
+            (VirtioDeviceType::Block, "block0".to_string()),
+            &mut evt_manager,
+        )
+        .unwrap();
+
+        // The BAR range of the detached device must have been returned to the
+        // 64-bit MMIO allocator, so the next device gets the same address.
+        let cfg = HotplugDeviceConfig::Block(make_hotplug_block_cfg("block1", &f, false));
+        vmm.hotplug_device(cfg, &mut evt_manager).unwrap();
+        assert_eq!(bar_addr(&vmm, "block1"), first_addr);
     }
 
     #[test]

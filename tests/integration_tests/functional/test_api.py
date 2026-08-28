@@ -902,6 +902,13 @@ def _drive_patch(test_microvm, io_engine):
             "path_on_host": "/" + test_microvm.rootfs_file.name,
             "rate_limiter": None,
             "io_engine": "Sync",
+            "blk_size": 512,
+            "topology": {
+                "physical_block_exp": 0,
+                "alignment_offset": 0,
+                "min_io_size": 0,
+                "opt_io_size": 128,
+            },
             "socket": None,
         },
         {
@@ -916,6 +923,13 @@ def _drive_patch(test_microvm, io_engine):
                 "ops": {"size": 500, "one_time_burst": None, "refill_time": 100},
             },
             "io_engine": io_engine,
+            "blk_size": 512,
+            "topology": {
+                "physical_block_exp": 0,
+                "alignment_offset": 0,
+                "min_io_size": 0,
+                "opt_io_size": 128,
+            },
             "socket": None,
         },
         {
@@ -927,6 +941,8 @@ def _drive_patch(test_microvm, io_engine):
             "path_on_host": None,
             "rate_limiter": None,
             "io_engine": None,
+            "blk_size": None,
+            "topology": None,
             "socket": str(
                 Path("/")
                 / test_microvm.disks_vhost_user["scratch_vub"].socket_path.name
@@ -1312,6 +1328,13 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
             "path_on_host": f"/{uvm_configured.rootfs_file.name}",
             "rate_limiter": None,
             "io_engine": "Sync",
+            "blk_size": 512,
+            "topology": {
+                "physical_block_exp": 0,
+                "alignment_offset": 0,
+                "min_io_size": 0,
+                "opt_io_size": 128,
+            },
             "socket": None,
         }
     ]
@@ -1452,6 +1475,13 @@ def test_get_full_config(uvm):
             "path_on_host": "/" + test_microvm.rootfs_file.name,
             "rate_limiter": None,
             "io_engine": "Sync",
+            "blk_size": 512,
+            "topology": {
+                "physical_block_exp": 0,
+                "alignment_offset": 0,
+                "min_io_size": 0,
+                "opt_io_size": 128,
+            },
             "socket": None,
         }
     ]

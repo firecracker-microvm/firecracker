@@ -7,7 +7,7 @@
 
 use byteorder::{ByteOrder, LittleEndian};
 use serde::{Deserialize, Serialize};
-use zerocopy::{FromBytes, IntoBytes};
+use zerocopy::IntoBytes;
 
 use crate::logger::warn;
 use crate::pci::{PciCapabilityId, PciClassCode};
@@ -70,8 +70,6 @@ pub struct Bar {
     pub encoded_addr: u32,
     /// Encoded size value of the register (according to PCI rules of size encoding).
     pub encoded_size: u32,
-    /// Indicator if the register was prepared to be read as the `size` instead of `addr`
-    pub about_to_be_read: bool,
 }
 
 impl Bar {
@@ -233,36 +231,31 @@ impl Bars {
         // There are only 6 registers each 4 bytes long
         assert!(bar_idx < NUM_BAR_REGS);
         assert!(offset as usize + data.len() <= 4);
-        if let Ok(value) = u32::read_from_bytes(data)
-            && value == 0xffff_ffff
-        {
-            self.bars[bar_idx as usize].about_to_be_read = true;
-        } else {
-            self.bars[bar_idx as usize].about_to_be_read = false;
-            // There is no BAR relocation support as of right now.
-            // PCI specification does not provide a way for a device to
-            // tell the driver that it does not support BAR relocation, but
-            // linux kernel does check this at:
-            // https://elixir.bootlin.com/linux/v6.19.8/source/drivers/pci/setup-res.c#L107
-        }
+
+        let bar = &mut self.bars[bar_idx as usize];
+
+        // Note that the actual BAR relocation takes effect when the guest
+        // enables memory-space decoding in the command register. This is
+        // because updating a 64-bit BAR requires more than one write.
+        // See maybe_relocate_bar().
+        let mut reg = bar.encoded_addr.to_le_bytes();
+        reg[offset as usize..][..data.len()].copy_from_slice(data);
+        let value = u32::from_le_bytes(reg);
+        // The address needs to be aligned to the BAR size. The low bits of the
+        // BAR corresponding to the size/alignment are non-writable. For
+        // example, if the BAR size is 1MiB, the last 20 bits are non-writable.
+        // Bar::encoded_size is the writable bits mask: !(size - 1)
+        let writable = bar.encoded_size;
+        bar.encoded_addr = (value & writable) | (bar.encoded_addr & !writable);
     }
 
     /// Reads from a given BAR register at the given offset
-    pub fn read(&mut self, bar_idx: u8, offset: u8, data: &mut [u8]) {
+    pub fn read(&self, bar_idx: u8, offset: u8, data: &mut [u8]) {
         // There are only 6 registers each 4 bytes long
         assert!(bar_idx < NUM_BAR_REGS);
         assert!(offset as usize + data.len() <= 4);
-        let bar = &mut self.bars[bar_idx as usize];
-        let bytes = if bar.about_to_be_read {
-            // This technically allows for an inconsistent behaviour where the guest would read
-            // only a part of the `size` of the BAR on the first read, but will get `addr` bytes
-            // on following reads. Any sane driver will read the whole register, so this should
-            // not be an issue. This will be fixed once we support BAR relocation/resizing.
-            bar.about_to_be_read = false;
-            bar.encoded_size.as_bytes()
-        } else {
-            bar.encoded_addr.as_bytes()
-        };
+        let bar = &self.bars[bar_idx as usize];
+        let bytes = bar.encoded_addr.as_bytes();
         data.copy_from_slice(&bytes[offset as usize..][..data.len()]);
     }
 }
@@ -1016,5 +1009,73 @@ mod tests {
         assert_eq!(bars.get_bar_addr_32(2), 0x2_0000);
         assert_eq!(bars.get_bar_size(2), 0x2000);
         assert_eq!(bars.get_bar_size_32(2), 0x2000);
+    }
+
+    #[test]
+    fn test_bars_relocate_64bit() {
+        // A 64-bit prefetchable BAR the guest can reprogram.
+        let mut bars = Bars::default();
+        bars.set_bar_64(0, 0x1_0000_0000, 0x1000, BarPrefetchable::Yes);
+        // Low register carries the type/prefetchable flags in its low nibble:
+        // bit 3 (prefetchable) + bits 2:1 = 0b10 (64-bit) => 0b1100 = 0xc.
+        assert_eq!(bars.bars[0].encoded_addr & 0xf, 0b1100);
+
+        // The guest reassigns the BAR to 0x2_0000_0000 by writing the low then
+        // the high half of the address register.
+        bars.write(0, 0, &0x0000_0000u32.to_le_bytes());
+        bars.write(1, 0, &0x0000_0002u32.to_le_bytes());
+        assert_eq!(bars.get_bar_addr_64(0), 0x2_0000_0000);
+        // Size is unchanged and the read-only flag bits are preserved.
+        assert_eq!(bars.get_bar_size_64(0), 0x1000);
+        assert_eq!(bars.bars[0].encoded_addr & 0xf, 0b1100);
+
+        // The low address bits inside the size mask are read-only: a write that
+        // sets them is masked off (0x1234 & !(0x1000-1) == 0x1000).
+        bars.write(0, 0, &0x0000_1234u32.to_le_bytes());
+        assert_eq!(bars.get_bar_addr_64(0), 0x2_0000_1000);
+    }
+
+    #[test]
+    fn test_bars_relocate_partial_write() {
+        // Reprogramming the address one byte at a time must accumulate, and the
+        // read-only flag bits in the low register must be preserved.
+        let mut bars = Bars::default();
+        bars.set_bar_64(0, 0x1_0000_0000, 0x1000, BarPrefetchable::No);
+
+        // Write the high half (upper 32 bits of the address) byte-by-byte to 0x4000.
+        bars.write(1, 0, &[0x00]);
+        bars.write(1, 1, &[0x40]);
+        bars.write(1, 2, &[0x00]);
+        bars.write(1, 3, &[0x00]);
+        // Write the low half so the aligned base becomes 0x0020_0000.
+        bars.write(0, 0, &0x0020_0000u32.to_le_bytes());
+
+        assert_eq!(bars.get_bar_addr_64(0), 0x4000_0020_0000);
+        // The 64-bit type flag (bit 2) survives the low-register writes.
+        assert!(bars.bars[0].is_64bit());
+    }
+
+    #[test]
+    fn test_bars_sizing_probe() {
+        // Writing all 1s leaves the encoded size in the register.
+        let mut bars = Bars::default();
+        bars.set_bar_64(0, 0x1_0000_0000, 0x1000, BarPrefetchable::No);
+
+        bars.write(0, 0, &0xffff_ffffu32.to_le_bytes());
+        let mut v: u32 = 0;
+        bars.read(0, 0, v.as_mut_bytes());
+        // Encoded size of a 4 KiB BAR, with the read-only 64-bit type flag
+        // (bit 2) preserved.
+        assert_eq!(v, 0xffff_f000 | 0b100);
+        // The register keeps reporting the size until the guest writes an
+        // address back, so a second read gives the same value.
+        bars.read(0, 0, v.as_mut_bytes());
+        assert_eq!(v, 0xffff_f000 | 0b100);
+
+        // The guest restores the address it saved before the probe.
+        bars.write(0, 0, &0x0000_0000u32.to_le_bytes());
+        assert_eq!(bars.get_bar_addr_64(0), 0x1_0000_0000);
+        assert_eq!(bars.get_bar_size_64(0), 0x1000);
+        assert!(bars.bars[0].is_64bit());
     }
 }

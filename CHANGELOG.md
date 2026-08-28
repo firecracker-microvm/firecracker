@@ -44,6 +44,19 @@ and this project adheres to
   host page cache, so same-host reads still see the full contents. Block device
   backing files are always `fsync`'d regardless. See
   [snapshot documentation](docs/snapshotting/snapshot-support.md).
+- [#6116](https://github.com/firecracker-microvm/firecracker/pull/6116): On
+  aarch64, enable `KVM_CAP_ARM_WRITABLE_IMP_ID_REGS` when the host kernel offers
+  it (Linux 6.15 and later), adding support for custom CPU templates that modify
+  the implementation ID registers (`MIDR_EL1`, `REVIDR_EL1`, `AIDR_EL1`). Such
+  templates previously failed at boot with
+  `Failed to set register ... Invalid argument` because KVM rejects the write
+  unless the capability is enabled on the VM.
+- [#6145](https://github.com/firecracker-microvm/firecracker/pull/6145): Added
+  official support for AWS Graviton5 (m9g.metal-48xl) instances.
+- [#6098](https://github.com/firecracker-microvm/firecracker/pull/6098): Added
+  new VIRTIO_BLK_F_BLK_SIZE and VIRTIO_BLK_F_TOPOLOGY features to the
+  virtio-block device. More information is in the new [block](docs/block.md)
+  documentation.
 
 ### Changed
 
