@@ -26,6 +26,10 @@
                 "syscall": "read"
             },
             {
+                "syscall": "readlinkat",
+                "comment": "Used to canonicalize VMDK descriptor paths on drive patch"
+            },
+            {
                 "syscall": "write"
             },
             {
@@ -82,12 +86,28 @@
                 "comment": "Used for drive patching & rescanning, for reading the local timezone from /etc/localtime"
             },
             {
+                "syscall": "fstatfs",
+                "comment": "Used by the imago VMDK disk image backend"
+            },
+            {
                 "syscall": "ftruncate",
                 "comment": "Used for snapshotting"
             },
             {
                 "syscall": "lseek",
                 "comment": "Used by the block device"
+            },
+            {
+                "syscall": "pread64",
+                "comment": "Used by the imago VMDK disk image backend"
+            },
+            {
+                "syscall": "preadv",
+                "comment": "Used by the imago VMDK disk image backend"
+            },
+            {
+                "syscall": "pwrite64",
+                "comment": "Used by the imago VMDK disk image backend"
             },
             {
                 "syscall": "mremap",
@@ -147,6 +167,19 @@
                         "op": "eq",
                         "val": 1,
                         "comment": "FCNTL_FD_CLOEXEC"
+                    }
+                ]
+            },
+            {
+                "syscall": "fcntl",
+                "comment": "Used by the imago VMDK disk image backend",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 3,
+                        "comment": "F_GETFL"
                     }
                 ]
             },
