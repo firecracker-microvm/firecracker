@@ -588,25 +588,6 @@ def test_host_vs_guest_cpu_features(uvm):
             expected_guest_minus_host = set()
             expected_host_minus_guest = set()
 
-            # Upstream kernel v6.11+ hides "ssbs" from "lscpu" on CPUs affected by errata
-            # https://github.com/torvalds/linux/commit/adeec61a4723fd3e39da68db4cc4d924e6d7f641
-            # that may prevent SSBS register writes from immediately affecting subsequent
-            # speculative instructions, potentially allowing speculative store bypass.
-            #
-            # Amazon Linux kernels v5.10 and v6.1 backported the above commit
-            # https://github.com/amazonlinux/linux/commit/706f18a (v5.10)
-            # https://github.com/amazonlinux/linux/commit/fce3458 (v6.1)
-            #
-            # TODO: Our CI microvm kernel configs do not apply the errata yet, thus
-            # the guests still expose "ssbs". We should remove CONFIG_ARM64_ERRATUM_3194386
-            # from ci.config and trigger a CI kernel rebuild.
-            host_has_ssbs = global_props.host_os not in {
-                "amzn2",
-                "amzn2023",
-            } and global_props.host_linux_version_tpl < (6, 11)
-            if not host_has_ssbs:
-                expected_guest_minus_host |= {"ssbs"}
-
             assert host_feats - guest_feats == expected_host_minus_guest
             assert guest_feats - host_feats == expected_guest_minus_host
 
@@ -624,25 +605,6 @@ def test_host_vs_guest_cpu_features(uvm):
                     "sve2",
                     "svepmull",
                 }
-
-            # Upstream kernel v6.11+ hides "ssbs" from "lscpu" on CPUs affected by errata
-            # https://github.com/torvalds/linux/commit/adeec61a4723fd3e39da68db4cc4d924e6d7f641
-            # that may prevent SSBS register writes from immediately affecting subsequent
-            # speculative instructions, potentially allowing speculative store bypass.
-            #
-            # Amazon Linux kernels v5.10 and v6.1 backported the above commit
-            # https://github.com/amazonlinux/linux/commit/706f18a (v5.10)
-            # https://github.com/amazonlinux/linux/commit/fce3458 (v6.1)
-            #
-            # TODO: Our CI microvm kernel configs do not apply the errata yet, thus
-            # the guests still expose "ssbs". We should remove CONFIG_ARM64_ERRATUM_3194386
-            # from ci.config and trigger a CI kernel rebuild.
-            host_has_ssbs = global_props.host_os not in {
-                "amzn2",
-                "amzn2023",
-            } and global_props.host_linux_version_tpl < (6, 11)
-            if not host_has_ssbs:
-                expected_guest_minus_host |= {"ssbs"}
 
             assert host_feats - guest_feats == expected_host_minus_guest
             assert guest_feats - host_feats == expected_guest_minus_host
@@ -670,13 +632,6 @@ def test_host_vs_guest_cpu_features(uvm):
 
             if host_has_wfxt and not guest_has_wfxt:
                 expected_host_minus_guest |= {"wfxt"}
-
-            host_has_ssbs = global_props.host_os not in {
-                "amzn2",
-                "amzn2023",
-            } and global_props.host_linux_version_tpl < (6, 11)
-            if not host_has_ssbs:
-                expected_guest_minus_host |= {"ssbs"}
 
             assert host_feats - guest_feats == expected_host_minus_guest
             assert guest_feats - host_feats == expected_guest_minus_host

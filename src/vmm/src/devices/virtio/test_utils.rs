@@ -445,25 +445,18 @@ pub(crate) mod test {
 
         /// Add a new Descriptor in one of the device's queues in the form of scatter gather
         ///
-        /// This function adds in one of the queues of the device a DescriptorChain at some offset
-        /// in the "data range" of the guest memory. The number of descriptors to create is passed
-        /// as a list of descriptors (a tuple of (index, addr, length, flags)).
+        /// This function adds in one of the queues of the device a DescriptorChain. The
+        /// descriptors to create are passed as a list of descriptors (a tuple of
+        /// (index, addr, length, flags)), so each descriptor points to the address
+        /// given in the list.
         ///
         /// The total size of the buffer is the sum of all lengths of this list of descriptors.
-        /// The fist descriptor will be stored at `self.data_address() + addr_offset`. Subsequent
-        /// descriptors will be placed at random addresses after that.
         ///
         /// # Arguments
         ///
         /// * `queue` - The index of the device queue to use
-        /// * `addr_offset` - Offset within the data region where to put the first descriptor
         /// * `desc_list` - List of descriptors to create in the chain
-        pub fn add_scatter_gather(
-            &mut self,
-            queue: usize,
-            addr_offset: u64,
-            desc_list: &[(u16, u64, u32, u16)],
-        ) {
+        pub fn add_scatter_gather(&mut self, queue: usize, desc_list: &[(u16, u64, u32, u16)]) {
             let device = self.device.lock().unwrap();
 
             let event_fd = &device.queue_events()[queue];

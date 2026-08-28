@@ -117,10 +117,10 @@ impl MutEventSubscriber for Net {
             match source {
                 Self::PROCESS_VIRTQ_RX | Self::PROCESS_VIRTQ_TX => self.drain_queue_events(),
                 Self::PROCESS_RX_RATE_LIMITER => {
-                    self.rx_rate_limiter.event_handler();
+                    let _ = self.rx_rate_limiter.event_handler();
                 }
                 Self::PROCESS_TX_RATE_LIMITER => {
-                    self.tx_rate_limiter.event_handler();
+                    let _ = self.tx_rate_limiter.event_handler();
                 }
                 _ => (),
             }

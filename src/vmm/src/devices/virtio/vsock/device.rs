@@ -27,7 +27,6 @@ use std::sync::Arc;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::super::super::DeviceError;
-use super::defs::uapi;
 use super::packet::{VSOCK_PKT_HDR_SIZE, VsockPacketRx, VsockPacketTx};
 use super::{VsockBackend, defs};
 use crate::devices::virtio::ActivateError;
@@ -40,7 +39,6 @@ use crate::devices::virtio::vsock::VsockError;
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::impl_device_type;
 use crate::logger::{IncMetric, error, info, warn};
-use crate::utils::byte_order;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};
 
 pub(crate) const RXQ_INDEX: usize = 0;
@@ -483,8 +481,8 @@ mod tests {
 
     use super::*;
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
-    use crate::devices::virtio::vsock::defs::uapi;
     use crate::devices::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
+    use crate::utils::byte_order;
     use crate::vstate::memory::GuestAddress;
 
     /// Guest address used for the writable evq descriptor payload in tests.

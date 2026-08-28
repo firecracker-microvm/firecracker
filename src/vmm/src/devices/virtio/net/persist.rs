@@ -8,11 +8,10 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use super::device::{Net, RxBuffers};
-use super::{NET_NUM_QUEUES, NET_QUEUE_MAX_SIZE, RX_INDEX, TapError};
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDeviceType};
+use super::device::Net;
+use super::{NET_NUM_QUEUES, NET_QUEUE_MAX_SIZE, TapError};
+use crate::devices::virtio::device::VirtioDeviceType;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
-use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::mmds::persist::MmdsNetworkStackState;
@@ -141,7 +140,7 @@ mod tests {
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::net::test_utils::{default_net, default_net_no_mmds};
-    use crate::devices::virtio::test_utils::{default_interrupt, default_mem};
+    use crate::devices::virtio::test_utils::default_mem;
 
     fn validate_save_and_restore(net: Net, mmds_ds: Option<Arc<Mutex<Mmds>>>) {
         let guest_mem = default_mem();

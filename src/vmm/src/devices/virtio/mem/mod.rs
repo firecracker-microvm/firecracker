@@ -7,10 +7,7 @@ pub mod metrics;
 pub mod persist;
 mod request;
 
-use vm_memory::GuestAddress;
-
 pub use self::device::{VirtioMem, VirtioMemError, VirtioMemStatus};
-use crate::arch::FIRST_ADDR_PAST_64BITS_MMIO;
 
 pub(crate) const MEM_NUM_QUEUES: usize = 1;
 

@@ -1037,7 +1037,9 @@ mod tests {
     use crate::builder::tests::default_vmm;
     use crate::mmds::data_store::MmdsVersion;
     use crate::seccomp::BpfThreadMap;
-    use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
+    use crate::vmm_config::snapshot::{
+        MemBackendConfig, MemBackendType, SnapshotLoadHugePageConfig,
+    };
 
     fn default_preboot<'a>(
         vm_resources: &'a mut VmResources,
@@ -1240,6 +1242,7 @@ mod tests {
                 snapshot_type: SnapshotType::Full,
                 snapshot_path: PathBuf::new(),
                 mem_file_path: PathBuf::new(),
+                sync_snapshot_files: true,
             },
         )));
         #[cfg(target_arch = "x86_64")]
@@ -1333,6 +1336,7 @@ mod tests {
                 network_overrides: vec![],
                 vsock_override: None,
                 clock_realtime: false,
+                huge_pages: SnapshotLoadHugePageConfig::Snapshot,
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetEntropyDevice(

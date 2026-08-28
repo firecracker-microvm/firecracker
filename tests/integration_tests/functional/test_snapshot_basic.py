@@ -20,7 +20,7 @@ import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_rootfs_mode
-from framework.microvm import HugePagesConfig
+from framework.microvm import HugePagesConfig, SnapshotType
 from framework.properties import global_props
 from framework.utils import check_filesystem, check_output
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
@@ -81,11 +81,98 @@ def test_resume(uvm_configured, microvm_factory, resume_at_restore, huge_pages):
     restored_vm = microvm_factory.build()
     restored_vm.spawn()
     restored_vm.restore_from_snapshot(snapshot, resume=resume_at_restore)
+    assert restored_vm.api.machine_config.get().json()["huge_pages"] == huge_pages
     if not resume_at_restore:
         assert restored_vm.state == "Paused"
         restored_vm.resume()
     assert restored_vm.state == "Running"
     restored_vm.ssh.check_output("true")
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pytest.mark.parametrize(
+    ("huge_pages", "restore_huge_pages"),
+    [
+        (HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT),
+        (HugePagesConfig.TRANSPARENT, HugePagesConfig.NONE),
+    ],
+    indirect=["huge_pages"],
+)
+def test_snapshot_huge_pages_override(
+    uvm_configured, microvm_factory, huge_pages, restore_huge_pages
+):
+    """Restore a snapshot with a different host page configuration."""
+    vm = uvm_configured
+    assert vm.huge_pages == huge_pages
+    vm.add_net_iface()
+    vm.start()
+    snapshot = vm.snapshot_full()
+    vm.kill()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+    restored_vm.restore_from_snapshot(
+        snapshot,
+        resume=True,
+        huge_pages=restore_huge_pages,
+    )
+
+    assert (
+        restored_vm.api.machine_config.get().json()["huge_pages"] == restore_huge_pages
+    )
+    restored_vm.ssh.check_output("true")
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_sync_snapshot_files(uvm_configured, microvm_factory):
+    """Tests that the `sync_snapshot_files` option does not change the snapshot contents.
+
+    `sync_snapshot_files` only controls durability (whether the snapshot files
+    are fsync'd before the request returns), not the bytes that get written. To
+    verify this, take three full snapshots of the same paused guest state, one
+    for each of `sync_snapshot_files` omitted (API default), `True` and `False`,
+    and assert the resulting guest memory files are byte-identical. Finally,
+    confirm all three are restorable.
+    """
+    vm = uvm_configured
+    vm.add_net_iface()
+    vm.start()
+
+    snapshots = {}
+    for label, sync_snapshot_files in [
+        ("default", None),
+        ("sync", True),
+        ("nosync", False),
+    ]:
+        snap = vm.make_snapshot(
+            SnapshotType.FULL,
+            mem_path=f"mem_{label}",
+            vmstate_path=f"vmstate_{label}",
+            sync_snapshot_files=sync_snapshot_files,
+        )
+        assert snap.vmstate.exists() and snap.vmstate.stat().st_size > 0
+        assert snap.mem.exists() and snap.mem.stat().st_size > 0
+        snapshots[label] = snap
+
+    # The guest memory files must be byte-identical across all three.
+    # Note: The vmstate file is not, because it captures live values that
+    # legitimately advance in wall-clock time between the consecutive saves.
+    ref = snapshots["default"]
+    for label in ("sync", "nosync"):
+        assert filecmp.cmp(
+            ref.mem, snapshots[label].mem, shallow=False
+        ), f"memory file differs for sync_snapshot_files={label}"
+
+    # And every snapshot must be restorable into a running microVM.
+    for label, snap in snapshots.items():
+        restored_vm = microvm_factory.build()
+        restored_vm.spawn()
+        restored_vm.restore_from_snapshot(snap, resume=True)
+        assert (
+            restored_vm.state == "Running"
+        ), f"restore failed for sync_snapshot_files={label}"
+        restored_vm.ssh.check_output("true")
+        restored_vm.kill()
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)

@@ -4,17 +4,16 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use vm_memory::GuestAddress;
 
 use super::device::{ConfigSpace, Pmem, PmemError};
-use crate::devices::virtio::device::{DeviceState, VirtioDeviceType};
+use crate::devices::virtio::device::VirtioDeviceType;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::pmem::{PMEM_NUM_QUEUES, PMEM_QUEUE_SIZE};
 use crate::rate_limiter::RateLimiter;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::snapshot::Persist;
 use crate::vmm_config::pmem::PmemConfig;
-use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap};
+use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::{KvmVm, VmError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,7 +95,7 @@ mod tests {
     fn test_persistence() {
         // We create the backing file here so that it exists for the whole lifetime of the test.
         let dummy_file = TempFile::new().unwrap();
-        dummy_file.as_file().set_len(0x20_0000);
+        dummy_file.as_file().set_len(0x20_0000).unwrap();
         let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
         let config = PmemConfig {
             id: "1".into(),
@@ -142,7 +141,7 @@ mod tests {
     #[test]
     fn test_restore_rejects_mismatched_config_space_size() {
         let dummy_file = TempFile::new().unwrap();
-        dummy_file.as_file().set_len(0x20_0000);
+        dummy_file.as_file().set_len(0x20_0000).unwrap();
         let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
         let config = PmemConfig {
             id: "1".into(),

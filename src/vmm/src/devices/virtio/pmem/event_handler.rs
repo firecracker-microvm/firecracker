@@ -81,7 +81,7 @@ impl MutEventSubscriber for Pmem {
             match source {
                 Self::PROCESS_PMEM_QUEUE => self.drain_queue_events(),
                 Self::PROCESS_RATE_LIMITER => {
-                    self.rate_limiter.event_handler();
+                    let _ = self.rate_limiter.event_handler();
                 }
                 _ => (),
             }
