@@ -400,8 +400,6 @@ impl GuestRegionMmapExt {
         caddr: MemoryRegionAddress,
         len: usize,
     ) -> Result<(), GuestMemoryError> {
-        let phys_address = self.get_host_address(caddr)?;
-
         match (self.inner.file_offset(), self.inner.flags()) {
             // If and only if we are resuming from a snapshot file, we have a file and it's mapped
             // private
@@ -419,27 +417,53 @@ impl GuestRegionMmapExt {
                 // TODO: this does not re-apply the region's madvise flags, so it would drop the
                 // MADV_HUGEPAGE hint on a THP + file-restore VM. That combination is unsupported
                 // today; revisit if it becomes supported.
-                // SAFETY: The address and length are known to be valid.
-                let ret = unsafe {
-                    libc::mmap(
-                        phys_address.cast(),
-                        len,
-                        libc::PROT_READ | libc::PROT_WRITE,
-                        libc::MAP_FIXED
-                            | libc::MAP_ANONYMOUS
-                            | libc::MAP_PRIVATE
-                            | libc::MAP_NORESERVE,
-                        -1,
-                        0,
-                    )
-                };
-                if ret == libc::MAP_FAILED {
-                    let os_error = std::io::Error::last_os_error();
-                    error!("discard_range: mmap failed: {:?}", os_error);
-                    Err(GuestMemoryError::IOError(os_error))
-                } else {
-                    Ok(())
+                //
+                // Map each intersecting slot directly to its final protection: fully unplugged
+                // slots get PROT_NONE, plugged (or mixed) slots stay PROT_READ | PROT_WRITE. This
+                // avoids mapping the whole range PROT_READ | PROT_WRITE and then reprotecting the
+                // unplugged slots.
+                let base = self.start_addr().raw_value();
+                let from = base
+                    .checked_add(caddr.raw_value())
+                    .expect("caddr should be within the region");
+                let to = from
+                    .checked_add(len as u64)
+                    .expect("range should be within the region");
+                for (slot, plugged) in self.slots_intersecting_range(GuestAddress(from), len) {
+                    let slot_start = slot.guest_addr.raw_value();
+                    let slot_end = slot_start
+                        .checked_add(slot.slice.len() as u64)
+                        .expect("slot should be within the region");
+                    let start = slot_start.max(from);
+                    let end = slot_end.min(to);
+                    let host = self.get_host_address(MemoryRegionAddress(start - base))?;
+                    let prot = if plugged {
+                        libc::PROT_READ | libc::PROT_WRITE
+                    } else {
+                        libc::PROT_NONE
+                    };
+                    // SAFETY: [start, end) is clamped to this slot, so `host` and the length are
+                    // within the region's existing mapping. MAP_FIXED replaces exactly that range.
+                    let ret = unsafe {
+                        libc::mmap(
+                            host.cast(),
+                            u64_to_usize(end - start),
+                            prot,
+                            libc::MAP_FIXED
+                                | libc::MAP_ANONYMOUS
+                                | libc::MAP_PRIVATE
+                                | libc::MAP_NORESERVE,
+                            -1,
+                            0,
+                        )
+                    };
+                    if ret == libc::MAP_FAILED {
+                        let os_error = std::io::Error::last_os_error();
+                        error!("discard_range: mmap failed: {:?}", os_error);
+                        return Err(GuestMemoryError::IOError(os_error));
+                    }
                 }
+                Ok(())
             }
             // Match either the case of an anonymous mapping, or the case
             // of a shared file mapping.
@@ -449,8 +473,9 @@ impl GuestRegionMmapExt {
             // We keep falling to the madvise branch to keep the previous behaviour.
             _ => {
                 // Madvise the region in order to mark it as not used.
+                let host_addr = self.get_host_address(caddr)?;
                 // SAFETY: The address and length are known to be valid.
-                let ret = unsafe { libc::madvise(phys_address.cast(), len, libc::MADV_DONTNEED) };
+                let ret = unsafe { libc::madvise(host_addr.cast(), len, libc::MADV_DONTNEED) };
                 if ret < 0 {
                     let os_error = std::io::Error::last_os_error();
                     error!("discard_range: madvise failed: {:?}", os_error);
