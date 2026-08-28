@@ -28,6 +28,22 @@ VIRTIO_PCI_DEVICE_ID_BLOCK = 0x1042
 VIRTIO_PCI_DEVICE_ID_PMEM = 0x105B
 
 
+def attached_drives(vm):
+    """Return the IDs of the block devices Firecracker has attached."""
+    return {drive["drive_id"] for drive in vm.api.vm_config.get().json()["drives"]}
+
+
+def plug_block(vm, drive_id, host_file):
+    """Hot-plug a block device backed by host_file."""
+    vm.api.drive.put(
+        drive_id=drive_id,
+        path_on_host=vm.create_jailed_resource(host_file.path),
+        is_root_device=False,
+        is_read_only=False,
+    )
+    vm.disks[drive_id] = host_file.path
+
+
 @pin_pci(True)
 @pin_cpu_template(ALL_CPU_TEMPLATES)
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
@@ -454,6 +470,84 @@ def test_hotplug_preserved_after_snapshot(uvm_any, microvm_factory):
     assert stdout.strip() == "hotplug_test"
 
 
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_pci(True)
+@pin_hotplug_ports(2)
+def test_unplug_after_snapshot(uvm_any, microvm_factory):
+    """
+    Test that devices hotplugged before a snapshot can be unplugged after the
+    restore, both gracefully and forcefully.
+    """
+    vm = uvm_any
+
+    _, lspci_before, _ = vm.ssh.check_output("lspci -n")
+    before = set(lspci_before.splitlines())
+
+    file0 = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "block0"), size=4)
+    file1 = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "block1"), size=4)
+    plug_block(vm, "block0", file0)
+    plug_block(vm, "block1", file1)
+    time.sleep(PLUG_SLEEP)
+
+    snapshot = vm.snapshot_full()
+    restored_vm = microvm_factory.build_from_snapshot(snapshot)
+
+    _, lspci_restored, _ = restored_vm.ssh.check_output("lspci -n")
+    assert len(set(lspci_restored.splitlines()) - before) == 2
+
+    # Without force the restored guest has to act on the restored slot state
+    restored_vm.api.drive.delete("block0")
+    assert "block0" in attached_drives(restored_vm)
+
+    time.sleep(UNPLUG_SLEEP)
+    assert "block0" not in attached_drives(restored_vm)
+
+    # With force the device is gone as soon as the call returns
+    restored_vm.api.drive.delete("block1", force=True)
+    assert "block1" not in attached_drives(restored_vm)
+
+    time.sleep(1)
+    _, lspci_final, _ = restored_vm.ssh.check_output("lspci -n")
+    assert set(lspci_final.splitlines()) == before
+
+
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_pci(True)
+@pin_hotplug_ports(2)
+def test_pending_unplug_completes_after_restore(uvm_any, microvm_factory):
+    """
+    Test that a graceful unplug which is still pending when the snapshot is
+    taken is completed by the restored VM.
+    """
+    vm = uvm_any
+
+    _, lspci_before, _ = vm.ssh.check_output("lspci -n")
+    before = set(lspci_before.splitlines())
+
+    host_file = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "block0"), size=4)
+    plug_block(vm, "block0", host_file)
+    time.sleep(PLUG_SLEEP)
+
+    # The guest has to have brought the device up before we ask for it back
+    _, lspci_plugged, _ = vm.ssh.check_output("lspci -n")
+    assert len(set(lspci_plugged.splitlines()) - before) == 1
+
+    # Snapshot within the window the guest takes to let the device go
+    vm.api.drive.delete("block0")
+    assert "block0" in attached_drives(vm)
+
+    snapshot = vm.snapshot_full()
+    assert "block0" in attached_drives(vm)
+
+    restored_vm = microvm_factory.build_from_snapshot(snapshot)
+
+    # The restored guest finishes the removal
+    time.sleep(UNPLUG_SLEEP)
+    assert "block0" not in attached_drives(restored_vm)
+    _, lspci_restored, _ = restored_vm.ssh.check_output("lspci -n")
+    assert set(lspci_restored.splitlines()) == before
+
+
 # 32 root bus slots - host bridge, block and net on the primary bus
 HOTPLUG_PORTS = 29
 
@@ -512,3 +606,149 @@ def test_hotplug_max_devices(uvm_any):
     # Verify all root ports are occupied again
     _, lspci, _ = vm.ssh.check_output("lspci -n")
     assert len(set(lspci.strip().splitlines()) - initial) == HOTPLUG_PORTS
+
+
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_pci(True)
+@pin_hotplug_ports(2)
+def test_hotplug_force_unplug(uvm_any):
+    """
+    A forced unplug removes the device without waiting for the guest, while a
+    plain one leaves it in place until the guest lets it go.
+    """
+    vm = uvm_any
+
+    def attached():
+        return {drive["drive_id"] for drive in vm.api.vm_config.get().json()["drives"]}
+
+    host_file = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "block0"), size=4)
+
+    def plug(drive_id):
+        vm.api.drive.put(
+            drive_id=drive_id,
+            path_on_host=vm.create_jailed_resource(host_file.path),
+            is_root_device=False,
+            is_read_only=False,
+        )
+
+    _, lspci_before, _ = vm.ssh.check_output("lspci -n")
+    before = set(lspci_before.splitlines())
+
+    plug("block0")
+    time.sleep(PLUG_SLEEP)
+    _, lspci_after, _ = vm.ssh.check_output("lspci -n")
+    assert len(set(lspci_after.splitlines()) - before) == 1
+
+    # Without force the device is still there when the call returns, until
+    # the guest acts on the notification.
+    vm.api.drive.delete("block0")
+    assert "block0" in attached()
+
+    time.sleep(UNPLUG_SLEEP)
+    # The device should be gone by now
+    assert "block0" not in attached()
+    _, lspci_unplugged, _ = vm.ssh.check_output("lspci -n")
+    assert set(lspci_unplugged.splitlines()) == before
+
+    # Plug a new device
+    plug("block1")
+    time.sleep(PLUG_SLEEP)
+    _, lspci_refilled, _ = vm.ssh.check_output("lspci -n")
+    assert len(set(lspci_refilled.splitlines()) - before) == 1
+
+    # With force-detach the device is gone immediately
+    vm.api.drive.delete("block1", force=True)
+    assert "block1" not in attached()
+
+    # Even though Firecracker removes the device immediately it still takes
+    # sometime for the guest to receive the notification and update its view
+    time.sleep(1)
+    _, lspci_forced, _ = vm.ssh.check_output("lspci -n")
+    assert set(lspci_forced.splitlines()) == before
+
+
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_pci(True)
+@pin_hotplug_ports(2)
+def test_double_unplug_request(uvm_any):
+    """
+    Test that a second unplug request for a device the guest has not released
+    yet is accepted and does not cancel the removal.
+    """
+    vm = uvm_any
+
+    _, lspci_before, _ = vm.ssh.check_output("lspci -n")
+    before = set(lspci_before.splitlines())
+
+    host_file = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "block0"), size=4)
+    plug_block(vm, "block0", host_file)
+    time.sleep(PLUG_SLEEP)
+
+    # A second Attention Button shouldn't cancel the removal
+    vm.api.drive.delete("block0")
+    vm.api.drive.delete("block0")
+
+    time.sleep(UNPLUG_SLEEP)
+    assert "block0" not in attached_drives(vm)
+    _, lspci_unplugged, _ = vm.ssh.check_output("lspci -n")
+    assert set(lspci_unplugged.splitlines()) == before
+
+    # Once the device is gone it is no longer known
+    with pytest.raises(RuntimeError, match="Device not found"):
+        vm.api.drive.delete("block0")
+
+
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_pci(True)
+@pin_hotplug_ports(2)
+def test_hotplug_while_paused(uvm_any):
+    """
+    Test that hotplug and unplug requests issued while the VM is paused take
+    effect once it is resumed.
+    """
+    vm = uvm_any
+
+    _, lspci_before, _ = vm.ssh.check_output("lspci -n")
+    before = set(lspci_before.splitlines())
+
+    host_file = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "block0"), size=4)
+
+    vm.pause()
+    plug_block(vm, "block0", host_file)
+    vm.resume()
+
+    time.sleep(PLUG_SLEEP)
+    _, lspci_after, _ = vm.ssh.check_output("lspci -n")
+    assert len(set(lspci_after.splitlines()) - before) == 1
+
+    vm.pause()
+    vm.api.drive.delete("block0")
+
+    # A paused guest cannot acknowledge the removal
+    time.sleep(UNPLUG_SLEEP)
+    assert "block0" in attached_drives(vm)
+
+    vm.resume()
+
+    time.sleep(UNPLUG_SLEEP)
+    assert "block0" not in attached_drives(vm)
+    _, lspci_unplugged, _ = vm.ssh.check_output("lspci -n")
+    assert set(lspci_unplugged.splitlines()) == before
+
+
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_pci(True)
+def test_hotplug_without_ports(uvm_any):
+    """
+    With no root ports reserved, hot-plug is rejected and says what to do.
+    """
+    vm = uvm_any
+
+    host_file = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "block0"), size=4)
+    with pytest.raises(RuntimeError, match="No PCIe root port is free"):
+        vm.api.drive.put(
+            drive_id="block0",
+            path_on_host=vm.create_jailed_resource(host_file.path),
+            is_root_device=False,
+            is_read_only=False,
+        )
