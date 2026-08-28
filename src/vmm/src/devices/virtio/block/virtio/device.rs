@@ -281,7 +281,7 @@ impl Default for ConfigSpace {
             },
             wce: 0,
             unused: 0,
-            num_queues: 0,
+            num_queues: 1,
             max_discard_sectors: MAX_DISCARD_SECTORS,
             max_discard_seg: 1,
             discard_sector_alignment: 1,
@@ -720,7 +720,7 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn num_queues(&self) -> usize {
-        1
+        usize::from(self.config_space.num_queues)
     }
 
     fn queue_config(&self, index: usize) -> Option<&QueueConfig> {
