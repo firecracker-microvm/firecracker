@@ -17,7 +17,7 @@ use event_manager::{MutEventSubscriber, SubscriberOps};
 use legacy::{LegacyDeviceError, PortIODeviceManager};
 use linux_loader::loader::Cmdline;
 use mmio::{MMIOPlatformDevices, MMIOVirtioDevices, MmioError};
-use pci_mngr::{PciDevices, PciDevicesConstructorArgs, PciManagerError};
+use pci_mngr::{PciDevices, PciDevicesConstructorArgs, PciManagerError, PciPlacement};
 use persist::{
     MMIODevManagerConstructorArgs, MMIOPlatformDevicesConstructorArgs, MMIOPlatformDevicesState,
 };
@@ -299,7 +299,7 @@ impl DeviceManager {
                 .attach_mmio_virtio_device(vm, id, device, cmdline, event_manager, is_vhost_user)
                 .map_err(AttachDeviceError::from),
             VirtioDevices::Pci(pci_devices) => pci_devices
-                .attach_pci_virtio_device(vm, id, device, event_manager)
+                .attach_pci_virtio_device(vm, id, device, event_manager, PciPlacement::RootBus)
                 .map_err(AttachDeviceError::from),
         }
     }
@@ -492,9 +492,32 @@ impl DeviceManager {
         };
 
         match &mut self.virtio_devices {
-            VirtioDevices::Pci(pci_devices) => pci_devices
-                .attach_pci_virtio_device(&vm, dev_id, device, event_manager)
-                .map_err(VmmActionError::PciManager),
+            VirtioDevices::Pci(pci_devices) => {
+                pci_devices
+                    .attach_pci_virtio_device(
+                        &vm,
+                        dev_id,
+                        device,
+                        event_manager,
+                        PciPlacement::RootPort,
+                    )
+                    .map_err(VmmActionError::PciManager)?;
+
+                let bus = pci_devices
+                    .get_virtio_device(device_id.0, &device_id.1)
+                    .expect("device was just attached")
+                    .lock()
+                    .expect("Poisoned lock")
+                    .sbdf
+                    .bus();
+
+                // Notify the guest that a device has been attached
+                if let Some(port) = pci_devices.pci_segment().root_port_for_bus(bus) {
+                    port.lock().expect("Poisoned lock").plug(true);
+                }
+
+                Ok(())
+            }
             VirtioDevices::Mmio(_) => Err(VmmActionError::PciNotEnabled),
         }
     }
@@ -793,8 +816,8 @@ pub(crate) mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use crate::builder::tests::{
-        CustomBlockConfig, default_kernel_cmdline, default_vmm, default_vmm_with_pci,
-        insert_block_devices,
+        CustomBlockConfig, default_kernel_cmdline, default_vmm, default_vmm_with_hotplug_ports,
+        default_vmm_with_pci, insert_block_devices,
     };
     use crate::devices::acpi::vmclock::VmClock;
     use crate::devices::acpi::vmgenid::VmGenId;
@@ -940,7 +963,7 @@ pub(crate) mod tests {
     #[test]
     fn test_hotplug_block() {
         let mut evt_manager = EventManager::new().unwrap();
-        let mut vmm = default_vmm_with_pci();
+        let mut vmm = default_vmm_with_hotplug_ports(2);
         let f = TempFile::new().unwrap();
 
         // Successful case
@@ -989,7 +1012,7 @@ pub(crate) mod tests {
     #[test]
     fn test_pci_bar_is_freed_on_unplug() {
         let mut evt_manager = EventManager::new().unwrap();
-        let mut vmm = default_vmm_with_pci();
+        let mut vmm = default_vmm_with_hotplug_ports(2);
         let f = TempFile::new().unwrap();
 
         let bar_addr = |vmm: &crate::Vmm, id: &str| {
@@ -1057,7 +1080,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_hotplug_pmem() {
-        let mut vmm = default_vmm_with_pci();
+        let mut vmm = default_vmm_with_hotplug_ports(2);
         let mut evt_manager = EventManager::new().unwrap();
         let f = TempFile::new().unwrap();
         f.as_file().set_len(0x1000).unwrap();
@@ -1113,7 +1136,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_hotplug_net() {
-        let mut vmm = default_vmm_with_pci();
+        let mut vmm = default_vmm_with_hotplug_ports(2);
         let mut evt_manager = EventManager::new().unwrap();
 
         let mac = "AA:FC:00:00:00:01";
@@ -1185,6 +1208,7 @@ pub(crate) mod tests {
                 "rootfs".to_string(),
                 Arc::new(Mutex::new(block)),
                 &mut evt_manager,
+                PciPlacement::RootBus,
             )
             .unwrap();
 
@@ -1219,6 +1243,7 @@ pub(crate) mod tests {
                 "pmem_root".to_string(),
                 Arc::new(Mutex::new(pmem)),
                 &mut evt_manager,
+                PciPlacement::RootBus,
             )
             .unwrap();
 

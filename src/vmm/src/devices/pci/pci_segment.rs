@@ -238,6 +238,28 @@ impl PciSegment {
         Ok(())
     }
 
+    /// Find a root port whose slot is empty.
+    pub(crate) fn allocate_root_port(&self) -> Result<Arc<Mutex<PciRootPort>>, PciManagerError> {
+        for port in &self.root_ports {
+            let secondary_bus = port.lock().expect("Poisoned lock").secondary_bus();
+            let bus = self
+                .pci_buses
+                .get(secondary_bus)
+                .expect("A root port references a bus that doesn't exist");
+            if bus.lock().expect("Poisoned lock").get_device(0).is_none() {
+                return Ok(port.clone());
+            }
+        }
+
+        Err(PciManagerError::NoFreeRootPort)
+    }
+
+    /// Return the root port that starts the given bus, if any.
+    pub(crate) fn root_port_for_bus(&self, bus: u8) -> Option<Arc<Mutex<PciRootPort>>> {
+        let index = usize::from(bus.checked_sub(1)?);
+        self.root_ports.get(index).cloned()
+    }
+
     pub(crate) fn next_device_sbdf(&self) -> Result<PciSBDF, PciBusError> {
         Ok(PciSBDF::new(
             self.id,

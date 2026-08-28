@@ -883,6 +883,16 @@ pub(crate) mod tests {
         }
     }
 
+    /// A PCI-enabled test VMM with `count` root ports, so that devices can be
+    /// hot-plugged into it.
+    pub(crate) fn default_vmm_with_hotplug_ports(count: u8) -> Vmm {
+        let mut vmm = default_vmm_with_pci_ports(count);
+        vmm.device_manager
+            .attach_root_ports(vmm.vm.as_kvm().unwrap())
+            .unwrap();
+        vmm
+    }
+
     pub(crate) fn insert_block_devices(
         vmm: &mut Vmm,
         cmdline: &mut Cmdline,
