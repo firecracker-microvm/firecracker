@@ -406,7 +406,7 @@ impl PciConfiguration {
     }
 
     /// Create a type 0 PCI configuration from snapshot state
-    pub fn type0_from_state(state: PciConfigurationState) -> Result<Self, PciConfigurationError> {
+    pub fn from_state(state: PciConfigurationState) -> Result<Self, PciConfigurationError> {
         let reg_len = state.registers.len();
         let registers = state
             .registers

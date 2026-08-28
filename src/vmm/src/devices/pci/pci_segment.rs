@@ -19,7 +19,9 @@ use vm_allocator::AllocPolicy;
 
 use crate::arch::PCI_MMCONFIG_START;
 use crate::device_manager::pci_mngr::PciManagerError;
-use crate::devices::pci::root_port::{HotplugCompletion, PciRootPort, ROOT_PORT_MSIX_BAR_SIZE};
+use crate::devices::pci::root_port::{
+    HotplugCompletion, PciRootPort, ROOT_PORT_MSIX_BAR, ROOT_PORT_MSIX_BAR_SIZE, RootPortState,
+};
 use crate::logger::info;
 use crate::pci::PciSBDF;
 #[cfg(target_arch = "x86_64")]
@@ -214,6 +216,34 @@ impl PciSegment {
         Ok(())
     }
 
+    /// Re-create the root ports of a snapshot.
+    pub(crate) fn restore_root_ports(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        states: &[RootPortState],
+    ) -> Result<(), PciManagerError> {
+        for (idx, state) in states.iter().enumerate() {
+            if state.sbdf.bus() != 0 || usize::from(state.secondary_bus) != idx + 1 {
+                return Err(PciManagerError::InconsistentRootPort(
+                    idx,
+                    state.sbdf,
+                    state.secondary_bus,
+                ));
+            }
+
+            let root_port = Arc::new(Mutex::new(PciRootPort::from_state(
+                state,
+                vm.clone(),
+                self.hotplug_completion.clone(),
+            )?));
+
+            let msix_bar_addr = state.bars.get_bar_addr(ROOT_PORT_MSIX_BAR);
+            self.attach_root_port(vm, state.sbdf, root_port, msix_bar_addr)?;
+        }
+
+        Ok(())
+    }
+
     /// Put a root port on the root bus and map its MSI-X BAR.
     fn attach_root_port(
         &mut self,
@@ -240,6 +270,17 @@ impl PciSegment {
         );
 
         self.root_ports.push(root_port);
+        Ok(())
+    }
+
+    /// Enable the root ports' MSI-X vectors after a restore. Must run after the
+    /// GSI routes have been set up.
+    pub(crate) fn enable_unmasked_vectors(&self) -> Result<(), PciManagerError> {
+        for port in &self.root_ports {
+            port.lock()
+                .expect("Poisoned lock")
+                .enable_unmasked_vectors()?;
+        }
         Ok(())
     }
 
