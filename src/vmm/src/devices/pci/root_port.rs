@@ -6,6 +6,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 
+use serde::{Deserialize, Serialize};
 use vm_allocator::RangeInclusive;
 use vmm_sys_util::eventfd::EventFd;
 
@@ -13,8 +14,11 @@ use zerocopy::IntoBytes;
 
 use crate::logger::error;
 use crate::pci::bus::MAX_PCI_BUSES;
-use crate::pci::configuration::{BAR0_REG_IDX, BarPrefetchable, Bars, PciConfiguration};
-use crate::pci::msix::{MsixCap, MsixConfig};
+use crate::pci::configuration::{
+    BAR0_REG_IDX, BarPrefetchable, Bars, PciConfiguration, PciConfigurationError,
+    PciConfigurationState,
+};
+use crate::pci::msix::{MsixCap, MsixConfig, MsixConfigState};
 use crate::pci::pcie_cap::{
     PCI_EXP_LNKSTA, PCI_EXP_LNKSTA_CLS_2_5GB, PCI_EXP_LNKSTA_DLLLA, PCI_EXP_LNKSTA_NLW_X1,
     PCI_EXP_SLTCTL, PCI_EXP_SLTCTL_ABPE, PCI_EXP_SLTCTL_DLLSCE, PCI_EXP_SLTCTL_HPIE,
@@ -24,12 +28,13 @@ use crate::pci::pcie_cap::{
 };
 use crate::pci::{PciBridgeSubclass, PciClassCode, PciDevice, PciSBDF};
 use crate::vstate::bus::BusDevice;
-use crate::vstate::interrupts::MsixVectorGroup;
+use crate::vstate::interrupts::{InterruptError, MsixVectorGroup};
+use crate::vstate::vm::KvmVm;
 
 const VENDOR_ID_AMAZON: u16 = 0x1d0f;
 const DEVICE_ID_AMAZON_RP: u16 = 0x0200;
 
-const ROOT_PORT_MSIX_BAR: u8 = 0;
+pub const ROOT_PORT_MSIX_BAR: u8 = 0;
 /// Size of the MSI-X BAR
 pub const ROOT_PORT_MSIX_BAR_SIZE: u64 = 0x1000;
 const ROOT_PORT_MSIX_TABLE_OFFSET: u32 = 0x0;
@@ -71,6 +76,7 @@ impl HotplugCompletion {
 /// A PCI Express root port with a hot-plug capable slot.
 #[derive(Debug)]
 pub struct PciRootPort {
+    sbdf: PciSBDF,
     configuration: PciConfiguration,
     bars: Bars,
     pcie_cap_offset: u16,
@@ -82,6 +88,30 @@ pub struct PciRootPort {
     secondary_bus: u8,
     removal_requested: bool,
     completion: Arc<HotplugCompletion>,
+}
+
+/// Snapshot state of a root port.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RootPortState {
+    pub(crate) sbdf: PciSBDF,
+    pub(crate) configuration_state: PciConfigurationState,
+    pub(crate) bars: Bars,
+    pub(crate) pcie_cap_offset: u16,
+    pub(crate) msix_cap_offset: u16,
+    pub(crate) msix_state: MsixConfigState,
+    pub(crate) slot_control: u16,
+    pub(crate) slot_status: u16,
+    pub(crate) link_status: u16,
+    pub(crate) secondary_bus: u8,
+    pub(crate) removal_requested: bool,
+}
+
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum RootPortRestoreError {
+    /// Invalid configuration space: {0}
+    Configuration(#[from] PciConfigurationError),
+    /// Could not restore MSI-X state: {0}
+    Msix(#[from] InterruptError),
 }
 
 impl PciRootPort {
@@ -142,6 +172,7 @@ impl PciRootPort {
         );
 
         PciRootPort {
+            sbdf,
             configuration,
             bars,
             pcie_cap_offset,
@@ -154,6 +185,56 @@ impl PciRootPort {
             removal_requested: false,
             completion,
         }
+    }
+
+    /// Rebuild a root port from a snapshot.
+    pub fn from_state(
+        state: &RootPortState,
+        vm: Arc<KvmVm>,
+        completion: Arc<HotplugCompletion>,
+    ) -> Result<Self, RootPortRestoreError> {
+        let msix_config = MsixConfig::from_state(state.msix_state.clone(), vm, state.sbdf)?;
+
+        Ok(PciRootPort {
+            sbdf: state.sbdf,
+            configuration: PciConfiguration::from_state(state.configuration_state.clone())?,
+            bars: state.bars,
+            pcie_cap_offset: state.pcie_cap_offset,
+            msix_cap_offset: state.msix_cap_offset,
+            msix_config: Arc::new(Mutex::new(msix_config)),
+            slot_control: state.slot_control,
+            slot_status: state.slot_status,
+            link_status: state.link_status,
+            secondary_bus: state.secondary_bus,
+            removal_requested: state.removal_requested,
+            completion,
+        })
+    }
+
+    /// Return the root port's snapshot state.
+    pub fn state(&self) -> RootPortState {
+        RootPortState {
+            sbdf: self.sbdf,
+            configuration_state: self.configuration.state(),
+            bars: self.bars,
+            pcie_cap_offset: self.pcie_cap_offset,
+            msix_cap_offset: self.msix_cap_offset,
+            msix_state: self.msix_config.lock().expect("Poisoned lock").state(),
+            slot_control: self.slot_control,
+            slot_status: self.slot_status,
+            link_status: self.link_status,
+            secondary_bus: self.secondary_bus,
+            removal_requested: self.removal_requested,
+        }
+    }
+
+    /// Enable the port's unmasked MSI-X vector after a restore. Must run after
+    /// the GSI routes have been set up.
+    pub fn enable_unmasked_vectors(&self) -> Result<(), InterruptError> {
+        self.msix_config
+            .lock()
+            .expect("Poisoned lock")
+            .enable_unmasked_vectors()
     }
 
     pub fn secondary_bus(&self) -> u8 {

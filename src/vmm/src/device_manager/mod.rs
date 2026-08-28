@@ -1006,7 +1006,11 @@ pub(crate) mod tests {
         );
     }
 
-    fn make_hotplug_block_cfg(drive_id: &str, f: &TempFile, is_root: bool) -> BlockDeviceConfig {
+    pub(crate) fn make_hotplug_block_cfg(
+        drive_id: &str,
+        f: &TempFile,
+        is_root: bool,
+    ) -> BlockDeviceConfig {
         BlockDeviceConfig {
             drive_id: drive_id.to_string(),
             partuuid: None,

@@ -12,6 +12,7 @@ use super::persist::MmdsState;
 use crate::EventManager;
 use crate::device_manager::DevicePersistError;
 use crate::devices::pci::PciSegment;
+use crate::devices::pci::root_port::{RootPortRestoreError, RootPortState};
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::block::device::Block;
@@ -37,6 +38,7 @@ use crate::pci::PciSBDF;
 use crate::pci::bus::PciBusError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
+use crate::vmm_config::machine_config::MAX_PCIE_HOTPLUG_PORTS;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vstate::bus::BusError;
 use crate::vstate::interrupts::InterruptError;
@@ -74,12 +76,17 @@ pub enum PciManagerError {
     VirtioPciDevice(#[from] VirtioPciDeviceError),
     /// KVM error: {0}
     Kvm(#[from] vmm_sys_util::errno::Error),
+    /// Could not restore a PCIe root port: {0}
+    RootPort(#[from] RootPortRestoreError),
     /// Could not create the hot-unplug completion channel: {0}
     HotplugCompletion(std::io::Error),
     /// No PCIe root port is free. Every configured root port already has a
     /// device in it; raise `pcie_hotplug_ports` in the machine configuration to
     /// allow more hot-plugged devices.
     NoFreeRootPort,
+    /// The snapshot has {0} PCIe root ports, but at most
+    /// {MAX_PCIE_HOTPLUG_PORTS:} are supported.
+    TooManyRootPorts(usize),
 }
 
 impl PciDevices {
@@ -398,6 +405,9 @@ pub struct PciDevicesState {
     pub pmem_devices: Vec<VirtioDeviceState<PmemState>>,
     /// Memory device state.
     pub memory_device: Option<VirtioDeviceState<VirtioMemState>>,
+    /// PCIe root port states.
+    #[serde(default)]
+    pub root_ports: Vec<RootPortState>,
 }
 
 pub struct PciDevicesConstructorArgs<'a> {
@@ -561,6 +571,13 @@ impl<'a> Persist<'a> for PciDevices {
             }
         }
 
+        state.root_ports = self
+            .pci_segment
+            .root_ports
+            .iter()
+            .map(|port| port.lock().expect("Poisoned lock").state())
+            .collect();
+
         state
     }
 
@@ -569,7 +586,19 @@ impl<'a> Persist<'a> for PciDevices {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let mem = constructor_args.mem;
-        let mut pci_devices = PciDevices::new(constructor_args.vm, 0)?;
+        let root_ports = state.root_ports.len();
+        let hotplug_ports = u8::try_from(root_ports)
+            .ok()
+            .filter(|ports| *ports <= MAX_PCIE_HOTPLUG_PORTS)
+            .ok_or(PciManagerError::TooManyRootPorts(root_ports))?;
+
+        let mut pci_devices = PciDevices::new(constructor_args.vm, hotplug_ports)?;
+
+        // Root ports first: a device that was behind one is restored
+        // onto that port's secondary bus, which has to exist by then.
+        pci_devices
+            .pci_segment
+            .restore_root_ports(constructor_args.vm, &state.root_ports)?;
 
         if let Some(balloon_state) = &state.balloon_device {
             let device = Arc::new(Mutex::new(Balloon::restore(
@@ -754,7 +783,7 @@ impl<'a> Persist<'a> for PciDevices {
         // and enable all unmasked vectors (one kvm_irqfd call per vector).
         // Ordering: routing must be set before IRQFDs to avoid kernel panics on
         // older AMD/SVM hosts (see kernel commit a80ced6ea514).
-        if !pci_devices.virtio_devices.is_empty() {
+        if !pci_devices.virtio_devices.is_empty() || !state.root_ports.is_empty() {
             constructor_args
                 .vm
                 .set_gsi_routes()
@@ -765,6 +794,7 @@ impl<'a> Persist<'a> for PciDevices {
                 dev.enable_unmasked_vectors()
                     .map_err(PciManagerError::from)?;
             }
+            pci_devices.pci_segment.enable_unmasked_vectors()?;
         }
 
         Ok(pci_devices)
@@ -778,8 +808,14 @@ mod tests {
     use super::*;
     use crate::builder::tests::*;
     use crate::device_manager;
+    use crate::device_manager::tests::{make_hotplug_block_cfg, pci_devices};
+    use crate::device_manager::{HotplugDeviceConfig, VirtioDevices};
     use crate::devices::virtio::block::CacheType;
     use crate::mmds::data_store::MmdsVersion;
+    use crate::pci::PciDevice;
+    use crate::pci::pcie_cap::{
+        PCI_EXP_SLTCTL, PCI_EXP_SLTCTL_HPIE, PCI_EXP_SLTCTL_PDCE, PCI_EXP_SLTSTA_PDC,
+    };
     use crate::resources::VmmConfig;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::entropy::EntropyDeviceConfig;
@@ -1021,5 +1057,105 @@ mod tests {
             expected_vm_resources,
             serde_json::to_string_pretty(&VmmConfig::from(&*vm_resources)).unwrap()
         );
+    }
+
+    #[test]
+    fn test_root_port_state_round_trip() {
+        let mut event_manager = EventManager::new().unwrap();
+        let mut cmdline = default_kernel_cmdline();
+        let mut vmm = default_vmm_with_pci_ports(2);
+
+        let _block_files = insert_block_devices(
+            &mut vmm,
+            &mut cmdline,
+            &mut event_manager,
+            vec![CustomBlockConfig::new(
+                "root".to_string(),
+                true,
+                None,
+                true,
+                CacheType::Unsafe,
+            )],
+        );
+        vmm.device_manager
+            .attach_root_ports(vmm.vm.as_kvm().unwrap())
+            .unwrap();
+
+        // Arm the port's interrupts the way a guest driver would, then give it
+        // a device so the slot registers are not all zero.
+        const SLOT_CONTROL: u16 = PCI_EXP_SLTCTL_HPIE | PCI_EXP_SLTCTL_PDCE;
+        const SLOT_STATUS: u16 = PCI_EXP_SLTSTA_PDC;
+
+        let segment = &pci_devices(&vmm.device_manager).pci_segment;
+        let mut port = segment.root_ports[0].lock().unwrap();
+        let slot_reg = (port.state().pcie_cap_offset + PCI_EXP_SLTCTL) / 4;
+        port.write_config_register(slot_reg, 0, &SLOT_CONTROL.to_le_bytes());
+        port.plug(true);
+        assert_ne!(port.state().slot_status & SLOT_STATUS, 0);
+        drop(port);
+
+        let expected = segment
+            .root_ports
+            .iter()
+            .map(|port| port.lock().unwrap().state())
+            .collect::<Vec<_>>();
+        // Slot 1 went to the block device, so the ports are at 2 and 3.
+        assert_eq!(expected[0].sbdf.device(), 2);
+        assert_eq!(expected[1].sbdf.device(), 3);
+
+        let serialized_data = bitcode::serialize(&vmm.device_manager.save()).unwrap();
+        let saved_allocator = vmm.vm.as_kvm().unwrap().resource_allocator().save();
+        drop(vmm);
+
+        let mut restored_vmm = default_vmm();
+        *restored_vmm.vm.as_kvm().unwrap().resource_allocator() =
+            ResourceAllocator::restore((), &saved_allocator).unwrap();
+
+        let device_manager_state: device_manager::DevicesState =
+            bitcode::deserialize(&serialized_data).unwrap();
+        let device_manager::VirtioDevicesState::Pci(pci_state) = &device_manager_state.virtio_state
+        else {
+            panic!("expected PCI virtio device state");
+        };
+
+        let kvm_vm = restored_vmm.vm.as_kvm().unwrap().clone();
+        let restored = PciDevices::restore(
+            PciDevicesConstructorArgs {
+                vm: &kvm_vm,
+                mem: kvm_vm.guest_memory(),
+                vm_resources: &mut VmResources::default(),
+                instance_id: "microvm-id",
+                event_manager: &mut event_manager,
+            },
+            pci_state,
+        )
+        .unwrap();
+
+        // The ports come back exactly as they were, so the guest's view of them
+        // still holds.
+        let actual = restored
+            .pci_segment
+            .root_ports
+            .iter()
+            .map(|port| port.lock().unwrap().state())
+            .collect::<Vec<_>>();
+        assert_eq!(actual.len(), 2);
+        assert_eq!(
+            bitcode::serialize(&expected).unwrap(),
+            bitcode::serialize(&actual).unwrap()
+        );
+        assert_eq!(actual[0].slot_control, SLOT_CONTROL);
+        assert_eq!(actual[0].slot_status & SLOT_STATUS, SLOT_STATUS);
+        assert_ne!(actual[0].link_status, 0, "port 0 had a device in it");
+        assert_eq!(actual[1].link_status, 0, "port 1 was empty");
+
+        // And a hot-plug into a restored port still works, which is what the
+        // MSI-X restore is for.
+        restored_vmm.device_manager.virtio_devices = VirtioDevices::Pci(restored);
+        let f = TempFile::new().unwrap();
+        let cfg = HotplugDeviceConfig::Block(make_hotplug_block_cfg("hp0", &f, false));
+        restored_vmm
+            .hotplug_device(cfg, &mut event_manager)
+            .unwrap();
     }
 }
