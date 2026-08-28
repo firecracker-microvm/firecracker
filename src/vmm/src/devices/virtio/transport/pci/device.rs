@@ -487,7 +487,7 @@ impl VirtioPciDevice {
 
         let msix_config = Arc::new(Mutex::new(msix_config));
 
-        let pci_config = PciConfiguration::type0_from_state(state.pci_configuration_state)?;
+        let pci_config = PciConfiguration::from_state(state.pci_configuration_state)?;
         let virtio_common_config = VirtioPciCommonConfig::new(state.pci_dev_state);
 
         if state.device_activated {
