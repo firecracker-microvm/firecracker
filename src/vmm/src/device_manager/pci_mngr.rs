@@ -310,6 +310,13 @@ impl PciDevices {
             .get(&(device_type, device_id.to_string()))
     }
 
+    /// Return whether the device sits behind a PCIe root port, and is
+    /// therefore hot-unpluggable.
+    pub(crate) fn is_removable(&self, device_type: VirtioDeviceType, device_id: &str) -> bool {
+        self.get_virtio_device(device_type, device_id)
+            .is_some_and(|device| device.lock().expect("Poisoned lock").sbdf.bus() != 0)
+    }
+
     pub(crate) fn get_device(
         &self,
         device_type: VirtioDeviceType,
