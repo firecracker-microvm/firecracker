@@ -512,3 +512,80 @@ def test_hotplug_max_devices(uvm_any):
     # Verify all root ports are occupied again
     _, lspci, _ = vm.ssh.check_output("lspci -n")
     assert len(set(lspci.strip().splitlines()) - initial) == HOTPLUG_PORTS
+
+
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_pci(True)
+@pin_hotplug_ports(2)
+def test_hotplug_force_unplug(uvm_any):
+    """
+    A forced unplug removes the device without waiting for the guest, while a
+    plain one leaves it in place until the guest lets it go.
+    """
+    vm = uvm_any
+
+    def attached():
+        return {drive["drive_id"] for drive in vm.api.vm_config.get().json()["drives"]}
+
+    host_file = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "block0"), size=4)
+
+    def plug(drive_id):
+        vm.api.drive.put(
+            drive_id=drive_id,
+            path_on_host=vm.create_jailed_resource(host_file.path),
+            is_root_device=False,
+            is_read_only=False,
+        )
+
+    _, lspci_before, _ = vm.ssh.check_output("lspci -n")
+    before = set(lspci_before.splitlines())
+
+    plug("block0")
+    time.sleep(PLUG_SLEEP)
+    _, lspci_after, _ = vm.ssh.check_output("lspci -n")
+    assert len(set(lspci_after.splitlines()) - before) == 1
+
+    # Without force the device is still there when the call returns, until
+    # the guest acts on the notification.
+    vm.api.drive.delete("block0")
+    assert "block0" in attached()
+
+    time.sleep(UNPLUG_SLEEP)
+    # The device should be gone by now
+    assert "block0" not in attached()
+    _, lspci_unplugged, _ = vm.ssh.check_output("lspci -n")
+    assert set(lspci_unplugged.splitlines()) == before
+
+    # Plug a new device
+    plug("block1")
+    time.sleep(PLUG_SLEEP)
+    _, lspci_refilled, _ = vm.ssh.check_output("lspci -n")
+    assert len(set(lspci_refilled.splitlines()) - before) == 1
+
+    # With force-detach the device is gone immediately
+    vm.api.drive.delete("block1", force=True)
+    assert "block1" not in attached()
+
+    # Even though Firecracker removes the device immediately it still takes
+    # sometime for the guest to receive the notification and update its view
+    time.sleep(1)
+    _, lspci_forced, _ = vm.ssh.check_output("lspci -n")
+    assert set(lspci_forced.splitlines()) == before
+
+
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_pci(True)
+def test_hotplug_without_ports(uvm_any):
+    """
+    With no root ports reserved, hot-plug is rejected and says what to do.
+    """
+    vm = uvm_any
+
+    host_file = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "block0"), size=4)
+    with pytest.raises(RuntimeError, match="No PCIe root port is free"):
+        vm.api.drive.put(
+            drive_id="block0",
+            path_on_host=vm.create_jailed_resource(host_file.path),
+            is_root_device=False,
+            is_read_only=False,
+        )
