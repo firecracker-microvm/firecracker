@@ -400,6 +400,15 @@ impl GuestRegionMmapExt {
         caddr: MemoryRegionAddress,
         len: usize,
     ) -> Result<(), GuestMemoryError> {
+        // The address and length can come straight from a guest descriptor (balloon), so reject
+        // unaligned input here rather than letting the mmap/madvise below fail on it.
+        let page_size = host_page_size() as u64;
+        if !caddr.raw_value().is_multiple_of(page_size) || !(len as u64).is_multiple_of(page_size) {
+            return Err(GuestMemoryError::InvalidGuestAddress(
+                self.start_addr().unchecked_add(caddr.raw_value()),
+            ));
+        }
+
         match (self.inner.file_offset(), self.inner.flags()) {
             // If and only if we are resuming from a snapshot file, we have a file and it's mapped
             // private
@@ -457,10 +466,13 @@ impl GuestRegionMmapExt {
                             0,
                         )
                     };
+                    // MAP_FIXED has already unmapped the old range, so a failure here cannot be
+                    // recovered from.
                     if ret == libc::MAP_FAILED {
-                        let os_error = std::io::Error::last_os_error();
-                        error!("discard_range: mmap failed: {:?}", os_error);
-                        return Err(GuestMemoryError::IOError(os_error));
+                        panic!(
+                            "discard_range: mmap failed: {:?}",
+                            std::io::Error::last_os_error()
+                        );
                     }
                 }
                 Ok(())
@@ -1449,11 +1461,11 @@ mod tests {
             GuestMemoryError::InvalidGuestAddress(_)
         );
 
-        // Madvise fail: the guest address is not aligned to the page size.
+        // Unaligned address is rejected.
         assert_match!(
             mem.discard_range(GuestAddress(0x20), page_size)
                 .unwrap_err(),
-            GuestMemoryError::IOError(_)
+            GuestMemoryError::InvalidGuestAddress(_)
         );
     }
 
@@ -1501,11 +1513,11 @@ mod tests {
             GuestMemoryError::InvalidGuestAddress(_)
         );
 
-        // Mmap fail: the guest address is not aligned to the page size.
+        // Unaligned address is rejected, so the file-backed branch never sees a failing mmap.
         assert_match!(
             mem.discard_range(GuestAddress(0x20), page_size)
                 .unwrap_err(),
-            GuestMemoryError::IOError(_)
+            GuestMemoryError::InvalidGuestAddress(_)
         );
     }
 
