@@ -734,13 +734,22 @@ impl GuestRegionMmapExt {
                 // file only drops any anonymous pages in range, but subsequent accesses would read
                 // whatever page is stored on the backing file. Mmapping anonymous pages ensures
                 // it's zeroed.
+                // Keep MAP_NORESERVE to match the flags the region was created with (see `create`).
+                // Without it the replacement is subject to overcommit accounting and can fail with
+                // ENOMEM, by which point MAP_FIXED has already unmapped the range.
+                // TODO: this does not re-apply the region's madvise flags, so it would drop the
+                // MADV_HUGEPAGE hint on a THP + file-restore VM. That combination is unsupported
+                // today; revisit if it becomes supported.
                 // SAFETY: The address and length are known to be valid.
                 let ret = unsafe {
                     libc::mmap(
                         phys_address.cast(),
                         len,
                         libc::PROT_READ | libc::PROT_WRITE,
-                        libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
+                        libc::MAP_FIXED
+                            | libc::MAP_ANONYMOUS
+                            | libc::MAP_PRIVATE
+                            | libc::MAP_NORESERVE,
                         -1,
                         0,
                     )
