@@ -4,15 +4,13 @@
 //! Defines state and support structures for persisting Vsock devices and backends.
 
 use std::fmt::Debug;
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
 use super::*;
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDeviceType};
+use crate::devices::virtio::device::{DeviceState, VirtioDeviceType};
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
-use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -130,8 +128,6 @@ pub(crate) mod tests {
     use super::device::AVAIL_FEATURES;
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
-    use crate::devices::virtio::test_utils::default_interrupt;
-    use crate::devices::virtio::vsock::defs::uapi;
     use crate::devices::virtio::vsock::test_utils::{TestBackend, TestContext};
     use crate::utils::byte_order;
 
@@ -147,7 +143,7 @@ pub(crate) mod tests {
             }
         }
 
-        fn restore(_: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
+        fn restore(_: Self::ConstructorArgs, _state: &Self::State) -> Result<Self, Self::Error> {
             Ok(TestBackend::new())
         }
     }

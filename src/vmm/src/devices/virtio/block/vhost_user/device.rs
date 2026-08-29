@@ -25,7 +25,7 @@ use crate::devices::virtio::vhost_user::{VhostUserHandleBackend, VhostUserHandle
 use crate::devices::virtio::vhost_user_metrics::{
     VhostUserDeviceMetrics, VhostUserMetricsPerDevice,
 };
-use crate::logger::{IncMetric, StoreMetric, log_dev_preview_warning, warn};
+use crate::logger::{IncMetric, StoreMetric, log_dev_preview_warning};
 use crate::utils::u64_to_usize;
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -67,12 +67,14 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
     type Error = VhostUserBlockError;
 
     fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
-        if let (Some(socket), None, None, None, None) = (
+        if let (Some(socket), None, None, None, None, None, None) = (
             &value.socket,
             &value.is_read_only,
             &value.path_on_host,
             &value.rate_limiter,
             &value.file_engine_type,
+            &value.blk_size,
+            &value.topology,
         ) {
             Ok(Self {
                 drive_id: value.drive_id.clone(),
@@ -100,6 +102,8 @@ impl From<VhostUserBlockConfig> for BlockDeviceConfig {
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: Some(value.socket),
         }
@@ -416,6 +420,8 @@ mod tests {
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: Some("sock".to_string()),
         };
@@ -431,6 +437,8 @@ mod tests {
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -446,6 +454,8 @@ mod tests {
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
+            blk_size: None,
+            topology: None,
 
             socket: Some("sock".to_string()),
         };

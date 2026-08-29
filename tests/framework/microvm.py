@@ -913,6 +913,8 @@ class Microvm:
         partuuid=None,
         cache_type=None,
         io_engine=None,
+        topology=None,
+        blk_size=None,
     ):
         """Add a block device."""
 
@@ -925,6 +927,8 @@ class Microvm:
             partuuid=partuuid,
             cache_type=cache_type,
             io_engine=io_engine,
+            topology=topology,
+            blk_size=blk_size,
         )
         self.disks[drive_id] = path_on_host
 
@@ -1046,6 +1050,7 @@ class Microvm:
         *,
         mem_path: str = "mem",
         vmstate_path="vmstate",
+        sync_snapshot_files: Optional[bool] = None,
     ):
         """Create a Snapshot object from a microvm.
 
@@ -1053,6 +1058,9 @@ class Microvm:
         relative to the Microvm's chroot.
 
         It pauses the microvm before taking the snapshot.
+
+        If ``sync_snapshot_files`` is left as ``None`` the field is omitted from the
+        request, exercising the API default. Otherwise it is sent explicitly.
         """
         self.pause()
         # Notify monitor that snapshot is being created
@@ -1062,6 +1070,7 @@ class Microvm:
             mem_file_path=str(mem_path),
             snapshot_path=str(vmstate_path),
             snapshot_type=snapshot_type.api_type,
+            sync_snapshot_files=sync_snapshot_files,
         )
         root = Path(self.chroot())
         return Snapshot(

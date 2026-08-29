@@ -30,10 +30,12 @@ pub fn invoke_handler_for_queue_event(b: &mut Balloon, queue_index: usize) {
     match queue_index {
         INFLATE_INDEX => b.process_inflate_queue_event().unwrap(),
         DEFLATE_INDEX => b.process_deflate_queue_event().unwrap(),
-        reporting_idx if b.free_page_reporting() => {
+        idx if b.free_page_reporting() && idx == reporting_idx => {
             b.process_free_page_reporting_queue_event().unwrap()
         }
-        hinting_idx if b.free_page_hinting() => b.process_free_page_hinting_queue_event().unwrap(),
+        idx if b.free_page_hinting() && idx == hinting_idx => {
+            b.process_free_page_hinting_queue_event().unwrap()
+        }
         STATS_INDEX => b.process_stats_queue_event().unwrap(),
         _ => unreachable!(),
     };
