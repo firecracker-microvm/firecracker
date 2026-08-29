@@ -27,7 +27,7 @@ Firecracker binary.
 
 This process is performed automatically, when building the executable.
 
-To minimise the overhead of succesive builds, the compiled filter file is cached
+To minimise the overhead of successive builds, the compiled filter file is cached
 in the build folder and is only recompiled if modified.
 
 You can find the default seccomp filters under `resources/seccomp`.
