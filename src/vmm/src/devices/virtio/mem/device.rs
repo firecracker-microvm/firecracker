@@ -534,6 +534,11 @@ impl VirtioMem {
         let block_range = self.unchecked_block_range(range);
         let plugged_blocks_slice = &mut self.plugged_blocks[block_range];
         let plugged_before = plugged_blocks_slice.count_ones();
+        // Nothing is plugged in this range, so there is nothing to discard. UNPLUG_ALL covers the
+        // whole region, so this skip avoids repeatedly re-discarding an already-unplugged region.
+        if !plug && plugged_before == 0 {
+            return Ok(());
+        }
         plugged_blocks_slice.fill(plug);
         let plugged_after = plugged_blocks_slice.count_ones();
         self.config.plugged_size -= usize_to_u64(self.nb_blocks_to_len(plugged_before));
@@ -1195,6 +1200,31 @@ mod tests {
         assert_eq!(th.device().plugged_size_mib(), 0);
 
         assert_eq!(METRICS.unplug_all_count.count(), unplug_all_count + 1);
+        assert_eq!(METRICS.unplug_all_fails.count(), unplug_all_fails);
+    }
+
+    #[test]
+    fn test_repeated_unplug_all_is_noop() {
+        let mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+        th.device().update_requested_size(1024).unwrap();
+        let addr = th.device().guest_address();
+
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::Plug(RequestedRange { addr, nb_blocks: 2 }),
+        );
+        assert!(resp.is_ack());
+        let resp = emulate_request(&mut th, &guest_mem, Request::UnplugAll);
+        assert!(resp.is_ack());
+        assert_eq!(th.device().plugged_size_mib(), 0);
+
+        let unplug_all_fails = METRICS.unplug_all_fails.count();
+        let resp = emulate_request(&mut th, &guest_mem, Request::UnplugAll);
+        assert!(resp.is_ack());
+        assert_eq!(th.device().plugged_size_mib(), 0);
         assert_eq!(METRICS.unplug_all_fails.count(), unplug_all_fails);
     }
 
