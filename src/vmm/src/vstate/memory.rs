@@ -811,12 +811,29 @@ impl GuestRegionMmapExt {
                 }
                 Ok(())
             }
-            // Match either the case of an anonymous mapping, or the case
-            // of a shared file mapping.
-            // TODO: madvise(MADV_DONTNEED) doesn't actually work with memfd
-            // (or in general MAP_SHARED of a fd). In those cases we should use
-            // fallocate64(FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE).
-            // We keep falling to the madvise branch to keep the previous behaviour.
+            // For MAP_SHARED file-backed mappings (e.g. the memfd backing used by a
+            // vhost-user-blk device), madvise(MADV_DONTNEED) has no effect: the kernel ignores it
+            // for shared pages to avoid surprising other mappers. Use madvise(MADV_REMOVE), which
+            // punches a hole in the backing file — freeing the underlying physical frames and
+            // returning zeroes on the next access — but, unlike calling fallocate(PUNCH_HOLE)
+            // directly, goes through the kernel's uffd_remove() path first, so a UFFD handler
+            // registered on the mapping still receives the remove event (as it does today with
+            // MADV_DONTNEED). On a hugetlbfs backing this also fails with EINVAL for a range that
+            // is not huge-page aligned, instead of silently succeeding without punching a hole.
+            (Some(_), flags) if flags & libc::MAP_SHARED != 0 => {
+                let host_addr = self.get_host_address(caddr)?;
+                // SAFETY: The address and length are known to be valid and page-aligned.
+                let ret = unsafe { libc::madvise(host_addr.cast(), len, libc::MADV_REMOVE) };
+                if ret < 0 {
+                    let os_error = std::io::Error::last_os_error();
+                    error!("discard_range: madvise(MADV_REMOVE) failed: {:?}", os_error);
+                    Err(GuestMemoryError::IOError(os_error))
+                } else {
+                    Ok(())
+                }
+            }
+            // Anonymous mapping: madvise(MADV_DONTNEED) causes the kernel to discard the backing
+            // pages; subsequent accesses fault in fresh zero pages.
             _ => {
                 // Madvise the region in order to mark it as not used.
                 let host_addr = self.get_host_address(caddr)?;
@@ -1895,6 +1912,114 @@ mod tests {
             mem.discard_range(GuestAddress(0x20), page_size)
                 .unwrap_err(),
             GuestMemoryError::InvalidGuestAddress(_)
+        );
+    }
+
+    /// Returns the number of bytes of physical storage backing `mem`'s first region,
+    /// derived from the backing file's block count (`st_blocks * 512`).
+    fn memfd_backing_bytes(mem: &GuestMemoryMmap) -> u64 {
+        mem.iter()
+            .next()
+            .unwrap()
+            .file_offset()
+            .expect("region should be file-backed")
+            .file()
+            .metadata()
+            .unwrap()
+            .blocks()
+            * 512
+    }
+
+    /// Shared body for the memfd `discard_range` tests. `huge_pages` selects the backing
+    /// (regular pages or 2 MiB hugetlbfs) and thus the discard granularity.
+    ///
+    /// The key assertion is that punching a hole actually frees physical frames in the
+    /// backing memfd — observed through the file's block count. Reading back zeroes alone
+    /// does not prove a hole was punched, since a fresh `MAP_PRIVATE` remap would read
+    /// zeroes too without releasing the shared backing storage.
+    fn check_discard_range_on_memfd(huge_pages: HugePageConfig) {
+        let page_size = huge_pages.page_size();
+        let regions = [(GuestAddress(0), 2 * page_size)];
+        let memfd_regions =
+            memfd_backed(&regions, false, huge_pages).expect("memfd_backed failed");
+        let mem = into_region_ext(memfd_regions);
+
+        // Fill both pages with ones, forcing the kernel to allocate physical frames.
+        let ones = vec![1u8; 2 * page_size];
+        mem.write(&ones[..], GuestAddress(0)).unwrap();
+
+        let backing_before = memfd_backing_bytes(&mem);
+        assert!(
+            backing_before >= 2 * page_size as u64,
+            "expected at least two pages of backing storage, got {backing_before} bytes"
+        );
+
+        // Discard the first page. On a MAP_SHARED memfd this goes through
+        // madvise(MADV_REMOVE), punching a hole in the backing file.
+        mem.discard_range(GuestAddress(0), page_size).unwrap();
+
+        // The hole must have released exactly the first page's physical frame.
+        let backing_after = memfd_backing_bytes(&mem);
+        assert_eq!(
+            backing_before - backing_after,
+            page_size as u64,
+            "discard_range did not punch a hole in the backing memfd"
+        );
+
+        // The first page must read back as zeroes.
+        let mut actual_page = vec![0u8; page_size];
+        mem.read(actual_page.as_mut_slice(), GuestAddress(0))
+            .unwrap();
+        assert_eq!(vec![0u8; page_size], actual_page);
+
+        // The second page must still contain ones.
+        mem.read(actual_page.as_mut_slice(), GuestAddress(page_size as u64))
+            .unwrap();
+        assert_eq!(vec![1u8; page_size], actual_page);
+
+        // Malformed range: the len spills past the region.
+        assert_match!(
+            mem.discard_range(GuestAddress(0), 3 * page_size)
+                .unwrap_err(),
+            GuestMemoryError::InvalidGuestAddress(_)
+        );
+
+        // Unaligned guest address is rejected up front by the alignment check.
+        assert_match!(
+            mem.discard_range(GuestAddress(0x20), page_size)
+                .unwrap_err(),
+            GuestMemoryError::InvalidGuestAddress(_)
+        );
+    }
+
+    #[test]
+    fn test_discard_range_on_memfd() {
+        check_discard_range_on_memfd(HugePageConfig::None);
+    }
+
+    #[test]
+    fn test_discard_range_on_memfd_hugetlbfs() {
+        // The two-page region needs two free 2 MiB huge pages.
+        if free_hugepages_2m() < 2 {
+            println!("Skipping: fewer than two free 2 MiB hugepages available");
+            return;
+        }
+        check_discard_range_on_memfd(HugePageConfig::Hugetlbfs2M);
+
+        // On a hugetlbfs backing, a range smaller than the huge page size cannot be
+        // punched: madvise(MADV_REMOVE) must fail with EINVAL rather than silently
+        // succeeding without freeing anything (the old fallocate path returned 0 here).
+        // The address/length pass the host-page-size alignment check but are not
+        // huge-page aligned.
+        let regions = [(GuestAddress(0), 2 * mib_to_bytes(2))];
+        let mem = into_region_ext(
+            memfd_backed(&regions, false, HugePageConfig::Hugetlbfs2M)
+                .expect("memfd_backed failed"),
+        );
+        assert_match!(
+            mem.discard_range(GuestAddress(0), host_page_size())
+                .unwrap_err(),
+            GuestMemoryError::IOError(_)
         );
     }
 
