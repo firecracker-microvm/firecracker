@@ -277,6 +277,7 @@ mod tests {
                 snapshot_type: SnapshotType::Diff,
                 snapshot_path: PathBuf::new(),
                 mem_file_path: PathBuf::new(),
+                sync_snapshot_files: true,
             })),
             start_time_us,
         );
@@ -290,6 +291,7 @@ mod tests {
                 snapshot_type: SnapshotType::Diff,
                 snapshot_path: PathBuf::new(),
                 mem_file_path: PathBuf::new(),
+                sync_snapshot_files: true,
             })),
             start_time_us,
         );

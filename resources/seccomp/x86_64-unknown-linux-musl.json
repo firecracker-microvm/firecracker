@@ -697,6 +697,58 @@
                 ]
             },
             {
+                "syscall": "ioctl",
+                "comment": "Needed for querying the logical sector size of a block-device backing file during virtio-block init",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4712,
+                        "comment": "BLKSSZGET"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed for querying the physical block size of a block-device backing file during virtio-block init",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4731,
+                        "comment": "BLKPBSZGET"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed for querying the minimum I/O size of a block-device backing file during virtio-block init",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4728,
+                        "comment": "BLKIOMIN"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed for querying the optimal I/O size of a block-device backing file during virtio-block init",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4729,
+                        "comment": "BLKIOOPT"
+                    }
+                ]
+            },
+            {
                 "syscall": "sched_yield",
                 "comment": "Used by the rust standard library in std::sync::mpmc. Firecracker uses mpsc channels from this module for inter-thread communication"
             },
@@ -790,6 +842,10 @@
             {
                 "syscall": "rt_sigprocmask",
                 "comment": "rt_sigprocmask is used by Rust stdlib to remove custom signal handler during thread teardown."
+            },
+            {
+                "syscall": "rt_sigreturn",
+                "comment": "rt_sigreturn is needed so sigpipe_handler can return and resume the thread."
             },
             {
                 "syscall": "sigaltstack",
@@ -1242,6 +1298,19 @@
                         "op": "eq",
                         "val": 6,
                         "comment": "SIGABRT"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed to relocate notify ioeventfds when the guest reprograms a BAR",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1077980793,
+                        "comment": "KVM_IOEVENTFD"
                     }
                 ]
             },

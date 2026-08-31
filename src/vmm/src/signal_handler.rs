@@ -145,9 +145,9 @@ extern "C" fn sigpipe_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_
         return;
     }
 
+    // Do not log here: the write that raised SIGPIPE is usually a log write, so
+    // logging would re-enter the logger mid-write on this same thread.
     METRICS.signals.sigpipe.inc();
-
-    error_unrestricted!("Received signal {}, code {}.", si_signo, si_code);
 }
 
 /// Registers all the required signal handlers.

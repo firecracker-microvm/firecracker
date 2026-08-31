@@ -259,7 +259,7 @@ impl VirtioPciCommonConfig {
                 // Make sure that the guest doesn't select an invalid vector. We are offering
                 // `num_queues + 1` vectors (plus one for configuration updates). If an invalid
                 // vector has been selected, we just store the `NO_VECTOR` value.
-                let mut msix_queues = self.msix_queues.lock().expect("Poisoned lock");
+                let msix_queues = self.msix_queues.lock().expect("Poisoned lock");
                 let nr_vectors = msix_queues.len() + 1;
 
                 if (value as usize) < nr_vectors {
@@ -437,7 +437,6 @@ mod tests {
 
     use super::*;
     use crate::devices::virtio::transport::mmio::tests::DummyDevice;
-    use crate::devices::virtio::transport::pci::common_config_offset::*;
 
     fn default_device() -> Arc<Mutex<DummyDevice>> {
         Arc::new(Mutex::new(DummyDevice::new()))
@@ -517,7 +516,7 @@ mod tests {
     #[test]
     fn test_device_feature() {
         let mut config = default_pci_common_config();
-        let mut device = default_device();
+        let device = default_device();
         let mut features = 0u32;
 
         device
@@ -550,7 +549,7 @@ mod tests {
     #[test]
     fn test_driver_feature() {
         let mut config = default_pci_common_config();
-        let mut device = default_device();
+        let device = default_device();
         device
             .lock()
             .unwrap()
@@ -604,7 +603,7 @@ mod tests {
     #[test]
     fn test_num_queues() {
         let mut config = default_pci_common_config();
-        let mut device = default_device();
+        let device = default_device();
         let mut num_queues = 0u16;
 
         config.read(NUM_QUEUES, num_queues.as_mut_slice(), device.clone());
@@ -669,7 +668,7 @@ mod tests {
         let device = default_device();
 
         // Helper to attempt a transition and verify it was rejected.
-        let mut assert_rejected = |config: &mut VirtioPciCommonConfig, new: u8, expected: u8| {
+        let assert_rejected = |config: &mut VirtioPciCommonConfig, new: u8, expected: u8| {
             config.write(DEVICE_STATUS, new.as_slice(), device.clone(), false);
             let mut s = 0u8;
             config.read(DEVICE_STATUS, s.as_mut_slice(), device.clone());
@@ -996,7 +995,7 @@ mod tests {
     #[test]
     fn test_bad_width_reads() {
         let mut config = default_pci_common_config();
-        let mut device = default_device();
+        let device = default_device();
 
         // According to the VirtIO specification (section 4.1.3.1)
         //

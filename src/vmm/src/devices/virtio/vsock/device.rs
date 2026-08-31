@@ -27,7 +27,6 @@ use std::sync::Arc;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::super::super::DeviceError;
-use super::defs::uapi;
 use super::packet::{VSOCK_PKT_HDR_SIZE, VsockPacketRx, VsockPacketTx};
 use super::{VsockBackend, defs};
 use crate::devices::virtio::ActivateError;
@@ -40,7 +39,6 @@ use crate::devices::virtio::vsock::VsockError;
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::impl_device_type;
 use crate::logger::{IncMetric, error, info, warn};
-use crate::utils::byte_order;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};
 
 pub(crate) const RXQ_INDEX: usize = 0;
@@ -412,21 +410,30 @@ where
 
     fn kick(&mut self) {
         if self.is_activated() {
-            self.pending_event_ack = true;
-
             // Vsock has a complicated protocol that isn't resilient to any packet loss,
             // so for Vsock we don't support connection persistence through snapshot. Any
             // in-flight packets or events are simply lost and Vsock is restored 'empty'.
-            // We signal the event queue to make the guest process the
-            // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation. (We signal
-            // it host->guest rather than writing its eventfd, which would invoke the
+            //
+            // A set `pending_event_ack` means a `TRANSPORT_RESET_EVENT` sits in the
+            // event queue's used ring, not yet acknowledged by the guest: we are
+            // resuming either the VM a snapshot was just taken from, or a VM restored
+            // from a snapshot (the flag is part of the persisted device state). Signal
+            // the event queue so the guest processes the event. (We signal it
+            // host->guest rather than writing its eventfd, which would invoke the
             // guest's reset-ack path and clear `pending_event_ack` prematurely.)
-            info!(
-                "[{:?}:{}] signaling event queue",
-                self.device_type(),
-                self.id()
-            );
-            self.signal_used_queue(EVQ_INDEX).unwrap();
+            //
+            // On a bare pause/resume no reset event was published, so there is nothing
+            // to signal and the flag must stay clear: arming it here would gate
+            // `process_rx` on an acknowledgment the guest can never send, hanging all
+            // subsequent host-initiated connections.
+            if self.pending_event_ack {
+                info!(
+                    "[{:?}:{}] signaling event queue",
+                    self.device_type(),
+                    self.id()
+                );
+                self.signal_used_queue(EVQ_INDEX).unwrap();
+            }
 
             // Replay the TX queue notification, like the default `VirtioDevice::kick`
             // does for its data queues, so the device re-processes any TX descriptor
@@ -436,9 +443,11 @@ where
             // Under EVENT_IDX the guest only notifies us when `avail_idx` crosses
             // `avail_event`; since it is already past, the guest considers itself to
             // have notified us and stays silent, so we never process the queue and
-            // guest-to-host connections hang. RX needs no replay: it is gated by
-            // `pending_event_ack` until the guest acks the reset, and the host pulls
-            // from the backend rather than waiting on a guest RX notification.
+            // guest-to-host connections hang. RX needs no replay: on the snapshot path
+            // it is gated by `pending_event_ack` until the guest acks the reset (which
+            // drains RX and re-arms `avail_event`), on a bare resume the RX queue
+            // state was never disturbed, and in both cases the host pulls from the
+            // backend rather than waiting on a guest RX notification.
             info!(
                 "[{:?}:{}] notifying tx queue",
                 self.device_type(),
@@ -472,8 +481,8 @@ mod tests {
 
     use super::*;
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
-    use crate::devices::virtio::vsock::defs::uapi;
     use crate::devices::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
+    use crate::utils::byte_order;
     use crate::vstate::memory::GuestAddress;
 
     /// Guest address used for the writable evq descriptor payload in tests.
@@ -608,23 +617,24 @@ mod tests {
     }
 
     #[test]
-    fn test_kick_when_active_arms_pending_event_ack() {
+    fn test_kick_preserves_armed_pending_event_ack() {
         // Restore path: kick() is invoked after the snapshot is loaded to re-deliver the
-        // TRANSPORT_RESET interrupt. It must arm the RX gate so the post-restore RX/EVQ
-        // race cannot deliver data ahead of the guest ack.
+        // TRANSPORT_RESET interrupt. The RX gate, restored from the snapshot state, must
+        // stay armed so the post-restore RX/EVQ race cannot deliver data ahead of the
+        // guest ack.
         let test_ctx = TestContext::new();
         let mut ctx = test_ctx.create_event_handler_context();
         ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
-        ctx.device.pending_event_ack = false;
+        ctx.device.pending_event_ack = true;
         ctx.device.kick();
 
         assert!(
             ctx.device.pending_event_ack,
-            "kick() on an active device must arm the RX gate"
+            "kick() must keep the RX gate armed while a reset ack is outstanding"
         );
 
-        // After kick(), the gate must actually suppress RX delivery.
+        // The gate must actually suppress RX delivery.
         ctx.device.backend.set_pending_rx(true);
         let progressed = ctx.device.process_rx().unwrap();
         assert!(!progressed);
@@ -632,11 +642,37 @@ mod tests {
     }
 
     #[test]
+    fn test_bare_resume_kick_leaves_rx_ungated() {
+        // Bare pause/resume path: no TRANSPORT_RESET was published, so kick() must not
+        // arm the RX gate. Arming it would block RX forever, as the guest never acks an
+        // event it never received, and new host-initiated connections would hang.
+        let test_ctx = TestContext::new();
+        let mut ctx = test_ctx.create_event_handler_context();
+        ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
+
+        assert!(!ctx.device.pending_event_ack);
+        ctx.device.kick();
+
+        assert!(
+            !ctx.device.pending_event_ack,
+            "kick() must not arm the RX gate when no reset ack is outstanding"
+        );
+
+        // RX delivery must still work after the kick.
+        ctx.device.backend.set_pending_rx(true);
+        let progressed = ctx.device.process_rx().unwrap();
+        assert!(progressed, "RX must flow after a bare resume");
+        assert_eq!(ctx.guest_rxvq.used.idx.get(), 1);
+    }
+
+    #[test]
     fn test_kick_replays_tx_notification_only() {
-        // On restore, kick() must replay only the TX data queue (to re-process in-flight
-        // TX and re-arm avail_event). RX is gated by pending_event_ack so it needs no
-        // replay, and the event queue's data eventfd must not be notified -- that is the
-        // guest's TRANSPORT_RESET ack path; the event queue is signaled host->guest.
+        // On resume, kick() must replay only the TX data queue (to re-process in-flight
+        // TX and re-arm avail_event). RX needs no replay: on the snapshot path it is
+        // gated by pending_event_ack until the guest acks the reset, and on a bare
+        // resume its queue state was never disturbed. The event queue's data eventfd
+        // must not be notified either -- that is the guest's TRANSPORT_RESET ack path;
+        // the event queue is signaled host->guest.
         let test_ctx = TestContext::new();
         let mut ctx = test_ctx.create_event_handler_context();
         ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());

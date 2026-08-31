@@ -1253,6 +1253,15 @@ definitions:
           This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
         enum: ["Sync", "Async"]
         default: "Sync"
+      blk_size:
+        type: integer
+        description:
+          Logical block size advertised to the guest via VIRTIO_BLK_F_BLK_SIZE.
+          This field is optional for virtio-block config and should be omitted
+          for vhost-user-block configuration.
+        default: 512
+      topology:
+        $ref: "#/definitions/BlockTopology"
 
       # VhostUserBlock specific parameters
       socket:
@@ -1260,6 +1269,28 @@ definitions:
         description:
           Path to the socket of vhost-user-block backend.
           This field is required for vhost-user-block config should be omitted for virtio-block configuration.
+
+  BlockTopology:
+    type: object
+    description:
+      Block device topology exposed to the guest via VIRTIO_BLK_F_TOPOLOGY.
+      When value is present, it is used instead of Firecracker defaults. All
+      I/O size fields are expressed in units of logical blocks. This field is
+      optional for virtio-block config and should be omitted for
+      vhost-user-block configuration.
+    properties:
+      physical_block_exp:
+        type: integer
+        description: log2 of the number of logical blocks per physical block.
+      alignment_offset:
+        type: integer
+        description: Offset of the first aligned logical block.
+      min_io_size:
+        type: integer
+        description: Suggested minimum I/O size, in units of logical blocks.
+      opt_io_size:
+        type: integer
+        description: Suggested optimal (maximum) I/O size, in units of logical blocks.
 
   Pmem:
     type: object
@@ -1642,6 +1673,18 @@ definitions:
         description:
           Type of snapshot to create. It is optional and by default, a full
           snapshot is created.
+      sync_snapshot_files:
+        type: boolean
+        default: true
+        description:
+          Whether the snapshot state and guest memory files are synced to
+          disk (fsync) before the request returns. Optional, defaults to true,
+          guaranteeing durability across host crashes. Setting it to false
+          returns without waiting for the writeback, making snapshot creation
+          faster at the cost of durability across a host crash; the data stays
+          in the host page cache, so same-host reads still see the full
+          contents. Block device backing files are always fsync'd regardless of
+          this setting.
 
   NetworkOverride:
     type: object
@@ -1728,6 +1771,20 @@ definitions:
           elapsed since the snapshot was taken. When false (default), kvmclock resumes
           from where it was at snapshot time. This option may be extended to other clock
           sources and CPU architectures in the future."
+      huge_pages:
+        type: string
+        enum:
+          - Snapshot
+          - None
+          - Transparent
+          - 2M
+        description:
+          Selects the huge pages configuration for the restored microVM.
+          Snapshot reuses the value serialized in the snapshot and is the
+          default when this field is omitted; None uses the host's default
+          memory-mapping behavior. Explicit hugetlbfs (`2M`) pages require a UFFD
+          memory backend. With UFFD, the effectiveness of transparent huge pages
+          may be limited.
 
 
   TokenBucket:

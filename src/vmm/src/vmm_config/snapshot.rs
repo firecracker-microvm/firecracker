@@ -9,6 +9,8 @@ use std::path::PathBuf;
 pub use semver::Version;
 use serde::{Deserialize, Serialize};
 
+use super::machine_config::HugePageConfig;
+
 /// The snapshot type options that are available when
 /// creating a new snapshot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -45,6 +47,15 @@ pub struct CreateSnapshotParams {
     pub snapshot_path: PathBuf,
     /// Path to the file that will contain the guest memory.
     pub mem_file_path: PathBuf,
+    /// Whether to fsync the snapshot state and guest memory files.
+    /// Activated virtio-block devices are always fsync'd, independently of this.
+    #[serde(default = "default_sync_snapshot_files")]
+    pub sync_snapshot_files: bool,
+}
+
+/// Default value for [CreateSnapshotParams::sync_snapshot_files].
+fn default_sync_snapshot_files() -> bool {
+    true
 }
 
 /// Allows for changing the mapping between tap devices and host devices
@@ -62,6 +73,33 @@ pub struct NetworkOverride {
 pub struct VsockOverride {
     /// The path to the UDS that will be used for the vsock interface
     pub uds_path: String,
+}
+
+/// Selects the huge-page configuration to use when loading a snapshot.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+pub enum SnapshotLoadHugePageConfig {
+    /// Reuse the huge-page configuration serialized in the snapshot.
+    #[default]
+    Snapshot,
+    /// Use the host's default memory-mapping behavior.
+    None,
+    /// Advise the kernel to use transparent huge pages for guest memory.
+    Transparent,
+    /// Back guest memory by 2 MiB hugetlbfs pages.
+    #[serde(rename = "2M")]
+    Hugetlbfs2M,
+}
+
+impl SnapshotLoadHugePageConfig {
+    /// Resolves the configuration against the value serialized in the snapshot.
+    pub fn resolve(self, snapshot: HugePageConfig) -> HugePageConfig {
+        match self {
+            Self::Snapshot => snapshot,
+            Self::None => HugePageConfig::None,
+            Self::Transparent => HugePageConfig::Transparent,
+            Self::Hugetlbfs2M => HugePageConfig::Hugetlbfs2M,
+        }
+    }
 }
 
 /// Stores the configuration that will be used for loading a snapshot.
@@ -85,6 +123,8 @@ pub struct LoadSnapshotParams {
     /// advancing kvmclock by the wall-clock time elapsed since the snapshot was taken. When false
     /// (default), kvmclock resumes from where it was at snapshot time.
     pub clock_realtime: bool,
+    /// Selects the huge-page configuration to use for the restored microVM.
+    pub huge_pages: SnapshotLoadHugePageConfig,
 }
 
 /// Stores the configuration for loading a snapshot that is provided by the user.
@@ -120,6 +160,9 @@ pub struct LoadSnapshotConfig {
     /// [x86_64 only] When set to true, passes `KVM_CLOCK_REALTIME` to `KVM_SET_CLOCK` on restore.
     #[serde(default)]
     pub clock_realtime: bool,
+    /// Selects the huge-page configuration to use for the restored microVM.
+    #[serde(default)]
+    pub huge_pages: SnapshotLoadHugePageConfig,
 }
 
 /// Stores the configuration used for managing snapshot memory.

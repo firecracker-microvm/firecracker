@@ -913,6 +913,8 @@ class Microvm:
         partuuid=None,
         cache_type=None,
         io_engine=None,
+        topology=None,
+        blk_size=None,
     ):
         """Add a block device."""
 
@@ -925,6 +927,8 @@ class Microvm:
             partuuid=partuuid,
             cache_type=cache_type,
             io_engine=io_engine,
+            topology=topology,
+            blk_size=blk_size,
         )
         self.disks[drive_id] = path_on_host
 
@@ -1046,6 +1050,7 @@ class Microvm:
         *,
         mem_path: str = "mem",
         vmstate_path="vmstate",
+        sync_snapshot_files: Optional[bool] = None,
     ):
         """Create a Snapshot object from a microvm.
 
@@ -1053,6 +1058,9 @@ class Microvm:
         relative to the Microvm's chroot.
 
         It pauses the microvm before taking the snapshot.
+
+        If ``sync_snapshot_files`` is left as ``None`` the field is omitted from the
+        request, exercising the API default. Otherwise it is sent explicitly.
         """
         self.pause()
         # Notify monitor that snapshot is being created
@@ -1062,6 +1070,7 @@ class Microvm:
             mem_file_path=str(mem_path),
             snapshot_path=str(vmstate_path),
             snapshot_type=snapshot_type.api_type,
+            sync_snapshot_files=sync_snapshot_files,
         )
         root = Path(self.chroot())
         return Snapshot(
@@ -1098,6 +1107,7 @@ class Microvm:
         vsock_override: str = None,
         clock_realtime: bool = False,
         *,
+        huge_pages: Optional[HugePagesConfig] = None,
         uffd_handler_name: str = None,
     ):
         """Restore a snapshot"""
@@ -1162,6 +1172,9 @@ class Microvm:
         if clock_realtime:
             optional_kwargs["clock_realtime"] = clock_realtime
 
+        if huge_pages is not None:
+            optional_kwargs["huge_pages"] = huge_pages
+
         self.api.snapshot_load.put(
             mem_backend=mem_backend,
             snapshot_path=str(jailed_vmstate),
@@ -1169,6 +1182,9 @@ class Microvm:
             resume_vm=resume,
             **optional_kwargs,
         )
+
+        if huge_pages is not None:
+            self.huge_pages = huge_pages
 
         if self.memory_monitor:
             response = self.api.machine_config.get()

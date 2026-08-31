@@ -175,14 +175,22 @@ pub fn create_snapshot(
         .save_state(vm_info)
         .map_err(CreateSnapshotError::MicrovmState)?;
 
-    snapshot_state_to_file(&microvm_state, &params.snapshot_path)?;
+    snapshot_state_to_file(
+        &microvm_state,
+        &params.snapshot_path,
+        params.sync_snapshot_files,
+    )?;
 
     let kvm_vm = vmm.vm.as_kvm().ok_or_else(|| {
         CreateSnapshotError::MicrovmState(MicrovmStateError::NotAllowed(
             "snapshot requires KVM".into(),
         ))
     })?;
-    kvm_vm.snapshot_memory_to_file(&params.mem_file_path, params.snapshot_type)?;
+    kvm_vm.snapshot_memory_to_file(
+        &params.mem_file_path,
+        params.snapshot_type,
+        params.sync_snapshot_files,
+    )?;
 
     // We need to mark queues as dirty again for all activated devices. The reason we
     // do it here is that we don't mark pages as dirty during runtime
@@ -196,6 +204,7 @@ pub fn create_snapshot(
 fn snapshot_state_to_file(
     microvm_state: &MicrovmState,
     snapshot_path: &Path,
+    sync_snapshot_files: bool,
 ) -> Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
     let mut snapshot_file = OpenOptions::new()
@@ -210,9 +219,12 @@ fn snapshot_state_to_file(
     snapshot_file
         .flush()
         .map_err(|err| SnapshotBackingFile("flush", err))?;
-    snapshot_file
-        .sync_all()
-        .map_err(|err| SnapshotBackingFile("sync_all", err))
+    if sync_snapshot_files {
+        snapshot_file
+            .sync_all()
+            .map_err(|err| SnapshotBackingFile("sync_all", err))?;
+    }
+    Ok(())
 }
 
 /// Validates that snapshot CPU vendor matches the host CPU vendor.
@@ -428,7 +440,7 @@ pub fn restore_from_snapshot(
             smt: Some(microvm_state.vm_info.smt),
             cpu_template: Some(microvm_state.vm_info.cpu_template),
             track_dirty_pages: Some(track_dirty_pages),
-            huge_pages: Some(microvm_state.vm_info.huge_pages),
+            huge_pages: Some(params.huge_pages.resolve(microvm_state.vm_info.huge_pages)),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         })

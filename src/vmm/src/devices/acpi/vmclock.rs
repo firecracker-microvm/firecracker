@@ -1,7 +1,6 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::convert::Infallible;
 use std::mem::offset_of;
 use std::sync::atomic::{Ordering, fence};
 
@@ -38,7 +37,7 @@ macro_rules! write_vmclock_field {
             $vmclock
                 .guest_address
                 .unchecked_add(offset_of!(vmclock_abi, $field) as u64),
-        );
+        )?;
     };
 }
 
@@ -94,7 +93,7 @@ impl VmClock {
             EventFd::new(libc::EFD_NONBLOCK).map_err(VmClockError::CreateEventFd)?,
         );
 
-        let mut inner = vmclock_abi {
+        let inner = vmclock_abi {
             magic: VMCLOCK_MAGIC,
             size: VMCLOCK_SIZE,
             version: 1,
@@ -180,7 +179,7 @@ impl<'a> Persist<'a> for VmClock {
         }
     }
 
-    fn restore(vm: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
+    fn restore(_: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
         let interrupt_evt = EventFdTrigger::new(
             EventFd::new(libc::EFD_NONBLOCK).map_err(VmClockError::CreateEventFd)?,
         );
@@ -225,19 +224,14 @@ impl Aml for VmClock {
 #[cfg(test)]
 mod tests {
     use vm_memory::{Bytes, GuestAddress};
-    use vmm_sys_util::tempfile::TempFile;
 
-    #[cfg(target_arch = "x86_64")]
-    use crate::arch::x86_64::layout;
-    use crate::arch::{self, Kvm};
+    use crate::arch;
     use crate::devices::acpi::generated::vmclock_abi::vmclock_abi;
     use crate::devices::acpi::vmclock::{VMCLOCK_SIZE, VmClock};
-    use crate::devices::virtio::test_utils::default_mem;
-    use crate::snapshot::{Persist, Snapshot};
+    use crate::snapshot::Persist;
     use crate::test_utils::single_region_mem;
     use crate::utils::u64_to_usize;
     use crate::vstate::resources::ResourceAllocator;
-    use crate::vstate::vm::tests::setup_vm_with_memory;
 
     // We are allocating memory from the end of the system memory portion
     const VMCLOCK_TEST_GUEST_ADDR: GuestAddress =
@@ -258,7 +252,7 @@ mod tests {
         let guest_data: vmclock_abi = mem.read_obj(VMCLOCK_TEST_GUEST_ADDR).unwrap();
         assert_ne!(guest_data, vmclock.inner);
 
-        vmclock.activate(&mem);
+        vmclock.activate(&mem).unwrap();
 
         let guest_data: vmclock_abi = mem.read_obj(VMCLOCK_TEST_GUEST_ADDR).unwrap();
         assert_eq!(guest_data, vmclock.inner);
@@ -277,7 +271,7 @@ mod tests {
 
         let state = vmclock.save();
         let mut vmclock_new = VmClock::restore((), &state).unwrap();
-        vmclock_new.do_post_restore(&mem);
+        vmclock_new.do_post_restore(&mem).unwrap();
 
         let guest_data_new: vmclock_abi = mem.read_obj(VMCLOCK_TEST_GUEST_ADDR).unwrap();
         assert_ne!(guest_data_new, vmclock.inner);

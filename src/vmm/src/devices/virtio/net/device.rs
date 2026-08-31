@@ -44,7 +44,6 @@ use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use crate::utils::net::mac::MacAddr;
-use crate::utils::u64_to_usize;
 use crate::vstate::memory::{ByteValued, GuestMemoryMmap};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
@@ -556,7 +555,7 @@ impl Net {
         //    does not filter IPv4 packets. Operators deploying Firecracker
         //    based services should implement host-level firewall rules to
         //    restrict guest egress traffic.
-        // 3. Preventing this TOCTOU by copying packets to to a host buffer
+        // 3. Preventing this TOCTOU by copying packets to a host buffer
         //    before routing decisions would significantly reduce guest-to-host
         //    TCP throughput, which is not justifiable given the mitigations
         //    available at host-level.
@@ -1231,7 +1230,7 @@ pub mod tests {
     #[test]
     fn test_mtu_advertised() {
         // "net-device%d" asks the kernel to assign a unique tap index.
-        let mut net = Net::new(
+        let net = Net::new(
             "mtu-test".to_string(),
             "net-device%d",
             None,

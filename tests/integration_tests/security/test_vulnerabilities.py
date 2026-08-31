@@ -7,7 +7,6 @@
 """Tests vulnerabilities mitigations."""
 
 import json
-import re
 from pathlib import Path
 
 import pytest
@@ -21,24 +20,12 @@ from framework.microvm import MicroVMFactory
 from framework.properties import global_props
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
 
-# Pinned due to issues introduced in https://github.com/speed47/spectre-meltdown-checker/pull/527
-CHECKER_URL = "https://raw.githubusercontent.com/speed47/spectre-meltdown-checker/3a822fdcf291ebb8bfbcb77aa216ac342c6b2f12/spectre-meltdown-checker.sh"
+CHECKER_URL = "https://raw.githubusercontent.com/speed47/spectre-meltdown-checker/master/spectre-meltdown-checker.sh"
 CHECKER_FILENAME = "spectre-meltdown-checker.sh"
 REMOTE_CHECKER_PATH = f"/tmp/{CHECKER_FILENAME}"
-REMOTE_CHECKER_COMMAND = f"sh {REMOTE_CHECKER_PATH} --no-intel-db --batch json"
+REMOTE_CHECKER_COMMAND = f"sh {REMOTE_CHECKER_PATH} --batch json-terse"
 
 VULN_DIR = "/sys/devices/system/cpu/vulnerabilities"
-
-# spectre-meltdown-checker does not recognise Neoverse V3 (MIDR part 0xd84), so it
-# falls back to reporting Spectre v2 and Variant 3a as vulnerable. The kernel itself
-# reports the CPU as mitigated (spectre_v2: "Mitigation: CSV2, BHB"), and Graviton4
-# (Neoverse V2, which the checker does recognise) passes the same tests.
-# TODO: remove this skip once the following issue is resolved:
-# https://github.com/speed47/spectre-meltdown-checker/issues/582
-SKIP_SMC_UNRECOGNISED_CPU = pytest.mark.skipif(
-    global_props.cpu_codename == "ARM_NEOVERSE_V3",
-    reason="spectre-meltdown-checker does not recognise Neoverse V3 (0xd84)",
-)
 
 
 class SpectreMeltdownChecker:
@@ -55,8 +42,19 @@ class SpectreMeltdownChecker:
         }
 
     def get_report_for_guest(self, vm) -> set:
-        """Parses the output of `spectre-meltdown-checker.sh --batch json`
+        """Parses the output of `spectre-meltdown-checker.sh --batch json-terse`
         and returns the set of issues for which it reported 'Vulnerable'.
+
+        Firecracker intentionally does not expose the host's microcode update
+        status to guests. KVM instead reports fixed synthetic versions: 1 on
+        Intel and 0x01000065 on AMD. These otherwise arbitrary values exist
+        solely to work around specific issues; they do not identify an actual
+        microcode version. The checker treats the synthetic value as an
+        installed version, which would require test-side exceptions for
+        microcode-only mitigations. This test therefore supplies the host's
+        microcode version for guests without a CPU template. Guests with a CPU
+        template retain the synthetic version because the host's microcode
+        version is not meaningful for their modified CPU model.
 
         Sample stdout:
         ```
@@ -72,68 +70,69 @@ class SpectreMeltdownChecker:
         ```
         """
         vm.ssh.scp_put(self.path, REMOTE_CHECKER_PATH)
-        res = vm.ssh.run(REMOTE_CHECKER_COMMAND)
+        command = REMOTE_CHECKER_COMMAND
+        if vm.cpu_template_name == "None":
+            command = f"SMC_MOCK_CPU_UCODE={global_props.cpu_microcode} {command}"
+        res = vm.ssh.run(command)
         return self._parse_output(res.stdout)
 
     def get_report_for_host(self) -> set:
         """Runs `spectre-meltdown-checker.sh` in the host and returns the set of
         issues for which it reported 'Vulnerable'.
+
+        `--vmm yes` forces VMM host checks even when no Firecracker process is
+        running concurrently for the checker's automatic detection.
         """
 
-        res = utils.check_output(f"sh {self.path} --batch json")
+        res = utils.check_output(f"sh {self.path} --batch json-terse --vmm yes")
         return self._parse_output(res.stdout)
 
-    def expected_vulnerabilities(self, cpu_template_name, guest_kernel_version=None):
-        """
-        There is a REPTAR exception reported on INTEL_ICELAKE when spectre-meltdown-checker.sh
-        script is run inside the guest from below the tests:
-            test_spectre_meltdown_checker_on_guest and
-            test_spectre_meltdown_checker_on_restored_guest
-        The same script when run on host doesn't report the
-        exception which means the instances are actually not vulnerable to REPTAR.
-        The only reason why the script cannot determine if the guest
-        is vulnerable or not because Firecracker does not expose the microcode
-        version to the guest.
+    # pylint: disable=too-many-return-statements
+    def expected_vulnerabilities(self, cpu_template_name, guest_kernel_version):
+        """Return the checker findings expected for the guest configuration."""
 
-        The check in spectre_meltdown_checker is here:
-            https://github.com/speed47/spectre-meltdown-checker/blob/0f2edb1a71733c1074550166c5e53abcfaa4d6ca/spectre-meltdown-checker.sh#L6635-L6637
-
-        Since we have a test on host and the exception in guest is not valid,
-        we add a check to ignore this exception.
-        """
-        if (
-            global_props.cpu_codename in ["INTEL_ICELAKE", "INTEL_SAPPHIRE_RAPIDS"]
-            and cpu_template_name == "None"
-        ):
-            return {
-                '{"NAME": "REPTAR", "CVE": "CVE-2023-23583", "VULNERABLE": true, "INFOS": "Your microcode is too old to mitigate the vulnerability"}'
-            }
-
-        # There is a SRSO / INCEPTION (CVE-2023-20569) exception reported on AMD_MILAN and
-        # AMD_GENOA when spectre-meltdown-checker.sh script is run inside the guest
-        # in the following tests:
-        #     test_spectre_meltdown_checker_on_guest and
-        #     test_check_vulnerability_files_ab
-        # On kernels >= 6.7, when SRSO safe RET is active but IBPB_BRTYPE CPU flag is
-        # absent, the kernel reports "Vulnerable: Safe RET, no microcode" instead
-        # of the previous "Mitigation: safe RET, no microcode". The checker treats
-        # any status starting with "Vulnerable" as a vulnerability.
-        # This only affects guest kernels >= 6.7 running on host kernels < 6.7,
-        # because KVM did not synthesize the IBPB_BRTYPE flag for guests prior to v6.7.
+        # SRSO / INCEPTION false positive (CVE-2023-20569)
+        #
+        # Affected configuration:
+        # - AMD Milan or Genoa
+        # - No CPU template
+        # - Host kernel older than v6.7
+        #
+        # Root cause:
+        # CPUID.80000021H:EAX[28] (IBPB_BRTYPE) indicates that IBPB flushes all branch type
+        # predictions. The Milan and Genoa hosts in the test fleet have the required microcode.
+        # The extended IBPB behavior also applies to IBPB commands executed inside guests.
+        #
+        # Before v6.7, KVM did not advertise IBPB_BRTYPE to guests. The guest kernel therefore
+        # reports that the required microcode is missing even though IBPB performs the required
+        # flush, making this finding a false positive.
         # https://github.com/torvalds/linux/commit/6f0f23ef76be
-        # https://github.com/amazonlinux/linux/blob/65171e3dd9bd18f97f48f94d8dd0f50c82eb45d1/arch/x86/kvm/cpuid.c#L1226
-        # With a CPU template (e.g. T2A), the overridden guest-visible FMS is not
-        # classified as affected by SRSO, so the checker does not flag it.
+        #
+        # Guest reporting:
+        # - Guest kernels >= v6.7 report: "Vulnerable: Safe RET, no microcode".
+        # - Guest kernels < v6.7 incorrectly report: "Mitigation: safe RET, no microcode".
+        # https://github.com/torvalds/linux/commit/dc6306ad5b0d
+        #
+        # For older guest kernels, spectre-meltdown-checker treats "Mitigation: Safe RET, no
+        # microcode" as vulnerable to match the corrected reporting in newer kernels, and appends
+        # an explanation to INFOS.
+        # https://github.com/speed47/spectre-meltdown-checker/blob/03cc4ffeb1dca9bb8d89f8096dc45015530d3214/spectre-meltdown-checker.sh#L11044-L11052
+        #
+        # T2A is excluded because its guest-visible FMS is not classified
+        # as affected by SRSO.
         if (
             global_props.cpu_codename in ["AMD_MILAN", "AMD_GENOA"]
             and cpu_template_name == "None"
-            and guest_kernel_version
-            and guest_kernel_version >= (6, 7)
             and global_props.host_linux_version_tpl < (6, 7)
         ):
+            infos_suffix = ""
+            if guest_kernel_version < (6, 7):
+                infos_suffix = " (your kernel incorrectly reports this as mitigated, it was fixed in more recent kernels)"
+
             return {
-                '{"NAME": "INCEPTION", "CVE": "CVE-2023-20569", "VULNERABLE": true, "INFOS": "Vulnerable: Safe RET, no microcode"}'
+                f'{{"NAME": "INCEPTION", "CVE": "CVE-2023-20569", "VULNERABLE": true, "INFOS": "Vulnerable: Safe RET, no microcode{infos_suffix}"}}'
             }
+
         return set()
 
 
@@ -159,7 +158,6 @@ def _download_checker_script():
 
 
 # Nothing can be sensibly tested in a PR context here
-@SKIP_SMC_UNRECOGNISED_CPU
 @pytest.mark.skipif(
     global_props.buildkite_pr or global_props.is_dev_env,
     reason="Test depends solely on factors external to GitHub repository",
@@ -182,35 +180,11 @@ def test_vulnerabilities_on_host():
     assert res.returncode == 1, res.stdout
 
 
-def get_vuln_files_exception_dict(template, guest_kernel_version=None):
+def get_vuln_files_exception_dict(template, guest_kernel_version):
     """
     Returns a dictionary of expected values for vulnerability files requiring special treatment.
     """
     exception_dict = {}
-
-    # Exception for mmio_stale_data
-    # =============================
-    #
-    # Guests with T2S template
-    # --------------------------------------------
-    # Whether mmio_stale_data is marked as "Vulnerable" or not is determined by the code here.
-    # https://elixir.bootlin.com/linux/v6.1.46/source/arch/x86/kernel/cpu/bugs.c#L431
-    # Virtualization of FLUSH_L1D has been available and CPUID.(EAX=0x7,ECX=0):EDX[28 (FLUSH_L1D)]
-    # has been passed through to guests only since kernel v6.4.
-    # https://github.com/torvalds/linux/commit/da3db168fb671f15e393b227f5c312c698ecb6ea
-    # Thus, since the FLUSH_L1D bit is masked off prior to kernel v6.4, guests with
-    # IA32_ARCH_CAPABILITIES.FB_CLEAR (bit 17) = 0 (like guests with T2S template which presents
-    # an Intel Skylake CPU) fall into the MMIO_MITIGATION_UCODE_NEEDED branch, marking the
-    # system as vulnerable to MMIO Stale Data.
-    # The value is "Vulnerable: Clear CPU buffers attempted, no microcode" on guests on Intel
-    # Skylake and guests with T2S template but "Mitigation: Clear CPU buffers; SMT Host state
-    # unknown" on kernel v6.4 or later.
-    # In any case, the kernel attempts to clear CPU buffers using VERW instruction and it
-    # is safe to ingore the "Vulnerable" message if the host has the microcode update applied
-    # correctly. Here we expect the common string "Clear CPU buffers" to cover both cases.
-
-    if template == "T2S":
-        exception_dict["mmio_stale_data"] = r"Clear CPU buffers"
 
     # Exception for spectre_v2 (BHI)
     # ==============================
@@ -227,38 +201,47 @@ def get_vuln_files_exception_dict(template, guest_kernel_version=None):
     # https://github.com/amazonlinux/linux/blob/65171e3dd9bd18f97f48f94d8dd0f50c82eb45d1/kernel/cpu.c#L3192
     # Therefore, we accept any BHI status only if the overall spectre_v2 status
     # starts with "Mitigation:" and no other component reports "Vulnerable".
+    if global_props.cpu_vendor == "intel" and guest_kernel_version >= (6, 18):
+        exception_dict["spectre_v2"] = {
+            "is_expected": lambda status: (
+                status.startswith("Mitigation:")
+                and all(
+                    "Vulnerable" not in component
+                    or component.strip() == "BHI: Vulnerable"
+                    for component in status.split(";")
+                )
+            ),
+            "expected": (
+                'a status starting with "Mitigation:" and no vulnerable '
+                'component other than "BHI: Vulnerable"'
+            ),
+        }
 
-    if (
-        global_props.cpu_codename.startswith("INTEL")
-        and guest_kernel_version
-        and guest_kernel_version >= (6, 18)
-    ):
-        exception_dict["spectre_v2"] = r"^Mitigation:(?!.*(?<!BHI: )Vulnerable).*$"
-
-    # On kernels >= 6.7, when SRSO safe RET is active but IBPB_BRTYPE CPU flag is
-    # absent, the kernel reports "Vulnerable: Safe RET, no microcode" instead
-    # of the previous "Mitigation: safe RET, no microcode". The checker treats
-    # any status starting with "Vulnerable" as a vulnerability.
-    # This only affects guest kernels >= 6.7 running on host kernels < 6.7,
-    # because KVM did not synthesize the IBPB_BRTYPE flag for guests prior to v6.7.
-    # https://github.com/torvalds/linux/commit/6f0f23ef76be
-    # https://github.com/amazonlinux/linux/blob/65171e3dd9bd18f97f48f94d8dd0f50c82eb45d1/arch/x86/kvm/cpuid.c#L1226
-
+    # See SpectreMeltdownChecker.expected_vulnerabilities() for the cause of this SRSO false
+    # positive. Guest kernels >= v6.7 report it as vulnerable in sysfs, so accept the expected
+    # status here.
     if (
         global_props.cpu_codename in ["AMD_MILAN", "AMD_GENOA"]
         and template == "None"
-        and guest_kernel_version
         and guest_kernel_version >= (6, 7)
         and global_props.host_linux_version_tpl < (6, 7)
     ):
-        exception_dict["spec_rstack_overflow"] = r"^Vulnerable: Safe RET, no microcode"
+        exception_dict["spec_rstack_overflow"] = {
+            "is_expected": lambda status: status.startswith(
+                "Vulnerable: Safe RET, no microcode"
+            ),
+            "expected": 'a status starting with "Vulnerable: Safe RET, no microcode"',
+        }
 
     return exception_dict
 
 
 def check_vulnerabilities_files_on_guest(microvm):
-    """
-    Check that the guest's vulnerabilities files do not contain `Vulnerable`.
+    """Return unexpected findings from the guest's vulnerability files.
+
+    Exception statuses are omitted when they match their expected values and
+    reported as findings otherwise.
+
     See also: https://elixir.bootlin.com/linux/latest/source/Documentation/ABI/testing/sysfs-devices-system-cpu
     and search for `vulnerabilities`.
     """
@@ -273,20 +256,27 @@ def check_vulnerabilities_files_on_guest(microvm):
     # Check that vulnerabilities files in the exception dictionary have the expected values and
     # the others do not contain "Vulnerable".
     exceptions = get_vuln_files_exception_dict(template, microvm.guest_kernel_version)
-    results = []
+    findings = set()
     for vuln_file in vuln_files:
         filename = Path(vuln_file).name
         if filename in exceptions:
             _, stdout, _ = microvm.ssh.check_output(f"cat {vuln_file}")
-            assert re.search(exceptions[filename], stdout), (
-                f"{vuln_file}: content '{stdout.strip()}' does not match "
-                f"expected pattern r'{exceptions[filename]}'"
-            )
+            exception = exceptions[filename]
+            status = stdout.strip()
+            if not exception["is_expected"](status):
+                findings.add(
+                    f"{vuln_file}: expected {exception['expected']}, got {status!r}"
+                )
         else:
             cmd = f"grep Vulnerable {vuln_file}"
-            _ecode, stdout, _stderr = microvm.ssh.run(cmd)
-            results.append({"file": vuln_file, "stdout": stdout})
-    return results
+            ecode, stdout, stderr = microvm.ssh.run(cmd)
+            # grep returns 0 for a match and 1 for no match; any other code
+            # indicates an error such as an unreadable file.
+            if ecode == 0:
+                findings.add(f"{vuln_file}: {stdout.strip()}")
+            elif ecode != 1:
+                pytest.fail(f"{vuln_file}: grep failed: {stderr.strip()}")
+    return findings
 
 
 @pytest.fixture
@@ -331,12 +321,11 @@ def test_check_vulnerability_files_ab(request, uvm_any):
         # we only get the uvm_any_a fixtures if we need it
         uvm_a = request.getfixturevalue("uvm_any_a")
         res_a = check_vulnerabilities_files_on_guest(uvm_a)
-        assert res_b <= res_a
+        assert res_b.issubset(res_a), f"New vulnerability findings: {res_b - res_a}"
     else:
-        assert not [x for x in res_b if "Vulnerable" in x["stdout"]]
+        assert not res_b, f"Unexpected vulnerability findings: {res_b}"
 
 
-@SKIP_SMC_UNRECOGNISED_CPU
 @pin_pci(False)
 @pin_cpu_template(ALL_CPU_TEMPLATES)
 def test_spectre_meltdown_checker_on_guest(
@@ -350,8 +339,31 @@ def test_spectre_meltdown_checker_on_guest(
         # we only get the uvm_any_a fixtures if we need it
         uvm_a = request.getfixturevalue("uvm_any_a")
         res_a = spectre_meltdown_checker.get_report_for_guest(uvm_a)
-        assert res_b <= res_a
+        assert res_b.issubset(res_a), f"New vulnerability findings: {res_b - res_a}"
     else:
         assert res_b == spectre_meltdown_checker.expected_vulnerabilities(
             uvm_any.cpu_template_name, uvm_any.guest_kernel_version
         )
+
+
+# All Graviton generations (Neoverse N1/V1/V2/V3) are affected by erratum
+# 3194386: SSBS writes are not self-synchronizing, so the kernel workaround
+# adds a speculation barrier and hides the "ssbs" hwcap from userspace, which
+# must request the mitigation via prctl(PR_SET_SPECULATION_CTRL) instead of
+# toggling PSTATE.SSBS directly (this is why "ssbs" is absent from the
+# expectations in test_cpu_features_aarch64.py).
+# https://github.com/torvalds/linux/commit/adeec61a4723fd3e39da68db4cc4d924e6d7f641
+#
+# KVM passes the host MIDR through, so the guest kernel must detect the
+# erratum itself, while still seeing SSBS hardware support via the ID
+# registers KVM exposes.
+@pytest.mark.skipif(
+    global_props.cpu_architecture != "aarch64", reason="Only run in aarch64"
+)
+def test_spec_store_bypass_mitigated(uvm_booted):
+    """Check the guest kernel applies the SSBS erratum 3194386 workaround."""
+    dmesg = uvm_booted.ssh.check_output("dmesg").stdout
+    # KVM exposed SSBS hardware support to the guest
+    assert "Speculative Store Bypassing Safe (SSBS)" in dmesg
+    # the guest detected erratum 3194386 via the passed-through MIDR
+    assert "SSBS not fully self-synchronizing" in dmesg
