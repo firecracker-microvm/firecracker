@@ -4,6 +4,8 @@
 
 """Generate Buildkite pipelines dynamically"""
 
+import os
+
 from common import (
     BKPipeline,
     ci_artifacts_change_mode,
@@ -36,6 +38,25 @@ pipeline.add_step(
     },
     depends_on_build=False,
 )
+
+# Type-check the out-of-tree fuzzer against this PR to catch API breaks pre-merge.
+if not changed_files or any(
+    x.suffix in [".rs", ".toml", ".lock"] for x in changed_files
+):
+    FC_REF = "main"
+    pr_number = os.environ.get("BUILDKITE_PULL_REQUEST", "false")
+    if pr_number != "false":
+        FC_REF = f"pull/{pr_number}/head"
+    pipeline.add_step(
+        {
+            "command": [
+                "git clone https://github.com/firecracker-microvm/fuzzer.git",
+                f"cd fuzzer && ./tools/devtool -y check -b {FC_REF}",
+            ],
+            "label": "fuzzer-compat",
+        },
+        depends_on_build=False,
+    )
 
 # run sanity build of devtool if Dockerfile is changed
 if any(x.parent.name == "devctr" for x in changed_files):
