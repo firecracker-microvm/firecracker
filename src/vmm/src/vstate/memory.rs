@@ -753,14 +753,50 @@ impl GuestRegionMmapExt {
                     Ok(())
                 }
             }
-            // Match either the case of an anonymous mapping, or the case
-            // of a shared file mapping.
-            // TODO: madvise(MADV_DONTNEED) doesn't actually work with memfd
-            // (or in general MAP_SHARED of a fd). In those cases we should use
-            // fallocate64(FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE).
-            // We keep falling to the madvise branch to keep the previous behaviour.
+            // For MAP_SHARED file-backed mappings (e.g. memfd-backed guest memory used when huge
+            // pages are enabled), madvise(MADV_DONTNEED) has no effect: the kernel ignores it for
+            // shared pages to avoid surprising other mappers. Use fallocate(PUNCH_HOLE|KEEP_SIZE)
+            // to punch a hole in the backing file, which causes the kernel to free the underlying
+            // physical frames and return zeroes on the next access through the mapping.
+            (Some(file_offset), flags) if flags & libc::MAP_SHARED != 0 => {
+                let fd = file_offset.file().as_raw_fd();
+                let offset: i64 = file_offset
+                    .start()
+                    .checked_add(caddr.raw_value())
+                    .ok_or_else(|| {
+                        GuestMemoryError::IOError(std::io::Error::from_raw_os_error(
+                            libc::EOVERFLOW,
+                        ))
+                    })?
+                    .try_into()
+                    .map_err(|_| {
+                        GuestMemoryError::IOError(std::io::Error::from_raw_os_error(
+                            libc::EOVERFLOW,
+                        ))
+                    })?;
+                let size: i64 = len.try_into().map_err(|_| {
+                    GuestMemoryError::IOError(std::io::Error::from_raw_os_error(libc::EOVERFLOW))
+                })?;
+                // SAFETY: fd is a valid open file descriptor and offset+size are within bounds.
+                let ret = unsafe {
+                    libc::fallocate(
+                        fd,
+                        libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE,
+                        offset,
+                        size,
+                    )
+                };
+                if ret < 0 {
+                    let os_error = std::io::Error::last_os_error();
+                    error!("discard_range: fallocate failed: {:?}", os_error);
+                    Err(GuestMemoryError::IOError(os_error))
+                } else {
+                    Ok(())
+                }
+            }
+            // Anonymous mapping: madvise(MADV_DONTNEED) causes the kernel to discard the backing
+            // pages; subsequent accesses fault in fresh zero pages.
             _ => {
-                // Madvise the region in order to mark it as not used.
                 // SAFETY: The address and length are known to be valid.
                 let ret = unsafe { libc::madvise(phys_address.cast(), len, libc::MADV_DONTNEED) };
                 if ret < 0 {
@@ -1819,6 +1855,46 @@ mod tests {
         );
 
         // Mmap fail: the guest address is not aligned to the page size.
+        assert_match!(
+            mem.discard_range(GuestAddress(0x20), page_size)
+                .unwrap_err(),
+            GuestMemoryError::IOError(_)
+        );
+    }
+
+    #[test]
+    fn test_discard_range_on_memfd() {
+        let page_size: usize = 0x1000;
+        let regions = [(GuestAddress(0), 2 * page_size)];
+        let memfd_regions =
+            memfd_backed(&regions, false, HugePageConfig::None).expect("memfd_backed failed");
+        let mem = into_region_ext(memfd_regions);
+
+        // Fill both pages with ones.
+        let ones = vec![1u8; 2 * page_size];
+        mem.write(&ones[..], GuestAddress(0)).unwrap();
+
+        // Discard the first page via fallocate(PUNCH_HOLE).
+        mem.discard_range(GuestAddress(0), page_size).unwrap();
+
+        // The first page must read back as zeroes.
+        let mut actual_page = vec![0u8; page_size];
+        mem.read(actual_page.as_mut_slice(), GuestAddress(0))
+            .unwrap();
+        assert_eq!(vec![0u8; page_size], actual_page);
+
+        // The second page must still contain ones.
+        mem.read(actual_page.as_mut_slice(), GuestAddress(page_size as u64))
+            .unwrap();
+        assert_eq!(vec![1u8; page_size], actual_page);
+
+        // Malformed range: the len is too big.
+        assert_match!(
+            mem.discard_range(GuestAddress(0), 0x10000).unwrap_err(),
+            GuestMemoryError::InvalidGuestAddress(_)
+        );
+
+        // Fallocate fail: the guest address is not aligned to the page size.
         assert_match!(
             mem.discard_range(GuestAddress(0x20), page_size)
                 .unwrap_err(),
