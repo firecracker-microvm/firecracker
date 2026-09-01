@@ -11,9 +11,20 @@ proc-macro = true
 bench = false
 
 [dependencies]
-proc-macro2 = "1.0.106"
-quote = "1.0.45"
-syn = { version = "3.0.2", features = ["full", "extra-traits"] }
+proc-macro2 = { version = "1.0.106", default-features = false, features = [
+    "proc-macro",
+] }
+quote = { version = "1.0.45", default-features = false, features = [
+    "proc-macro",
+] }
+syn = { version = "3.0.2", default-features = false, features = [
+    "clone-impls",
+    "parsing",
+    "printing",
+    "proc-macro",
+    "full",
+    "extra-traits",
+] }
 
 [lints]
 workspace = true

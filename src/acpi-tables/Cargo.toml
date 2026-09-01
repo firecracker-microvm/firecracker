@@ -13,10 +13,16 @@ bench = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-displaydoc = "0.2.6"
-thiserror = "2.0.18"
-vm-memory = { version = "0.18.0", features = ["backend-mmap", "backend-bitmap"] }
-zerocopy = { version = "0.8.50", features = ["derive"] }
+displaydoc = { version = "0.2.6", default-features = false, features = ["std"] }
+thiserror = { version = "2.0.18", default-features = false, features = ["std"] }
+vm-memory = { version = "0.18.0", default-features = false, features = [
+    "rawfd",
+    "backend-mmap",
+    "backend-bitmap",
+] }
+zerocopy = { version = "0.8.50", default-features = false, features = [
+    "derive",
+] }
 
 [lints]
 workspace = true

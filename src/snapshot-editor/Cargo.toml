@@ -13,19 +13,25 @@ bench = false
 tracing = ["log-instrument", "fc_utils/tracing", "vmm/tracing"]
 
 [dependencies]
-clap = { version = "4.6.1", features = ["derive", "string"] }
-displaydoc = "0.2.6"
+clap = { version = "4.6.1", default-features = false, features = [
+    "std",
+    "help",
+    "usage",
+    "error-context",
+    "derive",
+    "string",
+] }
+displaydoc = { version = "0.2.6", default-features = false, features = ["std"] }
 
 fc_utils = { package = "utils", path = "../utils" }
-libc = "0.2.186"
+libc = { version = "0.2.186", default-features = false, features = ["std"] }
 log-instrument = { path = "../log-instrument", optional = true }
-semver = "1.0.28"
-thiserror = "2.0.18"
+thiserror = { version = "2.0.18", default-features = false, features = ["std"] }
 vmm = { path = "../vmm" }
-vmm-sys-util = "0.15.0"
+vmm-sys-util = { version = "0.15.0", default-features = false }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
-clap-num = "1.2.0"
+clap-num = { version = "1.2.0", default-features = false }
 
 [lints]
 workspace = true
