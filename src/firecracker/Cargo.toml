@@ -21,32 +21,43 @@ fuzzing = ["vmm/fuzzing"]
 gdb = ["vmm/gdb"]
 
 [dependencies]
-displaydoc = "0.2.6"
-event-manager = "0.4.2"
-libc = "0.2.186"
+displaydoc = { version = "0.2.6", default-features = false, features = ["std"] }
+event-manager = { version = "0.4.2", default-features = false }
+libc = { version = "0.2.186", default-features = false, features = ["std"] }
 log-instrument = { path = "../log-instrument", optional = true }
-micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_derive = "1.0.136"
-serde_json = "1.0.150"
-thiserror = "2.0.18"
+micro_http = { git = "https://github.com/firecracker-microvm/micro-http", default-features = false }
+serde = { version = "1.0.228", default-features = false, features = [
+    "std",
+    "derive",
+] }
+serde_json = { version = "1.0.150", default-features = false, features = [
+    "std",
+] }
+thiserror = { version = "2.0.18", default-features = false, features = ["std"] }
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
-vmm-sys-util = { version = "0.15.0", features = ["with-serde"] }
+vmm-sys-util = { version = "0.15.0", default-features = false, features = [
+    "with-serde",
+] }
 
 [build-dependencies]
 seccompiler = { path = "../seccompiler" }
-serde = { version = "1.0.228" }
-serde_json = "1.0.150"
+serde = { version = "1.0.228", default-features = false, features = ["std"] }
+serde_json = { version = "1.0.150", default-features = false, features = [
+    "std",
+] }
 
 [dev-dependencies]
-cargo_toml = "1.0.0"
-libc = "0.2.186"
-semver = "1.0.28"
+cargo_toml = { version = "1.0.0", default-features = false }
+libc = { version = "0.2.186", default-features = false, features = ["std"] }
+semver = { version = "1.0.28", default-features = false, features = ["std"] }
 
 # Dev-Dependencies for uffd examples
-serde = { version = "1.0.228", features = ["derive"] }
-userfaultfd = "0.9.0"
+serde = { version = "1.0.228", default-features = false, features = [
+    "std",
+    "derive",
+] }
+userfaultfd = { version = "0.9.0", default-features = false }
 
 [lints]
 workspace = true
