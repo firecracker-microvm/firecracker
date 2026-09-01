@@ -15,12 +15,13 @@ use crate::logger::{debug, error, warn};
 use crate::pci::configuration::PciCapability;
 use crate::pci::{PciCapabilityId, PciSBDF};
 use crate::snapshot::Persist;
-use crate::vstate::interrupts::{InterruptError, MsixVectorGroup};
+use crate::utils::u64_to_usize;
+use crate::vstate::interrupts::{InterruptError, MsixVectorConfig, MsixVectorGroup};
 use crate::vstate::vm::KvmVm;
 
 const MAX_MSIX_VECTORS_PER_DEVICE: u16 = 2048;
-const MSIX_TABLE_ENTRIES_MODULO: u64 = 16;
-const MSIX_PBA_ENTRIES_MODULO: u64 = 8;
+const MSIX_TABLE_ENTRIES_MODULO: u16 = 16;
+const MSIX_PBA_ENTRIES_MODULO: u16 = 8;
 const BITS_PER_PBA_ENTRY: u16 = 64;
 const FUNCTION_MASK_BIT: u8 = 14;
 const MSIX_ENABLE_BIT: u8 = 15;
@@ -256,8 +257,8 @@ impl MsixConfig {
     pub fn read_table(&self, offset: u64, data: &mut [u8]) {
         assert!(data.len() <= 8);
 
-        let index: usize = (offset / MSIX_TABLE_ENTRIES_MODULO) as usize;
-        let modulo_offset = offset % MSIX_TABLE_ENTRIES_MODULO;
+        let index = u64_to_usize(offset / (MSIX_TABLE_ENTRIES_MODULO as u64));
+        let modulo_offset = offset % (MSIX_TABLE_ENTRIES_MODULO as u64);
 
         if index >= self.table_entries.len() {
             warn!("Invalid MSI-X table entry index {index}");
@@ -309,8 +310,8 @@ impl MsixConfig {
     pub fn write_table(&mut self, offset: u64, data: &[u8]) {
         assert!(data.len() <= 8);
 
-        let index: usize = (offset / MSIX_TABLE_ENTRIES_MODULO) as usize;
-        let modulo_offset = offset % MSIX_TABLE_ENTRIES_MODULO;
+        let index = u64_to_usize(offset / (MSIX_TABLE_ENTRIES_MODULO as u64));
+        let modulo_offset = offset % (MSIX_TABLE_ENTRIES_MODULO as u64);
 
         if index >= self.table_entries.len() {
             warn!("msi-x: invalid table entry index {index}");
@@ -386,8 +387,8 @@ impl MsixConfig {
 
     /// Read a pending bit array entry
     pub fn read_pba(&self, offset: u64, data: &mut [u8]) {
-        let index: usize = (offset / MSIX_PBA_ENTRIES_MODULO) as usize;
-        let modulo_offset = offset % MSIX_PBA_ENTRIES_MODULO;
+        let index: usize = u64_to_usize(offset / (MSIX_PBA_ENTRIES_MODULO as u64));
+        let modulo_offset = offset % (MSIX_PBA_ENTRIES_MODULO as u64);
 
         if index >= self.pba_entries.len() {
             warn!("msi-x: invalid PBA entry index {index}");
@@ -568,18 +569,18 @@ impl MsixCap {
     }
 
     /// Table BAR offset and size in bytes
-    pub fn table_bar_offset_and_size(&self) -> (u64, u64) {
+    pub fn table_bar_offset_and_size(&self) -> (u32, u16) {
         // The table takes 16 bytes per entry.
-        let size = self.table_size() as u64 * MSIX_TABLE_ENTRIES_MODULO;
-        (self.table_offset() as u64, size)
+        let size = self.table_size() * MSIX_TABLE_ENTRIES_MODULO;
+        (self.table_offset(), size)
     }
 
     /// PBA BAR offset and size in bytes
-    pub fn pba_bar_offset_and_size(&self) -> (u64, u64) {
+    pub fn pba_bar_offset_and_size(&self) -> (u32, u16) {
         // The pba takes 1 bit per entry and is stored in chunks of 8 bytes.
         let chunks = self.table_size().div_ceil(BITS_PER_PBA_ENTRY);
-        let size = u64::from(chunks) * MSIX_PBA_ENTRIES_MODULO;
-        (self.pba_offset() as u64, size)
+        let size = chunks * MSIX_PBA_ENTRIES_MODULO;
+        (self.pba_offset(), size)
     }
 }
 
