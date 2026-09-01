@@ -146,23 +146,49 @@ AWS_S3_MAX_ATTEMPTS=5
 # Lockfile used while modifying KVM modules
 KVM_MODULE_LOCKFILE="/tmp/.kvm_module_lock"
 
-# Query default S3 bucket with artifacts and return the most recient path
+# Query default S3 bucket and return the newest revision that is fully
+# uploaded, meaning it has a rootfs and a kernel for every architecture we
+# build for.
 get_newest_s3_artifacts() {
   local bucket="spec.ccfc.min"
   local base_prefix="firecracker-ci/"
 
-  # Query all files in the `firecracker-ci` directory, check files contianing "vmlinux",
-  # sort them by the `LastModified` date, and return the last one (newest).
-  # We need to do it this way as S3 doesn't store `LastModified`` date for directories,
-  # so we need to list all files.
-  local newest_dir=$(AWS_MAX_ATTEMPTS=$AWS_S3_MAX_ATTEMPTS aws s3api list-objects-v2 \
+  # Each architecture of a revision uploads separately, in roughly
+  # lexicographic order, so a revision that exists is not necessarily
+  # complete. Require a rootfs and a top-level vmlinux-* (which lands last)
+  # for every architecture, so that every job of a CI run uses the same
+  # artifacts no matter which host it runs on.
+  #
+  # S3 does not store LastModified for "directories", so list every object
+  # under the prefix (the CLI paginates) and group them here. A revision is
+  # dated by its newest object.
+  local newest_dir
+  newest_dir=$(AWS_MAX_ATTEMPTS=$AWS_S3_MAX_ATTEMPTS aws s3api list-objects-v2 \
         --bucket "$bucket" --prefix "$base_prefix" --no-sign-request \
-        --query 'sort_by(Contents[?contains(Key, `vmlinux`)], &LastModified)[-1].Key' |
-        tr -d '"' |
-        sed "s|^$base_prefix||" |
-        cut -d'/' -f1
+        --query 'Contents[?ends_with(Key, `.squashfs`) || (contains(Key, `/vmlinux-`) && !contains(Key, `/debug/`))].[LastModified,Key]' \
+        --output text |
+        awk '{
+            split($2, path, "/")
+            rev = path[2]
+            kind = ($2 ~ /\.squashfs$/) ? "rootfs" : "vmlinux"
+            seen[rev "/" path[3] "/" kind] = 1
+            if ($1 > date[rev])
+                date[rev] = $1
+        }
+        END {
+            for (rev in date)
+                if ((rev "/x86_64/rootfs") in seen && (rev "/x86_64/vmlinux") in seen &&
+                    (rev "/aarch64/rootfs") in seen && (rev "/aarch64/vmlinux") in seen &&
+                    date[rev] > newest_date) {
+                    newest_date = date[rev]
+                    newest = rev
+                }
+            print newest
+        }'
   )
-  [ -z "$newest_dir" ] && die "Could not find newest artifacts in S3."
+  if [ -z "$newest_dir" ]; then
+    die "Could not find a complete set of artifacts in S3."
+  fi
 
   echo "$DEFAULT_ARTIFACTS_S3_BUCKET/$newest_dir"
 }
