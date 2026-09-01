@@ -262,6 +262,24 @@ def check_hotunplug(uvm, requested_size_mib):
         assert rss_after < rss_before, "RSS didn't decrease"
 
 
+def writable_anon_vmas(uvm, min_size):
+    """Address ranges of writable anonymous VMAs of at least `min_size` bytes in the VMM process"""
+    ranges = set()
+    # /proc/<pid>/maps lists host virtual addresses, so we can't find the guest region by its guest
+    # physical address; callers diff this set across a plug/unplug cycle instead.
+    with open(f"/proc/{uvm.firecracker_pid}/maps", encoding="utf-8") as f:
+        for line in f:
+            fields = line.split()
+            addr_range, perms = fields[0], fields[1]
+            pathname = fields[5] if len(fields) >= 6 else ""
+            if perms != "rw-p" or pathname:
+                continue
+            start, end = (int(x, 16) for x in addr_range.split("-"))
+            if end - start >= min_size:
+                ranges.add(addr_range)
+    return ranges
+
+
 def test_virtio_mem_hotplug_hotunplug(uvm_any_memhp):
     """
     Check that memory can be hotplugged into the VM.
@@ -277,6 +295,27 @@ def test_virtio_mem_hotplug_hotunplug(uvm_any_memhp):
     # Check it works again
     check_hotplug(uvm, 1024)
     check_memory_usable(uvm)
+
+    validate_metrics(uvm)
+
+
+def test_unplug_keeps_region_protected(uvm_any_memhp):
+    """
+    Check that a plug/unplug cycle leaves unplugged memory PROT_NONE, not writable anonymous.
+    """
+    uvm = uvm_any_memhp
+    total_mib = uvm.api.memory_hotplug.get().json()["total_size_mib"]
+    slot_bytes = uvm.api.memory_hotplug.get().json()["slot_size_mib"] << 20
+
+    before = writable_anon_vmas(uvm, slot_bytes)
+    uvm.hotplug_memory(total_mib)
+    uvm.hotplug_memory(0)
+    after = writable_anon_vmas(uvm, slot_bytes)
+
+    assert after <= before, (
+        f"plug/unplug left new writable anonymous mapping(s): {after - before}; "
+        "PROT_NONE was not restored on unplugged slots"
+    )
 
     validate_metrics(uvm)
 
