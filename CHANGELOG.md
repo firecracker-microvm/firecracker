@@ -93,6 +93,12 @@ and this project adheres to
   `virtio-mem` discarding the whole hotpluggable region on every `UNPLUG_ALL`
   request, even when nothing was plugged. The discard is now skipped when the
   range has no plugged blocks.
+- [#6176](https://github.com/firecracker-microvm/firecracker/pull/6176): Fixed
+  `virtio-mem` leaving its block accounting inconsistent with the KVM memory
+  slots if a plug or unplug request failed part way through. Firecracker now
+  commits each slot's state only after its KVM update succeeds, so a partial
+  failure leaves the block state and the KVM slots reflecting exactly the slots
+  that were updated.
 - [#5956](https://github.com/firecracker-microvm/firecracker/pull/5956): Fixed a
   TOCTOU race in the aarch64 jailer when setting ownership of the CPU cache and
   `MIDR_EL1` information files copied into the chroot.
