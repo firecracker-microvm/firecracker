@@ -164,7 +164,7 @@ function build_al_kernel {
     fi
     # Concatenate all config files into one. olddefconfig will then resolve
     # as needed. Later values override earlier ones.
-    cat "$@" >.config
+    awk 1 "$@" >.config
     make olddefconfig
     make -j $(nproc) $target
     LATEST_VERSION=$(cat include/config/kernel.release)
