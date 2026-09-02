@@ -285,6 +285,43 @@ def get_stable_rss_mem(uvm, percentage_delta=1):
     return second_rss
 
 
+def lower_ssh_oom_chance(ssh_connection):
+    """Lure OOM away from ssh process"""
+    logger = logging.getLogger("lower_ssh_oom_chance")
+
+    cmd = "pidof sshd"
+    exit_code, stdout, stderr = ssh_connection.run(cmd)
+    # add something to the logs for troubleshooting
+    if exit_code != 0:
+        logger.error("while running: %s", cmd)
+        logger.error("stdout: %s", stdout)
+        logger.error("stderr: %s", stderr)
+        return
+
+    for pid in stdout.split():
+        cmd = f"choom -n -1000 -p {pid}"
+        exit_code, stdout, stderr = ssh_connection.run(cmd)
+        if exit_code != 0:
+            logger.error("while running: %s", cmd)
+            logger.error("stdout: %s", stdout)
+            logger.error("stderr: %s", stderr)
+
+
+def make_guest_dirty_memory(ssh_connection, amount_mib=32):
+    """Tell the guest, over ssh, to dirty `amount` pages of memory."""
+    lower_ssh_oom_chance(ssh_connection)
+
+    try:
+        _ = ssh_connection.run(f"/usr/local/bin/fillmem {amount_mib}", timeout=1.0)
+    except subprocess.TimeoutExpired:
+        # It's ok if this expires. Sometimes the SSH connection
+        # gets killed by the OOM killer *after* the fillmem program
+        # started. As a result, we can ignore timeouts here.
+        pass
+
+    time.sleep(5)
+
+
 def _format_output_message(proc, stdout, stderr):
     output_message = f"\n[{proc.pid}] Command:\n{proc.args}"
     # Append stdout/stderr to the output message
