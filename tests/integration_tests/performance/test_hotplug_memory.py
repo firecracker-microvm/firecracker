@@ -15,7 +15,11 @@ from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.guest_stats import MeminfoGuest
 from framework.microvm import HugePagesConfig, SnapshotType
 from framework.properties import global_props
-from framework.utils import get_resident_memory, supports_hugetlbfs_discard
+from framework.utils import (
+    get_resident_memory,
+    make_guest_dirty_memory,
+    supports_hugetlbfs_discard,
+)
 
 MEMHP_BOOTARGS = "console=ttyS0 reboot=k panic=1 memhp_default_state=online_movable"
 DEFAULT_CONFIG = {"total_size_mib": 1024, "slot_size_mib": 128, "block_size_mib": 2}
@@ -212,9 +216,7 @@ def check_memory_usable(uvm):
     # try to allocate 95% of available memory
     amount_mib = int(mem_available * 95 / 100)
 
-    _ = uvm.ssh.check_output(f"/usr/local/bin/fillmem {amount_mib}", timeout=30)
-    # verify the allocation was successful
-    _ = uvm.ssh.check_output("cat /tmp/fillmem_output.txt | grep successful")
+    make_guest_dirty_memory(uvm.ssh, amount_mib)
 
 
 def check_hotplug(uvm, requested_size_mib):
