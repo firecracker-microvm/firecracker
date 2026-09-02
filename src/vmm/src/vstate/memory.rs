@@ -916,7 +916,10 @@ pub fn memfd_backed(
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    let size = regions.iter().map(|&(_, size)| size as u64).sum();
+    let size = regions
+        .iter()
+        .try_fold(0u64, |acc, &(_, size)| acc.checked_add(size as u64))
+        .ok_or(MemoryError::OffsetTooLarge)?;
     let memfd_file = create_memfd(size, huge_pages.into())?.into_file();
 
     create(
@@ -1344,6 +1347,16 @@ mod tests {
         let regions = vec![(GuestAddress(0), 2 * page_size)];
         let result = snapshot_file(file, regions.into_iter(), false, HugePageConfig::None);
         assert!(matches!(result.unwrap_err(), MemoryError::OffsetTooLarge));
+    }
+
+    #[test]
+    fn test_memfd_backed_size_overflow() {
+        let regions = [(GuestAddress(0), usize::MAX), (GuestAddress(0), 1)];
+
+        assert!(matches!(
+            memfd_backed(&regions, false, HugePageConfig::None),
+            Err(MemoryError::OffsetTooLarge)
+        ));
     }
 
     #[test]
