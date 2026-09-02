@@ -31,6 +31,10 @@ The following guarantees need to be provided:
 - guest did not mount the device
 - guest does not read or write from the raw block device `/dev/vdX` during the
   update sequence
+- when discard is enabled, the new discard alignment divides the advertised
+  alignment. Firecracker does not check this requirement. See
+  [block-discard.md](block-discard.md#discard-alignment-and-drive-updates) for
+  details.
 
 Example sequence that configures a microVM with a placeholder drive and then
 updates it with the real one:
