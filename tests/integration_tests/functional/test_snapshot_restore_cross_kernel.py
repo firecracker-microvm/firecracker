@@ -15,15 +15,13 @@ from framework.utils import (
     check_network_data_integrity,
     generate_mmds_get_request,
     generate_mmds_session_token,
+    get_stable_rss_mem,
     guest_run_fio_iteration,
+    make_guest_dirty_memory,
     populate_data_store,
 )
 from framework.utils_cpu_templates import get_supported_cpu_templates
 from framework.utils_vsock import check_vsock_device
-from integration_tests.functional.test_balloon import (
-    get_stable_rss_mem,
-    make_guest_dirty_memory,
-)
 
 pytestmark = pytest.mark.nonci
 

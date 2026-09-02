@@ -2,17 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for guest-side operations on /balloon resources."""
 
-import logging
 import signal
 import time
-from subprocess import TimeoutExpired
 
 import pytest
 import requests
 from tenacity import Retrying, stop_after_delay, wait_fixed
 
 from framework.guest_stats import MeminfoGuest
-from framework.utils import get_stable_rss_mem
+from framework.utils import get_stable_rss_mem, make_guest_dirty_memory
 
 STATS_POLLING_INTERVAL_S = 1
 RSS_TEST_BALLOON_SIZE_MIB = 128
@@ -61,43 +59,6 @@ def check_guest_dmesg_for_stalls(ssh_connection):
     assert "rcu_sched self-detected stall on CPU" not in stdout
     assert "rcu_preempt detected stalls on CPUs/tasks" not in stdout
     assert "BUG: soft lockup -" not in stdout
-
-
-def lower_ssh_oom_chance(ssh_connection):
-    """Lure OOM away from ssh process"""
-    logger = logging.getLogger("lower_ssh_oom_chance")
-
-    cmd = "pidof sshd"
-    exit_code, stdout, stderr = ssh_connection.run(cmd)
-    # add something to the logs for troubleshooting
-    if exit_code != 0:
-        logger.error("while running: %s", cmd)
-        logger.error("stdout: %s", stdout)
-        logger.error("stderr: %s", stderr)
-        return
-
-    for pid in stdout.split():
-        cmd = f"choom -n -1000 -p {pid}"
-        exit_code, stdout, stderr = ssh_connection.run(cmd)
-        if exit_code != 0:
-            logger.error("while running: %s", cmd)
-            logger.error("stdout: %s", stdout)
-            logger.error("stderr: %s", stderr)
-
-
-def make_guest_dirty_memory(ssh_connection, amount_mib=32):
-    """Tell the guest, over ssh, to dirty `amount` pages of memory."""
-    lower_ssh_oom_chance(ssh_connection)
-
-    try:
-        _ = ssh_connection.run(f"/usr/local/bin/fillmem {amount_mib}", timeout=1.0)
-    except TimeoutExpired:
-        # It's ok if this expires. Sometimes the SSH connection
-        # gets killed by the OOM killer *after* the fillmem program
-        # started. As a result, we can ignore timeouts here.
-        pass
-
-    time.sleep(5)
 
 
 def _test_rss_memory_lower(test_microvm):
