@@ -201,7 +201,7 @@ def test_deflate_on_oom(uvm, deflate_on_oom):
     # Check that using memory leads to the balloon device automatically
     # deflate (or not).
     balloon_size_before = test_microvm.api.balloon_stats.get().json()["actual_mib"]
-    make_guest_dirty_memory(test_microvm.ssh, 128)
+    make_guest_dirty_memory(test_microvm.ssh, 128, oom_expected=True)
 
     try:
         balloon_size_after = test_microvm.api.balloon_stats.get().json()["actual_mib"]
