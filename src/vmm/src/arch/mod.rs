@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use vm_memory::GuestAddress;
 
 use crate::logger::warn;
+use crate::utils::Version;
 
 /// Module for aarch64 related functionality.
 #[cfg(target_arch = "aarch64")]
@@ -73,6 +74,48 @@ pub fn host_page_size() -> usize {
     });
 
     *PAGE_SIZE
+}
+
+/// Parses the `major.minor.patch` prefix of a kernel release string
+/// Missing components are treated as 0.
+fn parse_kernel_release(release: &str) -> Version {
+    let mut components = release.split(|c: char| !c.is_ascii_digit());
+
+    let major: u8 = components
+        .next()
+        .and_then(|component| component.parse().ok())
+        .unwrap_or(0);
+    let minor: u8 = components
+        .next()
+        .and_then(|component| component.parse().ok())
+        .unwrap_or(0);
+    let patch: u16 = components
+        .next()
+        .and_then(|component| component.parse().ok())
+        .unwrap_or(0);
+    Version::new(major, minor, patch)
+}
+
+/// Returns the [`Version`] of the kernel running on the host.
+pub fn host_kernel_version() -> Version {
+    static KERNEL_VERSION: LazyLock<Version> = LazyLock::new(|| {
+        // SAFETY: zeroed `libc::utsname` is valid.
+        let mut utsname: libc::utsname = unsafe { std::mem::zeroed() };
+        // SAFETY: Argument is correct.
+        let ret = unsafe { libc::uname(&mut utsname) };
+        if ret < 0 {
+            warn!("Could not get host kernel version. Defaulting to 0.0.0");
+            return Version::default();
+        }
+
+        // SAFETY: `release` is a null terminated ASCII string.
+        let release = unsafe { std::ffi::CStr::from_ptr(utsname.release.as_ptr()) };
+        let release = release.to_str().unwrap_or_default();
+
+        parse_kernel_release(release)
+    });
+
+    *KERNEL_VERSION
 }
 
 impl fmt::Display for DeviceType {
@@ -142,5 +185,23 @@ fn arch_memory_regions_with_gap(
         }
         // case2: region starts past the gap
         Some(_) => Some((first_addr_past_gap.max(region_start), region_size)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_kernel_release() {
+        assert_eq!(parse_kernel_release("1"), Version::new(1, 0, 0));
+        assert_eq!(parse_kernel_release("1.2"), Version::new(1, 2, 0));
+        assert_eq!(parse_kernel_release("1.2.3"), Version::new(1, 2, 3));
+        assert_eq!(parse_kernel_release("1.2.300"), Version::new(1, 2, 300));
+        assert_eq!(
+            parse_kernel_release("1.2.3-69-something"),
+            Version::new(1, 2, 3)
+        );
+        assert_eq!(parse_kernel_release("invalid"), Version::default());
     }
 }

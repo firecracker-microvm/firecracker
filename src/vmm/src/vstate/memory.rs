@@ -695,23 +695,36 @@ impl GuestRegionMmapExt {
         assert!(self.region_type == GuestRegionType::Hotpluggable);
 
         let mut bitmap_guard = self.plugged.lock().unwrap();
-        let prev = bitmap_guard.replace((mem_slot.slot - self.slot_from) as usize, plug);
-        // do not do anything if the state is what we're trying to set
-        if prev == plug {
+        let idx = (mem_slot.slot - self.slot_from) as usize;
+        if bitmap_guard[idx] == plug {
             return Ok(());
         }
 
-        let mut kvm_region = kvm_userspace_memory_region::from(mem_slot);
+        // Commit the bitmap only once the protection and the KVM slot have both changed, rolling
+        // back the first step if the second fails. A failed rollback has no way back, so it panics.
+        let kvm_region = kvm_userspace_memory_region::from(mem_slot);
         if plug {
             // make it accessible _before_ adding it to KVM
             mem_slot.protect(false)?;
-            vm.set_user_memory_region(kvm_region)?;
+            if let Err(err) = vm.set_user_memory_region(kvm_region) {
+                mem_slot
+                    .protect(true)
+                    .expect("cannot roll back the virtio-mem slot protection");
+                return Err(err);
+            }
+            bitmap_guard.set(idx, true);
         } else {
             // to remove it we need to pass a size of zero
-            kvm_region.memory_size = 0;
-            vm.set_user_memory_region(kvm_region)?;
+            let mut removed_region = kvm_region;
+            removed_region.memory_size = 0;
+            vm.set_user_memory_region(removed_region)?;
             // make it protected _after_ removing it from KVM
-            mem_slot.protect(true)?;
+            if let Err(err) = mem_slot.protect(true) {
+                vm.set_user_memory_region(kvm_region)
+                    .expect("cannot roll back the virtio-mem slot in KVM");
+                return Err(err.into());
+            }
+            bitmap_guard.set(idx, false);
         }
         Ok(())
     }
@@ -916,7 +929,10 @@ pub fn memfd_backed(
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    let size = regions.iter().map(|&(_, size)| size as u64).sum();
+    let size = regions
+        .iter()
+        .try_fold(0u64, |acc, &(_, size)| acc.checked_add(size as u64))
+        .ok_or(MemoryError::OffsetTooLarge)?;
     let memfd_file = create_memfd(size, huge_pages.into())?.into_file();
 
     create(
@@ -1344,6 +1360,16 @@ mod tests {
         let regions = vec![(GuestAddress(0), 2 * page_size)];
         let result = snapshot_file(file, regions.into_iter(), false, HugePageConfig::None);
         assert!(matches!(result.unwrap_err(), MemoryError::OffsetTooLarge));
+    }
+
+    #[test]
+    fn test_memfd_backed_size_overflow() {
+        let regions = [(GuestAddress(0), usize::MAX), (GuestAddress(0), 1)];
+
+        assert!(matches!(
+            memfd_backed(&regions, false, HugePageConfig::None),
+            Err(MemoryError::OffsetTooLarge)
+        ));
     }
 
     #[test]

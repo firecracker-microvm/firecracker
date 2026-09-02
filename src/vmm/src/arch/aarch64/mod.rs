@@ -23,15 +23,14 @@ use std::fs::File;
 use linux_loader::loader::pe::PE as Loader;
 use linux_loader::loader::{Cmdline, KernelLoader};
 use vm_memory::{GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion};
+use zerocopy::IntoBytes;
 
-use crate::arch::{BootProtocol, EntryPoint, arch_memory_regions_with_gap};
+use crate::arch::{BootProtocol, EntryPoint, arch_memory_regions_with_gap, host_kernel_version};
 use crate::cpu_config::aarch64::{CpuConfiguration, CpuConfigurationError};
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::initrd::InitrdConfig;
-use zerocopy::IntoBytes;
-
 use crate::logger::warn;
-use crate::utils::{u64_to_usize, usize_to_u64};
+use crate::utils::{Version, u64_to_usize, usize_to_u64};
 use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap, GuestRegionType};
 use crate::vstate::vcpu::KvmVcpuError;
@@ -123,9 +122,21 @@ pub fn configure_system_for_boot(
         )?;
     }
 
-    // Override CLIDR_EL1 ctype/LoC fields on each vCPU to match the host's
-    // real cache topology. See `override_clidr` for details.
-    override_clidr(vcpus)?;
+    // Override CLIDR_EL1 ctype/LoC fields on each vCPU to match the host's real cache topology.
+    // See `override_clidr` for details.
+    //
+    // Gate the overwrite to only kernels 6.10 and newer. Before 6.10 version, KVM is
+    // unconditionally resetting ID registers on secondary vcpus on PSCI bootup. This causes
+    // secondary vcpus to have default CLIDR_EL1 value, different from the vcpu0 (which never goes
+    // through the PSCI boot up process). This difference causes the guest kernel to misconfigure
+    // its scheduling which significantly affects the performance inside the guest.
+    //
+    // Commit in 6.10 that resolves this issue:
+    // "e016333745c70c960e02b4a9b123c807669d2b22"("KVM: arm64: Only reset vCPU-scoped feature ID
+    // regs once").
+    if Version::new(6, 10, 0) <= host_kernel_version() {
+        override_clidr(vcpus)?;
+    }
 
     let vcpu_mpidr = vcpus
         .iter_mut()
