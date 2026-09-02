@@ -6,30 +6,40 @@
 
 use std::ops::DerefMut;
 use std::os::fd::AsRawFd;
-use std::sync::Arc;
+use std::path::Path;
+use std::sync::{Arc, Barrier, Mutex};
 
 use arrayvec::ArrayVec;
 use bitflags::bitflags;
-use kvm_bindings::{KVM_MEM_READONLY, kvm_userspace_memory_region};
+use kvm_bindings::{
+    KVM_MEM_READONLY, kvm_create_device, kvm_device_type_KVM_DEV_TYPE_VFIO,
+    kvm_userspace_memory_region,
+};
 use vfio_bindings::bindings::vfio::*;
 pub use vfio_ioctls::{
     VfioContainer, VfioDevice as InternalVfioDevice, VfioDeviceFd, VfioRegionInfoCap,
     VfioRegionInfoCapSparseMmap, VfioRegionSparseMmapArea,
 };
 use vm_allocator::{AllocPolicy, RangeInclusive};
+use vm_memory::{GuestMemoryBackend, GuestMemoryRegion};
+use vmm_sys_util::eventfd::EventFd;
 use zerocopy::IntoBytes;
 
 use crate::arch::host_page_size;
 use crate::logger::{debug, error, warn};
 use crate::pci::configuration::{
-    Bars, NUM_BAR_REGS, decode_32_bits_bar_size, decode_64_bits_bar_size,
+    BAR0_REG_IDX, Bars, NUM_BAR_REGS, ROM_BAR_REG, decode_32_bits_bar_size, decode_64_bits_bar_size,
 };
-use crate::pci::msix::MsixCap;
-use crate::pci::{PciCapabilityId, PciExpressCapabilityId};
+use crate::pci::msix::{MsixCap, MsixConfig};
+use crate::pci::{PciCapabilityId, PciDevice, PciExpressCapabilityId, PciSBDF};
 use crate::utils::{
     align_down_host_page, align_up_host_page, is_host_page_aligned, offset_from_lower_host_page,
     u64_to_usize, usize_to_u64,
 };
+use crate::vmm_config::device_passthrough::DevicePassthroughConfig;
+use crate::vstate::bus::BusDevice;
+use crate::vstate::interrupts::InterruptError;
+use crate::vstate::memory::{GuestMemoryMmap, GuestRegionType};
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::{KvmVm, VmError};
 
@@ -55,8 +65,16 @@ pub enum VfioError {
     BarAllocation,
     /// Mmap failed: {0:?}
     Mmap(std::io::Error),
+    /// Failed to allocate KVM slot
+    KvmSlot,
     /// Failed to set KVM user memory region: {0}
     SetUserMemoryRegion(VmError),
+    /// Cannot create Msix vector group: {0}
+    MsixConfig(#[from] InterruptError),
+    /// Device does not provide MSIx irq
+    NoMsixIrq,
+    /// KVM failed to create KVM_DEV_TYPE_VFIO device: {0}
+    KVMCreateVfioDevice(kvm_ioctls::Error),
     /// vfio-ioctls crate error: {0}
     VfioIoctls(#[from] vfio_ioctls::VfioError),
     /// BAR{0} MSI-X table at offset {1:#x} size {2:#x} does not fit in region of size {3:#x}
@@ -129,53 +147,16 @@ struct VfioBarMapping {
     hva: u64,
 }
 
-/// Wrapper type to automate dropping
-struct VfioBarMappings {
-    mappings: Vec<VfioBarMapping>,
-    vm: Arc<KvmVm>,
-}
-
-impl VfioBarMappings {
-    /// Create new VfioBarMappings
-    fn new(
-        vm: Arc<KvmVm>,
-        areas: &[VfioBarMappableArea],
-        device: &InternalVfioDevice,
-        first_area_slot: u32,
-    ) -> Result<VfioBarMappings, VfioError> {
-        let mut mappings = Vec::with_capacity(areas.len());
-        for (i, area) in areas.iter().enumerate() {
-            // `areas` length is bound by `u32`. See `vfio_calculate_bar_areas` comment.
-            #[allow(clippy::cast_possible_truncation)]
-            let i = i as u32;
-            match vfio_map_bar_mapping(device, vm.as_ref(), area, first_area_slot + i) {
-                Ok(mapping) => {
-                    debug!(
-                        "BAR area{} kvm gpa: [{:#x} ..{:#x}]",
-                        i,
-                        mapping.gpa,
-                        mapping.gpa + mapping.size
-                    );
-                    mappings.push(mapping);
-                }
-                Err(e) => {
-                    for mapping in mappings.iter() {
-                        vfio_unmap_bar_mapping(vm.as_ref(), mapping);
-                    }
-                    return Err(e);
-                }
-            }
-        }
-        Ok(Self { mappings, vm })
-    }
-}
-
-impl Drop for VfioBarMappings {
-    fn drop(&mut self) {
-        for mapping in self.mappings.iter() {
-            vfio_unmap_bar_mapping(self.vm.as_ref(), mapping);
-        }
-    }
+/// Container for everything MSIx related
+#[derive(Debug)]
+struct VfioMsixState {
+    /// Register idx where the capability is in the configuration space
+    register: u8,
+    /// The actual capability (without first 2 bytes)
+    cap: MsixCap,
+    /// Info about Table and Pba emulated areas
+    bar_hole_infos: ArrayVec<VfioBarEmulatedArea, 2>,
+    config: MsixConfig,
 }
 
 /// Mask for specific register in the configuration space
@@ -188,6 +169,280 @@ struct VfioRegisterMask {
     mask: u32,
     /// Value to use with the mask
     value: u32,
+}
+
+/// The VFIO device information
+pub struct VfioDevice {
+    /// Configuration with which the device was created
+    pub config: DevicePassthroughConfig,
+    /// SBDF of the device in the configuration space
+    pub sbdf: PciSBDF,
+    device: InternalVfioDevice,
+    bars: VfioBars,
+    bar_mappings: Vec<VfioBarMapping>,
+    msix_state: VfioMsixState,
+    masks: Vec<VfioRegisterMask>,
+    vm: Arc<KvmVm>,
+}
+
+impl std::fmt::Debug for VfioDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VfioDeviceBundle")
+            .field("config", &self.config)
+            .field("sbdf", &self.sbdf)
+            .finish()
+    }
+}
+
+impl VfioDevice {
+    /// New VfioDevice
+    pub fn new(
+        container: &Arc<VfioContainer>,
+        vm: &Arc<KvmVm>,
+        config: DevicePassthroughConfig,
+        sbdf: PciSBDF,
+    ) -> Result<Arc<Mutex<VfioDevice>>, VfioError> {
+        vfio_init_device(container, vm, config, sbdf)
+    }
+}
+
+impl Drop for VfioDevice {
+    fn drop(&mut self) {
+        vfio_deinit_device(self);
+    }
+}
+
+enum HandleBarAccessResult {
+    PartialOverlap,
+    MsixTable(u64),
+    MsixPba(u64),
+    Device(u8, u64),
+}
+fn vfio_handle_bar_access(
+    bar_hole_infos: &[VfioBarEmulatedArea],
+    msix_cap: &MsixCap,
+    base: u64,
+    offset: u64,
+    data_len: u64,
+) -> HandleBarAccessResult {
+    let data_start = offset;
+    let data_end = offset + data_len;
+    for hole in bar_hole_infos.iter() {
+        if hole.gpa == base {
+            if hole
+                .usage
+                .contains(VfioBarEmulatedRegionUsageFlags::MSIX_TABLE)
+            {
+                let (t_off, t_size) = msix_cap.table_bar_offset_and_size();
+                let t_start = offset_from_lower_host_page(t_off);
+                let t_end = t_start + t_size;
+                if t_start <= data_start && data_end <= t_end {
+                    return HandleBarAccessResult::MsixTable(offset - t_start);
+                }
+                // Reject partial overlap with table.
+                // This should not happen in normal operations, but malicious
+                // driver can try this.
+                // In this case it should be fine to ignore the access all together
+                if data_start < t_end && t_start < data_end {
+                    return HandleBarAccessResult::PartialOverlap;
+                }
+            }
+
+            if hole
+                .usage
+                .contains(VfioBarEmulatedRegionUsageFlags::MSIX_PBA)
+            {
+                let (p_off, p_size) = msix_cap.pba_bar_offset_and_size();
+                let p_start = offset_from_lower_host_page(p_off);
+                let p_end = p_start + p_size;
+                if p_start <= data_start && data_end <= p_end {
+                    return HandleBarAccessResult::MsixPba(offset - p_start);
+                }
+                // Reject partial overlap with pba.
+                // This should not happen in normal operations, but malicious
+                // driver can try this.
+                // In this case it should be fine to ignore the access all together
+                if data_start < p_end && p_start < data_end {
+                    return HandleBarAccessResult::PartialOverlap;
+                }
+            }
+
+            let (region_idx, hole_off_in_region) = if hole
+                .usage
+                .contains(VfioBarEmulatedRegionUsageFlags::MSIX_TABLE)
+            {
+                (
+                    msix_cap.table_bir(),
+                    align_down_host_page(msix_cap.table_offset() as u64),
+                )
+            } else {
+                (
+                    msix_cap.pba_bir(),
+                    align_down_host_page(msix_cap.pba_offset() as u64),
+                )
+            };
+            let in_region_off = hole_off_in_region + offset;
+            return HandleBarAccessResult::Device(region_idx, in_region_off);
+        }
+    }
+    // SAFETY: if this is ever reached it would mean we have a bug in the code that adds BarHoles
+    // as regions into the MmioBus.
+    unreachable!()
+}
+
+impl BusDevice for VfioDevice {
+    fn read(&mut self, base: u64, offset: u64, data: &mut [u8]) {
+        match vfio_handle_bar_access(
+            &self.msix_state.bar_hole_infos,
+            &self.msix_state.cap,
+            base,
+            offset,
+            usize_to_u64(data.len()),
+        ) {
+            HandleBarAccessResult::PartialOverlap => {
+                warn!(
+                    "[{}] BusDevice::read ignoring read with partial overlap: base: {base:#x} \
+                     offset: {offset:#x}",
+                    self.config.id
+                );
+                data.fill(0);
+            }
+            HandleBarAccessResult::MsixTable(offset) => {
+                self.msix_state.config.read_table(offset, data);
+            }
+            HandleBarAccessResult::MsixPba(offset) => {
+                self.msix_state.config.read_pba(offset, data);
+            }
+            HandleBarAccessResult::Device(region_idx, in_region_off) => {
+                let region_size = self.device.get_region_size(region_idx as u32);
+                if in_region_off + (data.len() as u64) <= region_size {
+                    self.device
+                        .region_read(region_idx as u32, data, in_region_off);
+                } else {
+                    // If access is partially out of the region boundaries
+                    // just ignore it
+                }
+            }
+        }
+    }
+
+    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+        match vfio_handle_bar_access(
+            &self.msix_state.bar_hole_infos,
+            &self.msix_state.cap,
+            base,
+            offset,
+            usize_to_u64(data.len()),
+        ) {
+            HandleBarAccessResult::PartialOverlap => {
+                warn!(
+                    "[{}] BusDevice::write ignoring write with partial overlap: base: {base:#x} \
+                     offset: {offset:#x}",
+                    self.config.id
+                );
+            }
+            HandleBarAccessResult::MsixTable(offset) => {
+                self.msix_state.config.write_table(offset, data);
+            }
+            HandleBarAccessResult::MsixPba(offset) => {
+                self.msix_state.config.write_pba(offset, data);
+            }
+            HandleBarAccessResult::Device(region_idx, in_region_off) => {
+                let region_size = self.device.get_region_size(region_idx as u32);
+                if in_region_off + (data.len() as u64) <= region_size {
+                    self.device
+                        .region_write(region_idx as u32, data, in_region_off);
+                } else {
+                    // If access is partially out of the region boundaries
+                    // just ignore it
+                }
+            }
+        }
+        None
+    }
+}
+
+impl PciDevice for VfioDevice {
+    fn write_config_register(
+        &mut self,
+        reg_idx: u16,
+        offset: u8,
+        data: &[u8],
+    ) -> Option<Arc<Barrier>> {
+        let mut handled: bool = false;
+        if BAR0_REG_IDX <= reg_idx && reg_idx < BAR0_REG_IDX + u16::from(NUM_BAR_REGS) {
+            // reg_idx is in [BAR0_REG, BAR0_REG+NUM_BAR_REGS), so the difference is 0..5.
+            #[allow(clippy::cast_possible_truncation)]
+            let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
+            // offset is within a 4-byte PCI config register (0..3).
+            self.bars.bars.write(bar_idx, offset, data);
+            handled = true;
+        } else if reg_idx == ROM_BAR_REG {
+            // We don's support ROM BAR
+            handled = true;
+            warn!(
+                "[{}] PciDevice::write_config_register ignoring write to the ROM BAR: offset: \
+                 {offset:#x}",
+                self.config.id
+            );
+        } else if reg_idx == u16::from(self.msix_state.register) {
+            // offset is within a 4-byte PCI config register (0..3).
+            self.msix_state.config.write_msg_ctl_register(offset, data);
+            // Don't set `handled` since we need to passthrough write
+            // to the msg_ctl register to the device, so it will enable Msix
+            // interrupts
+        } else {
+            // If we mask some registers, there is no reason to allow writing to them
+            for mask in self.masks.iter() {
+                if mask.register == reg_idx {
+                    handled = true;
+                    break;
+                }
+            }
+        }
+        let config_offset = reg_idx * 4 + u16::from(offset);
+        if !handled {
+            self.device
+                .region_write(VFIO_PCI_CONFIG_REGION_INDEX, data, u64::from(config_offset));
+        }
+        None
+    }
+    fn read_config_register(&mut self, reg_idx: u16) -> u32 {
+        let config_offset = reg_idx as u64 * 4;
+        let mut result: u32 = 0;
+        if BAR0_REG_IDX <= reg_idx && reg_idx < BAR0_REG_IDX + u16::from(NUM_BAR_REGS) {
+            // reg_idx is in [BAR0_REG, BAR0_REG+NUM_BAR_REGS), so the difference is 0..5.
+            #[allow(clippy::cast_possible_truncation)]
+            let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
+            self.bars.bars.read(bar_idx, 0, result.as_mut_bytes());
+        } else if reg_idx == ROM_BAR_REG {
+            // We don's support ROM BAR
+            warn!(
+                "[{}] PciDevice::read_config_register ignoring read to the ROM BAR",
+                self.config.id
+            );
+        } else {
+            self.device.region_read(
+                VFIO_PCI_CONFIG_REGION_INDEX,
+                result.as_mut_bytes(),
+                config_offset,
+            );
+            if reg_idx == u16::from(self.msix_state.register) {
+                // Since we emulate the MsixCap, we need to set the Mask and Msix enable bits to
+                // values we have, and not what device has.
+                let msg_ctl = self.msix_state.config.as_msg_ctl();
+                result &= 0x0000ffff;
+                result |= u32::from(msg_ctl) << 16;
+            }
+            for mask in self.masks.iter() {
+                if mask.register == reg_idx {
+                    result = (result & mask.mask) | mask.value;
+                    break;
+                }
+            }
+        }
+        result
+    }
 }
 
 /// Go through the PCI config space and reads all legacy and PCIe capabilities. Find the MSIx
@@ -872,7 +1127,7 @@ fn vfio_map_bar_mapping(
             device.as_raw_fd(),
             #[allow(clippy::cast_possible_wrap)]
             {
-                area.vfio_fd_offset as libc::off_t
+                area.device_offset as libc::off_t
             },
         )
     };
@@ -921,7 +1176,40 @@ fn vfio_map_bar_mapping(
     })
 }
 
-/// Removes the KVM memory region and unmaps the corresponding virtual address space
+/// Create new [`VfioBarMapping`]s from [`VfioBarMappableArea`]s
+fn vfio_create_bar_mappings_from_areas(
+    vm: &KvmVm,
+    areas: &[VfioBarMappableArea],
+    device: &InternalVfioDevice,
+    first_area_slot: u32,
+) -> Result<Vec<VfioBarMapping>, VfioError> {
+    let mut mappings = Vec::with_capacity(areas.len());
+    for (i, area) in areas.iter().enumerate() {
+        // `areas` length is bound by `u32`. See `vfio_calculate_bar_areas` comment.
+        #[allow(clippy::cast_possible_truncation)]
+        let i = i as u32;
+        match vfio_map_bar_mapping(device, vm, area, first_area_slot + i) {
+            Ok(mapping) => {
+                debug!(
+                    "BAR area{} kvm gpa: [{:#x} ..{:#x}]",
+                    i,
+                    mapping.gpa,
+                    mapping.gpa + mapping.size
+                );
+                mappings.push(mapping);
+            }
+            Err(e) => {
+                for mapping in mappings.iter() {
+                    vfio_unmap_bar_mapping(vm, mapping);
+                }
+                return Err(e);
+            }
+        }
+    }
+    Ok(mappings)
+}
+
+/// Removes the KVM memory region and unmaps the correspoinding virtual address space
 fn vfio_unmap_bar_mapping(vm: &KvmVm, mapping: &VfioBarMapping) {
     let kvm_memory_region = kvm_userspace_memory_region {
         slot: mapping.kvm_slot,
@@ -946,6 +1234,243 @@ fn vfio_unmap_bar_mapping(vm: &KvmVm, mapping: &VfioBarMapping) {
             std::io::Error::last_os_error()
         );
     }
+}
+
+#[allow(clippy::type_complexity)]
+fn vfio_prepare_device(
+    container: &Arc<VfioContainer>,
+    vm: &Arc<KvmVm>,
+    sysfs_path: &Path,
+    sbdf: PciSBDF,
+) -> Result<
+    (
+        InternalVfioDevice,
+        VfioBars,
+        Vec<VfioBarMapping>,
+        VfioMsixState,
+        Vec<VfioRegisterMask>,
+    ),
+    VfioError,
+> {
+    let device = InternalVfioDevice::new(
+        sysfs_path,
+        container.clone() as Arc<dyn vfio_ioctls::VfioOps>,
+    )?;
+    device.reset();
+
+    let Some(msix_irq_info) = device.get_irq_info(VFIO_PCI_MSIX_IRQ_INDEX) else {
+        return Err(VfioError::NoMsixIrq);
+    };
+    if msix_irq_info.count == 0 {
+        warn!("Device does not support MSI-X interrupts.");
+        return Err(VfioError::NoMsixIrq);
+    }
+
+    let mut config_space = Box::new([0_u32; 1024]);
+    device.region_read(
+        VFIO_PCI_CONFIG_REGION_INDEX,
+        (*config_space).as_mut_bytes(),
+        0,
+    );
+    let (msix_cap_and_register, masks) = vfio_get_pci_capabilities(&config_space);
+
+    // Only devices with MSI-X cap and irqs are supported
+    let Some((msix_cap, msix_register)) = msix_cap_and_register else {
+        return Err(VfioError::NoMsixIrq);
+    };
+
+    // SAFETY: maximum msix table size is 1 << 11 = 2048 (it has 10 bits int the control register
+    // and encoded as N - 1)
+    // This fits into u16 without issues
+    #[allow(clippy::cast_possible_truncation)]
+    let msix_num = msix_irq_info.count as u16;
+    let msix_vectors =
+        KvmVm::create_msix_group(vm.clone(), msix_num).map_err(VfioError::MsixConfig)?;
+    let msix_config = MsixConfig::new(Arc::new(msix_vectors), sbdf);
+
+    // We set VFIO irqs here on device setup. There is no reason to add additional tracking
+    // for driver MSIx configuration since those are handled by the MsixState.
+    // If anything after this call fails, we don't need to do anything since the kernel will
+    // clean up these irqs when `device` file will be closed.
+    let fds: Vec<&EventFd> = msix_config
+        .vectors
+        .vectors
+        .iter()
+        .map(|v| &v.event_fd)
+        .collect();
+    device.enable_msix(fds)?;
+
+    let bars = VfioBars::new(&device, vm.clone())?;
+
+    // There is no direct access to `regions` in `VfioDevice`, so need to work around this
+    let bar_region_infos: [VfioRegionInfo; NUM_BAR_REGS as usize] = std::array::from_fn(|i| {
+        #[allow(clippy::cast_possible_truncation)]
+        VfioRegionInfo {
+            flags: device.get_region_flags(i as u32),
+            size: device.get_region_size(i as u32),
+            offset: device.get_region_offset(i as u32),
+            caps: device.get_region_caps(i as u32),
+        }
+    });
+
+    let (areas, bar_hole_infos) = vfio_calculate_bar_areas(
+        &bars.bars,
+        &bar_region_infos,
+        msix_cap_and_register.as_ref().map(|(v, _)| v),
+    )?;
+
+    let Some(first_area_slot) = vm.next_kvm_slot(
+        // SAFETY: areas.len() is bound to fit in u32
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            areas.len() as u32
+        },
+    ) else {
+        return Err(VfioError::KvmSlot);
+    };
+
+    let bar_mappings =
+        vfio_create_bar_mappings_from_areas(vm.as_ref(), &areas, &device, first_area_slot)?;
+
+    let msix_state = VfioMsixState {
+        register: msix_register,
+        cap: msix_cap,
+        bar_hole_infos,
+        config: msix_config,
+    };
+    Ok((device, bars, bar_mappings, msix_state, masks))
+}
+
+/// This will open a VFIO device, attach it's group both to the KVM VFIO device and to the VFIO
+/// container. It will setup MSIx irqs and BAR DMAs.
+fn vfio_init_device(
+    container: &Arc<VfioContainer>,
+    vm: &Arc<KvmVm>,
+    config: DevicePassthroughConfig,
+    sbdf: PciSBDF,
+) -> Result<Arc<Mutex<VfioDevice>>, VfioError> {
+    let sysfs_path = format!(
+        "/sys/bus/pci/devices/{:04x}:{:02x}:{:02x}.{:x}",
+        config.sbdf.segment(),
+        config.sbdf.bus(),
+        config.sbdf.device(),
+        config.sbdf.function()
+    );
+    debug!("Opening device at path: {}", sysfs_path);
+    let (device, bars, bar_mappings, msix_state, masks) =
+        vfio_prepare_device(container, vm, Path::new(&sysfs_path), sbdf)?;
+
+    let vfio_device = Arc::new(Mutex::new(VfioDevice {
+        config,
+        sbdf,
+        device,
+        bars,
+        bar_mappings,
+        msix_state,
+        masks,
+        vm: vm.clone(),
+    }));
+
+    for hole in vfio_device.lock().unwrap().msix_state.bar_hole_infos.iter() {
+        vm.common
+            .mmio_bus
+            .insert(vfio_device.clone(), hole.gpa, hole.size)
+            // SAFETY: the hole gpa and size were allocated from internal allocator. we must never
+            // receive overlapping regions from it.
+            .unwrap();
+    }
+    Ok(vfio_device)
+}
+
+/// Performs device reset and removes emulated regions from the mmio_bus.
+fn vfio_deinit_device(device: &VfioDevice) {
+    device.device.reset();
+
+    for mapping in device.bar_mappings.iter() {
+        vfio_unmap_bar_mapping(device.vm.as_ref(), mapping);
+    }
+
+    for hole in device.msix_state.bar_hole_infos.iter() {
+        device
+            .vm
+            .common
+            .mmio_bus
+            .remove(hole.gpa, hole.size)
+            .unwrap();
+    }
+}
+
+/// Establish DMA mapping of the Dram region of the guest memory with the vfio container
+pub fn vfio_dma_map_guest_memory(
+    container: &VfioContainer,
+    guest_memory: &GuestMemoryMmap,
+) -> Result<(), VfioError> {
+    for (i, region) in guest_memory.iter().enumerate() {
+        if region.region_type == GuestRegionType::Dram {
+            let region = &region.inner;
+            let hva = region.as_ptr();
+            let iova = region.start_addr().0;
+            let size = region.size();
+            debug!(
+                "DMA map guest memory: [{:#x}..{:#x}]",
+                iova,
+                iova + size as u64
+            );
+            // SAFETY: all arguments are from the existing guest memory region
+            // After this operation, virtual memory will have a pinned physical pages backing it
+            if let Err(e) = unsafe { container.vfio_dma_map(iova, size, hva) } {
+                // Try to remove DMA mapping if anything fails. If unmap also fails, just log it
+                // since there is nothing we can do about it.
+                // Since the failed region is at index 'i', we only care about [0..i) regions
+                for region in guest_memory.iter().take(i) {
+                    if region.region_type == GuestRegionType::Dram {
+                        let iova = region.start_addr().0;
+                        let size = region.size();
+                        if let Err(ee) = container.vfio_dma_unmap(iova, size) {
+                            error!("Failed to unmap DMA from guest memory: {ee}");
+                        }
+                    }
+                }
+                return Err(VfioError::VfioIoctls(e));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Tear down DMA mapping of the Dram guest memory from the vfio container
+pub fn vfio_dma_unmap_guest_memory(container: &VfioContainer, guest_memory: &GuestMemoryMmap) {
+    for region in guest_memory.iter() {
+        if region.region_type == GuestRegionType::Dram {
+            let iova = region.start_addr().0;
+            let size = region.size();
+            if let Err(ee) = container.vfio_dma_unmap(iova, size) {
+                error!("Failed to unmap DMA from guest memory: {ee}");
+            }
+        }
+    }
+}
+
+/// Create KVM_DEV_TYPE_VFIO device
+fn vfio_create_kvm_vfio_device(vm: &KvmVm) -> Result<kvm_ioctls::DeviceFd, VfioError> {
+    let mut vfio_dev = kvm_create_device {
+        type_: kvm_device_type_KVM_DEV_TYPE_VFIO,
+        fd: 0,
+        flags: 0,
+    };
+    vm.fd()
+        .create_device(&mut vfio_dev)
+        .map_err(VfioError::KVMCreateVfioDevice)
+}
+
+/// Create a VfioContainer wrapper around both KVM vfio device and VFIO container
+pub fn vfio_create_kvm_vfio_device_and_vfio_container(
+    vm: &KvmVm,
+) -> Result<Arc<VfioContainer>, VfioError> {
+    let kvm_device_fd = vfio_create_kvm_vfio_device(vm)?;
+    let device_fd = VfioDeviceFd::new_from_kvm(kvm_device_fd);
+    let container = VfioContainer::new(Some(Arc::new(device_fd)))?;
+    Ok(Arc::new(container))
 }
 
 #[cfg(test)]
@@ -1863,5 +2388,134 @@ mod tests {
             err,
             VfioError::MsixPbaOutOfRange(0, 0xff8, 16, 0x1000)
         ));
+    }
+
+    const BAR_GPA: u64 = 0x1000;
+
+    fn holes_table_only() -> ArrayVec<VfioBarEmulatedArea, 2> {
+        let mut holes = ArrayVec::new();
+        holes.push(VfioBarEmulatedArea {
+            gpa: BAR_GPA,
+            size: 0x1000,
+            usage: VfioBarEmulatedRegionUsageFlags::MSIX_TABLE,
+        });
+        holes
+    }
+
+    fn holes_pba_only() -> ArrayVec<VfioBarEmulatedArea, 2> {
+        let mut holes = ArrayVec::new();
+        holes.push(VfioBarEmulatedArea {
+            gpa: BAR_GPA,
+            size: 0x1000,
+            usage: VfioBarEmulatedRegionUsageFlags::MSIX_PBA,
+        });
+        holes
+    }
+
+    fn holes_merged() -> ArrayVec<VfioBarEmulatedArea, 2> {
+        let mut holes = ArrayVec::new();
+        holes.push(VfioBarEmulatedArea {
+            gpa: BAR_GPA,
+            size: 0x1000,
+            usage: VfioBarEmulatedRegionUsageFlags::MSIX_TABLE
+                | VfioBarEmulatedRegionUsageFlags::MSIX_PBA,
+        });
+        holes
+    }
+
+    #[test]
+    fn test_handle_bar_access_table_inside_table_range() {
+        let holes = holes_table_only();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x800);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x10, 4);
+        assert!(matches!(result, HandleBarAccessResult::MsixTable(0x10)));
+    }
+
+    #[test]
+    fn test_handle_bar_access_table_outside_table_range_forwards_to_device() {
+        let holes = holes_table_only();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x800);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x100, 4);
+        assert!(matches!(result, HandleBarAccessResult::Device(0, 0x100)));
+    }
+
+    #[test]
+    fn test_handle_bar_access_pba_inside_pba_range() {
+        let holes = holes_pba_only();
+        let cap = MsixCap::new(0, 4, 0x800, 0, 0x100);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x100, 4);
+        assert!(matches!(result, HandleBarAccessResult::MsixPba(0)));
+    }
+
+    #[test]
+    fn test_handle_bar_access_pba_outside_pba_range_forwards_to_device() {
+        let holes = holes_pba_only();
+        let cap = MsixCap::new(0, 4, 0x800, 0, 0x100);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x800, 4);
+        assert!(matches!(result, HandleBarAccessResult::Device(0, 0x800)));
+    }
+
+    #[test]
+    fn test_handle_bar_access_merged_hits_table() {
+        let holes = holes_merged();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x200);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x10, 4);
+        assert!(matches!(result, HandleBarAccessResult::MsixTable(0x10)));
+    }
+
+    #[test]
+    fn test_handle_bar_access_merged_hits_pba() {
+        let holes = holes_merged();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x200);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x200, 4);
+        assert!(matches!(result, HandleBarAccessResult::MsixPba(0)));
+    }
+
+    #[test]
+    fn test_handle_bar_access_merged_padding_forwards_to_device() {
+        let holes = holes_merged();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x200);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x800, 4);
+        assert!(matches!(result, HandleBarAccessResult::Device(0, 0x800)));
+    }
+
+    #[test]
+    fn test_handle_bar_access_partial_overlap_table_start() {
+        let holes = holes_table_only();
+        let cap = MsixCap::new(0, 4, 0x100, 0, 0x800);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0xfe, 4);
+        assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
+    }
+
+    #[test]
+    fn test_handle_bar_access_partial_overlap_table_end() {
+        let holes = holes_table_only();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x800);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x3e, 4);
+        assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
+    }
+
+    #[test]
+    fn test_handle_bar_access_partial_overlap_pba_start() {
+        let holes = holes_pba_only();
+        let cap = MsixCap::new(0, 4, 0x800, 0, 0x100);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0xfe, 4);
+        assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
+    }
+
+    #[test]
+    fn test_handle_bar_access_partial_overlap_pba_end() {
+        let holes = holes_pba_only();
+        let cap = MsixCap::new(0, 4, 0x800, 0, 0x100);
+        let result = vfio_handle_bar_access(&holes, &cap, BAR_GPA, 0x106, 4);
+        assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
+    }
+
+    #[test]
+    #[should_panic(expected = "unreachable")]
+    fn test_handle_bar_access_unrelated_base_panics() {
+        let holes = holes_table_only();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x800);
+        let _ = vfio_handle_bar_access(&holes, &cap, BAR_GPA + 0x1000, 0, 4);
     }
 }
