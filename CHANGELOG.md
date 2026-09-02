@@ -56,6 +56,10 @@ and this project adheres to
   new VIRTIO_BLK_F_BLK_SIZE and VIRTIO_BLK_F_TOPOLOGY features to the
   virtio-block device. More information is in the new [block](docs/block.md)
   documentation.
+- [#6142](https://github.com/firecracker-microvm/firecracker/pull/6142): Add
+  opt-in virtio-blk discard support for writable `Sync` IO engine drives through
+  the `discard` drive configuration field. See the
+  [block discard documentation](docs/api_requests/block-discard.md).
 
 ### Changed
 

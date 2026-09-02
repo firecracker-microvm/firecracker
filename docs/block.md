@@ -96,6 +96,13 @@ See [block-io-engine.md](api_requests/block-io-engine.md) for more information.
 Setting `is_read_only` to `true` causes Firecracker to open the backing file
 `O_RDONLY` and tell the guest to mark the device as read-only as well.
 
+### Discard
+
+The `discard` field enables the `VIRTIO_BLK_F_DISCARD` feature for a drive.
+Discard is disabled by default and is available only for writable drives that
+use the `Sync` IO engine. See [block-discard.md](api_requests/block-discard.md)
+for configuration details and backend behavior.
+
 ### Rate Limiting
 
 The optional `rate_limiter` field caps IO bandwidth and/or request rate:
@@ -263,8 +270,8 @@ A `PATCH /drives/{drive_id}` request can change the `path_on_host` and/or
 
 > [!NOTE]
 >
-> Patching block device does not change already configured `blk_size` or
-> `topology` fileds.
+> Patching a block device does not change the configured `blk_size` or
+> `topology` fields.
 
 ## Examples
 
