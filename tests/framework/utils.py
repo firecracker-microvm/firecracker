@@ -285,6 +285,30 @@ def get_stable_rss_mem(uvm, percentage_delta=1):
     return second_rss
 
 
+FILLMEM_OUTPUT_PATH = "/tmp/fillmem_output.txt"
+FILLMEM_SUCCESS = "Memory filling was successful"
+OOM_SETTLE_S = 5
+
+
+def wait_for_fillmem(ssh_connection, timeout_s=30):
+    """Poll fillmem's status file until the guest reports the run finished."""
+    status = ""
+    for attempt in Retrying(
+        stop=stop_after_delay(timeout_s),
+        wait=wait_fixed(0.5),
+        retry=retry_if_exception_type(AssertionError),
+        reraise=True,
+    ):
+        with attempt:
+            exit_code, stdout, stderr = ssh_connection.run(f"cat {FILLMEM_OUTPUT_PATH}")
+            # fillmem writes a trailing NUL byte.
+            status = stdout.replace("\x00", "").strip()
+            assert (
+                status
+            ), f"fillmem did not report a result (cat exit {exit_code}: {stderr.strip()})"
+    return status
+
+
 def lower_ssh_oom_chance(ssh_connection):
     """Lure OOM away from ssh process"""
     logger = logging.getLogger("lower_ssh_oom_chance")
@@ -307,19 +331,29 @@ def lower_ssh_oom_chance(ssh_connection):
             logger.error("stderr: %s", stderr)
 
 
-def make_guest_dirty_memory(ssh_connection, amount_mib=32):
+def make_guest_dirty_memory(ssh_connection, amount_mib=32, oom_expected=False):
     """Tell the guest, over ssh, to dirty `amount` pages of memory."""
     lower_ssh_oom_chance(ssh_connection)
 
-    try:
-        _ = ssh_connection.run(f"/usr/local/bin/fillmem {amount_mib}", timeout=1.0)
-    except subprocess.TimeoutExpired:
-        # It's ok if this expires. Sometimes the SSH connection
-        # gets killed by the OOM killer *after* the fillmem program
-        # started. As a result, we can ignore timeouts here.
-        pass
+    # Start fillmem detached so that an OOM kill of the ssh session cannot
+    # abort it. It truncates the status file when done, so remove any
+    # output from a previous run.
+    ssh_connection.check_output(
+        f"rm -f {FILLMEM_OUTPUT_PATH}; "
+        f"nohup /usr/local/bin/fillmem {amount_mib} >/dev/null 2>&1 </dev/null &"
+    )
 
-    time.sleep(5)
+    if oom_expected:
+        # The guest is meant to come under memory pressure and may stop
+        # responding altogether, so there is no status worth waiting for.
+        # Give the guest kernel time to react instead.
+        time.sleep(OOM_SETTLE_S)
+        return
+
+    status = wait_for_fillmem(ssh_connection)
+    assert (
+        status == FILLMEM_SUCCESS
+    ), f"fillmem failed to dirty {amount_mib} MiB: {status}"
 
 
 def _format_output_message(proc, stdout, stderr):
