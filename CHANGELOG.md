@@ -8,6 +8,20 @@ and this project adheres to
 
 ## [1.16.2]
 
+### Added
+
+### Changed
+
+- [#6172](https://github.com/firecracker-microvm/firecracker/pull/6172): Gate
+  CLIRD_EL1 override to only happen on host kernels equal or newer than 6.10
+  release. This aliviates the guest performance regression seen on host kernels
+  in range \[6.3..6.10) correlated to incorrect cpu cache topology presented to
+  the guest.
+
+### Deprecated
+
+### Removed
+
 ### Fixed
 
 - [#6174](https://github.com/firecracker-microvm/firecracker/pull/6174): Fixed
