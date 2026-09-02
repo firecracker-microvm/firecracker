@@ -60,6 +60,11 @@ and this project adheres to
   to 1. This lets guest kernels recognize that the `VERW` instruction clears
   fill buffers, including on host kernels before v6.4 that cannot expose
   `FLUSH_L1D`.
+- [#6172](https://github.com/firecracker-microvm/firecracker/pull/6172): Gate
+  CLIRD_EL1 override to only happen on host kernels equal or newer than 6.10
+  release. This aliviates the guest performance regression seen on host kernels
+  in range \[6.3..6.10) correlated to incorrect cpu cache topology presented to
+  the guest.
 
 ### Deprecated
 
