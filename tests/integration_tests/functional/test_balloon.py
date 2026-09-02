@@ -34,6 +34,27 @@ def wait_for_balloon_actual(vm, target_mib, timeout_s=10):
     return actual_mib
 
 
+def wait_for_changed_available_memory(vm, previous_stats, timeout_s=10):
+    """
+    Poll the balloon stats until the guest reports different available memory.
+
+    The guest refreshes its statistics asynchronously, so a reading taken right
+    after a balloon resize can still describe the state before it.
+    """
+    stats = previous_stats
+    for attempt in Retrying(
+        stop=stop_after_delay(timeout_s),
+        wait=wait_fixed(STATS_POLLING_INTERVAL_S),
+        reraise=True,
+    ):
+        with attempt:
+            stats = vm.api.balloon_stats.get().json()
+            assert (
+                stats["available_memory"] != previous_stats["available_memory"]
+            ), "guest did not report new available memory"
+    return stats
+
+
 def check_guest_dmesg_for_stalls(ssh_connection):
     """Check guest dmesg for RCU stalls and soft lockups."""
     _, stdout, _ = ssh_connection.check_output("dmesg")
@@ -413,24 +434,51 @@ def test_stats_update(uvm):
     # Get an initial reading of the stats.
     initial_stats = test_microvm.api.balloon_stats.get().json()
 
-    # Inflate the balloon to trigger a change in the stats.
-    test_microvm.api.balloon.patch(amount_mib=10)
+    # Inflate the balloon to trigger a change in the stats. Use a target large
+    # enough that a refreshed guest payload cannot report the same amount of
+    # available memory.
+    test_microvm.api.balloon.patch(amount_mib=64)
+    wait_for_balloon_actual(test_microvm, 64)
+    _ = wait_for_changed_available_memory(test_microvm, initial_stats)
 
-    # Wait out the polling interval, then get the updated stats.
-    time.sleep(STATS_POLLING_INTERVAL_S * 2)
-    next_stats = test_microvm.api.balloon_stats.get().json()
-    assert initial_stats["available_memory"] != next_stats["available_memory"]
+    # Inflate the balloon more, then verify that changing the polling interval
+    # makes the device request fresh stats right away. Stay well below the
+    # memory the guest has available, because deflate_on_oom lets it give
+    # pages back and then the target is never reached.
+    test_microvm.api.balloon.patch(amount_mib=96)
+    wait_for_balloon_actual(test_microvm, 96)
 
-    # Inflate the balloon more to trigger a change in the stats.
-    test_microvm.api.balloon.patch(amount_mib=30)
-    time.sleep(1)
+    # The device can only request stats while it holds the stats buffer, which
+    # the driver hands back right after answering a request. Each flush resets
+    # the counter, so zero it first and then wait for the next answer: once one
+    # lands, the buffer is on the device side and the next timer request is
+    # almost a full interval away.
+    test_microvm.flush_metrics()
+    for attempt in Retrying(
+        stop=stop_after_delay(5), wait=wait_fixed(0.1), reraise=True
+    ):
+        with attempt:
+            metrics = test_microvm.flush_metrics()["balloon"]
+            assert metrics["stats_updates_count"] >= 1
+    missing_before = test_microvm.log_data.count("missing descriptor")
 
-    # Change the polling interval.
+    # Move the timer a minute out, so that any update seen in the next few
+    # seconds can only come from the interval change itself.
     test_microvm.api.balloon_stats.patch(stats_polling_interval_s=60)
+    assert test_microvm.api.balloon.get().json()["stats_polling_interval_s"] == 60
 
-    # The polling interval change should update the stats.
-    final_stats = test_microvm.api.balloon_stats.get().json()
-    assert next_stats["available_memory"] != final_stats["available_memory"]
+    for attempt in Retrying(
+        stop=stop_after_delay(5), wait=wait_fixed(0.5), reraise=True
+    ):
+        with attempt:
+            metrics = test_microvm.flush_metrics()["balloon"]
+            assert (
+                metrics["stats_updates_count"] >= 1
+            ), "changing the polling interval did not refresh the stats"
+
+    # If the device had nothing to hand back, the request was skipped and the
+    # update above came from the timer instead.
+    assert test_microvm.log_data.count("missing descriptor") == missing_before
 
     # Ensure that stats don't have unknown balloon stats fields
     assert "balloon: unknown stats update tag:" not in test_microvm.log_data
