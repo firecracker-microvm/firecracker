@@ -483,7 +483,7 @@ fn attach_enclave_devices(
 
     for block in &vm_resources.block.devices {
         let id = block.lock().expect("Poisoned lock").id().to_string();
-        info!("Attaching enclave block device");
+        info!("Attaching enclave block device id={id}");
         device_manager
             .attach_ne_virtio_device(block.clone(), enclave_vm, dmb_size_mib, event_manager)
             .map_err(|source| EnclaveBuilderError::AttachBlock { id, source })?;
@@ -491,7 +491,7 @@ fn attach_enclave_devices(
 
     for net in vm_resources.net_builder.iter() {
         let id = net.lock().expect("Poisoned lock").id().to_string();
-        info!("Attaching enclave net device");
+        info!("Attaching enclave net device id={id}");
         device_manager
             .attach_ne_virtio_device(net.clone(), enclave_vm, dmb_size_mib, event_manager)
             .map_err(|source| EnclaveBuilderError::AttachNet { id, source })?;
