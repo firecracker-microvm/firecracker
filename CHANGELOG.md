@@ -8,8 +8,34 @@ and this project adheres to
 
 ## [1.16.2]
 
+### Added
+
+### Changed
+
+- [#6172](https://github.com/firecracker-microvm/firecracker/pull/6172): Gate
+  CLIRD_EL1 override to only happen on host kernels equal or newer than 6.10
+  release. This aliviates the guest performance regression seen on host kernels
+  in range \[6.3..6.10) correlated to incorrect cpu cache topology presented to
+  the guest.
+- [#6100](https://github.com/firecracker-microvm/firecracker/pull/6100): Bumped
+  the snapshot format version. Snapshots created by this version cannot be
+  loaded by 1.16.0 or 1.16.1, and snapshots created by those versions cannot be
+  loaded by this one.
+
+### Deprecated
+
+### Removed
+
 ### Fixed
 
+- [#6100](https://github.com/firecracker-microvm/firecracker/pull/6100): Fixed
+  the vsock device permanently suppressing RX (host-to-guest) delivery after a
+  bare pause/resume cycle (`PATCH /vm` with `Paused` then `Resumed`, without a
+  snapshot). The resume kick armed the `TRANSPORT_RESET` RX gate even though no
+  reset event had been sent, so the guest could never acknowledge it and every
+  new host-initiated connection made after the resume hung forever. The gate is
+  now part of the persisted device state and the resume kick respects it instead
+  of arming it.
 - [#6174](https://github.com/firecracker-microvm/firecracker/pull/6174): Fixed
   `virtio-mem` leaving unplugged memory writable by the VMM, and potentially
   unmapped, on microVMs restored from a snapshot memory file. Firecracker now
@@ -28,6 +54,13 @@ and this project adheres to
 - [#5956](https://github.com/firecracker-microvm/firecracker/pull/5956): Fixed a
   TOCTOU race in the aarch64 jailer when setting ownership of the CPU cache and
   `MIDR_EL1` information files copied into the chroot.
+- [#6076](https://github.com/firecracker-microvm/firecracker/pull/6076): Fixed
+  memory hotplug sizes silently wrapping when converted from MiB to bytes.
+  `requested_size_mib` on `PATCH /hotplug/memory` and `total_size_mib`,
+  `block_size_mib` and `slot_size_mib` on `PUT /hotplug/memory` are now bounded
+  to 32 bits. Values above that previously wrapped to a smaller byte count, so a
+  large enough request was accepted as a 0-byte region instead of being
+  rejected.
 - [#6031](https://github.com/firecracker-microvm/firecracker/pull/6031),
   [#6041](https://github.com/firecracker-microvm/firecracker/pull/6041),
   [#6077](https://github.com/firecracker-microvm/firecracker/pull/6077): Fixed
@@ -52,6 +85,15 @@ and this project adheres to
   now uses an `RwLock`, and `sigpipe_handler` only increments the
   `signals.sigpipe` metric instead of logging, so it no longer emits a
   `Received signal 13, code 0.` line.
+- [#6120](https://github.com/firecracker-microvm/firecracker/pull/6120): Fixed a
+  bug caused by a KVM behavior change introduced in Linux 6.13, which requires
+  guest CPUID to be set before userspace reads CPUID-dependent MSRs. On x86_64
+  with Linux 6.18 host kernels, Firecracker read the base values of those MSRs
+  before setting guest CPUID, so KVM returned zero for such MSRs and CPU
+  templates consequently used zero for bits configured for passthrough.
+  Firecracker now sets guest CPUID before reading MSRs to be modified by CPU
+  templates, so passthrough bits retain their KVM-provided values and features
+  such as eIBRS remain exposed to the guest.
 
 ## [1.16.1]
 
