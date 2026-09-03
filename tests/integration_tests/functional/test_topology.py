@@ -9,6 +9,7 @@ import pytest
 from packaging import version
 
 import framework.utils_cpuid as utils
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.properties import global_props
 from framework.utils import get_kernel_version
 
@@ -35,7 +36,7 @@ def _check_cpu_topology(
         expected_lscpu_output = {
             "CPU(s)": str(expected_cpu_count),
             "On-line CPU(s) list": expected_cpus_list,
-            "Thread(s) per core": "1",
+            "Thread(s) per core": str(expected_threads_per_core),
             "Core(s) per cluster": str(
                 int(expected_cpu_count / expected_threads_per_core)
             ),
@@ -59,14 +60,16 @@ def _check_cpu_topology(
             "depth 7": f"{expected_cpu_count} PU (type #3)",
         }
     else:
+        threads_per_core = expected_threads_per_core
+        cores = int(expected_cpu_count / threads_per_core)
         expected_hwloc_output = {
             "depth 0": "1 Machine (type #0)",
             "depth 1": "1 Package (type #1)",
             "depth 2": "1 L3Cache (type #6)",
-            "depth 3": f"{expected_cpu_count} L2Cache (type #5)",
-            "depth 4": f"{expected_cpu_count} L1dCache (type #4)",
-            "depth 5": f"{expected_cpu_count} L1iCache (type #9)",
-            "depth 6": f"{expected_cpu_count} Core (type #2)",
+            "depth 3": f"{cores if threads_per_core > 1 else expected_cpu_count} L2Cache (type #5)",
+            "depth 4": f"{cores if threads_per_core > 1 else expected_cpu_count} L1dCache (type #4)",
+            "depth 5": f"{cores if threads_per_core > 1 else expected_cpu_count} L1iCache (type #9)",
+            "depth 6": f"{cores} Core (type #2)",
             "depth 7": f"{expected_cpu_count} PU (type #3)",
         }
 
@@ -192,15 +195,43 @@ def _check_cache_topology_arm(test_microvm, no_cpus, kernel_version_tpl):
         assert guest_slice == host_slice
 
 
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pytest.mark.parametrize("num_vcpus", [2, 4])
+def test_aarch64_smt_threads_per_core(uvm, num_vcpus):
+    """
+    Check the guest-visible SMT topology without asserting cache hierarchy details.
+    """
+    if PLATFORM != "aarch64":
+        pytest.skip("This test verifies aarch64 SMT topology.")
+
+    vm = uvm
+    vm.spawn()
+    vm.basic_config(vcpu_count=num_vcpus, smt=True)
+    vm.add_net_iface()
+    vm.start()
+
+    utils.check_guest_cpuid_output(
+        vm,
+        "lscpu",
+        None,
+        ":",
+        {
+            "CPU(s)": str(num_vcpus),
+            "On-line CPU(s) list": "0,1" if num_vcpus == 2 else "0-3",
+            "Thread(s) per core": "2",
+            "Core(s) per cluster": str(num_vcpus // 2),
+            "Cluster(s)": "1",
+            "NUMA node(s)": "1",
+        },
+    )
+
+
 @pytest.mark.parametrize("num_vcpus", [1, 2, 16])
 @pytest.mark.parametrize("htt", [True, False], ids=["HTT_ON", "HTT_OFF"])
 def test_cpu_topology(uvm, num_vcpus, htt):
     """
     Check the CPU topology for a microvm with the specified config.
     """
-    if htt and PLATFORM == "aarch64":
-        pytest.skip("SMT is configurable only on x86.")
-
     # TODO:Remove (or adapt) this once we unify the way we expose the CPU cache hierarchy on
     # Aarch64 systems.
     if version.parse(get_kernel_version()) >= version.parse("6.14"):
@@ -232,8 +263,6 @@ def test_cache_topology(uvm, num_vcpus, htt):
     """
     Check the cache topology for a microvm with the specified config.
     """
-    if htt and PLATFORM == "aarch64":
-        pytest.skip("SMT is configurable only on x86.")
     vm = uvm
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, smt=htt)

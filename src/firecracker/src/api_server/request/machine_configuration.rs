@@ -261,11 +261,19 @@ mod tests {
         }"#;
         parse_patch_machine_config(&Body::new(body)).unwrap();
 
-        // On aarch64, we allow `smt` to be configured to `false` but not `true`.
+        // Test that `smt` can be configured to `false`.
         let body = r#"{
             "vcpu_count": 8,
             "mem_size_mib": 1024,
             "smt": false
+        }"#;
+        parse_patch_machine_config(&Body::new(body)).unwrap();
+
+        // Test that `smt` can be configured to `true`.
+        let body = r#"{
+            "vcpu_count": 8,
+            "mem_size_mib": 1024,
+            "smt": true
         }"#;
         parse_patch_machine_config(&Body::new(body)).unwrap();
 

@@ -38,6 +38,12 @@ const MSI_PHANDLE: u32 = 3;
 // So, we start the indexing of the phandles used from a really big number and then subtract from
 // it as we need more and more phandle for each cache representation.
 const LAST_CACHE_PHANDLE: u32 = 4000;
+
+// Phandle base for cpu@N nodes.  Placed above LAST_CACHE_PHANDLE so the cpu
+// phandle range never collides with the cache phandles (which count DOWN
+// from LAST_CACHE_PHANDLE).  Used by /cpus/cpu-map/cluster*/core*/cpu
+// references for per-core distinct CPUs visible in the guest.
+const CPU_PHANDLE_BASE: u32 = 4001;
 // Read the documentation specified when appending the root node to the FDT.
 const ADDRESS_CELLS: u32 = 0x2;
 const SIZE_CELLS: u32 = 0x2;
@@ -68,6 +74,7 @@ pub enum FdtError {
 pub fn create_fdt(
     guest_mem: &GuestMemoryMmap,
     vcpu_mpidr: Vec<u64>,
+    smt: bool,
     cmdline: CString,
     device_manager: &DeviceManager,
     gic_device: &GICDevice,
@@ -90,7 +97,7 @@ pub fn create_fdt(
     // This is not mandatory but we use it to point the root node to the node
     // containing description of the interrupt controller for this VM.
     fdt_writer.property_u32("interrupt-parent", GIC_PHANDLE)?;
-    create_cpu_nodes(&mut fdt_writer, &vcpu_mpidr)?;
+    create_cpu_nodes(&mut fdt_writer, &vcpu_mpidr, smt)?;
     create_memory_node(&mut fdt_writer, guest_mem)?;
     create_chosen_node(&mut fdt_writer, cmdline, initrd)?;
     create_gic_node(&mut fdt_writer, gic_device)?;
@@ -113,7 +120,7 @@ pub fn create_fdt(
 }
 
 // Following are the auxiliary function for creating the different nodes that we append to our FDT.
-fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtError> {
+fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64], smt: bool) -> Result<(), FdtError> {
     // Since the L1 caches are not shareable among CPUs and they are direct attributes of the
     // cpu in the device tree, we process the L1 and non-L1 caches separately.
     // We use sysfs for extracting the cache information.
@@ -139,6 +146,12 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtEr
         // Set the field to first 24 bits of the MPIDR - Multiprocessor Affinity Register.
         // See http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0488c/BABHBJCI.html.
         fdt.property_u64("reg", mpidr & 0x7FFFFF)?;
+        // Phandle so the /cpus/cpu-map nodes (emitted after this loop) can
+        // reference this cpu via `cpu = <&cpuN>`.  Without an explicit
+        // phandle, the cpu-map references would not resolve and the Linux
+        // FDT topology parser would skip the cpu-map entirely.
+        let cpu_phandle = CPU_PHANDLE_BASE + u32::try_from(cpu_index).unwrap();
+        fdt.property_u32("phandle", cpu_phandle)?;
 
         for cache in l1_caches.iter() {
             // Please check out
@@ -215,6 +228,34 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtEr
 
         fdt.end_node(cpu)?;
     }
+    // Emit /cpus/cpu-map so the guest has an explicit cluster/core topology.
+    // Minimal viable shape: single cluster containing N cores. Mirrors
+    // crosvm/aarch64/src/fdt.rs::create_cpu_nodes. A real multi-cluster layout
+    // (matching host SoC topology) can be a follow-up once a config knob exists.
+    //
+    // Binding: Linux Documentation/devicetree/bindings/cpu/cpu-topology.txt
+    let threads_per_core = if smt && num_cpus > 1 { 2 } else { 1 };
+    let num_cores = num_cpus / threads_per_core;
+
+    let cpu_map = fdt.begin_node("cpu-map")?;
+    let cluster0 = fdt.begin_node("cluster0")?;
+    for core_index in 0..num_cores {
+        let core = fdt.begin_node(&format!("core{core_index}"))?;
+        if threads_per_core > 1 {
+            for thread_index in 0..threads_per_core {
+                let cpu_index = core_index * threads_per_core + thread_index;
+                let thread = fdt.begin_node(&format!("thread{thread_index}"))?;
+                fdt.property_u32("cpu", CPU_PHANDLE_BASE + u32::try_from(cpu_index).unwrap())?;
+                fdt.end_node(thread)?;
+            }
+        } else {
+            let cpu_phandle = CPU_PHANDLE_BASE + u32::try_from(core_index).unwrap();
+            fdt.property_u32("cpu", cpu_phandle)?;
+        }
+        fdt.end_node(core)?;
+    }
+    fdt.end_node(cluster0)?;
+    fdt.end_node(cpu_map)?;
     fdt.end_node(cpus)?;
 
     Ok(())
@@ -568,6 +609,61 @@ mod tests {
     use crate::{EventManager, Kvm};
 
     #[test]
+    fn test_create_cpu_nodes_without_smt() {
+        // MPIDR values as KVM defaults them: Aff0 holds the vcpu index.
+        let mpidrs = [0x8000_0000, 0x8000_0001];
+        let mut fdt = FdtWriter::new().unwrap();
+        let root = fdt.begin_node("").unwrap();
+        create_cpu_nodes(&mut fdt, &mpidrs, false).unwrap();
+        fdt.end_node(root).unwrap();
+
+        let generated_fdt = device_tree::DeviceTree::load(&fdt.finish().unwrap()).unwrap();
+
+        for cpu_index in 0..mpidrs.len() {
+            let phandle = CPU_PHANDLE_BASE + u32::try_from(cpu_index).unwrap();
+            let cpu = generated_fdt
+                .find(&format!("/cpus/cpu@{cpu_index:x}"))
+                .unwrap();
+            assert_eq!(cpu.prop_u32("phandle").unwrap(), phandle);
+
+            // Each core references its cpu directly, with no thread nodes in between.
+            let core = generated_fdt
+                .find(&format!("/cpus/cpu-map/cluster0/core{cpu_index}"))
+                .unwrap();
+            assert_eq!(core.prop_u32("cpu").unwrap(), phandle);
+        }
+    }
+
+    #[test]
+    fn test_create_cpu_nodes_with_smt() {
+        let mpidrs = [0x8000_0000, 0x8000_0001, 0x8000_0002, 0x8000_0003];
+        let mut fdt = FdtWriter::new().unwrap();
+        let root = fdt.begin_node("").unwrap();
+        create_cpu_nodes(&mut fdt, &mpidrs, true).unwrap();
+        fdt.end_node(root).unwrap();
+
+        let generated_fdt = device_tree::DeviceTree::load(&fdt.finish().unwrap()).unwrap();
+
+        // Consecutive vCPUs are the two thread siblings of a core.
+        for cpu_index in 0..mpidrs.len() {
+            let phandle = CPU_PHANDLE_BASE + u32::try_from(cpu_index).unwrap();
+            let cpu = generated_fdt
+                .find(&format!("/cpus/cpu@{cpu_index:x}"))
+                .unwrap();
+            assert_eq!(cpu.prop_u32("phandle").unwrap(), phandle);
+
+            let thread = generated_fdt
+                .find(&format!(
+                    "/cpus/cpu-map/cluster0/core{}/thread{}",
+                    cpu_index / 2,
+                    cpu_index % 2
+                ))
+                .unwrap();
+            assert_eq!(thread.prop_u32("cpu").unwrap(), phandle);
+        }
+    }
+
+    #[test]
     fn test_create_fdt() {
         let mem = arch_mem(FDT_MAX_SIZE + 0x1000);
         let mut event_manager = EventManager::new().unwrap();
@@ -601,6 +697,7 @@ mod tests {
         let dtb_bytes = create_fdt(
             &mem,
             vec![0],
+            false,
             CString::new("console=tty0").unwrap(),
             &device_manager,
             &gic,
