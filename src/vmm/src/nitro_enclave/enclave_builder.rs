@@ -40,8 +40,13 @@ pub enum EnclaveBuilderError {
     MemSizeNotAligned(usize),
     /// Failed to open /dev/nitro_enclaves: {0}
     OpenDevice(std::io::Error),
-    /// Failed to read EIF image: {0}
-    ReadEif(std::io::Error),
+    /// Failed to read EIF image {path}: {source}
+    ReadEif {
+        /// Path the EIF was read from.
+        path: String,
+        /// Underlying I/O error.
+        source: std::io::Error,
+    },
     /// Invalid kernel command line: {0}
     InvalidKernelCommandLine(String),
     /// Failed to build EIF from kernel+initrd: {0}
@@ -66,12 +71,14 @@ pub enum EnclaveBuilderError {
         /// Maximum vCPUs supported by a Nitro Enclave VM.
         max: u16,
     },
-    /// Hypervisor does not support required matched flags: requested={requested:#06x}, supported={supported:#06x}
+    /// Hypervisor does not support required matched flags: requested={requested:#06x}, supported={supported:#06x}, missing={missing:#06x}
     UnsupportedFlags {
         /// Matched flags requested by the enclave config.
         requested: u64,
         /// Matched flags supported by the hypervisor.
         supported: u32,
+        /// Requested flags that are not supported.
+        missing: u64,
     },
     /// Failed to query hypervisor-supported flags: {0}
     GetSupportedFlags(std::io::Error),
@@ -232,7 +239,10 @@ pub fn build_and_boot_enclave(
     // TODO(enclave): write EIF directly into CMA memory instead of buffering in a Vec
     let eif_data = if eif::is_eif(&boot_config.kernel_file) {
         info!("Loading pre-built EIF from {kernel_path}");
-        std::fs::read(kernel_path).map_err(EnclaveBuilderError::ReadEif)?
+        std::fs::read(kernel_path).map_err(|source| EnclaveBuilderError::ReadEif {
+            path: kernel_path.clone(),
+            source,
+        })?
     } else {
         let boot_args = resolve_enclave_cmdline(boot_config, enclave_config, vm_resources)?;
         let default_mem = mib_to_bytes(vm_resources.machine_config.mem_size_mib) as u64;
@@ -261,6 +271,7 @@ pub fn build_and_boot_enclave(
         return Err(EnclaveBuilderError::UnsupportedFlags {
             requested: required_matched,
             supported: supported_flags,
+            missing,
         });
     }
     info!(
