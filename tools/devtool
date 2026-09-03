@@ -912,11 +912,25 @@ cmd_setup_kvm() {
 # On Nitro Enclaves hosts, bump the number of PCIe slots the NE driver exposes
 # so enclave tests can attach their devices. No-op when the sysfs knob is
 # absent (i.e. not an NE host / older driver).
+#
+# pcie_slots is an aggregate target and the donations backing it are spread
+# round-robin across the parent's memory nodes, but slots are accounted per
+# host NUMA node and our enclaves all land on one. A flat target therefore
+# leaves that node only a fraction of it, so scale with the node count to
+# keep its share at what a single-node host gets.
 setup_nitro_enclaves() {
     local pcie_slots=/sys/devices/virtual/misc/nitro_enclaves/pcie_slots
     if [[ -e $pcie_slots ]]; then
-        say "Setting NE pcie_slots to 68"
-        echo 68 | sudo tee $pcie_slots &> /dev/null
+        # Only nodes with memory: that is what the driver round-robins over.
+        local nodes
+        nodes=$(ls -d /sys/devices/system/node/node[0-9]* 2>/dev/null |
+            while read -r n; do
+                [[ -s $n/meminfo ]] && echo "$n"
+            done | wc -l)
+        [[ $nodes -ge 1 ]] || nodes=1
+        local target=$((4 + 64 * nodes))
+        say "Setting NE pcie_slots to $target ($nodes memory node(s))"
+        echo "$target" | sudo tee $pcie_slots &> /dev/null
     fi
 }
 
