@@ -105,6 +105,7 @@ Contributors to the Firecracker repository:
 - Diana Popa <dpopa@amazon.com>
 - Dmitrii <dmitrii.ustiugov@epfl.ch>
 - DontPanicO <dontpanic.call0@gmail.com>
+- Dov Alperin <git@dov.dev>
 - Echo-Head-Wall <101990236+Echo-Head-Wall@users.noreply.github.com>
 - Eddie Cazares <Ecazares15@utexas.edu>
 - Eduard Kyvenko <eduard.kyvenko@gmail.com>
