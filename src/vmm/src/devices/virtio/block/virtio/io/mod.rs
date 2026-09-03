@@ -75,7 +75,6 @@ impl FileEngine {
         Ok(())
     }
 
-    #[cfg(test)]
     pub fn file(&self) -> &File {
         match self {
             FileEngine::Async(engine) => engine.file(),
@@ -149,6 +148,29 @@ impl FileEngine {
             },
             FileEngine::Sync(engine) => match engine.flush() {
                 Ok(_) => Ok(FileEngineOk::Executed(RequestOk { req, count: 0 })),
+                Err(err) => Err(RequestError {
+                    req,
+                    error: BlockIoError::Sync(err),
+                }),
+            },
+        }
+    }
+
+    pub fn discard(
+        &mut self,
+        range: (u64, u32),
+        req: PendingRequest,
+    ) -> Result<FileEngineOk, RequestError<BlockIoError>> {
+        match self {
+            FileEngine::Async(engine) => match engine.discard(range) {
+                Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
+                Err(err) => Err(RequestError {
+                    req,
+                    error: BlockIoError::Async(err),
+                }),
+            },
+            FileEngine::Sync(engine) => match engine.discard(range) {
+                Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
                 Err(err) => Err(RequestError {
                     req,
                     error: BlockIoError::Sync(err),

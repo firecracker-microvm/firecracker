@@ -325,6 +325,46 @@ def test_no_flush(uvm, io_engine):
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_discard(uvm):
+    """
+    Verify discard is advertised and punches holes in a file-backed drive.
+    """
+    test_microvm = uvm
+    test_microvm.spawn()
+
+    test_microvm.basic_config(vcpu_count=1)
+    test_microvm.add_net_iface()
+
+    fs = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.fsfiles, "discard"), size=64
+    )
+    test_microvm.add_drive("discard", fs.path, discard=True, io_engine="Sync")
+
+    test_microvm.start()
+
+    _, stdout, stderr = test_microvm.ssh.run(
+        "cat /sys/block/vdb/queue/discard_granularity"
+    )
+    assert stderr == ""
+    assert int(stdout.strip()) > 0
+
+    _, _, stderr = test_microvm.ssh.run(
+        "dd if=/dev/zero of=/dev/vdb bs=1M count=32 oflag=direct conv=fsync status=none",
+        timeout=30.0,
+    )
+    assert stderr == ""
+
+    blocks_before = os.stat(fs.path).st_blocks
+    assert blocks_before > 0
+
+    _, _, stderr = test_microvm.ssh.run("blkdiscard -f /dev/vdb", timeout=30.0)
+    assert stderr in ("", "blkdiscard: Operation forced, data will be lost!\n")
+
+    blocks_after = os.stat(fs.path).st_blocks
+    assert blocks_after < blocks_before
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pin_rootfs_mode("rw")
 def test_flush(uvm, io_engine):
     """
@@ -421,3 +461,104 @@ def test_device_reset(uvm, io_engine):
     vm.ssh.check_output(f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_blk/bind")
     vm.ssh.check_output("ls /dev/vdb")
     vm.ssh.check_output("mount /dev/vdb /tmp && umount /tmp")
+
+
+def _read_queue_attr(ssh, dev_name, attr):
+    _, stdout, stderr = ssh.run(f"cat /sys/block/{dev_name}/queue/{attr}")
+    assert stderr == ""
+    return int(stdout.strip())
+
+
+def test_blk_size(uvm, io_engine):
+    """
+    When blk_size is set, the guest must use this value as the logical
+    block size for the drive.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+
+    blk_size1 = 2048
+    fs1 = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch1"), size=8)
+    vm.add_drive("scratch1", fs1.path, io_engine=io_engine, blk_size=blk_size1)
+
+    blk_size2 = 4096
+    fs2 = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch2"), size=8)
+    vm.add_drive("scratch2", fs2.path, io_engine=io_engine, blk_size=blk_size2)
+
+    vm.start()
+
+    assert _read_queue_attr(vm.ssh, "vdb", "logical_block_size") == blk_size1
+    assert _read_queue_attr(vm.ssh, "vdc", "logical_block_size") == blk_size2
+
+
+LOGICAL_BLOCK_SIZE = 512
+
+
+def test_topology_defaults(uvm, io_engine):
+    """
+    If topology is not set by the user and the backing file is not a host
+    block device, Firecracker exposes a fixed set of defaults:
+      physical_block_exp = 0  -> physical_block_size = 512
+      min_io_size        = 0  -> guest clamps minimum_io_size up to
+                                 physical_block_size (512)
+      opt_io_size        = 128 -> optimal_io_size    = 512 * 128       = 65536
+
+    This test ensures same behaviour on all guest kernels.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+
+    fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch"), size=8)
+    vm.add_drive("scratch", fs.path, io_engine=io_engine)
+    vm.start()
+
+    assert _read_queue_attr(vm.ssh, "vdb", "logical_block_size") == LOGICAL_BLOCK_SIZE
+    assert _read_queue_attr(vm.ssh, "vdb", "physical_block_size") == LOGICAL_BLOCK_SIZE
+    assert _read_queue_attr(vm.ssh, "vdb", "minimum_io_size") == LOGICAL_BLOCK_SIZE
+    assert (
+        _read_queue_attr(vm.ssh, "vdb", "optimal_io_size") == LOGICAL_BLOCK_SIZE * 128
+    )
+
+
+def test_topology_advertised(uvm, io_engine):
+    """
+    When topology is set, the guest must set the corresponding options for the queue.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+
+    topology = {
+        "physical_block_exp": 4,
+        "alignment_offset": 0,
+        "min_io_size": 64,
+        "opt_io_size": 256,
+    }
+    expected = {
+        "physical_block_size": LOGICAL_BLOCK_SIZE * (1 << 4),
+        "minimum_io_size": LOGICAL_BLOCK_SIZE * 64,
+        "optimal_io_size": LOGICAL_BLOCK_SIZE * 256,
+    }
+
+    fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch"), size=8)
+    vm.add_drive("scratch", fs.path, io_engine=io_engine, topology=topology)
+    vm.start()
+
+    assert _read_queue_attr(vm.ssh, "vdb", "logical_block_size") == LOGICAL_BLOCK_SIZE
+    assert (
+        _read_queue_attr(vm.ssh, "vdb", "physical_block_size")
+        == expected["physical_block_size"]
+    )
+    assert (
+        _read_queue_attr(vm.ssh, "vdb", "minimum_io_size")
+        == expected["minimum_io_size"]
+    )
+    assert (
+        _read_queue_attr(vm.ssh, "vdb", "optimal_io_size")
+        == expected["optimal_io_size"]
+    )

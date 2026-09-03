@@ -43,6 +43,19 @@
                 "syscall": "fsync"
             },
             {
+                "syscall": "fallocate",
+                "comment": "Used by the VirtIO block device to punch holes for discard on regular backing files",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 3,
+                        "comment": "FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE"
+                    }
+                ]
+            },
+            {
                 "syscall": "close"
             },
             {
@@ -234,14 +247,14 @@
             },
             {
                 "syscall": "mmap",
-                "comment": "Used by the VirtIO balloon device",
+                "comment": "Used by discard_range for the VirtIO balloon and memory (virtio-mem) devices",
                 "args": [
                     {
                         "index": 3,
                         "type": "dword",
                         "op": "eq",
-                        "val": 50,
-                        "comment": "libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE"
+                        "val": 16434,
+                        "comment": "libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE | libc::MAP_NORESERVE"
                     },
                     {
                         "index": 2,
@@ -573,6 +586,19 @@
             },
             {
                 "syscall": "ioctl",
+                "comment": "Used by the VirtIO block device to pass discard through to block-device backing files",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4727,
+                        "comment": "BLKDISCARD"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
                 "args": [
                     {
                         "index": 1,
@@ -693,6 +719,58 @@
                         "op": "eq",
                         "val": 1074025688,
                         "comment": "TUNSETVNETHDRSZ"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed for querying the logical sector size when opening a virtio-block backing file",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4712,
+                        "comment": "BLKSSZGET"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed for querying the physical block size of a block-device backing file during virtio-block init",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4731,
+                        "comment": "BLKPBSZGET"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed for querying the minimum I/O size of a block-device backing file during virtio-block init",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4728,
+                        "comment": "BLKIOMIN"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed for querying the optimal I/O size of a block-device backing file during virtio-block init",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4729,
+                        "comment": "BLKIOOPT"
                     }
                 ]
             },
@@ -1246,6 +1324,19 @@
                         "op": "eq",
                         "val": 6,
                         "comment": "SIGABRT"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed to relocate notify ioeventfds when the guest reprograms a BAR",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1077980793,
+                        "comment": "KVM_IOEVENTFD"
                     }
                 ]
             },

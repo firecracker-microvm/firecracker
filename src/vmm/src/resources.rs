@@ -620,9 +620,12 @@ mod tests {
                 cache_type: CacheType::Unsafe,
 
                 is_read_only: Some(false),
+                discard: None,
                 path_on_host: Some(tmp_file.as_path().to_str().unwrap().to_string()),
                 rate_limiter: Some(RateLimiterConfig::default()),
                 file_engine_type: None,
+                blk_size: None,
+                topology: None,
 
                 socket: None,
             },
@@ -1237,7 +1240,15 @@ mod tests {
                             "path_on_host": "{}",
                             "is_root_device": true,
                             "is_read_only": false,
-                            "io_engine": "Sync"
+                            "discard": false,
+                            "io_engine": "Sync",
+                            "blk_size": 512,
+                            "topology": {{
+                                "physical_block_exp": 0,
+                                "alignment_offset": 0,
+                                "min_io_size": 0,
+                                "opt_io_size": 128
+                            }}
                         }}
                     ],
                     "network-interfaces": [
@@ -1312,7 +1323,15 @@ mod tests {
                             "path_on_host": "{}",
                             "is_root_device": true,
                             "is_read_only": false,
-                            "io_engine": "Sync"
+                            "discard": false,
+                            "io_engine": "Sync",
+                            "blk_size": 512,
+                            "topology": {{
+                                "physical_block_exp": 0,
+                                "alignment_offset": 0,
+                                "min_io_size": 0,
+                                "opt_io_size": 128
+                            }}
                         }}
                     ],
                     "network-interfaces": [
@@ -1372,7 +1391,15 @@ mod tests {
                             "path_on_host": "{}",
                             "is_root_device": true,
                             "is_read_only": false,
-                            "io_engine": "Sync"
+                            "discard": false,
+                            "io_engine": "Sync",
+                            "blk_size": 512,
+                            "topology": {{
+                                "physical_block_exp": 0,
+                                "alignment_offset": 0,
+                                "min_io_size": 0,
+                                "opt_io_size": 128
+                            }}
                         }}
                     ],
                     "network-interfaces": [

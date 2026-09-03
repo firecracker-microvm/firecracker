@@ -494,60 +494,103 @@ impl VirtioMem {
         &self.activate_event
     }
 
-    fn update_kvm_slots(&self, updated_range: &RequestedRange) -> Result<(), VirtioMemError> {
+    /// Applies the request to a single KVM slot: updates KVM first and, only if that succeeds,
+    /// commits the block state for the blocks the request touches and (when unplugging) discards
+    /// them. Committing after the KVM update keeps the block state consistent with KVM on a partial
+    /// failure, and a block is never discarded before it is committed as unplugged.
+    ///
+    /// Returns `true` if the slot's discard failed. That is not fatal and is not reported to the
+    /// driver; the caller aggregates it into a single metric per request.
+    fn apply_range_to_slot(
+        &mut self,
+        slot_num: u32,
+        slot_first_block: usize,
+        slot_nb_blocks: usize,
+        req_blocks: &Range<usize>,
+        plug: bool,
+    ) -> Result<bool, VirtioMemError> {
+        let slot_blocks = slot_first_block..(slot_first_block + slot_nb_blocks);
+        let touched = slot_blocks.start.max(req_blocks.start)..slot_blocks.end.min(req_blocks.end);
+        // The slot stays plugged into KVM if any of its blocks is plugged once the request applies.
+        let keep_plugged = slot_blocks.clone().any(|b| {
+            if touched.contains(&b) {
+                plug
+            } else {
+                self.plugged_blocks[b]
+            }
+        });
+
         let hp_region = self
             .guest_memory()
             .iter()
             .find(|r| r.region_type == GuestRegionType::Hotpluggable)
             .expect("there should be one and only one hotpluggable region");
         hp_region
-            .slots_intersecting_range(
-                updated_range.addr,
-                self.nb_blocks_to_len(updated_range.nb_blocks),
-            )
-            .try_for_each(|(slot, _)| {
-                let slot_range = RequestedRange {
-                    addr: slot.guest_addr,
-                    nb_blocks: slot.slice.len() / u64_to_usize(self.config.block_size),
-                };
-                match self.range_state(&slot_range) {
-                    BlockRangeState::Mixed | BlockRangeState::Plugged => {
-                        hp_region.update_slot(&self.vm, &slot, true)
-                    }
-                    BlockRangeState::Unplugged => hp_region.update_slot(&self.vm, &slot, false),
-                }
-                .map_err(VirtioMemError::UpdateKvmSlot)
-            })
+            .update_slot(&self.vm, &hp_region.mem_slot(slot_num), keep_plugged)
+            .map_err(VirtioMemError::UpdateKvmSlot)?;
+
+        let plugged_before = self.plugged_blocks[touched.clone()].count_ones();
+        self.plugged_blocks[touched.clone()].fill(plug);
+        let plugged_after = self.plugged_blocks[touched.clone()].count_ones();
+        self.config.plugged_size -= usize_to_u64(self.nb_blocks_to_len(plugged_before));
+        self.config.plugged_size += usize_to_u64(self.nb_blocks_to_len(plugged_after));
+
+        if !plug {
+            let addr =
+                GuestAddress(self.config.addr + touched.start as u64 * self.config.block_size);
+            if let Err(err) = self
+                .guest_memory()
+                .discard_range(addr, self.nb_blocks_to_len(touched.len()))
+            {
+                error!("virtio-mem: Failed to discard memory range: {}", err);
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
-    /// Plugs/unplugs the given range
+    /// Plugs/unplugs the given range, one KVM slot at a time.
     ///
     /// Note: the range passed to this function must be within the device memory to avoid
     /// out-of-bound panics.
     fn update_range(&mut self, range: &RequestedRange, plug: bool) -> Result<(), VirtioMemError> {
-        // Update internal state
-        let block_range = self.unchecked_block_range(range);
-        let plugged_blocks_slice = &mut self.plugged_blocks[block_range];
-        let plugged_before = plugged_blocks_slice.count_ones();
-        plugged_blocks_slice.fill(plug);
-        let plugged_after = plugged_blocks_slice.count_ones();
-        self.config.plugged_size -= usize_to_u64(self.nb_blocks_to_len(plugged_before));
-        self.config.plugged_size += usize_to_u64(self.nb_blocks_to_len(plugged_after));
+        let block_size = self.config.block_size;
+        let req_blocks = self.unchecked_block_range(range);
 
-        // Update kvm slots before doing any discards to prevent guest from re-faulting just
-        // discarded memory.
-        self.update_kvm_slots(range)?;
+        // Nothing is plugged in this range, so there is nothing to discard. UNPLUG_ALL covers the
+        // whole region, so this skip avoids repeatedly re-discarding an already-unplugged region.
+        if !plug && self.plugged_blocks[req_blocks.clone()].count_ones() == 0 {
+            return Ok(());
+        }
 
-        // If unplugging, discard the range
-        if !plug
-            && let Err(err) = self
+        // Snapshot the intersecting slots so the loop can borrow `self` mutably to commit state.
+        let slots: Vec<(u32, usize, usize)> = {
+            let hp_region = self
                 .guest_memory()
-                .discard_range(range.addr, self.nb_blocks_to_len(range.nb_blocks))
-        {
-            // Failure to discard is not fatal and is not reported to the driver. It only
-            // gets logged.
+                .iter()
+                .find(|r| r.region_type == GuestRegionType::Hotpluggable)
+                .expect("there should be one and only one hotpluggable region");
+            hp_region
+                .slots_intersecting_range(range.addr, self.nb_blocks_to_len(range.nb_blocks))
+                .map(|(slot, _)| {
+                    let first_block =
+                        u64_to_usize((slot.guest_addr.0 - self.config.addr) / block_size);
+                    (
+                        slot.slot,
+                        first_block,
+                        slot.slice.len() / u64_to_usize(block_size),
+                    )
+                })
+                .collect()
+        };
+
+        let mut discard_failed = false;
+        for (slot_num, first_block, block_count) in slots {
+            discard_failed |=
+                self.apply_range_to_slot(slot_num, first_block, block_count, &req_blocks, plug)?;
+        }
+        if discard_failed {
             METRICS.unplug_discard_fails.inc();
-            error!("virtio-mem: Failed to discard memory range: {}", err);
         }
         Ok(())
     }
@@ -1193,6 +1236,60 @@ mod tests {
         assert_eq!(th.device().plugged_size_mib(), 0);
 
         assert_eq!(METRICS.unplug_all_count.count(), unplug_all_count + 1);
+        assert_eq!(METRICS.unplug_all_fails.count(), unplug_all_fails);
+    }
+
+    /// A plug spanning two slots where the second slot's KVM update fails must leave only the first
+    /// slot's block committed, not the whole request.
+    #[test]
+    fn test_plug_partial_kvm_failure_keeps_state_consistent() {
+        let mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+        th.device().update_requested_size(1024).unwrap();
+        let block_size = th.device().config.block_size;
+        // Last block of slot 0 and first block of slot 1.
+        let addr = th.device().guest_address().unchecked_add(63 * block_size);
+
+        th.device().vm.fail_next_set_user_memory_region(2);
+
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::Plug(RequestedRange { addr, nb_blocks: 2 }),
+        );
+        assert!(resp.is_error());
+
+        assert_eq!(th.device().plugged_size_mib(), 2);
+        let block_range = th
+            .device()
+            .unchecked_block_range(&RequestedRange { addr, nb_blocks: 2 });
+        assert!(th.device().plugged_blocks[block_range.start]);
+        assert!(!th.device().plugged_blocks[block_range.start + 1]);
+    }
+
+    #[test]
+    fn test_repeated_unplug_all_is_noop() {
+        let mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+        th.device().update_requested_size(1024).unwrap();
+        let addr = th.device().guest_address();
+
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::Plug(RequestedRange { addr, nb_blocks: 2 }),
+        );
+        assert!(resp.is_ack());
+        let resp = emulate_request(&mut th, &guest_mem, Request::UnplugAll);
+        assert!(resp.is_ack());
+        assert_eq!(th.device().plugged_size_mib(), 0);
+
+        let unplug_all_fails = METRICS.unplug_all_fails.count();
+        let resp = emulate_request(&mut th, &guest_mem, Request::UnplugAll);
+        assert!(resp.is_ack());
+        assert_eq!(th.device().plugged_size_mib(), 0);
         assert_eq!(METRICS.unplug_all_fails.count(), unplug_all_fails);
     }
 

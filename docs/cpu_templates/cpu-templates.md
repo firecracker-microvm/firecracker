@@ -50,7 +50,11 @@ Firecracker supports two types of CPU templates:
 > CPU templates for ARM (both static and custom) require the following patch to
 > be available in the host kernel:
 > [Support writable CPU ID registers from userspace](https://lore.kernel.org/kvm/20230212215830.2975485-1-jingzhangos@google.com/#t).
-> Otherwise KVM will fail to write to the ARM registers.
+> Otherwise KVM will fail to write to the ARM registers. Additionally, modifying
+> the implementation ID registers (`MIDR_EL1`, `REVIDR_EL1`, `AIDR_EL1`)
+> requires a host kernel with `KVM_CAP_ARM_WRITABLE_IMP_ID_REGS` (Linux 6.15 or
+> later):
+> [KVM: arm64: writable MIDR/REVIDR](https://lore.kernel.org/lkml/20250210154953.27002-1-sebott@redhat.com/).
 
 ## Static CPU templates
 

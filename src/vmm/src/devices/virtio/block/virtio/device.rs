@@ -10,7 +10,9 @@ use std::convert::From;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
 use std::ops::Deref;
+use std::os::fd::AsRawFd;
 use std::os::linux::fs::MetadataExt;
+use std::os::unix::fs::FileTypeExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -21,13 +23,17 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::io::async_io;
 use super::request::*;
-use super::{BLOCK_QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
+use super::{
+    BLOCK_QUEUE_SIZES, MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError,
+    io as block_io,
+};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::{
-    VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES,
+    VIRTIO_BLK_F_BLK_SIZE, VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO,
+    VIRTIO_BLK_F_TOPOLOGY, VIRTIO_BLK_ID_BYTES,
 };
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
@@ -158,10 +164,132 @@ impl DiskProperties {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
+/// Internal type to store attributes of the block device
+#[derive(Debug)]
+struct BlockDeviceAttributes {
+    logical_block_size: u32,
+    physical_block_size: u32,
+    min_io_size: u32,
+    opt_io_size: u32,
+}
+
+/// Try to obtain attributes of the block device from the file descriptor if possible
+fn query_blk_attrs(file: &File) -> Option<BlockDeviceAttributes> {
+    let Ok(metadata) = file.metadata() else {
+        return None;
+    };
+    let file_type = metadata.file_type();
+    if !file_type.is_block_device() {
+        return None;
+    };
+
+    // Have to use a macro here to pass the libc constants directly to the libc::ioctl since
+    // the types of constants differ between glibc(u64) and musl(i32)
+    macro_rules! block_attr {
+        ($file:expr, $attr:expr) => {{
+            let mut result: u32 = 0;
+            // SAFETY: FFI call with correct arguments
+            if unsafe { libc::ioctl($file.as_raw_fd(), $attr, &mut result) } != 0 {
+                None
+            } else {
+                Some(result)
+            }
+        }};
+    }
+
+    let attrs = BlockDeviceAttributes {
+        logical_block_size: block_attr!(file, libc::BLKSSZGET)?,
+        physical_block_size: block_attr!(file, libc::BLKPBSZGET)?,
+        min_io_size: block_attr!(file, libc::BLKIOMIN)?,
+        opt_io_size: block_attr!(file, libc::BLKIOOPT)?,
+    };
+    Some(attrs)
+}
+
+/// Try to convert block attributes into the topology value for the virtio-block device
+fn calculate_blk_size_and_topology(
+    attrs: BlockDeviceAttributes,
+) -> Option<(u32, VirtioBlkTopology)> {
+    // It is used as a divisor, so check just in case
+    if attrs.logical_block_size == 0 {
+        return None;
+    }
+
+    // This can technically be replaced by `(physical / logical).trailing_zeroes()`, but it assumes
+    // that the devision always results in a power of 2 value. Just in case we do the loop
+    // approach.
+    let mut physical_block_exp: u8 = 0;
+    let mut size = attrs.physical_block_size;
+    while attrs.logical_block_size < size {
+        physical_block_exp += 1;
+        size >>= 1;
+    }
+
+    let min_io_size =
+        u16::try_from(attrs.min_io_size / attrs.logical_block_size).unwrap_or(u16::MAX);
+    let opt_io_size = attrs.opt_io_size / attrs.logical_block_size;
+
+    let topology = VirtioBlkTopology {
+        physical_block_exp,
+        alignment_offset: 0,
+        min_io_size,
+        opt_io_size,
+    };
+    Some((attrs.logical_block_size, topology))
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[repr(C)]
+pub struct VirtioBlkTopology {
+    /// number of logical blocks per physical block (log2)
+    pub physical_block_exp: u8,
+    /// offset of first aligned logical block
+    pub alignment_offset: u8,
+    /// suggested minimum I/O size in blocks
+    pub min_io_size: u16,
+    /// optimal (suggested maximum) I/O size in blocks
+    pub opt_io_size: u32,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[repr(C)]
 pub struct ConfigSpace {
     pub capacity: u64,
+    pub size_max: u32,
+    pub seg_max: u32,
+    pub geometry: u32,
+    pub blk_size: u32,
+    pub topology: VirtioBlkTopology,
+    pub wce: u8,
+    pub unused: u8,
+    pub num_queues: u16,
+    pub max_discard_sectors: u32,
+    pub max_discard_seg: u32,
+    pub discard_sector_alignment: u32,
+}
+
+impl Default for ConfigSpace {
+    fn default() -> Self {
+        Self {
+            capacity: 0,
+            size_max: 0,
+            seg_max: 0,
+            geometry: 0,
+            blk_size: 512,
+            topology: VirtioBlkTopology {
+                physical_block_exp: 0,
+                alignment_offset: 0,
+                min_io_size: 0,
+                opt_io_size: 128,
+            },
+            wce: 0,
+            unused: 0,
+            num_queues: 0,
+            max_discard_sectors: MAX_DISCARD_SECTORS,
+            max_discard_seg: 1,
+            discard_sector_alignment: 1,
+        }
+    }
 }
 
 // SAFETY: `ConfigSpace` contains only PODs in `repr(C)` or `repr(transparent)`, without padding.
@@ -188,6 +316,8 @@ pub struct VirtioBlockConfig {
     /// If set to true, the drive is opened in read-only mode. Otherwise, the
     /// drive is opened as read-write.
     pub is_read_only: bool,
+    /// If set to true, the device advertises discard support to the guest.
+    pub discard: bool,
     /// Path of the backing file on the host
     pub path_on_host: String,
     /// Rate Limiter for I/O operations.
@@ -196,6 +326,10 @@ pub struct VirtioBlockConfig {
     #[serde(default)]
     #[serde(rename = "io_engine")]
     pub file_engine_type: FileEngineType,
+    /// Logical block size.
+    pub blk_size: Option<u32>,
+    /// Block topology settings
+    pub topology: Option<VirtioBlkTopology>,
 }
 
 impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
@@ -210,9 +344,12 @@ impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
                 cache_type: value.cache_type,
 
                 is_read_only: value.is_read_only.unwrap_or(false),
+                discard: value.discard.unwrap_or(false),
                 path_on_host: path_on_host.clone(),
                 rate_limiter: value.rate_limiter,
                 file_engine_type: value.file_engine_type.unwrap_or_default(),
+                blk_size: value.blk_size,
+                topology: value.topology,
             })
         } else {
             Err(VirtioBlockError::Config)
@@ -229,9 +366,12 @@ impl From<VirtioBlockConfig> for BlockDeviceConfig {
             cache_type: value.cache_type,
 
             is_read_only: Some(value.is_read_only),
+            discard: Some(value.discard),
             path_on_host: Some(value.path_on_host),
             rate_limiter: value.rate_limiter,
             file_engine_type: Some(value.file_engine_type),
+            blk_size: value.blk_size,
+            topology: value.topology,
 
             socket: None,
         }
@@ -283,6 +423,14 @@ impl VirtioBlock {
     ///
     /// The given file must be seekable and sizable.
     pub fn new(config: VirtioBlockConfig) -> Result<VirtioBlock, VirtioBlockError> {
+        if config.discard && config.is_read_only {
+            return Err(VirtioBlockError::DiscardReadOnlyUnsupported);
+        }
+
+        if config.discard && config.file_engine_type == FileEngineType::Async {
+            return Err(VirtioBlockError::DiscardAsyncUnsupported);
+        }
+
         let disk_properties = DiskProperties::new(
             config.path_on_host,
             config.is_read_only,
@@ -294,7 +442,10 @@ impl VirtioBlock {
             .map(RateLimiter::from)
             .unwrap_or_default();
 
-        let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
+        let mut avail_features = (1u64 << VIRTIO_F_VERSION_1)
+            | (1u64 << VIRTIO_RING_F_EVENT_IDX)
+            | (1u64 << VIRTIO_BLK_F_BLK_SIZE)
+            | (1u64 << VIRTIO_BLK_F_TOPOLOGY);
 
         if config.cache_type == CacheType::Writeback {
             avail_features |= 1u64 << VIRTIO_BLK_F_FLUSH;
@@ -302,15 +453,37 @@ impl VirtioBlock {
 
         if config.is_read_only {
             avail_features |= 1u64 << VIRTIO_BLK_F_RO;
+        }
+        if config.discard {
+            avail_features |= 1u64 << VIRTIO_BLK_F_DISCARD;
+        }
+
+        let mut config_space = ConfigSpace {
+            capacity: disk_properties.nsectors.to_le(),
+            ..Default::default()
         };
+
+        if config.blk_size.is_none() && config.topology.is_none() {
+            if let Some((blk_size, topology)) = query_blk_attrs(disk_properties.file_engine.file())
+                .and_then(calculate_blk_size_and_topology)
+            {
+                config_space.blk_size = blk_size;
+                config_space.topology = topology;
+                config_space.discard_sector_alignment = blk_size / SECTOR_SIZE;
+            }
+        } else {
+            if let Some(blk_size) = config.blk_size {
+                config_space.blk_size = blk_size;
+                config_space.discard_sector_alignment = blk_size / SECTOR_SIZE;
+            }
+            if let Some(topology) = config.topology {
+                config_space.topology = topology;
+            }
+        }
 
         let queue_evts = [EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?];
 
         let queues = BLOCK_QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
-
-        let config_space = ConfigSpace {
-            capacity: disk_properties.nsectors.to_le(),
-        };
 
         Ok(VirtioBlock {
             avail_features,
@@ -344,9 +517,12 @@ impl VirtioBlock {
             is_root_device: self.root_device,
             partuuid: self.partuuid.clone(),
             is_read_only: self.read_only,
+            discard: self.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD) != 0,
             cache_type: self.cache_type,
             rate_limiter: rl.into_option(),
             file_engine_type: self.file_engine_type(),
+            blk_size: Some(self.config_space.blk_size),
+            topology: Some(self.config_space.topology),
         }
     }
 
@@ -408,6 +584,7 @@ impl VirtioBlock {
                             head.index,
                             &active_state.mem,
                             &self.metrics,
+                            self.acked_features & (1u64 << VIRTIO_BLK_F_DISCARD) != 0,
                         )
                     }
                     Err(err) => {
@@ -704,14 +881,38 @@ mod tests {
     use crate::check_metric_after_block;
     use crate::devices::virtio::block::virtio::IO_URING_NUM_ENTRIES;
     use crate::devices::virtio::block::virtio::test_utils::{
-        default_block, read_blk_req_descriptors, set_queue, set_rate_limiter,
-        simulate_async_completion_event, simulate_queue_and_async_completion_events,
-        simulate_queue_event,
+        RequestDescriptorChain, default_block, read_blk_req_descriptors, set_queue,
+        set_rate_limiter, simulate_async_completion_event,
+        simulate_queue_and_async_completion_events, simulate_queue_event,
     };
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
     use crate::rate_limiter::TokenType;
     use crate::vstate::memory::{Address, Bytes, GuestAddress};
+
+    #[test]
+    fn test_calculate_blk_size_and_topology() {
+        let attrs = BlockDeviceAttributes {
+            logical_block_size: 0,
+            physical_block_size: 0,
+            min_io_size: 0,
+            opt_io_size: 0,
+        };
+        assert!(calculate_blk_size_and_topology(attrs).is_none());
+
+        let attrs = BlockDeviceAttributes {
+            logical_block_size: 512,
+            physical_block_size: 512 * (1 << 3),
+            min_io_size: 64 * 512,
+            opt_io_size: 128 * 512,
+        };
+        let (logical_size, topology) = calculate_blk_size_and_topology(attrs).unwrap();
+        assert_eq!(logical_size, 512);
+        assert_eq!(topology.physical_block_exp, 3);
+        assert_eq!(topology.alignment_offset, 0);
+        assert_eq!(topology.min_io_size, 64);
+        assert_eq!(topology.opt_io_size, 128);
+    }
 
     #[test]
     fn test_from_config() {
@@ -722,9 +923,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(true),
+            discard: None,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Default::default(),
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -737,9 +941,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: None,
+            discard: None,
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: Default::default(),
+            blk_size: None,
+            topology: None,
 
             socket: Some("sock".to_string()),
         };
@@ -752,9 +959,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(true),
+            discard: None,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Default::default(),
+            blk_size: None,
+            topology: None,
 
             socket: Some("sock".to_string()),
         };
@@ -794,7 +1004,10 @@ mod tests {
 
             assert_eq!(block.device_type(), VirtioDeviceType::Block);
 
-            let features: u64 = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
+            let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
+                | (1u64 << VIRTIO_RING_F_EVENT_IDX)
+                | (1u64 << VIRTIO_BLK_F_BLK_SIZE)
+                | (1u64 << VIRTIO_BLK_F_TOPOLOGY);
 
             assert_eq!(
                 block.avail_features_by_page(0),
@@ -814,13 +1027,135 @@ mod tests {
     }
 
     #[test]
+    fn test_discard_feature() {
+        let f = TempFile::new().unwrap();
+        f.as_file().set_len(0x1000).unwrap();
+        let path = f.as_path().to_str().unwrap().to_string();
+        let config = VirtioBlockConfig {
+            drive_id: "discard_feature".to_string(),
+            path_on_host: path.clone(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            discard: true,
+            cache_type: CacheType::Unsafe,
+            rate_limiter: None,
+            file_engine_type: FileEngineType::Sync,
+            blk_size: Some(4096),
+            topology: None,
+        };
+
+        let mut block = VirtioBlock::new(config).unwrap();
+        assert_eq!(
+            block.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD),
+            1u64 << VIRTIO_BLK_F_DISCARD
+        );
+        assert_eq!(block.config_space.discard_sector_alignment, 8);
+
+        let replacement = TempFile::new().unwrap();
+        replacement.as_file().set_len(0x1000).unwrap();
+        block
+            .update_disk_image(replacement.as_path().to_str().unwrap().to_string())
+            .unwrap();
+        assert_eq!(block.config_space.discard_sector_alignment, 8);
+
+        let async_config = VirtioBlockConfig {
+            drive_id: "discard_async_unsupported".to_string(),
+            path_on_host: path,
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            discard: true,
+            cache_type: CacheType::Unsafe,
+            rate_limiter: None,
+            file_engine_type: FileEngineType::Async,
+            blk_size: None,
+            topology: None,
+        };
+        assert!(matches!(
+            VirtioBlock::new(async_config),
+            Err(VirtioBlockError::DiscardAsyncUnsupported)
+        ));
+
+        let f = TempFile::new().unwrap();
+        f.as_file().set_len(0x1000).unwrap();
+        let read_only_config = VirtioBlockConfig {
+            drive_id: "discard_read_only_unsupported".to_string(),
+            path_on_host: f.as_path().to_str().unwrap().to_string(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: true,
+            discard: true,
+            cache_type: CacheType::Unsafe,
+            rate_limiter: None,
+            file_engine_type: FileEngineType::Sync,
+            blk_size: None,
+            topology: None,
+        };
+        assert!(matches!(
+            VirtioBlock::new(read_only_config),
+            Err(VirtioBlockError::DiscardReadOnlyUnsupported)
+        ));
+    }
+
+    #[test]
+    fn test_discard_requires_negotiated_feature() {
+        let f = TempFile::new().unwrap();
+        f.as_file().set_len(0x1000).unwrap();
+        let config = VirtioBlockConfig {
+            drive_id: "discard_negotiation".to_string(),
+            path_on_host: f.as_path().to_str().unwrap().to_string(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            discard: true,
+            cache_type: CacheType::Unsafe,
+            rate_limiter: None,
+            file_engine_type: FileEngineType::Sync,
+            blk_size: None,
+            topology: None,
+        };
+
+        let mut block = VirtioBlock::new(config).unwrap();
+        let mem = default_mem();
+        let interrupt = default_interrupt();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        block.activate(mem.clone(), interrupt).unwrap();
+
+        let chain = RequestDescriptorChain::new(&vq);
+        chain.set_header(RequestHeader::new(VIRTIO_BLK_T_DISCARD, 0));
+        chain.data_desc.flags.set(VIRTQ_DESC_F_NEXT);
+        chain.data_desc.len.set(16);
+
+        let mut discard_range = [0_u8; 16];
+        discard_range[8..12].copy_from_slice(&1_u32.to_le_bytes());
+        mem.write_slice(&discard_range, GuestAddress(chain.data_desc.addr.get()))
+            .unwrap();
+
+        simulate_queue_event(&mut block, Some(true));
+
+        assert_eq!(vq.used.idx.get(), 1);
+        assert_eq!(vq.used.ring[0].get().id, 0);
+        assert_eq!(vq.used.ring[0].get().len, 1);
+        assert_eq!(
+            mem.read_obj::<u32>(GuestAddress(chain.status_desc.addr.get()))
+                .unwrap(),
+            VIRTIO_BLK_S_UNSUPP
+        );
+    }
+
+    #[test]
     fn test_config_as_bytes() {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let block = default_block(engine);
 
             let config = block.config_as_bytes();
             // The block's backing file size is 0x1000, so there are 8 (4096/512) sectors.
-            let expected_config_space = ConfigSpace { capacity: 8 };
+            let expected_config_space = ConfigSpace {
+                capacity: 8,
+                ..Default::default()
+            };
             assert_eq!(config, expected_config_space.as_slice());
         }
     }
@@ -840,6 +1175,7 @@ mod tests {
                 0,
                 ConfigSpace {
                     capacity: 0x1122334455667788,
+                    ..Default::default()
                 }
                 .as_slice(),
             );

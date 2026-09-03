@@ -494,9 +494,12 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
         cache_type: CacheType::Unsafe,
 
         is_read_only: Some(false),
+        discard: None,
         path_on_host: Some(tmp_file),
         rate_limiter: None,
         file_engine_type: None,
+        blk_size: None,
+        topology: None,
 
         socket: None,
     };

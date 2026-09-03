@@ -11,6 +11,7 @@ use super::RateLimiterConfig;
 use crate::VmmError;
 use crate::devices::virtio::block::device::Block;
 pub use crate::devices::virtio::block::virtio::device::FileEngineType;
+use crate::devices::virtio::block::virtio::device::VirtioBlkTopology;
 use crate::devices::virtio::block::{BlockError, CacheType};
 use crate::devices::virtio::device::VirtioDevice;
 
@@ -51,6 +52,8 @@ pub struct BlockDeviceConfig {
     /// If set to true, the drive is opened in read-only mode. Otherwise, the
     /// drive is opened as read-write.
     pub is_read_only: Option<bool>,
+    /// If set to true, the drive advertises discard support to the guest.
+    pub discard: Option<bool>,
     /// Path of the drive.
     pub path_on_host: Option<String>,
     /// Rate Limiter for I/O operations.
@@ -61,6 +64,10 @@ pub struct BlockDeviceConfig {
     // pub file_engine_type: FileEngineType,
     #[serde(rename = "io_engine")]
     pub file_engine_type: Option<FileEngineType>,
+    /// Logical block size.
+    pub blk_size: Option<u32>,
+    /// Block topology settings
+    pub topology: Option<VirtioBlkTopology>,
 
     // VhostUserBlock specific fields
     /// Path to the vhost-user socket.
@@ -208,11 +215,14 @@ mod tests {
                 partuuid: self.partuuid.clone(),
                 is_root_device: self.is_root_device,
                 is_read_only: self.is_read_only,
+                discard: self.discard,
                 cache_type: self.cache_type,
 
                 path_on_host: self.path_on_host.clone(),
                 rate_limiter: self.rate_limiter,
                 file_engine_type: self.file_engine_type,
+                blk_size: self.blk_size,
+                topology: self.topology,
 
                 socket: self.socket.clone(),
             }
@@ -237,9 +247,12 @@ mod tests {
             cache_type: CacheType::Writeback,
 
             is_read_only: Some(false),
+            discard: None,
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -271,9 +284,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(true),
+            discard: None,
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -303,9 +319,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(true),
+            discard: None,
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -332,9 +351,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            discard: None,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -348,9 +370,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            discard: None,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -375,9 +400,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            discard: None,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -391,9 +419,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            discard: None,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -407,9 +438,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            discard: None,
             path_on_host: Some(dummy_path_3),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -448,9 +482,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            discard: None,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -464,9 +501,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            discard: None,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -480,9 +520,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            discard: None,
             path_on_host: Some(dummy_path_3),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -522,9 +565,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            discard: None,
             path_on_host: Some(dummy_path_1.clone()),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -538,9 +584,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            discard: None,
             path_on_host: Some(dummy_path_2.clone()),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -610,9 +659,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            discard: None,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -626,9 +678,12 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(false),
+            discard: None,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -652,9 +707,17 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(true),
+            discard: Some(false),
             path_on_host: Some(dummy_file.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
+            blk_size: Some(512),
+            topology: Some(VirtioBlkTopology {
+                physical_block_exp: 0,
+                alignment_offset: 0,
+                min_io_size: 0,
+                opt_io_size: 128,
+            }),
 
             socket: None,
         };
@@ -682,9 +745,12 @@ mod tests {
             cache_type: CacheType::default(),
 
             is_read_only: Some(true),
+            discard: None,
             path_on_host: Some(backing_file.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
 
             socket: None,
         };

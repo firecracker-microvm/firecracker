@@ -107,6 +107,39 @@ pub fn open_file_nonblock(path: &Path) -> Result<File, std::io::Error> {
         .open(path)
 }
 
+/// Simple compact version type encoded as `major << 24 | minor << 16 | patch`
+/// Encoding as `u32` allows for trivial comparison.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Version(pub u32);
+
+impl Version {
+    /// Create new version
+    pub const fn new(major: u8, minor: u8, patch: u16) -> Self {
+        Self(((major as u32) << 24) | ((minor as u32) << 16) | (patch as u32))
+    }
+
+    /// Get the `major` part.
+    pub const fn major(self) -> u8 {
+        ((self.0 >> 24) & 0xff) as u8
+    }
+
+    /// Get the `minor` part.
+    pub const fn minor(self) -> u8 {
+        ((self.0 >> 16) & 0xff) as u8
+    }
+
+    /// Get the `patch` part.
+    pub const fn patch(self) -> u16 {
+        (self.0 & 0xffff) as u16
+    }
+}
+
+impl std::fmt::Display for Version {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}.{}.{}", self.major(), self.minor(), self.patch())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,5 +277,18 @@ mod tests {
                 assert_eq!(align_up!(addr, align), align * 2);
             }
         }
+    }
+
+    #[test]
+    fn test_version() {
+        let v = Version::new(42, 69, 1234);
+        assert_eq!(v.major(), 42);
+        assert_eq!(v.minor(), 69);
+        assert_eq!(v.patch(), 1234);
+        assert_eq!(v.to_string(), "42.69.1234");
+
+        assert!(Version::new(0, 2, 3) < Version::new(1, 2, 3));
+        assert!(Version::new(1, 0, 3) < Version::new(1, 2, 3));
+        assert!(Version::new(1, 2, 0) < Version::new(1, 2, 3));
     }
 }

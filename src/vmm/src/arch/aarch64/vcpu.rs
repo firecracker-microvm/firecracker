@@ -578,6 +578,36 @@ mod tests {
     }
 
     #[test]
+    fn test_writable_imp_id_regs() {
+        // MIDR_EL1: op0=3, op1=0, CRn=0, CRm=0, op2=0.
+        const MIDR_EL1: u64 = 0x6030_0000_0013_c000;
+        // An arbitrary valid MIDR value (implementer Arm, part Neoverse N1).
+        const FAKE_MIDR: u64 = 0x410f_d0c0;
+
+        // `KvmVm::new` enables KVM_CAP_ARM_WRITABLE_IMP_ID_REGS when the host
+        // kernel offers it, before any vCPU is created.
+        let vm = setup_vm_with_memory(0x1000);
+        if vm
+            .fd()
+            .check_extension_raw(u64::from(kvm_bindings::KVM_CAP_ARM_WRITABLE_IMP_ID_REGS))
+            != 1
+        {
+            // Host kernel predates writable implementation ID registers
+            // (Linux 6.15); there is nothing further to verify.
+            return;
+        }
+        let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
+        vcpu.init(&[]).unwrap();
+
+        let mut val = [0u8; 8];
+        vcpu.fd
+            .set_one_reg(MIDR_EL1, &FAKE_MIDR.to_le_bytes())
+            .unwrap();
+        vcpu.fd.get_one_reg(MIDR_EL1, &mut val).unwrap();
+        assert_eq!(u64::from_le_bytes(val), FAKE_MIDR);
+    }
+
+    #[test]
     fn test_create_vcpu() {
         let vm = setup_vm_with_memory(0x1000);
 

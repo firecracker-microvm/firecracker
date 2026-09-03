@@ -83,6 +83,10 @@ pub struct VmCommon {
     pub vcpus_handles: Mutex<Vec<VcpuHandle>>,
     /// Event fd written to by vCPUs on exit.
     pub vcpus_exit_evt: EventFd,
+    /// Test-only countdown that forces the Nth-next `set_user_memory_region` call to fail, used
+    /// to exercise partial-failure handling. 0 means never fail.
+    #[cfg(test)]
+    fail_set_user_memory_region_in: AtomicU32,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -191,6 +195,8 @@ impl KvmVm {
             uffd: None,
             vcpus_handles: Mutex::new(Vec::new()),
             vcpus_exit_evt,
+            #[cfg(test)]
+            fail_set_user_memory_region_in: AtomicU32::new(0),
         })
     }
 
@@ -421,12 +427,32 @@ impl KvmVm {
         &self,
         region: kvm_userspace_memory_region,
     ) -> Result<(), VmError> {
+        #[cfg(test)]
+        if self.common.fail_set_user_memory_region_in.fetch_update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            |n| (n > 0).then(|| n - 1),
+        ) == Ok(1)
+        {
+            return Err(VmError::SetUserMemoryRegion(kvm_ioctls::Error::new(
+                libc::ENOMEM,
+            )));
+        }
         // SAFETY: Safe because the fd is a valid KVM file descriptor.
         unsafe {
             self.fd()
                 .set_user_memory_region(region)
                 .map_err(VmError::SetUserMemoryRegion)
         }
+    }
+
+    /// Test-only: arm the fault injector so the `n`th subsequent call to
+    /// [`Self::set_user_memory_region`] fails (n == 1 fails the very next call).
+    #[cfg(test)]
+    pub(crate) fn fail_next_set_user_memory_region(&self, n: u32) {
+        self.common
+            .fail_set_user_memory_region_in
+            .store(n, Ordering::Relaxed);
     }
 
     fn register_memory_region(&mut self, region: Arc<GuestRegionMmapExt>) -> Result<(), VmError> {

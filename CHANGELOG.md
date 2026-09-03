@@ -43,6 +43,23 @@ and this project adheres to
   host page cache, so same-host reads still see the full contents. Block device
   backing files are always `fsync`'d regardless. See
   [snapshot documentation](docs/snapshotting/snapshot-support.md).
+- [#6116](https://github.com/firecracker-microvm/firecracker/pull/6116): On
+  aarch64, enable `KVM_CAP_ARM_WRITABLE_IMP_ID_REGS` when the host kernel offers
+  it (Linux 6.15 and later), adding support for custom CPU templates that modify
+  the implementation ID registers (`MIDR_EL1`, `REVIDR_EL1`, `AIDR_EL1`). Such
+  templates previously failed at boot with
+  `Failed to set register ... Invalid argument` because KVM rejects the write
+  unless the capability is enabled on the VM.
+- [#6145](https://github.com/firecracker-microvm/firecracker/pull/6145): Added
+  official support for AWS Graviton5 (m9g.metal-48xl) instances.
+- [#6098](https://github.com/firecracker-microvm/firecracker/pull/6098): Added
+  new VIRTIO_BLK_F_BLK_SIZE and VIRTIO_BLK_F_TOPOLOGY features to the
+  virtio-block device. More information is in the new [block](docs/block.md)
+  documentation.
+- [#6142](https://github.com/firecracker-microvm/firecracker/pull/6142): Add
+  opt-in virtio-blk discard support for writable `Sync` IO engine drives through
+  the `discard` drive configuration field. See the
+  [block discard documentation](docs/api_requests/block-discard.md).
 
 ### Changed
 
@@ -51,6 +68,11 @@ and this project adheres to
   to 1. This lets guest kernels recognize that the `VERW` instruction clears
   fill buffers, including on host kernels before v6.4 that cannot expose
   `FLUSH_L1D`.
+- [#6172](https://github.com/firecracker-microvm/firecracker/pull/6172): Gate
+  CLIRD_EL1 override to only happen on host kernels equal or newer than 6.10
+  release. This aliviates the guest performance regression seen on host kernels
+  in range \[6.3..6.10) correlated to incorrect cpu cache topology presented to
+  the guest.
 
 ### Deprecated
 
@@ -66,6 +88,21 @@ and this project adheres to
   new host-initiated connection made after the resume hung forever. The gate is
   now part of the persisted device state and the resume kick respects it instead
   of arming it.
+- [#6174](https://github.com/firecracker-microvm/firecracker/pull/6174): Fixed
+  `virtio-mem` leaving unplugged memory writable by the VMM, and potentially
+  unmapped, on microVMs restored from a snapshot memory file. Firecracker now
+  maps each slot straight to the protection it should have, with the
+  `MAP_NORESERVE` flag, and aborts if the re-map fails.
+- [#6174](https://github.com/firecracker-microvm/firecracker/pull/6174): Fixed
+  `virtio-mem` discarding the whole hotpluggable region on every `UNPLUG_ALL`
+  request, even when nothing was plugged. The discard is now skipped when the
+  range has no plugged blocks.
+- [#6176](https://github.com/firecracker-microvm/firecracker/pull/6176): Fixed
+  `virtio-mem` leaving its block accounting inconsistent with the KVM memory
+  slots if a plug or unplug request failed part way through. Firecracker now
+  commits each slot's state only after its KVM update succeeds, so a partial
+  failure leaves the block state and the KVM slots reflecting exactly the slots
+  that were updated.
 - [#5956](https://github.com/firecracker-microvm/firecracker/pull/5956): Fixed a
   TOCTOU race in the aarch64 jailer when setting ownership of the CPU cache and
   `MIDR_EL1` information files copied into the chroot.

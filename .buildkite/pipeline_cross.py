@@ -27,7 +27,7 @@ if __name__ == "__main__":
         "m6a.metal",
         "m7a.metal-48xl",
     ]
-    instances_aarch64 = ["m6g.metal", "m7g.metal", "m8g.metal-24xl"]
+    instances_aarch64 = ["m6g.metal", "m7g.metal", "m8g.metal-24xl", "m9g.metal-48xl"]
     restore_only_platforms = [("al2023", "linux_6.18")]
     x86_64_platforms = DEFAULT_PLATFORMS + restore_only_platforms
     commands = [

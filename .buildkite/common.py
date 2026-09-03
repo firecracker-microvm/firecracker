@@ -28,6 +28,7 @@ DEFAULT_INSTANCES = [
     "m7g.metal",      # Graviton3
     "m8g.metal-24xl", # Graviton4 1 socket
     "m8g.metal-48xl", # Graviton4 2 sockets
+    "m9g.metal-48xl", # Graviton5
 ]
 # fmt: on
 

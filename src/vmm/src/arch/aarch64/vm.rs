@@ -3,14 +3,29 @@
 
 use std::sync::Mutex;
 
+use kvm_bindings::{KVM_CAP_ARM_WRITABLE_IMP_ID_REGS, KVMIO, kvm_enable_cap};
 use serde::{Deserialize, Serialize};
+use vmm_sys_util::errno;
+use vmm_sys_util::ioctl::ioctl_with_ref;
+use vmm_sys_util::ioctl_iow_nr;
 
 use crate::Kvm;
 use crate::arch::aarch64::gic::GicState;
+use crate::logger::warn;
 use crate::snapshot::Persist;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
 use crate::vstate::resources::{ResourceAllocator, ResourceAllocatorState};
 use crate::vstate::vm::{VmCommon, VmError};
+
+// TODO(https://github.com/rust-vmm/kvm/pull/382): kvm-ioctls does not expose
+// `VmFd::enable_cap` on aarch64 yet; this is the same definition it uses
+// internally. Replace the direct ioctl with `enable_cap` once a release
+// containing that PR is available.
+#[allow(missing_docs)]
+mod ioctls {
+    use super::*;
+    ioctl_iow_nr!(KVM_ENABLE_CAP, KVMIO, 0xa3, kvm_enable_cap);
+}
 
 /// Structure representing the current architecture's understand of what a "virtual machine" is.
 #[derive(Debug)]
@@ -38,6 +53,39 @@ impl KvmVm {
     /// Create a new `KvmVm` struct.
     pub fn new(kvm: Kvm) -> Result<KvmVm, VmError> {
         let common = Self::create_common(kvm)?;
+
+        // KVM gates writes to the implementation ID registers (MIDR_EL1,
+        // REVIDR_EL1, AIDR_EL1) behind KVM_CAP_ARM_WRITABLE_IMP_ID_REGS,
+        // which must be enabled before any vCPU is created. Without it, a
+        // custom CPU template that modifies these registers fails at boot
+        // with EINVAL when the template is applied. Enabling the capability
+        // on its own does not change guest-visible state: the registers keep
+        // their host values unless a template rewrites them, and writes of
+        // unchanged values (e.g. on snapshot restore) were already accepted
+        // before this capability existed.
+        if common
+            .fd
+            .check_extension_raw(u64::from(KVM_CAP_ARM_WRITABLE_IMP_ID_REGS))
+            == 1
+        {
+            let cap = kvm_enable_cap {
+                cap: KVM_CAP_ARM_WRITABLE_IMP_ID_REGS,
+                ..Default::default()
+            };
+            // SAFETY: The ioctl is safe because we allocated the struct and
+            // the kernel will only read the size of the struct.
+            let ret = unsafe { ioctl_with_ref(&common.fd, ioctls::KVM_ENABLE_CAP(), &cap) };
+            if ret != 0 {
+                // Not fatal: a VM whose CPU template does not touch the
+                // implementation ID registers is unaffected, and one that
+                // does will fail loudly when the template is applied.
+                warn!(
+                    "Failed to enable KVM_CAP_ARM_WRITABLE_IMP_ID_REGS: {}",
+                    errno::Error::last()
+                );
+            }
+        }
+
         Ok(KvmVm {
             common,
             irqchip_handle: None,

@@ -768,10 +768,13 @@ impl Balloon {
             return Err(BalloonError::StatisticsStateChange);
         }
 
-        self.trigger_stats_update()?;
-
         self.stats_polling_interval_s = interval_s;
-        self.update_timer_state();
+
+        if self.is_activated() {
+            self.trigger_stats_update()?;
+            self.update_timer_state();
+        }
+
         Ok(())
     }
 
@@ -1921,6 +1924,37 @@ pub(crate) mod tests {
         );
         balloon.update_stats_polling_interval(1).unwrap();
         balloon.update_stats_polling_interval(2).unwrap();
+    }
+
+    #[test]
+    fn test_update_stats_interval_after_reset() {
+        let mut balloon = Balloon::new(0, true, 1, false, false).unwrap();
+        let mem = default_mem();
+        let q = VirtQueue::new(GuestAddress(0), &mem, 16);
+        balloon.set_queue(INFLATE_INDEX, q.create_queue());
+        balloon.set_queue(DEFLATE_INDEX, q.create_queue());
+        balloon.set_queue(STATS_INDEX, q.create_queue());
+        balloon.activate(mem.clone(), default_interrupt()).unwrap();
+        assert!(balloon.stats_timer.is_armed());
+
+        // A guest reset leaves the stats timerfd registered with the event
+        // loop while the device is inactive, so an interval update must not
+        // arm it.
+        assert!(balloon.reset());
+        assert!(!balloon.is_activated());
+        assert!(!balloon.stats_timer.is_armed());
+
+        balloon.update_stats_polling_interval(2).unwrap();
+        assert_eq!(balloon.stats_polling_interval_s(), 2);
+        assert!(!balloon.stats_timer.is_armed());
+
+        // The guest re-programs the queues and activates the device again,
+        // which picks up the interval set while it was inactive.
+        balloon.set_queue(INFLATE_INDEX, q.create_queue());
+        balloon.set_queue(DEFLATE_INDEX, q.create_queue());
+        balloon.set_queue(STATS_INDEX, q.create_queue());
+        balloon.activate(mem, default_interrupt()).unwrap();
+        assert!(balloon.stats_timer.is_armed());
     }
 
     #[test]

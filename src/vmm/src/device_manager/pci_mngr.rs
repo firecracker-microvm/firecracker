@@ -128,7 +128,6 @@ impl PciDevices {
     ) -> Result<(), PciManagerError> {
         let sbdf = self.pci_segment.next_device_sbdf()?;
         debug!("Allocating SBDF: {sbdf:?} for device");
-        let mem = vm.guest_memory().clone();
 
         let device_type = device.lock().expect("Poisoned lock").device_type();
 
@@ -140,7 +139,7 @@ impl PciDevices {
 
         // Create the transport
         let mut virtio_device =
-            VirtioPciDevice::new(id.clone(), mem, device, Arc::new(msix_vectors), sbdf);
+            VirtioPciDevice::new(id.clone(), vm, device, Arc::new(msix_vectors), sbdf);
 
         // Don't hold the resource allocator lock across attach_common()
         // below: a device access holds the bus lock and can take the allocator
@@ -210,6 +209,11 @@ impl PciDevices {
         {
             warn!("Failed to remove event subscriber for device {device_id:?}");
         }
+
+        pci_device_arc
+            .lock()
+            .expect("Poisoned lock")
+            .free_bars(&mut vm.resource_allocator().mmio64_memory);
 
         // Ensure no other references to the device remain, so it is freed when
         // this function returns.
@@ -849,9 +853,17 @@ mod tests {
       "is_root_device": true,
       "cache_type": "Unsafe",
       "is_read_only": true,
+      "discard": false,
       "path_on_host": "{}",
       "rate_limiter": null,
       "io_engine": "Sync",
+      "blk_size": 512,
+      "topology": {{
+        "physical_block_exp": 0,
+        "alignment_offset": 0,
+        "min_io_size": 0,
+        "opt_io_size": 128
+      }},
       "socket": null
     }}
   ],

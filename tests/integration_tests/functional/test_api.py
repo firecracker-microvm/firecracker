@@ -636,6 +636,65 @@ def test_rate_limiters_api_config(uvm, io_engine):
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_discard_drive_api_config(uvm):
+    """
+    Test the discard API configuration and unsupported combinations.
+    """
+    test_microvm = uvm
+    test_microvm.spawn()
+
+    test_microvm.basic_config(add_root_device=False)
+
+    fs = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "discard"))
+    test_microvm.api.drive.put(
+        drive_id="discard",
+        path_on_host=test_microvm.create_jailed_resource(fs.path),
+        is_root_device=False,
+        is_read_only=False,
+        discard=True,
+        io_engine="Sync",
+    )
+
+    vm_config = test_microvm.api.vm_config.get().json()
+    discard_drive = next(
+        drive for drive in vm_config["drives"] if drive["drive_id"] == "discard"
+    )
+    assert discard_drive["discard"] is True
+
+    fs_read_only = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.fsfiles, "discard_read_only")
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="Discard is not supported with read-only drives",
+    ):
+        test_microvm.api.drive.put(
+            drive_id="discard_read_only",
+            path_on_host=test_microvm.create_jailed_resource(fs_read_only.path),
+            is_root_device=False,
+            is_read_only=True,
+            discard=True,
+            io_engine="Sync",
+        )
+
+    fs_async = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.fsfiles, "discard_async")
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="Discard is not supported with the async IO engine",
+    ):
+        test_microvm.api.drive.put(
+            drive_id="discard_async",
+            path_on_host=test_microvm.create_jailed_resource(fs_async.path),
+            is_root_device=False,
+            is_read_only=False,
+            discard=True,
+            io_engine="Async",
+        )
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_api_patch_pre_boot(uvm, io_engine):
     """
     Test that PATCH updates are not allowed before the microvm boots.
@@ -906,9 +965,17 @@ def _drive_patch(test_microvm, io_engine):
             "is_root_device": True,
             "cache_type": "Unsafe",
             "is_read_only": True,
+            "discard": False,
             "path_on_host": "/" + test_microvm.rootfs_file.name,
             "rate_limiter": None,
             "io_engine": "Sync",
+            "blk_size": 512,
+            "topology": {
+                "physical_block_exp": 0,
+                "alignment_offset": 0,
+                "min_io_size": 0,
+                "opt_io_size": 128,
+            },
             "socket": None,
         },
         {
@@ -917,12 +984,20 @@ def _drive_patch(test_microvm, io_engine):
             "is_root_device": False,
             "cache_type": "Unsafe",
             "is_read_only": False,
+            "discard": False,
             "path_on_host": "/scratch_new.ext4",
             "rate_limiter": {
                 "bandwidth": {"size": 5000, "one_time_burst": None, "refill_time": 100},
                 "ops": {"size": 500, "one_time_burst": None, "refill_time": 100},
             },
             "io_engine": io_engine,
+            "blk_size": 512,
+            "topology": {
+                "physical_block_exp": 0,
+                "alignment_offset": 0,
+                "min_io_size": 0,
+                "opt_io_size": 128,
+            },
             "socket": None,
         },
         {
@@ -931,9 +1006,12 @@ def _drive_patch(test_microvm, io_engine):
             "is_root_device": False,
             "cache_type": "Unsafe",
             "is_read_only": None,
+            "discard": None,
             "path_on_host": None,
             "rate_limiter": None,
             "io_engine": None,
+            "blk_size": None,
+            "topology": None,
             "socket": str(
                 Path("/")
                 / test_microvm.disks_vhost_user["scratch_vub"].socket_path.name
@@ -1320,9 +1398,17 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
             "is_root_device": True,
             "cache_type": "Unsafe",
             "is_read_only": True,
+            "discard": False,
             "path_on_host": f"/{uvm_configured.rootfs_file.name}",
             "rate_limiter": None,
             "io_engine": "Sync",
+            "blk_size": 512,
+            "topology": {
+                "physical_block_exp": 0,
+                "alignment_offset": 0,
+                "min_io_size": 0,
+                "opt_io_size": 128,
+            },
             "socket": None,
         }
     ]
@@ -1460,9 +1546,17 @@ def test_get_full_config(uvm):
             "is_root_device": True,
             "cache_type": "Unsafe",
             "is_read_only": True,
+            "discard": False,
             "path_on_host": "/" + test_microvm.rootfs_file.name,
             "rate_limiter": None,
             "io_engine": "Sync",
+            "blk_size": 512,
+            "topology": {
+                "physical_block_exp": 0,
+                "alignment_offset": 0,
+                "min_io_size": 0,
+                "opt_io_size": 128,
+            },
             "socket": None,
         }
     ]
