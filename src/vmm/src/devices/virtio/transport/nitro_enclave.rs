@@ -30,6 +30,10 @@ use crate::nitro_enclave::ne_ioctl::{self, EnclaveFd, NeAddDevice};
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
 
+/// The feature bit a guest must ack for its DMA to be routed through an IOMMU,
+/// which is how a confidential enclave reaches its DMB.
+const IOMMU_PLATFORM_FEATURE: u64 = 1u64 << VIRTIO_F_IOMMU_PLATFORM;
+
 /// Virtio device status bits indicating the guest driver has fully initialized
 /// the device (`ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK`).
 const VIRTIO_STATUS_DRIVER_OK: u8 = device_status::ACKNOWLEDGE
@@ -214,7 +218,7 @@ impl NeTransport {
             // enclave guest routes its DMA there.
             let mut avail = locked_device.avail_features();
             if let DeviceDmaMemory::Dmb(_) = self.dma_memory {
-                avail |= 1u64 << VIRTIO_F_IOMMU_PLATFORM;
+                avail |= IOMMU_PLATFORM_FEATURE;
             }
             req.device_features[..8].copy_from_slice(&avail.to_le_bytes());
 
@@ -356,15 +360,25 @@ impl NeTransport {
             return;
         }
 
+        let mut locked_device = self.device.lock().expect("Poisoned lock");
+
+        let driver_features = mirror.driver_features;
+        if matches!(self.dma_memory, DeviceDmaMemory::Dmb(_))
+            && (driver_features & IOMMU_PLATFORM_FEATURE) == 0
+        {
+            error!(
+                "Device uid={} did not negotiate VIRTIO_F_IOMMU_PLATFORM while its DMA \
+                 targets a DMB; not activating (driver_features={driver_features:#x})",
+                self.device_uid
+            );
+            return;
+        }
         info!(
             "DRIVER_OK detected for device uid={}, activating",
             self.device_uid
         );
 
-        let mut locked_device = self.device.lock().expect("Poisoned lock");
-
         // Set acked features from the mirror.
-        let driver_features = mirror.driver_features;
         let avail = locked_device.avail_features();
         locked_device.set_acked_features(driver_features & avail);
 
@@ -446,16 +460,26 @@ mod tests {
     use super::*;
     use crate::devices::virtio::transport::mmio::tests::DummyDevice;
     use crate::nitro_enclave::info_page::{
-        DEVICE_ENTRY_MIN_SIZE, TestPageBuilder, test_device_mirror,
+        DEVICE_ENTRY_MIN_SIZE, TestPageBuilder, VirtioDeviceMirror, test_device_mirror,
     };
     use crate::test_utils::single_region_mem;
 
-    fn ne_transport(info_page: InfoPage, device_uid: u64) -> NeTransport {
-        let device = Arc::new(Mutex::new(DummyDevice::new()));
-        let memory = single_region_mem(0x1000);
+    // Two features the dummy device offers: a plain one, and IOMMU_PLATFORM.
+    const PLAIN_FEATURE: u64 = 1;
+    const IOMMU_FEATURE: u64 = IOMMU_PLATFORM_FEATURE;
+
+    fn ne_transport_with(
+        info_page: InfoPage,
+        device_uid: u64,
+        dma_memory: DeviceDmaMemory,
+    ) -> NeTransport {
+        let mut device = DummyDevice::new();
+        // A real device never advertises IOMMU_PLATFORM itself: register_device
+        // ORs it only into the copy sent to the enclave.
+        device.set_avail_features(PLAIN_FEATURE);
         let mut transport = NeTransport::new(
-            device,
-            DeviceDmaMemory::GuestMemory(memory),
+            Arc::new(Mutex::new(device)),
+            dma_memory,
             Arc::new(info_page),
             VirtioDeviceType::Rng,
             1,
@@ -463,6 +487,25 @@ mod tests {
         .unwrap();
         transport.device_uid = device_uid;
         transport
+    }
+
+    fn ne_transport(info_page: InfoPage, device_uid: u64) -> NeTransport {
+        let dma = DeviceDmaMemory::GuestMemory(single_region_mem(0x1000));
+        ne_transport_with(info_page, device_uid, dma)
+    }
+
+    /// A mirror the guest driver has finished initialising, acking `driver_features`.
+    fn driver_ok_mirror(device_uid: u64, driver_features: u64) -> VirtioDeviceMirror {
+        let mut mirror = test_device_mirror(device_uid);
+        mirror.common.device_status = VIRTIO_STATUS_DRIVER_OK;
+        mirror.driver_features = driver_features;
+        mirror
+    }
+
+    fn page_with(mirror: VirtioDeviceMirror) -> InfoPage {
+        TestPageBuilder::new()
+            .device_mirror(8192, DEVICE_ENTRY_MIN_SIZE, mirror)
+            .build()
     }
 
     #[test]
@@ -486,5 +529,54 @@ mod tests {
         let mut transport = ne_transport(page, 999);
         transport.activate_if_ready();
         assert!(!transport.device.lock().unwrap().is_activated());
+    }
+
+    #[test]
+    fn test_activate_if_ready_dmb_requires_iommu_platform() {
+        // Confidential mode: the device's DMA targets a DMB, but the guest driver
+        // acked only a plain feature. Its DMA would not reach the DMB, so the
+        // device must not activate -- and must not even get its acked features.
+        let page = page_with(driver_ok_mirror(1, PLAIN_FEATURE));
+        let dma = DeviceDmaMemory::Dmb(single_region_mem(0x1000));
+        let mut transport = ne_transport_with(page, 1, dma);
+
+        transport.activate_if_ready();
+
+        let device = transport.device.lock().unwrap();
+        assert!(!device.is_activated());
+        assert_eq!(device.acked_features(), 0);
+    }
+
+    #[test]
+    fn test_activate_if_ready_dmb_with_iommu_platform_proceeds() {
+        // Same, but the driver acked VIRTIO_F_IOMMU_PLATFORM. The gate lets it
+        // through, which is observable because set_acked_features runs after it.
+        let page = page_with(driver_ok_mirror(1, PLAIN_FEATURE | IOMMU_FEATURE));
+        let dma = DeviceDmaMemory::Dmb(single_region_mem(0x1000));
+        let mut transport = ne_transport_with(page, 1, dma);
+
+        transport.activate_if_ready();
+
+        // The device does not offer the IOMMU bit, so it is masked out of the
+        // acked set; reaching set_acked_features at all is what shows the gate
+        // let this through.
+        let device = transport.device.lock().unwrap();
+        assert!(device.is_activated());
+        assert_eq!(device.acked_features(), PLAIN_FEATURE);
+    }
+
+    #[test]
+    fn test_activate_if_ready_direct_mode_ignores_iommu_platform() {
+        // Direct mode: DMA targets the donated enclave RAM, so the gate does not
+        // apply and the same driver_features that were rejected above proceed.
+        let page = page_with(driver_ok_mirror(1, PLAIN_FEATURE));
+        let dma = DeviceDmaMemory::GuestMemory(single_region_mem(0x1000));
+        let mut transport = ne_transport_with(page, 1, dma);
+
+        transport.activate_if_ready();
+
+        let device = transport.device.lock().unwrap();
+        assert!(device.is_activated());
+        assert_eq!(device.acked_features(), PLAIN_FEATURE);
     }
 }
