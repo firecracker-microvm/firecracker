@@ -15,7 +15,7 @@ use event_manager::SubscriberOps;
 use crate::device_manager::nitro_enclave::NeDevices;
 use crate::device_manager::{AttachDeviceError, DeviceManager, VirtioDevices};
 use crate::devices::virtio::device::VirtioDevice;
-use crate::logger::info;
+use crate::logger::{debug, info};
 use crate::nitro_enclave::cpu_accounting::AccountingThreads;
 use crate::nitro_enclave::eif;
 use crate::nitro_enclave::enclave_vm::{EnclaveVm, MAX_SUPPORTED_ENCLAVE_VCPUS};
@@ -284,6 +284,10 @@ pub fn build_and_boot_enclave(
         read_prebuilt_eif(&boot_config.kernel_file, kernel_path)?
     } else {
         let boot_args = resolve_enclave_cmdline(boot_config, enclave_config, vm_resources)?;
+        debug!(
+            "Enclave kernel cmdline ({} bytes): {boot_args}",
+            boot_args.len()
+        );
         let default_mem = mib_to_bytes(vm_resources.machine_config.mem_size_mib) as u64;
         let default_cpus = vm_resources.machine_config.vcpu_count as u64;
         info!(
