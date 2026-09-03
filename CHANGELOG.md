@@ -10,6 +10,13 @@ and this project adheres to
 
 ### Added
 
+- [#5687](https://github.com/firecracker-microvm/firecracker/issues/5687): Added
+  developer preview support for a generic vhost-user frontend device. This
+  allows attaching any virtio device type (e.g. virtio-fs, virtio-scsi) via the
+  vhost-user protocol without requiring a dedicated Firecracker frontend for
+  each device type, configured via the `PUT /vhost-user-devices/{id}` API
+  endpoint. Config space is owned by the backend via the mandatory CONFIG
+  protocol feature. Snapshotting is not supported.
 - [#5891](https://github.com/firecracker-microvm/firecracker/pull/5891): Added
   support for virtio device reset.
 - [#5983](https://github.com/firecracker-microvm/firecracker/pull/5983): Add two
@@ -124,6 +131,11 @@ and this project adheres to
   Terminating a connection now also discards its TX buffer, so the device stops
   advertising `EPOLLOUT` for a host stream it will never write to again, which
   could otherwise busy-spin the event thread indefinitely.
+- [#6083](https://github.com/firecracker-microvm/firecracker/pull/6083): Fixed a
+  vhost-user-block device backed by a readonly backend not being treated as
+  readonly. The `VIRTIO_BLK_F_RO` check read the acked feature set after it had
+  been narrowed to the vhost-user protocol bit, so it never matched, and a
+  readonly vhost-user root device was given `rw` on the guest kernel cmdline.
 - [#6086](https://github.com/firecracker-microvm/firecracker/pull/6086),
   [#6143](https://github.com/firecracker-microvm/firecracker/pull/6143): Fixed a
   deadlock in the logger: a signal handler that logs while the interrupted
