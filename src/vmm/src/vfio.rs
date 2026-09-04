@@ -70,13 +70,13 @@ pub enum VfioError {
 }
 
 bitflags! {
-    /// Type of the hole in the bar. A single hole can contain both
+    /// Type of the area in the bar. A single area can contain both
     /// the MSI-X table and PBA when their host-page-aligned ranges overlap.
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     struct VfioBarEmulatedAreaUsageFlags: u8 {
-        /// The hole contains MSIx table
+        /// The area contains MSIx table
         const MSIX_TABLE = 1 << 0;
-        /// The hole contains MSIx pba
+        /// The area contains MSIx pba
         const MSIX_PBA = 1 << 1;
     }
 }
@@ -579,7 +579,7 @@ fn vfio_add_emulated_area(
     emulated_areas: &mut ArrayVec<VfioBarEmulatedArea, 2>,
 ) {
     debug!(
-        "BAR{} {:?} hole: [{:#x}..{:#x}]",
+        "BAR{} {:?} emulated area: [{:#x}..{:#x}]",
         bar_idx,
         usage_flag,
         bar_gpa + host_aligned_offset,
@@ -623,11 +623,11 @@ fn vfio_calculate_bar_areas(
     region_infos: &[VfioRegionInfo; NUM_BAR_REGS as usize],
     msix_cap: Option<&MsixCap>,
 ) -> Result<(Vec<VfioBarMappableArea>, ArrayVec<VfioBarEmulatedArea, 2>), VfioError> {
-    // There are 6 BARs with maximum of 2 holes in one or two of them The only reasons to use Vec
-    // instead of ArrayVec here is because this vector can be populated from the `sparse_mmap_cap`
-    // which can contain a different number of areas. But in any case the size here is limited by
-    // the `nr_areas` field in the `vfio_region_info_cap_sparse_mmap` struct. This field has
-    // the `u32` type.
+    // There are 6 BARs with maximum of 2 emulated_areas, so the maximum number of mappable areas
+    // is 8, The only reasons to use `Vec` instead of `ArrayVec` here is because this vector can be
+    // populated from the `sparse_mmap_cap` which can contain a different number of areas. But
+    // in any case the size here is limited by the `nr_areas` field in the
+    // `vfio_region_info_cap_sparse_mmap` struct. This field has the `u32` type.
     let mut mmappable_areas = Vec::with_capacity(8);
     let mut emulated_areas = ArrayVec::<VfioBarEmulatedArea, 2>::new();
     let mut bar_idx: u8 = 0;
@@ -659,10 +659,10 @@ fn vfio_calculate_bar_areas(
                     // Since original `offset` and `size` are `u32` and `u16`, their addition
                     // cannot overflow when widened to `u64`;
                     let (offset, size) = (offset as u64, size as u64);
-                    let offset_in_hole = offset_from_lower_host_page(offset);
+                    let offset_in_area = offset_from_lower_host_page(offset);
 
                     msix_table_offset = align_down_host_page(offset);
-                    msix_table_size = align_up_host_page(offset_in_hole + size);
+                    msix_table_size = align_up_host_page(offset_in_area + size);
 
                     if region_info.size < offset + size {
                         return Err(VfioError::MsixTableOutOfRange(
@@ -689,10 +689,10 @@ fn vfio_calculate_bar_areas(
                     // Since original `offset` and `size` are `u32` and `u16`, their addition
                     // cannot overflow when widened to `u64`;
                     let (offset, size) = (offset as u64, size as u64);
-                    let offset_in_hole = offset_from_lower_host_page(offset);
+                    let offset_in_area = offset_from_lower_host_page(offset);
 
                     msix_pba_offset = align_down_host_page(offset);
-                    msix_pba_size = align_up_host_page(offset_in_hole + size);
+                    msix_pba_size = align_up_host_page(offset_in_area + size);
 
                     if region_info.size < offset + size {
                         return Err(VfioError::MsixPbaOutOfRange(
@@ -791,7 +791,7 @@ fn vfio_calculate_bar_areas(
                             });
                         }
                     } else if has_msix_mappable {
-                        // There can only be maximum of 2 gaps/holes in the BAR,
+                        // There can only be maximum of 2 gaps/emulated_areas in the BAR,
                         // so the maximum number of mmappable areas is 3.
                         //
                         // First we sort gaps by the starting offset and then
@@ -1410,13 +1410,13 @@ mod tests {
         let bars = Bars::default();
         let region_infos = dummy_region_infos([]);
 
-        let (areas, holes) = vfio_calculate_bar_areas(&bars, &region_infos, None).unwrap();
+        let (areas, emulated_areas) = vfio_calculate_bar_areas(&bars, &region_infos, None).unwrap();
         assert!(areas.is_empty());
-        assert!(holes.is_empty());
+        assert!(emulated_areas.is_empty());
     }
 
     #[test]
-    fn test_vfio_calculate_bar_areas_no_holes() {
+    fn test_vfio_calculate_bar_areas_no_emulated_areas() {
         let mut bars = Bars::default();
         bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
         bars.set_bar_64(2, 0x2000, 0x1000, BarPrefetchable::No);
@@ -1428,7 +1428,7 @@ mod tests {
             dummy_region_info(0x1000, vec![VfioRegionInfoCap::MsixMappable]),
         ]);
 
-        let (areas, holes) = vfio_calculate_bar_areas(&bars, &region_infos, None).unwrap();
+        let (areas, emulated_areas) = vfio_calculate_bar_areas(&bars, &region_infos, None).unwrap();
 
         assert_eq!(areas.len(), 2);
         assert_eq!(areas[0].gpa, 0x1000);
@@ -1438,12 +1438,12 @@ mod tests {
         assert_eq!(areas[1].size, 0x1000);
         assert_eq!(areas[1].vfio_fd_offset, 0);
 
-        assert!(holes.is_empty());
+        assert!(emulated_areas.is_empty());
     }
 
     #[test]
     fn test_vfio_calculate_bar_areas_msix_table_and_pba_in_different_bars() {
-        // BARs are just one page long, so hole take them
+        // BARs are just one page long, so emulated areas take them
         {
             let mut bars = Bars::default();
             bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
@@ -1459,21 +1459,27 @@ mod tests {
 
             let msix_cap = MsixCap::new(0, 32, 0, 2, 0);
 
-            let (areas, holes) =
+            let (areas, emulated_areas) =
                 vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
 
             assert_eq!(areas.len(), 0);
 
-            assert_eq!(holes.len(), 2);
-            assert_eq!(holes[0].gpa, 0x1000);
-            assert_eq!(holes[0].size, 0x1000);
-            assert_eq!(holes[0].usage, VfioBarEmulatedAreaUsageFlags::MSIX_TABLE);
-            assert_eq!(holes[1].gpa, 0x2000);
-            assert_eq!(holes[1].size, 0x1000);
-            assert_eq!(holes[1].usage, VfioBarEmulatedAreaUsageFlags::MSIX_PBA);
+            assert_eq!(emulated_areas.len(), 2);
+            assert_eq!(emulated_areas[0].gpa, 0x1000);
+            assert_eq!(emulated_areas[0].size, 0x1000);
+            assert_eq!(
+                emulated_areas[0].usage,
+                VfioBarEmulatedAreaUsageFlags::MSIX_TABLE
+            );
+            assert_eq!(emulated_areas[1].gpa, 0x2000);
+            assert_eq!(emulated_areas[1].size, 0x1000);
+            assert_eq!(
+                emulated_areas[1].usage,
+                VfioBarEmulatedAreaUsageFlags::MSIX_PBA
+            );
         }
 
-        // BARs are multiple pages, so hole leave some space
+        // BARs are multiple pages, so emulated areas leave some space
         {
             let mut bars = Bars::default();
             bars.set_bar_64(0, 0x1000, 0x2000, BarPrefetchable::No);
@@ -1489,7 +1495,7 @@ mod tests {
 
             let msix_cap = MsixCap::new(0, 32, 0, 2, 0);
 
-            let (areas, holes) =
+            let (areas, emulated_areas) =
                 vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
 
             assert_eq!(areas.len(), 2);
@@ -1500,13 +1506,19 @@ mod tests {
             assert_eq!(areas[1].size, 0x1000);
             assert_eq!(areas[1].vfio_fd_offset, 0x1000);
 
-            assert_eq!(holes.len(), 2);
-            assert_eq!(holes[0].gpa, 0x1000);
-            assert_eq!(holes[0].size, 0x1000);
-            assert_eq!(holes[0].usage, VfioBarEmulatedAreaUsageFlags::MSIX_TABLE);
-            assert_eq!(holes[1].gpa, 0x3000);
-            assert_eq!(holes[1].size, 0x1000);
-            assert_eq!(holes[1].usage, VfioBarEmulatedAreaUsageFlags::MSIX_PBA);
+            assert_eq!(emulated_areas.len(), 2);
+            assert_eq!(emulated_areas[0].gpa, 0x1000);
+            assert_eq!(emulated_areas[0].size, 0x1000);
+            assert_eq!(
+                emulated_areas[0].usage,
+                VfioBarEmulatedAreaUsageFlags::MSIX_TABLE
+            );
+            assert_eq!(emulated_areas[1].gpa, 0x3000);
+            assert_eq!(emulated_areas[1].size, 0x1000);
+            assert_eq!(
+                emulated_areas[1].usage,
+                VfioBarEmulatedAreaUsageFlags::MSIX_PBA
+            );
         }
     }
 
@@ -1534,7 +1546,8 @@ mod tests {
                 })],
             )]);
 
-            let (areas, holes) = vfio_calculate_bar_areas(&bars, &region_infos, None).unwrap();
+            let (areas, emulated_areas) =
+                vfio_calculate_bar_areas(&bars, &region_infos, None).unwrap();
 
             assert_eq!(areas.len(), 2);
             assert_eq!(areas[0].gpa, 0x1000);
@@ -1544,7 +1557,7 @@ mod tests {
             assert_eq!(areas[1].vfio_fd_offset, 0x2000);
             assert_eq!(areas[1].size, 0x1000);
 
-            assert!(holes.is_empty());
+            assert!(emulated_areas.is_empty());
         }
 
         // Overflow
@@ -1622,12 +1635,12 @@ mod tests {
 
     #[test]
     fn test_vfio_calculate_bar_areas_sparse_mmap_overlaps_msix() {
-        // Sparse area exactly covers the MSI-X table hole
+        // Sparse area exactly covers the MSI-X table emulated area
         {
             let mut bars = Bars::default();
             bars.set_bar_64(0, 0x1000, 0x4000, BarPrefetchable::No);
 
-            // Table in BAR0 at offset 0 -> hole [0x0, 0x1000) -> gpa [0x1000, 0x2000)
+            // Table in BAR0 at offset 0 -> emulated area [0x0, 0x1000) -> gpa [0x1000, 0x2000)
             // PBA is in BAR1, which is never visited, so it creates no emulated area.
             let msix_cap = MsixCap::new(0, 32, 0, 1, 0);
 
@@ -1654,17 +1667,18 @@ mod tests {
             );
         }
 
-        // Sparse area partially overlaps the MSI-X pba hole
+        // Sparse area partially overlaps the MSI-X pba emulated area
         {
             let mut bars = Bars::default();
             bars.set_bar_64(0, 0x1000, 0x4000, BarPrefetchable::No);
 
-            // PBA in BAR0 at offset 0x2000 -> hole [0x2000, 0x3000) -> gpa [0x3000, 0x4000)
-            // Table is in BAR1, which is never visited, so it creates no emulated area.
+            // PBA in BAR0 at offset 0x2000 -> emulated area [0x2000, 0x3000) -> gpa [0x3000,
+            // 0x4000) Table is in BAR1, which is never visited, so it creates no
+            // emulated area.
             let msix_cap = MsixCap::new(1, 32, 0, 0, 0x2000);
 
             // Covers region [0x1000, 0x3000) -> gpa [0x2000, 0x4000), so only the second half
-            // of it overlaps the pba hole.
+            // of it overlaps the pba emulated area.
             let sparse_areas = vec![VfioRegionSparseMmapArea {
                 offset: 0x1000,
                 size: 0x2000,
@@ -1688,13 +1702,13 @@ mod tests {
             );
         }
 
-        // Sparse areas correctly exclude both the MSI-X table and pba holes
+        // Sparse areas correctly exclude both the MSI-X table and pba emulated_areas
         {
             let mut bars = Bars::default();
             bars.set_bar_64(0, 0x1000, 0x4000, BarPrefetchable::No);
 
-            // Table at offset 0x1000 -> hole [0x1000, 0x2000) -> gpa [0x2000, 0x3000)
-            // PBA   at offset 0x2000 -> hole [0x2000, 0x3000) -> gpa [0x3000, 0x4000)
+            // Table at offset 0x1000 -> emulated area [0x1000, 0x2000) -> gpa [0x2000, 0x3000)
+            // PBA   at offset 0x2000 -> emulated area [0x2000, 0x3000) -> gpa [0x3000, 0x4000)
             let msix_cap = MsixCap::new(0, 32, 0x1000, 0, 0x2000);
 
             let sparse_areas = vec![
@@ -1714,7 +1728,7 @@ mod tests {
                 })],
             )]);
 
-            let (areas, holes) =
+            let (areas, emulated_areas) =
                 vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
 
             assert_eq!(areas.len(), 2);
@@ -1725,14 +1739,20 @@ mod tests {
             assert_eq!(areas[1].vfio_fd_offset, 0x3000);
             assert_eq!(areas[1].size, 0x1000);
 
-            // The table and pba holes are adjacent, so they stay separate areas
-            assert_eq!(holes.len(), 2);
-            assert_eq!(holes[0].gpa, 0x2000);
-            assert_eq!(holes[0].size, 0x1000);
-            assert_eq!(holes[0].usage, VfioBarEmulatedAreaUsageFlags::MSIX_TABLE);
-            assert_eq!(holes[1].gpa, 0x3000);
-            assert_eq!(holes[1].size, 0x1000);
-            assert_eq!(holes[1].usage, VfioBarEmulatedAreaUsageFlags::MSIX_PBA);
+            // The table and pba emulated_areas are adjacent, so they stay separate areas
+            assert_eq!(emulated_areas.len(), 2);
+            assert_eq!(emulated_areas[0].gpa, 0x2000);
+            assert_eq!(emulated_areas[0].size, 0x1000);
+            assert_eq!(
+                emulated_areas[0].usage,
+                VfioBarEmulatedAreaUsageFlags::MSIX_TABLE
+            );
+            assert_eq!(emulated_areas[1].gpa, 0x3000);
+            assert_eq!(emulated_areas[1].size, 0x1000);
+            assert_eq!(
+                emulated_areas[1].usage,
+                VfioBarEmulatedAreaUsageFlags::MSIX_PBA
+            );
         }
     }
 
@@ -1748,22 +1768,28 @@ mod tests {
 
         let msix_cap = MsixCap::new(0, 32, 0, 0, 0x1000);
 
-        let (areas, holes) =
+        let (areas, emulated_areas) =
             vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
 
         assert!(areas.is_empty());
 
-        assert_eq!(holes.len(), 2);
-        assert_eq!(holes[0].gpa, 0x1000);
-        assert_eq!(holes[0].size, 0x1000);
-        assert_eq!(holes[0].usage, VfioBarEmulatedAreaUsageFlags::MSIX_TABLE);
-        assert_eq!(holes[1].gpa, 0x2000);
-        assert_eq!(holes[1].size, 0x1000);
-        assert_eq!(holes[1].usage, VfioBarEmulatedAreaUsageFlags::MSIX_PBA);
+        assert_eq!(emulated_areas.len(), 2);
+        assert_eq!(emulated_areas[0].gpa, 0x1000);
+        assert_eq!(emulated_areas[0].size, 0x1000);
+        assert_eq!(
+            emulated_areas[0].usage,
+            VfioBarEmulatedAreaUsageFlags::MSIX_TABLE
+        );
+        assert_eq!(emulated_areas[1].gpa, 0x2000);
+        assert_eq!(emulated_areas[1].size, 0x1000);
+        assert_eq!(
+            emulated_areas[1].usage,
+            VfioBarEmulatedAreaUsageFlags::MSIX_PBA
+        );
     }
 
     #[test]
-    fn test_vfio_calculate_bar_areas_overlapping_msix_holes() {
+    fn test_vfio_calculate_bar_areas_overlapping_msix_emulated_areas() {
         let mut bars = Bars::default();
         bars.set_bar_64(0, 0x1000, 0x2000, BarPrefetchable::No);
 
@@ -1772,9 +1798,9 @@ mod tests {
             vec![VfioRegionInfoCap::MsixMappable],
         )]);
 
-        // Both tables create the same hole [0x0..0x1000)
+        // Both tables create the same emulated area [0x0..0x1000)
         let msix_cap = MsixCap::new(0, 32, 0x0, 0, 0x200);
-        let (areas, holes) =
+        let (areas, emulated_areas) =
             vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
 
         assert_eq!(areas.len(), 1);
@@ -1782,21 +1808,21 @@ mod tests {
         assert_eq!(areas[0].size, 0x1000);
         assert_eq!(areas[0].vfio_fd_offset, 0x1000);
 
-        assert_eq!(holes.len(), 1);
-        assert_eq!(holes[0].gpa, 0x1000);
-        assert_eq!(holes[0].size, 0x1000);
+        assert_eq!(emulated_areas.len(), 1);
+        assert_eq!(emulated_areas[0].gpa, 0x1000);
+        assert_eq!(emulated_areas[0].size, 0x1000);
         assert_eq!(
-            holes[0].usage,
+            emulated_areas[0].usage,
             VfioBarEmulatedAreaUsageFlags::MSIX_TABLE | VfioBarEmulatedAreaUsageFlags::MSIX_PBA
         );
     }
 
-    /// Table and PBA share the same starting page (so the same hole `gpa`),
+    /// Table and PBA share the same starting page (so the same emulated area `gpa`),
     /// but the PBA contents straddle the page boundary, so its host-page-
-    /// aligned size is larger than the table's. The two holes must merge
+    /// aligned size is larger than the table's. The two emulated_areas must merge
     /// into one.
     #[test]
-    fn test_vfio_calculate_bar_areas_same_gpa_different_size_msix_holes() {
+    fn test_vfio_calculate_bar_areas_same_gpa_different_size_msix_emulated_areas() {
         let mut bars = Bars::default();
         bars.set_bar_64(0, 0x1000, 0x2000, BarPrefetchable::No);
 
@@ -1805,22 +1831,22 @@ mod tests {
             vec![VfioRegionInfoCap::MsixMappable],
         )]);
 
-        // table at offset 0, 128 entries (0x800 bytes) -> hole [0x0, 0x1000)
-        // PBA at offset 0xff8, 16 bytes -> straddles 0x1000 -> hole [0x0, 0x2000)
+        // table at offset 0, 128 entries (0x800 bytes) -> emulated area [0x0, 0x1000)
+        // PBA at offset 0xff8, 16 bytes -> straddles 0x1000 -> emulated area [0x0, 0x2000)
         // Same gpa (bar_gpa + 0), different sizes.
         let msix_cap = MsixCap::new(0, 128, 0, 0, 0xff8);
 
-        let (areas, holes) =
+        let (areas, emulated_areas) =
             vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
 
-        // No space for areas, all taken by holes
+        // No space for areas, all taken by emulated_areas
         assert!(areas.is_empty());
 
-        assert_eq!(holes.len(), 1);
-        assert_eq!(holes[0].gpa, 0x1000);
-        assert_eq!(holes[0].size, 0x2000);
+        assert_eq!(emulated_areas.len(), 1);
+        assert_eq!(emulated_areas[0].gpa, 0x1000);
+        assert_eq!(emulated_areas[0].size, 0x2000);
         assert_eq!(
-            holes[0].usage,
+            emulated_areas[0].usage,
             VfioBarEmulatedAreaUsageFlags::MSIX_TABLE | VfioBarEmulatedAreaUsageFlags::MSIX_PBA
         );
     }
