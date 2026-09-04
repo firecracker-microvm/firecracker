@@ -25,7 +25,7 @@ fn exit_with_code(exit_code: FcExitCode) {
         error_unrestricted!("Failed to write metrics while stopping: {}", err);
     }
     // SAFETY: Safe because we're terminating the process anyway.
-    unsafe { libc::_exit(exit_code as i32) };
+    unsafe { libc::_exit(i32::from(u8::from(exit_code))) };
 }
 
 macro_rules! generate_handler {
