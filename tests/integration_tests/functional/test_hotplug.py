@@ -72,7 +72,7 @@ def test_hotplug_block(uvm_any):
         rate_limiter={
             "ops": {"size": 100, "refill_time": 100},
         },
-        num_queues=1,
+        num_queues=2,
     )
 
     time.sleep(PLUG_SLEEP)
