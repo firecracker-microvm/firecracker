@@ -73,7 +73,7 @@ bitflags! {
     /// Type of the hole in the bar. A single hole can contain both
     /// the MSI-X table and PBA when their host-page-aligned ranges overlap.
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    struct VfioBarEmulatedRegionUsageFlags: u8 {
+    struct VfioBarEmulatedAreaUsageFlags: u8 {
         /// The hole contains MSIx table
         const MSIX_TABLE = 1 << 0;
         /// The hole contains MSIx pba
@@ -87,7 +87,7 @@ bitflags! {
 struct VfioBarEmulatedArea {
     gpa: u64,
     size: u64,
-    usage: VfioBarEmulatedRegionUsageFlags,
+    usage: VfioBarEmulatedAreaUsageFlags,
 }
 
 /// Wrapper around `Bars` type to automate dropping
@@ -573,7 +573,7 @@ fn vfio_ranges_overlap(start_a: u64, size_a: u64, start_b: u64, size_b: u64) -> 
 fn vfio_add_emulated_area(
     bar_idx: u8,
     bar_gpa: u64,
-    type_flag: VfioBarEmulatedRegionUsageFlags,
+    usage_flag: VfioBarEmulatedAreaUsageFlags,
     host_aligned_offset: u64,
     host_aligned_size: u64,
     emulated_areas: &mut ArrayVec<VfioBarEmulatedArea, 2>,
@@ -581,7 +581,7 @@ fn vfio_add_emulated_area(
     debug!(
         "BAR{} {:?} hole: [{:#x}..{:#x}]",
         bar_idx,
-        type_flag,
+        usage_flag,
         bar_gpa + host_aligned_offset,
         bar_gpa + host_aligned_offset + host_aligned_size,
     );
@@ -589,7 +589,7 @@ fn vfio_add_emulated_area(
     let info = VfioBarEmulatedArea {
         gpa: bar_gpa + host_aligned_offset,
         size: host_aligned_size,
-        usage: type_flag,
+        usage: usage_flag,
     };
 
     match emulated_areas.last_mut() {
@@ -676,7 +676,7 @@ fn vfio_calculate_bar_areas(
                     vfio_add_emulated_area(
                         bar_idx,
                         bar_gpa,
-                        VfioBarEmulatedRegionUsageFlags::MSIX_TABLE,
+                        VfioBarEmulatedAreaUsageFlags::MSIX_TABLE,
                         msix_table_offset,
                         msix_table_size,
                         &mut emulated_areas,
@@ -706,7 +706,7 @@ fn vfio_calculate_bar_areas(
                     vfio_add_emulated_area(
                         bar_idx,
                         bar_gpa,
-                        VfioBarEmulatedRegionUsageFlags::MSIX_PBA,
+                        VfioBarEmulatedAreaUsageFlags::MSIX_PBA,
                         msix_pba_offset,
                         msix_pba_size,
                         &mut emulated_areas,
@@ -1467,10 +1467,10 @@ mod tests {
             assert_eq!(holes.len(), 2);
             assert_eq!(holes[0].gpa, 0x1000);
             assert_eq!(holes[0].size, 0x1000);
-            assert_eq!(holes[0].usage, VfioBarEmulatedRegionUsageFlags::MSIX_TABLE);
+            assert_eq!(holes[0].usage, VfioBarEmulatedAreaUsageFlags::MSIX_TABLE);
             assert_eq!(holes[1].gpa, 0x2000);
             assert_eq!(holes[1].size, 0x1000);
-            assert_eq!(holes[1].usage, VfioBarEmulatedRegionUsageFlags::MSIX_PBA);
+            assert_eq!(holes[1].usage, VfioBarEmulatedAreaUsageFlags::MSIX_PBA);
         }
 
         // BARs are multiple pages, so hole leave some space
@@ -1503,10 +1503,10 @@ mod tests {
             assert_eq!(holes.len(), 2);
             assert_eq!(holes[0].gpa, 0x1000);
             assert_eq!(holes[0].size, 0x1000);
-            assert_eq!(holes[0].usage, VfioBarEmulatedRegionUsageFlags::MSIX_TABLE);
+            assert_eq!(holes[0].usage, VfioBarEmulatedAreaUsageFlags::MSIX_TABLE);
             assert_eq!(holes[1].gpa, 0x3000);
             assert_eq!(holes[1].size, 0x1000);
-            assert_eq!(holes[1].usage, VfioBarEmulatedRegionUsageFlags::MSIX_PBA);
+            assert_eq!(holes[1].usage, VfioBarEmulatedAreaUsageFlags::MSIX_PBA);
         }
     }
 
@@ -1729,10 +1729,10 @@ mod tests {
             assert_eq!(holes.len(), 2);
             assert_eq!(holes[0].gpa, 0x2000);
             assert_eq!(holes[0].size, 0x1000);
-            assert_eq!(holes[0].usage, VfioBarEmulatedRegionUsageFlags::MSIX_TABLE);
+            assert_eq!(holes[0].usage, VfioBarEmulatedAreaUsageFlags::MSIX_TABLE);
             assert_eq!(holes[1].gpa, 0x3000);
             assert_eq!(holes[1].size, 0x1000);
-            assert_eq!(holes[1].usage, VfioBarEmulatedRegionUsageFlags::MSIX_PBA);
+            assert_eq!(holes[1].usage, VfioBarEmulatedAreaUsageFlags::MSIX_PBA);
         }
     }
 
@@ -1756,10 +1756,10 @@ mod tests {
         assert_eq!(holes.len(), 2);
         assert_eq!(holes[0].gpa, 0x1000);
         assert_eq!(holes[0].size, 0x1000);
-        assert_eq!(holes[0].usage, VfioBarEmulatedRegionUsageFlags::MSIX_TABLE);
+        assert_eq!(holes[0].usage, VfioBarEmulatedAreaUsageFlags::MSIX_TABLE);
         assert_eq!(holes[1].gpa, 0x2000);
         assert_eq!(holes[1].size, 0x1000);
-        assert_eq!(holes[1].usage, VfioBarEmulatedRegionUsageFlags::MSIX_PBA);
+        assert_eq!(holes[1].usage, VfioBarEmulatedAreaUsageFlags::MSIX_PBA);
     }
 
     #[test]
@@ -1787,7 +1787,7 @@ mod tests {
         assert_eq!(holes[0].size, 0x1000);
         assert_eq!(
             holes[0].usage,
-            VfioBarEmulatedRegionUsageFlags::MSIX_TABLE | VfioBarEmulatedRegionUsageFlags::MSIX_PBA
+            VfioBarEmulatedAreaUsageFlags::MSIX_TABLE | VfioBarEmulatedAreaUsageFlags::MSIX_PBA
         );
     }
 
@@ -1821,7 +1821,7 @@ mod tests {
         assert_eq!(holes[0].size, 0x2000);
         assert_eq!(
             holes[0].usage,
-            VfioBarEmulatedRegionUsageFlags::MSIX_TABLE | VfioBarEmulatedRegionUsageFlags::MSIX_PBA
+            VfioBarEmulatedAreaUsageFlags::MSIX_TABLE | VfioBarEmulatedAreaUsageFlags::MSIX_PBA
         );
     }
 
