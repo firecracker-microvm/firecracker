@@ -87,6 +87,7 @@ pub(crate) struct WorkerHandle {
 }
 
 /// Determines how pending I/O is handled during worker teardown.
+#[derive(Clone, Copy)]
 pub(crate) enum FlushMode {
     Drain,
     DrainAndFlush,
@@ -820,11 +821,12 @@ mod tests {
     #[test]
     fn test_control_msg_batch() {
         let mut block = default_block(FileEngineType::Sync);
-        let BlockState::Configuring(resources, _) =
+        let BlockState::Configuring(mut resources, _) =
             std::mem::replace(&mut block.state, BlockState::Placeholder)
         else {
             unreachable!()
         };
+        let resources = resources.pop().unwrap();
         let expected_queue_state = resources.queue.save();
         let queue_evt = resources.queue_evt.try_clone().unwrap();
         let worker = BlockWorker {
@@ -870,6 +872,7 @@ mod tests {
         else {
             unreachable!()
         };
+        let mut resources = resources.pop().unwrap();
         resources.queue.initialize(&mem).unwrap();
         let queue_evt = resources.queue_evt.try_clone().unwrap();
         let worker = BlockWorker {
