@@ -85,6 +85,8 @@ bitflags! {
 /// These are used for emulation of reads/writes to the MSIx table/pba.
 #[derive(Debug, Copy, Clone)]
 struct VfioBarEmulatedArea {
+    bar_idx: u8,
+    in_bar_offset: u64,
     gpa: u64,
     size: u64,
     usage: VfioBarEmulatedAreaUsageFlags,
@@ -586,20 +588,26 @@ fn vfio_add_emulated_area(
         bar_gpa + host_aligned_offset + host_aligned_size,
     );
 
-    let info = VfioBarEmulatedArea {
+    let new_area = VfioBarEmulatedArea {
+        bar_idx,
+        in_bar_offset: host_aligned_offset,
         gpa: bar_gpa + host_aligned_offset,
         size: host_aligned_size,
         usage: usage_flag,
     };
 
     match emulated_areas.last_mut() {
-        Some(last) if vfio_ranges_overlap(last.gpa, last.size, info.gpa, info.size) => {
-            let end = (last.gpa + last.size).max(info.gpa + info.size);
-            last.usage |= info.usage;
-            last.gpa = last.gpa.min(info.gpa);
-            last.size = end - last.gpa;
+        Some(last_area)
+            if vfio_ranges_overlap(last_area.gpa, last_area.size, new_area.gpa, new_area.size) =>
+        {
+            assert_eq!(last_area.bar_idx, bar_idx);
+            let end = (last_area.gpa + last_area.size).max(new_area.gpa + new_area.size);
+            last_area.usage |= new_area.usage;
+            last_area.in_bar_offset = last_area.in_bar_offset.min(new_area.in_bar_offset);
+            last_area.gpa = last_area.gpa.min(new_area.gpa);
+            last_area.size = end - last_area.gpa;
         }
-        _ => emulated_areas.push(info),
+        _ => emulated_areas.push(new_area),
     }
 }
 
@@ -1631,6 +1639,104 @@ mod tests {
         // Empty ranges do not overlap anything, even when inside the other range
         assert!(!vfio_ranges_overlap(0x1000, 0x1000, 0x1800, 0));
         assert!(!vfio_ranges_overlap(0x1800, 0, 0x1000, 0x1000));
+    }
+
+    #[test]
+    fn test_vfio_add_emulated_area_no_overlap() {
+        let mut emulated_areas = ArrayVec::<VfioBarEmulatedArea, 2>::new();
+
+        vfio_add_emulated_area(
+            0,
+            0x1000,
+            VfioBarEmulatedAreaUsageFlags::MSIX_TABLE,
+            0,
+            0x1000,
+            &mut emulated_areas,
+        );
+
+        vfio_add_emulated_area(
+            0,
+            0x1000,
+            VfioBarEmulatedAreaUsageFlags::MSIX_PBA,
+            0x1000,
+            0x1000,
+            &mut emulated_areas,
+        );
+
+        assert_eq!(emulated_areas.len(), 2);
+        assert_eq!(emulated_areas[0].bar_idx, 0);
+        assert_eq!(emulated_areas[0].in_bar_offset, 0);
+        assert_eq!(emulated_areas[0].gpa, 0x1000);
+        assert_eq!(emulated_areas[0].size, 0x1000);
+        assert_eq!(
+            emulated_areas[0].usage,
+            VfioBarEmulatedAreaUsageFlags::MSIX_TABLE
+        );
+        assert_eq!(emulated_areas[1].bar_idx, 0);
+        assert_eq!(emulated_areas[1].in_bar_offset, 0x1000);
+        assert_eq!(emulated_areas[1].gpa, 0x2000);
+        assert_eq!(emulated_areas[1].size, 0x1000);
+        assert_eq!(
+            emulated_areas[1].usage,
+            VfioBarEmulatedAreaUsageFlags::MSIX_PBA
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_vfio_add_emulated_area_overlap_different_bar_ids() {
+        let mut emulated_areas = ArrayVec::<VfioBarEmulatedArea, 2>::new();
+
+        vfio_add_emulated_area(
+            0,
+            0x1000,
+            VfioBarEmulatedAreaUsageFlags::MSIX_TABLE,
+            0x1000,
+            0x1000,
+            &mut emulated_areas,
+        );
+
+        vfio_add_emulated_area(
+            1,
+            0x1000,
+            VfioBarEmulatedAreaUsageFlags::MSIX_PBA,
+            0,
+            0x2000,
+            &mut emulated_areas,
+        );
+    }
+
+    #[test]
+    fn test_vfio_add_emulated_area_overlap() {
+        let mut emulated_areas = ArrayVec::<VfioBarEmulatedArea, 2>::new();
+
+        vfio_add_emulated_area(
+            0,
+            0x1000,
+            VfioBarEmulatedAreaUsageFlags::MSIX_TABLE,
+            0x1000,
+            0x1000,
+            &mut emulated_areas,
+        );
+
+        vfio_add_emulated_area(
+            0,
+            0x1000,
+            VfioBarEmulatedAreaUsageFlags::MSIX_PBA,
+            0,
+            0x2000,
+            &mut emulated_areas,
+        );
+
+        assert_eq!(emulated_areas.len(), 1);
+        assert_eq!(emulated_areas[0].bar_idx, 0);
+        assert_eq!(emulated_areas[0].in_bar_offset, 0);
+        assert_eq!(emulated_areas[0].gpa, 0x1000);
+        assert_eq!(emulated_areas[0].size, 0x2000);
+        assert_eq!(
+            emulated_areas[0].usage,
+            VfioBarEmulatedAreaUsageFlags::MSIX_TABLE | VfioBarEmulatedAreaUsageFlags::MSIX_PBA
+        );
     }
 
     #[test]
