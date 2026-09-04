@@ -488,19 +488,23 @@ fn create_pci_nodes(fdt: &mut FdtWriter, segment: &PciSegment) -> Result<(), Fdt
     let pci_node_name = format!("pci@{:x}", segment.mmio_config_address);
     // Each range here is a thruple of `(PCI address, CPU address, PCI size)`.
     //
+    // The first cell encodes the address space: bits 25-24 hold the space code
+    // (0b10 for 32-bit memory, 0b11 for 64-bit memory) and bit 30 marks the
+    // range prefetchable.
+    //
     // More info about the format can be found here:
     // https://elinux.org/Device_Tree_Usage#PCI_Address_Translation
     let ranges = [
-        // 32bit addresses
-        0x200_0000u32,
+        // 32 bit memory space, non-prefetchable
+        0b0000_0010_0000_0000_0000_0000_0000_0000u32,
         (MEM_32BIT_DEVICES_START >> 32) as u32, // PCI address
         (MEM_32BIT_DEVICES_START & 0xffff_ffff) as u32,
         (MEM_32BIT_DEVICES_START >> 32) as u32, // CPU address
         (MEM_32BIT_DEVICES_START & 0xffff_ffff) as u32,
         (MEM_32BIT_DEVICES_SIZE >> 32) as u32, // Range size
         (MEM_32BIT_DEVICES_SIZE & 0xffff_ffff) as u32,
-        // 64bit addresses
-        0x300_0000u32,
+        // 64 bit memory space, prefetchable
+        0b0100_0011_0000_0000_0000_0000_0000_0000u32,
         // PCI address
         (MEM_64BIT_DEVICES_START >> 32) as u32, // PCI address
         (MEM_64BIT_DEVICES_START & 0xffff_ffff) as u32,
