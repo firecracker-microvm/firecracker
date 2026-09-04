@@ -712,6 +712,9 @@ impl Vmm {
         seccomp_filters: &BpfThreadMap,
     ) -> Result<(), VmmActionError> {
         log_dev_preview_warning("PCI device hotplug", None);
+        if let HotplugDeviceConfig::Block(block_config) = &config {
+            block_config.validate_num_queues(self.machine_config.vcpu_count)?;
+        }
         let kvm_vm = self
             .vm
             .as_kvm()

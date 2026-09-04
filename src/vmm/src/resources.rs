@@ -268,6 +268,16 @@ impl VmResources {
     ) -> Result<(), MachineConfigError> {
         let updated = self.machine_config.update(update)?;
 
+        // Block devices cannot expose more queues than vCPUs.
+        if self
+            .block
+            .configs()
+            .iter()
+            .any(|config| config.num_queues > u16::from(updated.vcpu_count))
+        {
+            return Err(MachineConfigError::InvalidVcpuCount);
+        }
+
         // The VM cannot have a memory size smaller than the target size
         // of the balloon device, if present.
         if self.balloon.get().is_some()
@@ -362,6 +372,7 @@ impl VmResources {
         &mut self,
         block_device_config: BlockDeviceConfig,
     ) -> Result<(), DriveError> {
+        block_device_config.validate_num_queues(self.machine_config.vcpu_count)?;
         let has_pmem_root = self.pmem.has_root_device();
         self.block.insert(block_device_config, has_pmem_root)
     }
@@ -622,6 +633,7 @@ mod tests {
                 is_read_only: Some(false),
                 discard: None,
                 threaded: false,
+                num_queues: 1,
                 path_on_host: Some(tmp_file.as_path().to_str().unwrap().to_string()),
                 rate_limiter: Some(RateLimiterConfig::default()),
                 file_engine_type: None,
@@ -1677,6 +1689,38 @@ mod tests {
                 .st_ino(),
             tmp_ino
         );
+    }
+
+    #[test]
+    fn test_mq_vcpus() {
+        let mut vm_resources = default_vm_resources();
+        let (mut block_config, _file) = default_block_cfg();
+        block_config.drive_id = "mq".to_string();
+        block_config.threaded = true;
+        block_config.num_queues = 2;
+
+        assert!(matches!(
+            vm_resources.set_block_device(block_config.clone()),
+            Err(DriveError::InvalidQueueCount(2, 1))
+        ));
+
+        vm_resources
+            .update_machine_config(&MachineConfigUpdate {
+                vcpu_count: Some(2),
+                ..Default::default()
+            })
+            .unwrap();
+        vm_resources.set_block_device(block_config).unwrap();
+
+        // Lowering the vCPU count below the queue count is rejected and leaves the config as is.
+        assert!(matches!(
+            vm_resources.update_machine_config(&MachineConfigUpdate {
+                vcpu_count: Some(1),
+                ..Default::default()
+            }),
+            Err(MachineConfigError::InvalidVcpuCount)
+        ));
+        assert_eq!(vm_resources.machine_config.vcpu_count, 2);
     }
 
     #[test]
