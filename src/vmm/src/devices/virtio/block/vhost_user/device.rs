@@ -22,9 +22,7 @@ use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vhost_user::{VhostUserHandleBackend, VhostUserHandleImpl};
-use crate::devices::virtio::vhost_user_metrics::{
-    VhostUserDeviceMetrics, VhostUserMetricsPerDevice,
-};
+use crate::devices::virtio::vhost_user_metrics::{METRICS, VhostUserDeviceMetrics};
 use crate::logger::{IncMetric, StoreMetric, log_dev_preview_warning};
 use crate::utils::u64_to_usize;
 use crate::vmm_config::drive::BlockDeviceConfig;
@@ -216,9 +214,11 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
         let avail_features = acked_features;
         let acked_features = acked_features & VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits();
         let read_only = acked_features & (1 << VIRTIO_BLK_F_RO) != 0;
-        let vhost_user_block_metrics_name = format!("block_{}", config.drive_id);
+        let id = format!("block_{}", config.drive_id);
 
-        let metrics = VhostUserMetricsPerDevice::alloc(vhost_user_block_metrics_name);
+        let metrics = Arc::new(VhostUserDeviceMetrics::default());
+        METRICS.write().unwrap().insert(id.clone(), metrics.clone());
+
         let delta_us = get_time_us(ClockType::Monotonic) - start_time;
         metrics.init_time_us.store(delta_us);
 
