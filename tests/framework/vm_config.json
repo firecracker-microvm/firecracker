@@ -13,6 +13,7 @@
       "is_read_only": false,
       "discard": false,
       "threaded": false,
+      "num_queues": 1,
       "path_on_host": "bionic.rootfs.ext4",
       "io_engine": "Sync",
       "rate_limiter": null,
