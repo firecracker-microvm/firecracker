@@ -15,14 +15,16 @@ impl VirtioBlock {
     const PROCESS_ASYNC_COMPLETION: u32 = 3;
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
+        let resources = self.resources();
+        assert_eq!(resources.len(), 1, "inline block must have one queue");
         if let Err(err) = ops.add(Events::with_data(
-            &self.resources().queue_evt,
+            &resources[0].queue_evt,
             Self::PROCESS_QUEUE,
             EventSet::IN,
         )) {
             error!("Failed to register queue event: {}", err);
         }
-        if let FileEngine::Async(ref engine) = self.resources().disk.file_engine
+        if let FileEngine::Async(engine) = &resources[0].disk.file_engine
             && let Err(err) = ops.add(Events::with_data(
                 engine.completion_evt(),
                 Self::PROCESS_ASYNC_COMPLETION,
@@ -112,7 +114,9 @@ impl MutEventSubscriber for VirtioBlock {
                     let _ = self.lock_rate_limiter().event_handler();
                 }
                 Self::PROCESS_ASYNC_COMPLETION => {
-                    if let FileEngine::Async(ref engine) = self.resources().disk.file_engine {
+                    let resources = self.resources();
+                    assert_eq!(resources.len(), 1, "inline block must have one queue");
+                    if let FileEngine::Async(engine) = &resources[0].disk.file_engine {
                         let _ = engine.completion_evt().read();
                     }
                 }
