@@ -43,6 +43,7 @@ def test_hotplug_block(uvm_any):
             "ops": {"size": 100, "refill_time": 100},
         },
         threaded=True,
+        num_queues=2,
     )
 
     # Rescan PCI bus since no hotplug notification mechanism exists yet
