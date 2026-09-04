@@ -148,6 +148,35 @@ def test_api_put_update_pre_boot(uvm, io_engine):
         io_engine=io_engine,
     )
 
+    # More queues than vCPUs are not allowed. The microVM has 2 vCPUs here.
+    with pytest.raises(
+        RuntimeError,
+        match="Invalid queue count 3 for device scratch; cannot exceed the configured vCPU count 2",
+    ):
+        test_microvm.api.drive.put(
+            drive_id="scratch",
+            path_on_host=test_microvm.get_jailed_resource(fs2.path),
+            is_read_only=True,
+            is_root_device=False,
+            io_engine=io_engine,
+            num_queues=3,
+        )
+
+    # Two queues fit two vCPUs, and the vCPU count cannot drop below them afterwards.
+    test_microvm.api.drive.put(
+        drive_id="scratch",
+        path_on_host=test_microvm.get_jailed_resource(fs2.path),
+        is_read_only=True,
+        is_root_device=False,
+        io_engine=io_engine,
+        num_queues=2,
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="Invalid queue count 2 for device scratch; cannot exceed the configured vCPU count 1",
+    ):
+        test_microvm.api.machine_config.patch(vcpu_count=1)
+
     # Valid updates to all fields in the machine configuration are allowed.
     # The machine configuration has a default value, so all PUTs are updates.
     microvm_config_json = {
