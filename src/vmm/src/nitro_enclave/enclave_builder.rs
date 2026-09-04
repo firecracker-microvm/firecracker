@@ -30,7 +30,7 @@ use crate::vmm_config::boot_source::{
 };
 use crate::vmm_config::enclave::{EnclaveConfig, EnclaveNumaNode};
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
-use crate::vmm_config::machine_config::MachineConfig;
+use crate::vmm_config::machine_config::{HugePageConfig, MachineConfig};
 use crate::vstate::vm::Vm;
 use crate::{EventManager, Vmm};
 
@@ -113,6 +113,8 @@ pub enum EnclaveBuilderError {
     NumaValidationError(String),
     /// A Nitro Enclave does not support a {0} device
     UnsupportedDevice(&'static str),
+    /// A Nitro Enclave does not support {0}
+    UnsupportedFeature(&'static str),
 }
 
 /// Read a pre-built EIF from the descriptor `is_eif` validated.
@@ -198,6 +200,44 @@ fn validate_enclave_vcpu_count(vcpu_count: u16) -> Result<(), EnclaveBuilderErro
     Ok(())
 }
 
+/// Reject machine-config features that only the KVM builder applies.
+///
+/// Without this they would be configured successfully and then never take
+/// effect, and `GET /machine-config` would keep reporting them as set.
+fn validate_supported_features(machine_config: &MachineConfig) -> Result<(), EnclaveBuilderError> {
+    // Destructured exhaustively so that a new MachineConfig field does not
+    // silently join the set of settings this path drops.
+    let MachineConfig {
+        vcpu_count: _,
+        mem_size_mib: _,
+        smt,
+        cpu_template,
+        track_dirty_pages,
+        huge_pages,
+        pcie_hotplug_ports,
+        #[cfg(feature = "gdb")]
+        gdb_socket_path,
+    } = machine_config;
+
+    #[cfg(feature = "gdb")]
+    if gdb_socket_path.is_some() {
+        return Err(EnclaveBuilderError::UnsupportedFeature("gdb_socket_path"));
+    }
+
+    for (present, name) in [
+        (*smt, "smt"),
+        (cpu_template.is_some(), "cpu_template"),
+        (*track_dirty_pages, "track_dirty_pages"),
+        (*huge_pages != HugePageConfig::None, "huge_pages"),
+        (*pcie_hotplug_ports != 0, "pcie_hotplug_ports"),
+    ] {
+        if present {
+            return Err(EnclaveBuilderError::UnsupportedFeature(name));
+        }
+    }
+    Ok(())
+}
+
 /// Reject devices the enclave cannot serve.
 ///
 /// Balloon, pmem and memory hotplug have no Nitro Enclave transport, so they
@@ -223,6 +263,7 @@ fn validate_supported_devices(vm_resources: &VmResources) -> Result<(), EnclaveB
     }
     Ok(())
 }
+
 /// Build and boot a Nitro Enclave from the given VM resources and enclave config.
 ///
 /// If `kernel_image_path` points to a pre-built EIF file (detected by magic bytes),
@@ -249,6 +290,8 @@ pub fn build_and_boot_enclave(
     if !mem_size_mib.is_multiple_of(2) {
         return Err(EnclaveBuilderError::MemSizeNotAligned(mem_size_mib));
     }
+
+    validate_supported_features(&vm_resources.machine_config)?;
 
     validate_supported_devices(vm_resources)?;
 
@@ -636,6 +679,83 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_supported_features() {
+        use crate::cpu_config::templates::StaticCpuTemplate;
+        use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate};
+
+        #[cfg(target_arch = "x86_64")]
+        const STATIC_TEMPLATE: StaticCpuTemplate = StaticCpuTemplate::T2;
+        #[cfg(target_arch = "aarch64")]
+        const STATIC_TEMPLATE: StaticCpuTemplate = StaticCpuTemplate::V1N1;
+
+        // A default machine config asks for none of them.
+        validate_supported_features(&MachineConfig::default()).unwrap();
+
+        let cases = [
+            (
+                "smt",
+                MachineConfig {
+                    smt: true,
+                    ..Default::default()
+                },
+            ),
+            (
+                "cpu_template",
+                MachineConfig {
+                    cpu_template: Some(CpuTemplateType::Custom(CustomCpuTemplate::default())),
+                    ..Default::default()
+                },
+            ),
+            (
+                "track_dirty_pages",
+                MachineConfig {
+                    track_dirty_pages: true,
+                    ..Default::default()
+                },
+            ),
+            (
+                "huge_pages",
+                MachineConfig {
+                    huge_pages: HugePageConfig::Hugetlbfs2M,
+                    ..Default::default()
+                },
+            ),
+            // Transparent must be rejected too: narrowing the check to
+            // is_hugetlbfs() would otherwise pass with a green suite.
+            (
+                "huge_pages",
+                MachineConfig {
+                    huge_pages: HugePageConfig::Transparent,
+                    ..Default::default()
+                },
+            ),
+            (
+                "pcie_hotplug_ports",
+                MachineConfig {
+                    pcie_hotplug_ports: 1,
+                    ..Default::default()
+                },
+            ),
+            // A static template must be caught as well as a custom one -- both
+            // land in the same Option, which is the point of the single check.
+            (
+                "cpu_template",
+                MachineConfig {
+                    cpu_template: Some(CpuTemplateType::Static(STATIC_TEMPLATE)),
+                    ..Default::default()
+                },
+            ),
+        ];
+        for (expected, machine_config) in cases {
+            let err = validate_supported_features(&machine_config).unwrap_err();
+            assert!(matches!(
+                err,
+                EnclaveBuilderError::UnsupportedFeature(name) if name == expected
+            ));
+        }
+    }
+
+    #[test]
     fn test_validate_supported_devices() {
         use crate::vmm_config::balloon::BalloonBuilder;
         use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
@@ -674,6 +794,7 @@ mod tests {
         // The vhost-user case needs a built Block, so it is left to the
         // integration tests.
     }
+
     fn machine(vcpu_count: u16, mem_size_mib: usize) -> MachineConfig {
         MachineConfig {
             vcpu_count,
