@@ -95,11 +95,14 @@ impl Default for BlockDeviceConfig {
             is_root_device: false,
             cache_type: CacheType::default(),
             is_read_only: None,
+            discard: None,
             threaded: false,
             num_queues: DEFAULT_BLOCK_NUM_QUEUES,
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
+            blk_size: None,
+            topology: None,
             socket: None,
         }
     }
