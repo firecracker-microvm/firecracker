@@ -8,7 +8,7 @@ use vmm::arch::x86_64::generated::msr_index::*;
 use vmm::arch::x86_64::msr::MsrRange;
 use vmm::cpu_config::templates::{CpuConfiguration, CustomCpuTemplate, RegisterValueFilter};
 use vmm::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
-use vmm::cpu_config::x86_64::cpuid::{Cpuid, VENDOR_ID_AMD};
+use vmm::cpu_config::x86_64::cpuid::{Cpuid, VENDOR_ID_AMD, VENDOR_ID_HYGON};
 use vmm::cpu_config::x86_64::custom_cpu_template::{
     CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier,
 };
@@ -49,9 +49,11 @@ fn msrs_to_modifier(msrs: &BTreeMap<u32, u64>) -> Vec<RegisterModifier> {
         .iter()
         .map(|(index, value)| msr_modifier!(*index, *value))
         .collect();
+    let vendor = get_vendor_id_from_host().unwrap();
 
     msrs.retain(|modifier| !should_exclude_msr(modifier.addr));
-    if &get_vendor_id_from_host().unwrap() == VENDOR_ID_AMD {
+
+    if matches!(&vendor, VENDOR_ID_AMD | VENDOR_ID_HYGON) {
         msrs.retain(|modifier| !should_exclude_msr_amd(modifier.addr));
     }
 
@@ -216,7 +218,9 @@ mod tests {
             msr_modifier!(0x3, 0x0000_0000_ffff_ffff),
             msr_modifier!(0x5, 0xffff_ffff_0000_0000),
         ];
-        if &get_vendor_id_from_host().unwrap() != VENDOR_ID_AMD {
+        let vendor = get_vendor_id_from_host().unwrap();
+
+        if !matches!(&vendor, VENDOR_ID_AMD | VENDOR_ID_HYGON) {
             MSR_EXCLUSION_LIST_AMD.iter().for_each(|range| {
                 (range.base..(range.base + range.nmsrs)).for_each(|id| {
                     v.push(msr_modifier!(id, 0));
