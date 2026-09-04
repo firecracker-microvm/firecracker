@@ -5,11 +5,11 @@
 
 use device::ConfigSpace;
 use serde::{Deserialize, Serialize};
-use std::iter;
 use std::sync::{Arc, Mutex};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::device::{BlockResources, BlockRuntimeState, DiskProperties};
+use super::worker::WorkerHandle;
 use super::*;
 use crate::devices::virtio::block::persist::BlockConstructorArgs;
 use crate::devices::virtio::block::virtio::device::{
@@ -83,11 +83,15 @@ impl Persist<'_> for VirtioBlock {
                 device_type: VirtioDeviceType::Block,
                 avail_features: self.avail_features,
                 acked_features: self.acked_features,
-                queues: vec![active.worker_handle.get_queue_state()],
+                queues: active
+                    .worker_handles
+                    .iter()
+                    .map(WorkerHandle::get_queue_state)
+                    .collect(),
                 activated: true,
             }
         } else {
-            VirtioDeviceState::from_device(self, iter::once(&self.resources().queue))
+            VirtioDeviceState::from_device(self, self.resources().iter().map(|r| &r.queue))
         };
         VirtioBlockState {
             id: self.config.drive_id.clone(),
@@ -175,7 +179,7 @@ impl Persist<'_> for VirtioBlock {
 
             config,
             rate_limiter: Arc::new(Mutex::new(rate_limiter)),
-            state: BlockRuntimeState::Configuring(resources, None),
+            state: BlockRuntimeState::Configuring(vec![resources], Vec::new()),
             metrics: BlockMetricsPerDevice::alloc(state.id.clone()),
         })
     }
@@ -274,7 +278,10 @@ mod tests {
         assert_eq!(restored_block.device_type(), VirtioDeviceType::Block);
         assert_eq!(restored_block.avail_features(), block.avail_features());
         assert_eq!(restored_block.acked_features(), block.acked_features());
-        assert_eq!(restored_block.resources().queue, block.resources().queue);
+        assert_eq!(
+            restored_block.resources()[0].queue,
+            block.resources()[0].queue
+        );
         assert!(!block.is_activated());
         assert!(!restored_block.is_activated());
 
