@@ -16,7 +16,7 @@ use crate::pci::configuration::PciCapability;
 use crate::pci::{PciCapabilityId, PciSBDF};
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
-use crate::vstate::interrupts::{InterruptError, MsixVectorConfig, MsixVectorGroup};
+use crate::vstate::interrupts::{InterruptError, MsixVectorGroup};
 use crate::vstate::vm::KvmVm;
 
 const MAX_MSIX_VECTORS_PER_DEVICE: u16 = 2048;
