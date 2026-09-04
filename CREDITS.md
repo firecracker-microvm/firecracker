@@ -17,14 +17,18 @@ on safety and security. Thanks go to:
 Contributors to the Firecracker repository:
 
 - Aaqa Ishtyaq <aaqaishtyaq@gmail.com>
+- Aaron Ang <aaron.angyd@gmail.com>
 - Aaron Hill <aa1ronham@gmail.com>
+- Aaron Lo <aaronlo0929@gmail.com>
 - Aaron O'Mullan <aaron.omullan@gmail.com>
 - Abhijeet Kasurde <akasurde@redhat.com>
 - acatangiu <adrian@parity.io>
 - acsmyth <54330152+acsmyth@users.noreply.github.com>
 - Adam Jensen <adam@acj.sh>
 - Adam Leskis <leskis@gmail.com>
+- Adnan Khan <adnanek@amazon.com>
 - Adrian Catangiu <acatan@amazon.com>
+- aerosouund <aerosound161@gmail.com>
 - Ahmed Abouzied <ahmedaabouzied44@gmail.com>
 - Akhil Mohan <akhilerm@gmail.com>
 - Alakesh <alakeshh@amazon.com>
@@ -37,6 +41,7 @@ Contributors to the Firecracker repository:
 - Alexandru Cihodaru <cihodar@amazon.com>
 - Alexandru-Cezar Sardan <alsardan@amazon.com>
 - Alin Dima <alindima@amazon.com>
+- Anastassios Nanos <ananos@nubificus.co.uk>
 - Anatoli Babenia <anatoli@rainforce.org>
 - Andrea Manzini <andrea.manzini@suse.com>
 - Andreea Florescu <fandree@amazon.com>
@@ -67,9 +72,11 @@ Contributors to the Firecracker repository:
 - Bogdan Ionita <bci@amazon.com>
 - Brandon Duffany <brandon@buildbuddy.io>
 - Brandon Pike <bpike@amazon.com>
+- Branislav Brzak <branislav.brzak@stealthium.io>
 - Caleb Albers <7110138+CalebAlbers@users.noreply.github.com>
 - Cam Mannett <camden.mannett@protonmail.ch>
 - Carlos López <carlos.lopez@suse.com>
+- Changeun Park <g3un@protonmail.ch>
 - chaos matrix <mythsphoenix@outlook.com>
 - Char1ee <xingjianli59@gmail.com>
 - Chinmay Kousik <chinmaykousik1@gmail.com>
@@ -87,6 +94,7 @@ Contributors to the Firecracker repository:
 - Damien Stanton <damien.stanton@gmail.com>
 - Dan Horobeanu <dhr@amazon.com>
 - Dan Lemmond <d.j.lemmond@gmail.com>
+- Daniel Alejandro Dominguez Diaz <danielfromarg@gmail.com>
 - David Michael <fedora.dm0@gmail.com>
 - David Nguyen <nguydavi@amazon.com>
 - David Son <davbson@amazon.com>
@@ -97,6 +105,8 @@ Contributors to the Firecracker repository:
 - Derek Manwaring <derekmn@amazon.com>
 - Diana Popa <dpopa@amazon.com>
 - Dmitrii <dmitrii.ustiugov@epfl.ch>
+- DontPanicO <dontpanic.call0@gmail.com>
+- Dov Alperin <git@dov.dev>
 - Echo-Head-Wall <101990236+Echo-Head-Wall@users.noreply.github.com>
 - Eddie Cazares <Ecazares15@utexas.edu>
 - Eduard Kyvenko <eduard.kyvenko@gmail.com>
@@ -129,6 +139,8 @@ Contributors to the Firecracker repository:
 - huang-jl <1046678590@qq.com>
 - Iggy Jackson <iggy@theiggy.com>
 - ihciah <ihciah@gmail.com>
+- Ilias Stamatis <ilstam@amazon.com>
+- immanuwell <pchpr.00@list.ru>
 - Ioana Chirca <chioana@amazon.com>
 - Ishwor Gurung <me@ishworgurung.com>
 - Iulian Barbu <iul@amazon.com>
@@ -138,11 +150,13 @@ Contributors to the Firecracker repository:
 - James Curtis <jxcurtis@amazon.co.uk>
 - James Turnbull <james@lovedthanlost.net>
 - Javier Romero <xavinux@gmail.com>
+- Jay Chung <jaehoc@amazon.com>
 - Jeff Widman <jeff@jeffwidman.com>
 - Jerome Gravel-Niquet <jeromegn@gmail.com>
 - Jing Yang <k.jingyang@gmail.com>
 - joaoleal <devjoaoleal1006@gmail.com>
 - Joel Winarske <joel.winarske@linux.com>
+- Jonas Savulionis <jonas@esnet.lt>
 - jonas serrano <jonas.corp@gmail.com>
 - Jonathan Browne <12983479+JBYoshi@users.noreply.github.com>
 - Jonathan Woollett-Light <jcawl@amazon.co.uk>
@@ -150,6 +164,7 @@ Contributors to the Firecracker repository:
 - Josh McConnell <jmcconnell26@qub.ac.uk>
 - Joshua Abraham <sinisterpatrician@gmail.com>
 - Julian Stecklina <js@alien8.de>
+- Junren Chen <jrchen@amazon.com>
 - Justus Adam <justbldr@amazon.com>
 - Ján Mochňak <mochja@users.noreply.github.com>
 - kanpov <karpovanton729@gmail.com>
@@ -163,6 +178,7 @@ Contributors to the Firecracker repository:
 - kumargu <kumargu@amazon.com>
 - Laura Loghin <lauralg@amazon.com>
 - lifupan <lifupan@gmail.com>
+- Lisa Goh <lisa.shannon.goh@gmail.com>
 - Liu Jiang <gerry@linux.alibaba.com>
 - Liviu Berciu <lberciu@amazon.com>
 - Lloyd <lloydmeta@gmail.com>
@@ -178,6 +194,7 @@ Contributors to the Firecracker repository:
 - Manohar Castelino <manohar.r.castelino@intel.com>
 - Marc Brooker <mbrooker@amazon.com>
 - Marco Cali <xmarcalx@amazon.co.uk>
+- Marco Marangoni <mamarang@amazon.com>
 - Marco Vedovati <mvedovati@suse.com>
 - Markus Ziller <web+github@markusziller.de>
 - Masatoshi Higuchi <matt9ucci@gmail.com>
@@ -192,17 +209,21 @@ Contributors to the Firecracker repository:
 - Michael Saah <msaah@linode.com>
 - Mihai Stan <stanmihai17cs@gmail.com>
 - milahu <milahu@gmail.com>
+- MohibShaikh <mohibuddin9@gmail.com>
 - moricho <ikeda.morito@gmail.com>
 - Muki Kiboigo <muki@kiboigo.com>
 - Muskaan Singla <msinglaa@amazon.com>
+- mzh <1113584652@qq.com>
 - Narek Galstyan <narekg@berkeley.edu>
 - Nathan Hoang <nathanhoang5@gmail.com>
 - Nathan Sizemore <nathanrsizemore@gmail.com>
+- Nick Rogers <1903140+rogersnm@users.noreply.github.com>
 - Nicolas Mesa <nicolasmesa@gmail.com>
 - NikeNano <niklas.sven.hansson@gmail.com>
 - Nikita Kalyazin <kalyazin@amazon.co.uk>
 - Nikita Zakirov <zakironi@amazon.com>
 - Nikolay Edigaryev <edigaryev@gmail.com>
+- Noa Levi <275430404+lphuc2250gma@users.noreply.github.com>
 - Noah Meyerhans <nmeyerha@amazon.com>
 - not required <bertdeb@gmail.com>
 - one230six <723682061@qq.com>
@@ -214,6 +235,8 @@ Contributors to the Firecracker repository:
 - Peter Hrvola <peter.hrvola@hotmail.com>
 - Petre Eftime <epetre@amazon.com>
 - Petros Angelatos <petrosagg@gmail.com>
+- Pierre Bertholom <pbertho@amazon.com>
+- pista <pyh5523@gmail.com>
 - Piyush Jain <piyushkj@cs.utexas.edu>
 - python273 <iam@python273.pw>
 - Radu Iliescu <riliescu@amazon.com>
@@ -222,6 +245,8 @@ Contributors to the Firecracker repository:
 - Ram Sripracha <ramsri@amazon.com>
 - rares <raresgmihalcea@gmail.com>
 - razn <rezwele@gmail.com>
+- Rekas <aure369@gmail.com>
+- Remo Andreoli <andrremo@amazon.com>
 - Ria <juthi_paul@utexas.edu>
 - Riccardo Mancini <mancio@amazon.com>
 - Richard Case <richard@weave.works>
@@ -232,6 +257,7 @@ Contributors to the Firecracker repository:
 - Rolf Neugebauer <neugebar@amazon.com>
 - Ryan Russell <git@ryanrussell.org>
 - Ryan Summerlin <summerlinryan@gmail.com>
+- RyanJHamby <ryanhamby22@gmail.com>
 - Sam Jackson <sam@clique.app>
 - Samuel Knox <knoxsa@oregonstate.edu>
 - Samuel Ortiz <sameo@linux.intel.com>
@@ -246,6 +272,7 @@ Contributors to the Firecracker repository:
 - Shion Yamashita <shioyama1118@gmail.com>
 - singwm <singwm@amazon.com>
 - sladynnunes <snunes@usc.edu>
+- snigenigmatic <kaustubhc.1105@gmail.com>
 - Sripracha <ramsri@amazon.com>
 - Stefan Nita <32079871+stefannita01@users.noreply.github.com>
 - StemCll <lydjotj6f@mozmail.com>
@@ -284,6 +311,8 @@ Contributors to the Firecracker repository:
 - Yuval Kohavi <yuval.kohavi@gmail.com>
 - Yılmaz ŞEN <yilmazsen94@gmail.com>
 - Zhenyu Qi <qzydustin@hotmail.com>
+- Zhiheng Tao <junchuan.tzh@antgroup.com>
 - Zi Shen Lim <zlim.lnx@gmail.com>
 - Zicklag <zicklag@katharostech.com>
 - Дамјан Георгиевски <gdamjan@gmail.com>
+- 刘顺钰 <shunyu.liu@chaitin.com>
