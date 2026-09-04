@@ -257,6 +257,30 @@ def check_regression(
     )
 
 
+def check_regression_runlevel(means_a, means_b):
+    """Paired t-test over per-iteration means (one entry per independent A/B run).
+
+    Each iteration is an independent run, so its mean is the correct unit of
+    observation. Significance comes from the run-to-run variance of the (B - A)
+    difference, not the correlated sample count within one run, avoiding the
+    pseudo-replication that makes the pooled permutation test fire on noise.
+
+    Returns (pvalue, effect = mean(b) - mean(a)); pvalue 1.0 with < 2 iterations
+    (variance undefined) or zero variance.
+    """
+    a = numpy.array(means_a, dtype=float)
+    b = numpy.array(means_b, dtype=float)
+    effect = float(numpy.mean(b) - numpy.mean(a))
+
+    if len(a) < 2:
+        return 1.0, effect
+
+    pvalue = float(scipy.stats.ttest_rel(b, a).pvalue)
+    if numpy.isnan(pvalue):  # zero variance (all diffs identical)
+        pvalue = 1.0
+    return pvalue, effect
+
+
 @dataclass
 class Threshold:
     """A threshold value with optional per-metric overrides."""
@@ -281,6 +305,32 @@ class Threshold:
         return cls(default=default, overrides=overrides)
 
 
+def format_regression_message(
+    metric,
+    effect,
+    relative_change,
+    old_mean,
+    new_mean,
+    unit,
+    pvalue,
+    detail,
+    dimension_set,
+    do_not_print_list,
+):
+    """Format the A/B regression report line shared by the pooled and run-level tests.
+
+    `detail` is the test-specific clause appended after the p-value (the two tests
+    differ only in how they explain significance).
+    """
+    return (
+        f"\033[0;32m[Firecracker A/B-Test Runner]\033[0m A/B-testing shows a change of "
+        f"{format_with_reduced_unit(effect, unit)}, or {relative_change:.2%}, "
+        f"(from {format_with_reduced_unit(old_mean, unit)} to {format_with_reduced_unit(new_mean, unit)}) "
+        f"for metric \033[1m{metric}\033[0m with \033[0;31m\033[1mp={pvalue}\033[0m{detail} "
+        f"Tested Dimensions:\n{json.dumps({k: v for k, v in dimension_set if k not in do_not_print_list}, indent=2, sort_keys=True)}"
+    )
+
+
 def analyze_data(
     data_a,
     data_b,
@@ -294,7 +344,10 @@ def analyze_data(
     Analyzes the A/B-test data produced by `collect_data`, by performing regression tests
     as described this script's doc-comment.
 
-    Returns the list of error messages (empty if the test passes).
+    Returns the list of error messages (empty if the test passes). This pooled test is
+    over-sensitive (it treats correlated within-run samples as independent), so
+    `ab_performance_test` uses it only as a cheap first-iteration screen and confirms
+    survivors with a run-level test across independent iterations.
     """
     assert set(data_a.keys()) == set(
         data_b.keys()
@@ -399,30 +452,27 @@ def analyze_data(
             old_mean = numpy.mean(data_a[dimension_set][metric][0])
             new_mean = numpy.mean(data_b[dimension_set][metric][0])
 
-            msg = (
-                f"\033[0;32m[Firecracker A/B-Test Runner]\033[0m A/B-testing shows a change of "
-                f"{format_with_reduced_unit(result.statistic, unit)}, or {result.statistic / old_mean:.2%}, "
-                f"(from {format_with_reduced_unit(old_mean, unit)} to {format_with_reduced_unit(new_mean, unit)}) "
-                f"for metric \033[1m{metric}\033[0m with \033[0;31m\033[1mp={result.pvalue}\033[0m. "
-                f"This means that observing a change of this magnitude or worse, assuming that performance "
-                f"characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. "
-                f"Tested Dimensions:\n{json.dumps({k: v for k, v in dimension_set if k not in do_not_print_list}, indent=2, sort_keys=True)}"
+            detail = (
+                f". This means that observing a change of this magnitude or worse, "
+                f"assuming that performance characteristics did not change across the "
+                f"tested commits, has a probability of {result.pvalue:.2%}."
             )
-            error_messages.append(msg)
+            error_messages.append(
+                format_regression_message(
+                    metric,
+                    result.statistic,
+                    result.statistic / old_mean,
+                    old_mean,
+                    new_mean,
+                    unit,
+                    result.pvalue,
+                    detail,
+                    dimension_set,
+                    do_not_print_list,
+                )
+            )
 
     return error_messages
-
-
-def merge_data(accumulated, new_data):
-    """Merge new_data into accumulated by appending values lists for each metric."""
-    for dimension_set, metrics in new_data.items():
-        if dimension_set not in accumulated:
-            accumulated[dimension_set] = {}
-        for metric, (values, unit) in metrics.items():
-            if metric in accumulated[dimension_set]:
-                accumulated[dimension_set][metric][0].extend(values)
-            else:
-                accumulated[dimension_set][metric] = (list(values), unit)
 
 
 def ab_performance_test(
@@ -438,43 +488,136 @@ def ab_performance_test(
 ):
     """Does an A/B-test of the specified test with the given firecracker/jailer binaries.
 
-    Retries up to max_iterations times, accumulating data only for dimensions
-    that are still failing, to reduce noise-induced false positives."""
+    Samples within one run are correlated (shared host/boot/window), so pooling them
+    into one test over-reports noise as a regression. Instead, treat each iteration as
+    one independent observation:
+      1. Screen iteration 1 with the pooled test; if clean, return (green runs stay 1x).
+      2. Otherwise collect per-iteration means and confirm with the run-level test
+         (see _runlevel_analysis) at the full iteration budget, stopping early only
+         when nothing remains above the noise floor (a clean run).
+    """
 
-    data_a = {}
-    data_b = {}
-    error_messages = []
+    # Per (dimension_set, metric): lists of per-iteration means for A and B, plus unit.
+    means_a = defaultdict(list)
+    means_b = defaultdict(list)
+    units = {}
+    iterations_run = 0
+
+    def record(data, means):
+        for dimension_set, metrics in data.items():
+            for metric, (values, unit) in metrics.items():
+                means[(dimension_set, metric)].append(float(numpy.mean(values)))
+                units[(dimension_set, metric)] = unit
 
     for i in range(max_iterations):
         print(f"\n=== Iteration {i + 1}/{max_iterations} ===")
-        # Changing the order or A and B executions across iterations, to avoid fluctuations caused by execution order
+        # Change the order of A and B executions across iterations, to avoid
+        # fluctuations caused by execution order.
         if i % 2 == 0:
-            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts, i)
-            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts, i)
+            data_a = collect_data("A", a_directory, a_artifacts, pytest_opts, i)
+            data_b = collect_data("B", b_directory, b_artifacts, pytest_opts, i)
         else:
-            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts, i)
-            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts, i)
-        merge_data(data_a, new_a)
-        merge_data(data_b, new_b)
+            data_b = collect_data("B", b_directory, b_artifacts, pytest_opts, i)
+            data_a = collect_data("A", a_directory, a_artifacts, pytest_opts, i)
 
-        error_messages = analyze_data(
-            data_a,
-            data_b,
-            p_thresh,
-            strength_abs_thresh,
-            noise_threshold,
+        record(data_a, means_a)
+        record(data_b, means_b)
+        iterations_run += 1
+
+        # Screen with the over-sensitive pooled test; a clean iteration 1 has nothing
+        # to confirm. Need >= 2 iterations before run-to-run variance is defined.
+        if i == 0:
+            screen = analyze_data(
+                data_a, data_b, p_thresh, strength_abs_thresh, noise_threshold
+            )
+            if not screen:
+                print("No regressions detected (clean screening iteration)!")
+                return
+            # With a single iteration there is no run-to-run variance to test, so the
+            # pooled screen is the only verdict available; report it directly.
+            if max_iterations < 2:
+                assert not screen, "\n" + "\n".join(screen)
+            print(f"Screen flagged {len(screen)} candidate(s); collecting more data...")
+            continue
+
+        # Defer any firing verdict to the full iteration budget: a paired t-test on
+        # only two runs rests on a single degree of freedom, where a coincidentally
+        # tight spread can fire on noise. Stop early only when nothing remains above
+        # the noise floor (a clean run); otherwise keep collecting so the final
+        # verdict uses the most degrees of freedom available.
+        error_messages, undecided = _runlevel_analysis(
+            means_a, means_b, units, p_thresh, strength_abs_thresh, noise_threshold
         )
-
-        if not error_messages:
-            print("No regressions detected!")
-            return
-
-        if i < max_iterations - 1:
+        if not error_messages and not undecided:
             print(
-                f"{len(error_messages)} regression(s) detected, retrying to collect more data..."
+                f"No candidate remains above the noise floor after "
+                f"{iterations_run} iterations; stopping early."
+            )
+            break
+        if iterations_run < max_iterations:
+            print(
+                f"{len(error_messages) + len(undecided)} candidate(s) still open after "
+                f"{iterations_run} iterations; collecting more data..."
             )
 
+    # Final verdict on whatever data we ended up collecting.
+    error_messages, _ = _runlevel_analysis(
+        means_a, means_b, units, p_thresh, strength_abs_thresh, noise_threshold
+    )
     assert not error_messages, "\n" + "\n".join(error_messages)
+    print(f"No reproducible regressions across {iterations_run} iterations!")
+
+
+def _runlevel_analysis(
+    means_a, means_b, units, p_thresh, strength_abs_thresh, noise_threshold
+):
+    """Run the paired run-level test on the per-iteration means collected so far.
+
+    Returns (error_messages, undecided_keys): confirmed regressions (significant AND
+    above the noise floor), and keys still above the floor but not yet significant
+    (more iterations could decide them). Keys below the floor are decided-clean.
+    """
+    do_not_print_list = uninteresting_dimensions({ds: {} for (ds, _metric) in means_a})
+    error_messages = []
+    undecided = []
+    for key in means_a:
+        dimension_set, metric = key
+        if is_ignored(dict(dimension_set) | {"metric": metric}):
+            continue
+
+        pvalue, effect = check_regression_runlevel(means_a[key], means_b[key])
+        baseline = numpy.mean(means_a[key])
+        relative_change = effect / baseline if baseline else 0.0
+
+        significant = pvalue < p_thresh.get(metric)
+        strong_enough = abs(effect) > strength_abs_thresh.get(metric)
+        above_noise = abs(relative_change) > noise_threshold.get(metric)
+
+        if not above_noise:  # below the floor: decided clean
+            continue
+
+        if significant and strong_enough:
+            old_mean = numpy.mean(means_a[key])
+            new_mean = numpy.mean(means_b[key])
+            detail = f" across {len(means_a[key])} independent iterations."
+            error_messages.append(
+                format_regression_message(
+                    metric,
+                    effect,
+                    relative_change,
+                    old_mean,
+                    new_mean,
+                    units[key],
+                    pvalue,
+                    detail,
+                    dimension_set,
+                    do_not_print_list,
+                )
+            )
+        else:  # above the floor but not yet significant
+            undecided.append(key)
+
+    return error_messages, undecided
 
 
 def main():
@@ -522,7 +665,7 @@ def main():
     )
     run_parser.add_argument(
         "--max-iterations",
-        help="Maximum number of A/B iterations. Retries only if regressions are detected, accumulating more data to reduce false positives.",
+        help="Maximum number of independent A/B iterations. A clean first iteration returns immediately; otherwise iterations are collected until the run-level test can decide. More iterations give the test more power.",
         type=int,
         default=1,
     )
