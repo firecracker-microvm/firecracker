@@ -16,7 +16,7 @@ use crate::pci::configuration::PciCapability;
 use crate::pci::{PciCapabilityId, PciSBDF};
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
-use crate::vstate::interrupts::{InterruptError, MsixVectorConfig, MsixVectorGroup};
+use crate::vstate::interrupts::{InterruptError, MsixVectorGroup};
 use crate::vstate::vm::KvmVm;
 
 const MAX_MSIX_VECTORS_PER_DEVICE: u16 = 2048;
@@ -199,6 +199,19 @@ impl MsixConfig {
             enabled: self.enabled,
             vectors: self.vectors.save(),
         }
+    }
+
+    /// Create a u16 value represeting msg_ctl register
+    pub fn as_msg_ctl(&self) -> u16 {
+        assert!(!self.table_entries.is_empty());
+        assert!(self.table_entries.len() <= MAX_MSIX_VECTORS_PER_DEVICE as usize);
+        #[allow(clippy::cast_possible_truncation)]
+        let table_size: u16 = self.table_entries.len() as u16 - 1;
+        let function_mask = u16::from(self.masked);
+        let msix_enable = u16::from(self.enabled);
+        (msix_enable << u16::from(MSIX_ENABLE_BIT))
+            | (function_mask << u16::from(FUNCTION_MASK_BIT))
+            | table_size
     }
 
     /// Set the MSI-X control message (enable/disable, (un)mask)
