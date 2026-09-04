@@ -1177,7 +1177,7 @@ pub(crate) mod tests {
             let Block::Virtio(block) = device.as_mut_any().downcast_mut::<Block>().unwrap() else {
                 unreachable!("block0 is a virtio block device");
             };
-            block.resources_mut().queue.add_used(0, 0).unwrap();
+            block.resources_mut()[0].queue.add_used(0, 0).unwrap();
         }
         drop(device);
         let used_ring = u64_to_usize(vq.used_start().raw_value());
