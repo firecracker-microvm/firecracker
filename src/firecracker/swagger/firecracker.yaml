@@ -1251,6 +1251,15 @@ definitions:
           Whether to process requests on a dedicated worker thread.
           This field is supported only for virtio-block configuration.
         default: false
+      num_queues:
+        type: integer
+        format: int32
+        minimum: 1
+        description:
+          Number of virtio queues exposed by the block device. Cannot exceed the configured vCPU count.
+          Values greater than one require threaded mode.
+          This field is supported only for virtio-block configuration.
+        default: 1
       path_on_host:
         type: string
         description:

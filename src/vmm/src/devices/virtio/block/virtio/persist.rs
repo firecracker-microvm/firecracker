@@ -17,8 +17,10 @@ use crate::devices::virtio::block::virtio::device::{
 };
 use crate::devices::virtio::block::virtio::metrics::BlockMetricsPerDevice;
 use crate::devices::virtio::device::VirtioDeviceType;
-use crate::devices::virtio::generated::virtio_blk::{VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_RO};
-use crate::devices::virtio::persist::VirtioDeviceState;
+use crate::devices::virtio::generated::virtio_blk::{
+    VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_MQ, VIRTIO_BLK_F_RO,
+};
+use crate::devices::virtio::persist::{PersistError, VirtioDeviceState};
 use crate::rate_limiter::RateLimiter;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::snapshot::Persist;
@@ -118,6 +120,8 @@ impl Persist<'_> for VirtioBlock {
         let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)
             .map_err(VirtioBlockError::RateLimiter)?;
         let rate_limiter_config: RateLimiterConfig = (&rate_limiter).into();
+        let num_queues = u16::try_from(state.virtio_state.queues.len())
+            .map_err(|_| VirtioBlockError::Persist(PersistError::InvalidInput))?;
         let config = VirtioBlockConfig {
             drive_id: state.id.clone(),
             partuuid: state.partuuid.clone(),
@@ -126,61 +130,61 @@ impl Persist<'_> for VirtioBlock {
             is_read_only,
             discard: state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD) != 0,
             threaded: state.threaded,
+            num_queues,
             path_on_host: state.disk_path.clone(),
             rate_limiter: rate_limiter_config.into_option(),
             file_engine_type: state.file_engine_type.into(),
             blk_size: Some(state.blk_size),
             topology: Some(state.topology),
         };
+        config.validate_queue_count()?;
+        let mq_offered = state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_MQ) != 0;
+        if mq_offered != (num_queues > 1) {
+            return Err(VirtioBlockError::Persist(PersistError::InvalidInput));
+        }
 
-        let disk_properties = DiskProperties::new(
-            state.disk_path.clone(),
-            is_read_only,
-            state.file_engine_type.into(),
-        )?;
-
-        let queue_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?;
-
-        let queue = state
+        let queues = state
             .virtio_state
             .build_queues_checked(
                 &constructor_args.mem,
                 VirtioDeviceType::Block,
-                DEFAULT_BLOCK_NUM_QUEUES,
+                usize::from(num_queues),
                 FIRECRACKER_MAX_QUEUE_SIZE,
             )
-            .map_err(VirtioBlockError::Persist)?
-            .into_iter()
-            .next()
-            .expect("must contain one queue");
-
-        let avail_features = state.virtio_state.avail_features;
-        let acked_features = state.virtio_state.acked_features;
+            .map_err(VirtioBlockError::Persist)?;
+        let mut resources = Vec::with_capacity(usize::from(num_queues));
+        for (queue_idx, queue) in (0..num_queues).zip(queues) {
+            resources.push(BlockResources {
+                queue,
+                queue_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
+                queue_idx,
+                disk: DiskProperties::new(
+                    state.disk_path.clone(),
+                    is_read_only,
+                    state.file_engine_type.into(),
+                )?,
+                is_io_engine_throttled: false,
+            });
+        }
 
         let config_space = ConfigSpace {
-            capacity: disk_properties.nsectors.to_le(),
+            capacity: resources[0].disk.nsectors.to_le(),
             blk_size: state.blk_size,
             topology: state.topology,
             discard_sector_alignment: state.discard_sector_alignment,
+            num_queues: num_queues.to_le(),
             ..Default::default()
-        };
-        let resources = BlockResources {
-            queue,
-            queue_evt,
-            queue_idx: 0,
-            disk: disk_properties,
-            is_io_engine_throttled: false,
         };
 
         Ok(VirtioBlock {
-            avail_features,
-            acked_features,
+            avail_features: state.virtio_state.avail_features,
+            acked_features: state.virtio_state.acked_features,
             config_space,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
 
             config,
             rate_limiter: Arc::new(Mutex::new(rate_limiter)),
-            state: BlockState::Configuring(vec![resources], Vec::new()),
+            state: BlockState::Configuring(resources, Vec::new()),
             metrics: BlockMetricsPerDevice::alloc(state.id.clone()),
         })
     }
@@ -192,7 +196,9 @@ mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
-    use crate::devices::virtio::block::virtio::test_utils::{default_block_with_path, set_queue};
+    use crate::devices::virtio::block::virtio::test_utils::{
+        default_block_with_path, default_config, set_queue,
+    };
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
     use crate::vstate::memory::GuestAddress;
@@ -211,6 +217,7 @@ mod tests {
             is_read_only: false,
             discard: false,
             threaded: false,
+            num_queues: 1,
             cache_type: CacheType::Writeback,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
@@ -256,6 +263,7 @@ mod tests {
             is_read_only: false,
             discard: false,
             threaded: false,
+            num_queues: 1,
             cache_type: CacheType::Unsafe,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
@@ -320,6 +328,51 @@ mod tests {
             assert_eq!(restored.acked_features(), block.acked_features());
             assert_eq!(restored.queue_config(0), block.queue_config(0));
             assert_eq!(restored.file_engine_type(), engine);
+        }
+    }
+
+    #[test]
+    fn test_mq_persistence() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let disk = TempFile::new().unwrap();
+            disk.as_file().set_len(0x1000).unwrap();
+            let disk_path = disk.as_path().to_str().unwrap().to_owned();
+            let mut config = default_config(disk_path, engine);
+            config.threaded = true;
+            config.num_queues = 2;
+            let mut block = VirtioBlock::new(config).unwrap();
+            block.spawn_worker(Arc::new(vec![])).unwrap();
+            let mem = default_mem();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, BLOCK_QUEUE_SIZE);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.set_acked_features(block.avail_features());
+            block.activate(mem.clone(), default_interrupt()).unwrap();
+            assert!(!block.queue_config(1).unwrap().ready);
+
+            // Unused queues stay idle through the worker and snapshot lifecycle.
+            block.kick();
+            block.prepare_save();
+            block.mark_queue_memory_dirty(&mem).unwrap();
+
+            let state = block.save();
+            let serialized = bitcode::serialize(&state).unwrap();
+            let restored_state = bitcode::deserialize(&serialized).unwrap();
+            let restored =
+                VirtioBlock::restore(BlockConstructorArgs { mem }, &restored_state).unwrap();
+
+            assert_eq!(state.virtio_state.queues.len(), 2);
+            assert_eq!(restored.num_queues(), 2);
+            assert_eq!(restored.config().num_queues, 2);
+            assert_eq!(u16::from_le(restored.config_space.num_queues), 2);
+            assert_eq!(restored.avail_features(), block.avail_features());
+            assert_eq!(restored.acked_features(), block.acked_features());
+            for idx in 0..2 {
+                assert_eq!(
+                    restored.resources()[idx].queue_idx,
+                    u16::try_from(idx).unwrap()
+                );
+                assert_eq!(restored.queue_config(idx), block.queue_config(idx));
+            }
         }
     }
 }
