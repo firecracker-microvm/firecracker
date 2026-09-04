@@ -87,4 +87,5 @@ def test_instrumentation_example_output(example, expected_output):
     assert len(lines) == len(expected_output)
     for line_number, line in enumerate(stderr.splitlines()):
         # Need to strip off timestamps
+        print(line)
         assert line[20:] == expected_output[line_number][20:]
