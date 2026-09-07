@@ -23,6 +23,10 @@ NE_SYSFS_PATH = Path("/sys/class/misc/nitro_enclaves")
 # Driver pools, mapped to the divisor for the unit we report: mem_pool is bytes
 # (-> MiB), cpu_pool is a count.
 NE_POOLS = {"mem_pool": 2**20, "cpu_pool": 1}
+
+# Per-device DMB size the VMM uses when a confidential enclave does not set
+# dmb_size_mib; mirrors DEFAULT_DMB_SIZE_MIB in vmm_config/enclave.rs.
+DEFAULT_DMB_SIZE_MIB = 16
 NE_FLAT_COUNTERS = ("pcie_slots", "pcie_slots_total", "pcie_slots_in_use")
 
 NE_ENCLAVE_PCIE_MODE = 1 << 6

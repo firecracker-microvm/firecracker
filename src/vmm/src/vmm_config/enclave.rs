@@ -67,7 +67,10 @@ pub struct EnclaveConfig {
     pub direct_mode: bool,
     /// Per-device DMB size in MiB for confidential mode.
     ///
-    /// `None` -> use the built-in default. Ignored in direct mode.
+    /// `None` -> use the built-in default. Rejected in direct mode, which
+    /// allocates no DMB. Resolved onto the config a running enclave retains, so
+    /// `GET /enclave` after `InstanceStart` shows the size in effect and omits
+    /// the field in direct mode. Before boot it still reports what was sent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dmb_size_mib: Option<u64>,
     /// Enable CPU overcommit mode.

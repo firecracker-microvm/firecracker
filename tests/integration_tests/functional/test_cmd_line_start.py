@@ -14,6 +14,7 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait
 
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.enclave import DEFAULT_DMB_SIZE_MIB
 from framework.utils import generate_mmds_get_request, generate_mmds_session_token
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 from framework.vm_backend import (
@@ -54,6 +55,10 @@ def _configure_vm_from_json(test_microvm, vm_config_file):
             "cpu_accounting": False,
             "hotplug_mode": False,
         }
+        # A confidential enclave reports the DMB size it resolved; direct mode
+        # allocates none and omits the field.
+        if test_microvm.backend is not VM_BACKEND_ENCLAVE_DIRECT:
+            obj["enclave"]["dmb_size_mib"] = DEFAULT_DMB_SIZE_MIB
         # The VMM defaults this to one node holding the whole VM, so mirror it.
         # Skipped for the fixtures that omit a size to be rejected.
         machine_config = obj["machine-config"]
