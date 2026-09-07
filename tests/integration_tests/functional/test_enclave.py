@@ -16,6 +16,7 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_f
 import host_tools.drive as drive_tools
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.defs import ARTIFACT_DIR
+from framework.enclave import DEFAULT_DMB_SIZE_MIB
 from framework.guest_stats import MeminfoGuest
 from framework.utils import CpuMap, get_threads, parse_cpu_list
 from framework.utils_vsock import (
@@ -388,6 +389,22 @@ def test_enclave_hotplug(uvm_booted):
         vm.ssh.check_output(f"mount {dev_path} {mnt}")
         vm.ssh.check_output(f"echo {payload} > {mnt}/test")
         assert vm.ssh.check_output(f"cat {mnt}/test").stdout.strip() == payload
+
+
+def test_enclave_reports_effective_dmb_size(uvm_booted):
+    """GET /enclave must report the DMB size actually in use.
+
+    dmb_size_mib is omitted when None, so a confidential enclave left on the
+    built-in default used to report nothing and the effective value was
+    unobservable. Direct mode allocates no DMB, so there the field stays absent.
+    """
+    vm = uvm_booted
+    config = vm.api.enclave.get().json()
+
+    if vm.backend is VmBackend.ENCLAVE_DIRECT:
+        assert "dmb_size_mib" not in config
+    else:
+        assert config["dmb_size_mib"] == DEFAULT_DMB_SIZE_MIB
 
 
 def test_enclave_hotplug_disabled(uvm_booted):

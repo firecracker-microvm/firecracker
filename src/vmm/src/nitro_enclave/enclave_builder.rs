@@ -377,6 +377,7 @@ pub fn build_and_boot_enclave(
     // launched, not the raw request order.
     let mut normalized_config = enclave_config.clone();
     normalized_config.numa_nodes = Some(numa_nodes.clone());
+    normalized_config.dmb_size_mib = enclave_config.dmb_size_mib();
     let mut enclave_vm = EnclaveVm::new(dev_fd, create_flags, normalized_config)?;
     info!(
         "Enclave VM created: slot={:#x}, direct_mode={}, cpu_overcommit={}, \
