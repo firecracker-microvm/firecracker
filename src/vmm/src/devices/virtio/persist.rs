@@ -109,7 +109,7 @@ impl Persist<'_> for Queue {
             uses_notif_suppression: false,
             num_added: state.num_added,
         };
-        if constructor_args.is_activated {
+        if constructor_args.is_activated && queue.config.ready {
             queue.initialize(&constructor_args.mem)?;
         }
         Ok(queue)
@@ -167,6 +167,13 @@ impl VirtioDeviceState {
                 .queues
                 .iter()
                 .any(|q| q.max_size != expected_queue_max_size)
+        {
+            return Err(PersistError::InvalidInput);
+        }
+
+        if self.activated
+            && self.device_type != VirtioDeviceType::Block
+            && self.queues.iter().any(|queue| !queue.ready)
         {
             return Err(PersistError::InvalidInput);
         }
@@ -336,6 +343,7 @@ mod tests {
         // Invalid max queue size.
         let bad_q = QueueState {
             max_size: max_size + 1,
+            ready: true,
             ..Default::default()
         };
         state.queues = vec![bad_q];
@@ -366,6 +374,7 @@ mod tests {
         // Invalid: size > max.
         let bad_q = QueueState {
             size: max_size + 1,
+            ready: true,
             ..Default::default()
         };
         state.queues = vec![bad_q];
