@@ -139,6 +139,10 @@ impl BlockWorker {
 
     /// Device specific function for peaking inside a queue and processing descriptors.
     pub(super) fn process_queue(&mut self) -> Result<(), InvalidAvailIdx> {
+        if !self.resources.queue.config.ready {
+            return Ok(());
+        }
+
         let rate_limiter = &self.rate_limiter;
         let queue = &mut self.resources.queue;
         let mut used_any = false;
@@ -225,6 +229,10 @@ impl BlockWorker {
     }
 
     fn process_async_completion_queue(&mut self) {
+        if !self.resources.queue.config.ready {
+            return;
+        }
+
         let engine = unwrap_async_file_engine_or_return!(&mut self.resources.disk.file_engine);
         let queue = &mut self.resources.queue;
 
@@ -678,7 +686,11 @@ impl ThreadedWorker {
     fn mark_queue_memory_dirty(&mut self) {
         let result = if let WorkerState::Paused(worker) = &mut self.state {
             let mem = worker.active_state.mem.clone();
-            worker.resources.queue.initialize(&mem)
+            if worker.resources.queue.config.ready {
+                worker.resources.queue.initialize(&mem)
+            } else {
+                Ok(())
+            }
         } else {
             warn!("Queue memory dirty requested while block worker is not paused");
             Err(QueueError::NotReady)
