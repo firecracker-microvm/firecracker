@@ -64,9 +64,9 @@ impl EventFdTrigger {
 
 /// Called by METRICS.flush(), this function facilitates serialization of aggregated metrics.
 ///
-/// The i8042 and RTC devices own their metrics (registered in their module-level `METRICS` slot on
+/// Each legacy device owns its metrics (registered in its module-level `METRICS` slot on
 /// construction); when no device has been built yet we serialize a default instance to keep the
-/// output shape stable. The UART still uses a module-global metrics object.
+/// output shape stable.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_map(Some(1))?;
     match i8042::METRICS.read().unwrap().as_ref() {
@@ -78,6 +78,9 @@ pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
         Some(metrics) => seq.serialize_entry("rtc", metrics)?,
         None => seq.serialize_entry("rtc", &rtc_pl031::RTCDeviceMetrics::default())?,
     }
-    seq.serialize_entry("uart", &serial::METRICS)?;
+    match serial::METRICS.read().unwrap().as_ref() {
+        Some(metrics) => seq.serialize_entry("uart", metrics)?,
+        None => seq.serialize_entry("uart", &serial::SerialDeviceMetrics::default())?,
+    }
     seq.end()
 }
