@@ -448,11 +448,14 @@ def test_enclave_poweroff(uvm_booted):
 
     The enclave counterpart of `test_shut_down.py::test_reboot`: enclave vCPUs
     produce no KVM_SYSTEM_EVENT, so assert on the VMM exiting cleanly instead.
+
+    Allow 120s for systemd's 90s DefaultTimeoutStopSec, as
+    test_send_ctrl_alt_del does.
     """
     vm = uvm_booted
 
     vm.ssh.run("poweroff")
-    vm.mark_killed()
+    vm.mark_killed(timeout=120)
 
     vm.check_log_message("Vmm is stopping.")
     assert vm.get_exit_code() == 0
