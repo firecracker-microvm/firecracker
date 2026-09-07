@@ -115,7 +115,7 @@ if run_all_tests(changed_files):
             pytest_opts="integration_tests/functional -n 8 --dist worksteal",
         ),
         platforms=[("al2023", "enclave")],
-        instances=["c8i.8xlarge", "m8g.8xlarge", "c8i.48xlarge"],
+        instances=["c8i.8xlarge", "m8g.8xlarge", "c7a.8xlarge", "c8i.48xlarge"],
     )
 
     pipeline.build_group(
@@ -133,7 +133,7 @@ if run_all_tests(changed_files):
             pytest_opts="../tests/integration_tests/performance/",
         ),
         platforms=[("al2023", "enclave")],
-        instances=["c8i.8xlarge", "m8g.8xlarge"],
+        instances=["c8i.8xlarge", "m8g.8xlarge", "c7a.8xlarge"],
         timeout_in_minutes=180,
         **DEFAULTS_PERF,
     )
