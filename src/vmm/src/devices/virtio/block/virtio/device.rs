@@ -841,17 +841,20 @@ impl VirtioDevice for VirtioBlock {
 
         let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
 
-        let BlockState::Configuring(resources, worker_handles) = &mut self.state else {
+        let BlockState::Configuring(resources, _) = &mut self.state else {
             unreachable!("inactive device is not configurable");
         };
 
+        // The driver can use fewer queues than the device exposes.
         for resource in resources.iter_mut() {
-            resource
-                .queue
-                .initialize(&mem)
-                .map_err(ActivateError::QueueMemoryError)?;
-            if event_idx {
-                resource.queue.enable_notif_suppression();
+            if resource.queue.config.ready {
+                resource
+                    .queue
+                    .initialize(&mem)
+                    .map_err(ActivateError::QueueMemoryError)?;
+                if event_idx {
+                    resource.queue.enable_notif_suppression();
+                }
             }
         }
 
@@ -976,11 +979,15 @@ impl VirtioDevice for VirtioBlock {
         match &mut self.state {
             BlockState::Configuring(resources, _) => {
                 for resource in resources {
-                    resource.queue.initialize(mem)?;
+                    if resource.queue.config.ready {
+                        resource.queue.initialize(mem)?;
+                    }
                 }
             }
             BlockState::Active(ActiveBlock::Inline(worker)) => {
-                worker.resources.queue.initialize(mem)?;
+                if worker.resources.queue.config.ready {
+                    worker.resources.queue.initialize(mem)?;
+                }
             }
             BlockState::Active(ActiveBlock::Threaded(active)) => {
                 for handle in &active.worker_handles {
