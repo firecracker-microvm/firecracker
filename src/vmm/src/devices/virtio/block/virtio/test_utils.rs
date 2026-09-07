@@ -68,7 +68,8 @@ pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -
 }
 
 pub fn set_queue(blk: &mut VirtioBlock, idx: usize, q: Queue) {
-    blk.resources_mut().queues[idx] = q;
+    assert_eq!(idx, 0);
+    blk.resources_mut().queue = q;
 }
 
 pub fn set_rate_limiter(blk: &mut VirtioBlock, rl: RateLimiter) {
