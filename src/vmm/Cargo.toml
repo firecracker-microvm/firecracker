@@ -17,55 +17,92 @@ fuzzing = []
 [dependencies]
 
 acpi_tables = { path = "../acpi-tables" }
-arrayvec = { version = "0.7.6", optional = true }
-aws-lc-rs = "1.17.0"
-base64 = "0.23.0"
-bitcode = { version = "0.6.9", features = ["serde"] }
-bitflags = "2.12.1"
-bitvec = { version = "1.0.1", features = ["atomic", "serde"] }
-byteorder = "1.5.0"
-crc64 = "2.0.0"
+arrayvec = { version = "0.7.6", optional = true, default-features = false, features = [
+    "std",
+] }
+aws-lc-rs = { version = "1.17.0", default-features = false, features = [
+    "aws-lc-sys",
+    "alloc",
+] }
+base64 = { version = "0.23.0", default-features = false, features = ["std"] }
+bitcode = { version = "0.6.9", default-features = false, features = [
+    "std",
+    "serde",
+] }
+bitflags = { version = "2.12.1", default-features = false }
+bitvec = { version = "1.0.1", default-features = false, features = ["std"] }
+byteorder = { version = "1.5.0", default-features = false, features = ["std"] }
+crc64 = { version = "2.0.0", default-features = false }
 derive_more = { version = "2.1.1", default-features = false, features = [
-  "from",
-  "display",
+    "from",
+    "display",
 ] }
-displaydoc = "0.2.6"
-event-manager = "0.4.2"
-gdbstub = { version = "0.7.10", optional = true }
-gdbstub_arch = { version = "0.3.3", optional = true }
-kvm-bindings = { version = "0.14.0", features = ["fam-wrappers", "serde"] }
-kvm-ioctls = "0.25.0"
-libc = "0.2.186"
-linux-loader = { version = "0.14.0", features = ["bzimage"] }
-log = { version = "0.4.31", features = ["std", "serde"] }
+displaydoc = { version = "0.2.6", default-features = false, features = ["std"] }
+event-manager = { version = "0.4.2", default-features = false }
+gdbstub = { version = "0.7.10", optional = true, default-features = false, features = [
+    "std",
+] }
+gdbstub_arch = { version = "0.3.3", optional = true, default-features = false }
+kvm-bindings = { version = "0.14.0", default-features = false, features = [
+    "fam-wrappers",
+    "serde",
+] }
+kvm-ioctls = { version = "0.25.0", default-features = false }
+libc = { version = "0.2.186", default-features = false, features = ["std"] }
+linux-loader = { version = "0.14.0", default-features = false, features = [
+    "bzimage",
+    "pe",
+] }
+log = { version = "0.4.31", default-features = false, features = ["std"] }
 log-instrument = { path = "../log-instrument", optional = true }
-memfd = "0.6.5"
-micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
-semver = { version = "1.0.28", features = ["serde"] }
-serde = { version = "1.0.228", features = ["derive", "rc"] }
-serde_json = "1.0.150"
-slab = "0.4.12"
-thiserror = "2.0.18"
-userfaultfd = "0.9.0"
-utils = { path = "../utils" }
-uuid = "1.23.2"
-vhost = { version = "0.17.0", features = ["vhost-user-frontend"] }
-vm-allocator = { version = "0.1.4", features = ["serde"] }
-vm-memory = { version = "0.18.0", features = [
-  "backend-mmap",
-  "backend-bitmap",
+memfd = { version = "0.6.5", default-features = false }
+micro_http = { git = "https://github.com/firecracker-microvm/micro-http", default-features = false }
+semver = { version = "1.0.28", default-features = false, features = [
+    "std",
+    "serde",
 ] }
-vm-superio = "0.8.1"
-vmm-sys-util = { version = "0.15.0", features = ["with-serde"] }
-zerocopy = { version = "0.8.50" }
+serde = { version = "1.0.228", default-features = false, features = [
+    "std",
+    "derive",
+    "rc",
+] }
+serde_json = { version = "1.0.150", default-features = false, features = [
+    "std",
+] }
+slab = { version = "0.4.12", default-features = false, features = ["std"] }
+thiserror = { version = "2.0.18", default-features = false, features = ["std"] }
+userfaultfd = { version = "0.9.0", default-features = false }
+utils = { path = "../utils" }
+uuid = { version = "1.23.2", default-features = false, features = ["std"] }
+vhost = { version = "0.17.0", default-features = false, features = [
+    "vhost-user-frontend",
+] }
+vm-allocator = { version = "0.1.4", default-features = false, features = [
+    "std",
+    "serde",
+] }
+vm-memory = { version = "0.18.0", default-features = false, features = [
+    "rawfd",
+    "backend-mmap",
+    "backend-bitmap",
+] }
+vm-superio = { version = "0.8.1", default-features = false }
+vmm-sys-util = { version = "0.15.0", default-features = false, features = [
+    "with-serde",
+] }
+zerocopy = { version = "0.8.50", default-features = false, features = [
+    "derive",
+] }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
-vm-fdt = "0.3.0"
+vm-fdt = { version = "0.3.0", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 criterion = { version = "0.8.2", default-features = false }
-device_tree = "1.1.0"
-itertools = "0.15.0"
+device_tree = { version = "1.1.0", default-features = false }
+itertools = { version = "0.15.0", default-features = false, features = [
+    "use_std",
+] }
 proptest = { version = "1.11.0", default-features = false, features = ["std"] }
 
 [[bench]]
