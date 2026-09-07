@@ -235,7 +235,7 @@ def metrics(results_dir, request):
     yield metrics_logger
     metrics_logger.flush()
     if results_dir:
-        metrics_logger.store_data(results_dir)
+        metrics_logger.store_data(results_dir, nodeid=request.node.nodeid)
 
 
 @pytest.fixture

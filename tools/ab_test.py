@@ -20,6 +20,7 @@ import argparse
 import glob
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import time
@@ -147,8 +148,14 @@ def is_ignored(dimensions) -> bool:
 
 
 def load_data_series(data_path: Path):
-    """Recursively collects `metrics.json` files in provided path"""
+    """Recursively collects `metrics.json` files in provided path
+
+    Returns a tuple `(data, nodeids)` where `data` maps each dimension set to
+    its metrics, and `nodeids` maps each dimension set to the pytest node id
+    that produced it (when recorded), so callers can re-run specific tests.
+    """
     data = {}
+    nodeids = {}
     pattern = f"{glob.escape(str(data_path))}/**/metrics.json"
     for name in glob.glob(pattern, recursive=True):
         with open(name, encoding="utf-8") as f:
@@ -156,6 +163,11 @@ def load_data_series(data_path: Path):
 
         metrics = j["metrics"]
         dimensions = frozenset(j["dimensions"].items())
+
+        nodeid = j.get("nodeid")
+        # Keep support for no nodeid, so old metrics can be analyzed
+        if nodeid is not None:
+            nodeids[dimensions] = nodeid
 
         data[dimensions] = {}
         for m in metrics:
@@ -167,7 +179,7 @@ def load_data_series(data_path: Path):
             values = mm["values"]
             data[dimensions][m] = (values, unit)
 
-    return data
+    return data, nodeids
 
 
 def uninteresting_dimensions(data):
@@ -196,10 +208,17 @@ def collect_data(
     artifacts: Optional[Path],
     pytest_opts: str,
     iteration: int = 0,
+    nodeids: Optional[List[str]] = None,
 ):
     """
     Executes the specified test using the provided firecracker binaries and
     stores results into the `test_results/tag/iteration` directory
+
+    If `nodeids` is provided, it replaces the `pytest_opts` selection and only
+    those exact pytest node ids are executed. This is used on retry iterations
+    to re-run just the test cases that showed a regression, instead of the
+    whole selection. Node ids are already exact, so any `-k` filter in the
+    original `pytest_opts` would be redundant.
     """
     binary_dir = binary_dir.resolve()
 
@@ -222,8 +241,15 @@ def collect_data(
             f"./tools/devtool set_current_artifacts {artifacts}", check=True, shell=True
         )
 
+    if nodeids:
+        # Replace the selection with the exact failing node ids, shell-quoted
+        # since they contain characters like '[', ']' and '::'.
+        selection = " ".join(shlex.quote(nodeid) for nodeid in nodeids)
+    else:
+        selection = pytest_opts
+
     subprocess.run(
-        f"./tools/test.sh --binary-dir={binary_dir} {pytest_opts} -m '' --json-report-file=../{test_report_path}",
+        f"./tools/test.sh --binary-dir={binary_dir} {selection} -m '' --json-report-file=../{test_report_path}",
         env=os.environ,
         check=True,
         shell=True,
@@ -294,7 +320,10 @@ def analyze_data(
     Analyzes the A/B-test data produced by `collect_data`, by performing regression tests
     as described this script's doc-comment.
 
-    Returns the list of error messages (empty if the test passes).
+    Returns a tuple `(error_messages, failing_dimensions)` where `error_messages`
+    is the list of human-readable regression descriptions (empty if the test
+    passes) and `failing_dimensions` is the set of dimension sets that produced
+    those messages, so callers can re-run just the offending test cases.
     """
     assert set(data_a.keys()) == set(
         data_b.keys()
@@ -384,6 +413,7 @@ def analyze_data(
             )
 
     error_messages = []
+    failing_dimensions = set()
     do_not_print_list = uninteresting_dimensions(data_a)
     for dimension_set, metric, result, unit in failures:
         # No data points for this metric were deemed significant
@@ -409,8 +439,9 @@ def analyze_data(
                 f"Tested Dimensions:\n{json.dumps({k: v for k, v in dimension_set if k not in do_not_print_list}, indent=2, sort_keys=True)}"
             )
             error_messages.append(msg)
+            failing_dimensions.add(dimension_set)
 
-    return error_messages
+    return error_messages, failing_dimensions
 
 
 def merge_data(accumulated, new_data):
@@ -438,26 +469,44 @@ def ab_performance_test(
 ):
     """Does an A/B-test of the specified test with the given firecracker/jailer binaries.
 
-    Retries up to max_iterations times, accumulating data only for dimensions
-    that are still failing, to reduce noise-induced false positives."""
+    Retries up to max_iterations times, re-running only the test cases that are
+    still failing and accumulating their data, to reduce noise-induced false
+    positives while avoiding re-running the entire selection every iteration."""
 
     data_a = {}
     data_b = {}
+    # Maps each dimension set to the pytest node id that produced it, so that
+    # retries can re-run only the failing test cases.
+    nodeids = {}
     error_messages = []
+    # Node ids to re-run on the next iteration. `None` means "run the full
+    # selection" (the first iteration, and any fallback when a failing
+    # dimension set has no recorded node id).
+    retry_nodeids = None
 
     for i in range(max_iterations):
         print(f"\n=== Iteration {i + 1}/{max_iterations} ===")
         # Changing the order or A and B executions across iterations, to avoid fluctuations caused by execution order
         if i % 2 == 0:
-            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts, i)
-            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts, i)
+            new_a, nodeids_a = collect_data(
+                "A", a_directory, a_artifacts, pytest_opts, i, nodeids=retry_nodeids
+            )
+            new_b, nodeids_b = collect_data(
+                "B", b_directory, b_artifacts, pytest_opts, i, nodeids=retry_nodeids
+            )
         else:
-            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts, i)
-            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts, i)
+            new_b, nodeids_b = collect_data(
+                "B", b_directory, b_artifacts, pytest_opts, i, nodeids=retry_nodeids
+            )
+            new_a, nodeids_a = collect_data(
+                "A", a_directory, a_artifacts, pytest_opts, i, nodeids=retry_nodeids
+            )
         merge_data(data_a, new_a)
         merge_data(data_b, new_b)
+        nodeids.update(nodeids_a)
+        nodeids.update(nodeids_b)
 
-        error_messages = analyze_data(
+        error_messages, failing_dimensions = analyze_data(
             data_a,
             data_b,
             p_thresh,
@@ -474,7 +523,22 @@ def ab_performance_test(
                 f"{len(error_messages)} regression(s) detected as of iteration {i + 1}/{max_iterations}:"
             )
             print("\n".join(error_messages))
-            print("Retrying to collect more data...")
+
+            # Re-run only the failing test cases on the next iteration. If any
+            # failing dimension set lacks a recorded node id, we cannot safely
+            # narrow the selection, so fall back to re-running everything.
+            missing = [dims for dims in failing_dimensions if dims not in nodeids]
+            if missing:
+                print(
+                    "Could not determine the pytest node id for every failing "
+                    "test case; re-running the full selection."
+                )
+                retry_nodeids = None
+            else:
+                retry_nodeids = sorted({nodeids[dims] for dims in failing_dimensions})
+                print(
+                    f"Retrying {len(retry_nodeids)} failing test case(s) to collect more data..."
+                )
 
     assert not error_messages, "\n" + "\n".join(error_messages)
 
@@ -582,12 +646,12 @@ def main():
         print(f"Total A/B test took {time.perf_counter() - t0:.2f}s")
     else:
         t0 = time.perf_counter()
-        data_a = load_data_series(args.path_a)
-        data_b = load_data_series(args.path_b)
+        data_a, _ = load_data_series(args.path_a)
+        data_b, _ = load_data_series(args.path_b)
         print(f"Data loading took {time.perf_counter() - t0:.2f}s")
 
         t0 = time.perf_counter()
-        error_messages = analyze_data(
+        error_messages, _ = analyze_data(
             data_a,
             data_b,
             p_thresh,
