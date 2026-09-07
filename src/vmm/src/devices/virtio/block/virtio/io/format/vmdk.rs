@@ -115,7 +115,14 @@ impl VmdkImplicitOpenGate {
         }
 
         // SAFETY: fd was returned by openat and ownership is transferred to std::fs::File.
-        ImagoFile::try_from(unsafe { fs::File::from_raw_fd(fd) })
+        // from_open_file (not TryFrom) skips fcntl(F_GETFL) / alignment probes.
+        ImagoFile::from_open_file(
+            unsafe { fs::File::from_raw_fd(fd) },
+            StorageOpenOptions::new()
+                .filename(path)
+                .write(false)
+                .direct(false),
+        )
     }
 }
 

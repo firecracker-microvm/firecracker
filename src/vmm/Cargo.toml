@@ -33,7 +33,9 @@ displaydoc = "0.2.6"
 event-manager = "0.4.2"
 gdbstub = { version = "0.7.10", optional = true }
 gdbstub_arch = { version = "0.3.3", optional = true }
-imago = { version = "0.2.4", default-features = false, features = [
+# Pin past 0.2.4: skip alignment probes on buffered/read-only files
+# (https://gitlab.com/hreitz/imago/-/merge_requests/61).
+imago = { git = "https://gitlab.com/hreitz/imago", rev = "942edb4ff11bec23c6344e7317ee3fa17d15036d", default-features = false, features = [
     "sync",
     "vm-memory",
 ] }
