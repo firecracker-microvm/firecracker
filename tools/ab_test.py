@@ -471,8 +471,10 @@ def ab_performance_test(
 
         if i < max_iterations - 1:
             print(
-                f"{len(error_messages)} regression(s) detected, retrying to collect more data..."
+                f"{len(error_messages)} regression(s) detected as of iteration {i + 1}/{max_iterations}:"
             )
+            print("\n".join(error_messages))
+            print("Retrying to collect more data...")
 
     assert not error_messages, "\n" + "\n".join(error_messages)
 
