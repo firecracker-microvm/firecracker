@@ -24,7 +24,7 @@ use vmm_sys_util::eventfd::EventFd;
 use super::io::async_io;
 use super::request::*;
 use super::{
-    BLOCK_QUEUE_SIZES, MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError,
+    BLOCK_QUEUE_SIZE, MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError,
     io as block_io,
 };
 use crate::devices::virtio::ActivateError;
@@ -398,8 +398,9 @@ pub struct VirtioBlock {
 /// Runtime resources used by the block data path.
 #[derive(Debug)]
 pub(crate) struct BlockResources {
-    pub(crate) queues: Vec<Queue>,
-    pub(crate) queue_evts: [EventFd; 1],
+    pub(crate) queue: Queue,
+    pub(crate) queue_evt: EventFd,
+    pub(crate) queue_idx: u16,
     pub(crate) disk: DiskProperties,
     pub(crate) is_io_engine_throttled: bool,
 }
@@ -496,8 +497,9 @@ impl VirtioBlock {
             config,
             rate_limiter: Arc::new(Mutex::new(rate_limiter)),
             resources: BlockResources {
-                queues: BLOCK_QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect(),
-                queue_evts: [EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?],
+                queue: Queue::new(BLOCK_QUEUE_SIZE),
+                queue_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
+                queue_idx: 0,
                 disk: disk_properties,
                 is_io_engine_throttled: false,
             },
@@ -534,7 +536,7 @@ impl VirtioBlock {
     /// about new buffers in the queue.
     pub(crate) fn process_queue_event(&mut self) {
         self.metrics.queue_event_count.inc();
-        if let Err(err) = self.resources.queue_evts[0].read() {
+        if let Err(err) = self.resources.queue_evt.read() {
             error!("Failed to get queue event: {:?}", err);
             self.metrics.event_fails.inc();
         } else if self.lock_rate_limiter().is_blocked() {
@@ -548,7 +550,7 @@ impl VirtioBlock {
 
     /// Process device virtio queue(s).
     pub fn process_virtio_queues(&mut self) -> Result<(), InvalidAvailIdx> {
-        self.process_queue(0)
+        self.process_queue()
     }
 
     pub(crate) fn process_rate_limiter_event(&mut self) {
@@ -556,17 +558,17 @@ impl VirtioBlock {
         // Upon rate limiter event, call the rate limiter handler
         // and restart processing the queue.
         if self.lock_rate_limiter().event_handler().is_ok() {
-            self.process_queue(0).unwrap()
+            self.process_queue().unwrap()
         }
     }
 
     /// Device specific function for peaking inside a queue and processing descriptors.
-    pub fn process_queue(&mut self, queue_index: usize) -> Result<(), InvalidAvailIdx> {
+    pub fn process_queue(&mut self) -> Result<(), InvalidAvailIdx> {
         // This is safe since we checked in the event handler that the device is activated.
         let active_state = self.device_state.active_state().unwrap();
 
         let rate_limiter = &self.rate_limiter;
-        let queue = &mut self.resources.queues[queue_index];
+        let queue = &mut self.resources.queue;
         let mut used_any = false;
 
         while let Some(head) = queue.pop_or_enable_notification()? {
@@ -631,7 +633,7 @@ impl VirtioBlock {
         if used_any && queue.prepare_kick() {
             active_state
                 .interrupt
-                .trigger(VirtioInterruptType::Queue(0))
+                .trigger(VirtioInterruptType::Queue(self.resources.queue_idx))
                 .unwrap_or_else(|_| {
                     self.metrics.event_fails.inc();
                 });
@@ -655,7 +657,7 @@ impl VirtioBlock {
 
         // This is safe since we checked in the event handler that the device is activated.
         let active_state = self.device_state.active_state().unwrap();
-        let queue = &mut self.resources.queues[0];
+        let queue = &mut self.resources.queue;
 
         loop {
             match engine.pop(&active_state.mem) {
@@ -694,7 +696,7 @@ impl VirtioBlock {
         if queue.prepare_kick() {
             active_state
                 .interrupt
-                .trigger(VirtioInterruptType::Queue(0))
+                .trigger(VirtioInterruptType::Queue(self.resources.queue_idx))
                 .unwrap_or_else(|_| {
                     self.metrics.event_fails.inc();
                 });
@@ -711,7 +713,7 @@ impl VirtioBlock {
 
             if self.resources.is_io_engine_throttled {
                 self.resources.is_io_engine_throttled = false;
-                self.process_queue(0).unwrap()
+                self.process_queue().unwrap()
             }
         }
     }
@@ -789,22 +791,19 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn num_queues(&self) -> usize {
-        self.resources.queues.len()
+        1
     }
 
     fn queue_config(&self, index: usize) -> Option<&QueueConfig> {
-        self.resources.queues.get(index).map(|queue| &queue.config)
+        (index == 0).then_some(&self.resources.queue.config)
     }
 
     fn queue_config_mut(&mut self, index: usize) -> Option<&mut QueueConfig> {
-        self.resources
-            .queues
-            .get_mut(index)
-            .map(|queue| &mut queue.config)
+        (index == 0).then_some(&mut self.resources.queue.config)
     }
 
     fn queue_event(&self, index: usize) -> Option<&EventFd> {
-        self.resources.queue_evts.get(index)
+        (index == 0).then_some(&self.resources.queue_evt)
     }
 
     fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
@@ -835,16 +834,14 @@ impl VirtioDevice for VirtioBlock {
     ) -> Result<(), ActivateError> {
         assert!(!self.is_activated());
 
-        for q in self.resources.queues.iter_mut() {
-            q.initialize(&mem)
-                .map_err(ActivateError::QueueMemoryError)?;
-        }
+        self.resources
+            .queue
+            .initialize(&mem)
+            .map_err(ActivateError::QueueMemoryError)?;
 
         let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
         if event_idx {
-            for queue in &mut self.resources.queues {
-                queue.enable_notif_suppression();
-            }
+            self.resources.queue.enable_notif_suppression();
         }
 
         if self.activate_evt.write(1).is_err() {
@@ -873,14 +870,11 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn reset_queues(&mut self) {
-        self.resources.queues.iter_mut().for_each(Queue::reset);
+        self.resources.queue.reset();
     }
 
     fn mark_queue_memory_dirty(&mut self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
-        for queue in &mut self.resources.queues {
-            queue.initialize(mem)?;
-        }
-        Ok(())
+        self.resources.queue.initialize(mem)
     }
 }
 
@@ -1947,7 +1941,7 @@ mod tests {
             let mem = default_mem();
             let interrupt = default_interrupt();
             let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
-            block.resources_mut().queues[0] = vq.create_queue();
+            block.resources_mut().queue = vq.create_queue();
             block.activate(mem.clone(), interrupt).unwrap();
 
             // Run scenario that doesn't trigger FullSq BlockError: Add sq_size flush requests.
@@ -1982,7 +1976,7 @@ mod tests {
             let mem = default_mem();
             let interrupt = default_interrupt();
             let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
-            block.resources_mut().queues[0] = vq.create_queue();
+            block.resources_mut().queue = vq.create_queue();
             block.activate(mem.clone(), interrupt).unwrap();
 
             // Run scenario that triggers FullCqError. Push 2 * IO_URING_NUM_ENTRIES and wait for
@@ -2013,7 +2007,7 @@ mod tests {
             let mem = default_mem();
             let interrupt = default_interrupt();
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
-            block.resources_mut().queues[0] = vq.create_queue();
+            block.resources_mut().queue = vq.create_queue();
             block.activate(mem.clone(), interrupt).unwrap();
 
             // Add a batch of flush requests.

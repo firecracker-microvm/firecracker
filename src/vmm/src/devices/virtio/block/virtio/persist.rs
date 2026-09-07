@@ -5,6 +5,7 @@
 
 use device::ConfigSpace;
 use serde::{Deserialize, Serialize};
+use std::iter;
 use std::sync::{Arc, Mutex};
 use vmm_sys_util::eventfd::EventFd;
 
@@ -82,7 +83,7 @@ impl Persist<'_> for VirtioBlock {
             cache_type: self.config.cache_type,
             root_device: self.config.is_root_device,
             disk_path: self.disk().file_path.clone(),
-            virtio_state: VirtioDeviceState::from_device(self, &self.resources().queues),
+            virtio_state: VirtioDeviceState::from_device(self, iter::once(&self.resources().queue)),
             rate_limiter_state: self.lock_rate_limiter().save(),
             file_engine_type: FileEngineTypeState::from(self.file_engine_type()),
             blk_size: self.config_space.blk_size,
@@ -119,17 +120,20 @@ impl Persist<'_> for VirtioBlock {
             state.file_engine_type.into(),
         )?;
 
-        let queue_evts = [EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?];
+        let queue_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?;
 
-        let queues = state
+        let queue = state
             .virtio_state
             .build_queues_checked(
                 &constructor_args.mem,
                 VirtioDeviceType::Block,
-                BLOCK_NUM_QUEUES,
+                DEFAULT_BLOCK_NUM_QUEUES,
                 FIRECRACKER_MAX_QUEUE_SIZE,
             )
-            .map_err(VirtioBlockError::Persist)?;
+            .map_err(VirtioBlockError::Persist)?
+            .into_iter()
+            .next()
+            .expect("must contain one queue");
 
         let avail_features = state.virtio_state.avail_features;
         let acked_features = state.virtio_state.acked_features;
@@ -142,8 +146,9 @@ impl Persist<'_> for VirtioBlock {
             ..Default::default()
         };
         let resources = BlockResources {
-            queues,
-            queue_evts,
+            queue,
+            queue_evt,
+            queue_idx: 0,
             disk: disk_properties,
             is_io_engine_throttled: false,
         };
@@ -251,7 +256,7 @@ mod tests {
         assert_eq!(restored_block.device_type(), VirtioDeviceType::Block);
         assert_eq!(restored_block.avail_features(), block.avail_features());
         assert_eq!(restored_block.acked_features(), block.acked_features());
-        assert_eq!(restored_block.resources().queues, block.resources().queues);
+        assert_eq!(restored_block.resources().queue, block.resources().queue);
         assert!(!block.is_activated());
         assert!(!restored_block.is_activated());
 

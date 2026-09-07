@@ -16,7 +16,7 @@ impl VirtioBlock {
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::with_data(
-            &self.resources().queue_evts[0],
+            &self.resources().queue_evt,
             Self::PROCESS_QUEUE,
             EventSet::IN,
         )) {
