@@ -314,10 +314,13 @@ validate_kernel_version() {
 }
 
 
-# Helper function to run the dev container.
+# Helper function to run the dev container. Pulls the image first if it is
+# not available locally.
 # Usage: run_devctr <docker args> -- <container args>
 # Example: run_devctr --privileged -- bash -c "echo 'hello world'"
 run_devctr() {
+    ensure_devctr
+
     docker_args=()
     ctr_args=()
     docker_args_done=false
@@ -573,7 +576,6 @@ cmd_build() {
     done
 
     # Check prerequisites
-    ensure_devctr
     ensure_build_dir
 
     # Map the public and private keys to the guest if they are specified.
@@ -1013,7 +1015,6 @@ cmd_test() {
         acquire_shared_kvm_lock
         setup_kvm
     fi
-    ensure_devctr
     [ $do_build_dir_check != 0 ] && ensure_build_dir
     if [ $do_artifacts_check != 0 ]; then
       if [ -z $artifacts ]; then
@@ -1138,7 +1139,6 @@ cmd_shell() {
     done
 
     # Make sure we have what we need to continue.
-    ensure_devctr
     ensure_build_dir
 
     if [[ $privileged = true ]]; then
@@ -1436,9 +1436,6 @@ cmd_install() {
 }
 
 cmd_build_ci_artifacts() {
-    # Check prerequisites
-    ensure_devctr
-
     # We need to run nested Docker here, so run this container as privileged.
     run_devctr \
         --privileged \
