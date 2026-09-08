@@ -783,7 +783,7 @@ fn vfio_ranges_overlap(start_a: u64, size_a: u64, start_b: u64, size_b: u64) -> 
 fn vfio_calculate_bar_areas(
     bars: &Bars,
     region_infos: &[VfioRegionInfo; NUM_BAR_REGS as usize],
-    msix_cap: Option<&MsixCap>,
+    msix_cap: &MsixCap,
 ) -> Result<(Vec<VfioBarMappableArea>, Option<VfioBarEmulatedArea>), VfioError> {
     // There are 6 BARs with maximum of 1 emulated area, so the maximum number of mappable areas
     // is 7, The only reasons to use `Vec` instead of `ArrayVec` here is because this vector can be
@@ -806,43 +806,40 @@ fn vfio_calculate_bar_areas(
                     _ => {}
                 }
             }
-            let mut contain_msix_table: bool = false;
+            let contain_msix_table = bar_idx == msix_cap.table_bir();
             let mut msix_table_offset = 0;
             let mut msix_table_size = 0;
 
-            if let Some(msix_cap) = msix_cap {
-                contain_msix_table = bar_idx == msix_cap.table_bir();
-                if contain_msix_table {
-                    let (offset, size) = msix_cap.table_bar_offset_and_size();
-                    // Since original `offset` and `size` are `u32` and `u16`, their addition
-                    // cannot overflow when widened to `u64`;
-                    let (offset, size) = (offset as u64, size as u64);
-                    let offset_in_area = offset_from_lower_host_page(offset);
+            if contain_msix_table {
+                let (offset, size) = msix_cap.table_bar_offset_and_size();
+                // Since original `offset` and `size` are `u32` and `u16`, their addition
+                // cannot overflow when widened to `u64`;
+                let (offset, size) = (offset as u64, size as u64);
+                let offset_in_area = offset_from_lower_host_page(offset);
 
-                    msix_table_offset = align_down_host_page(offset);
-                    msix_table_size = align_up_host_page(offset_in_area + size);
+                msix_table_offset = align_down_host_page(offset);
+                msix_table_size = align_up_host_page(offset_in_area + size);
 
-                    if region_info.size < offset + size {
-                        return Err(VfioError::MsixTableOutOfRange(
-                            bar_idx,
-                            offset,
-                            size,
-                            region_info.size,
-                        ));
-                    }
-
-                    debug!(
-                        "BAR{bar_idx} MSIx table emulated area: [{:#x}..{:#x}]",
-                        bar_gpa + msix_table_offset,
-                        bar_gpa + msix_table_offset + msix_table_size,
-                    );
-                    msix_table_area = Some(VfioBarEmulatedArea {
+                if region_info.size < offset + size {
+                    return Err(VfioError::MsixTableOutOfRange(
                         bar_idx,
-                        in_bar_offset: msix_table_offset,
-                        gpa: bar_gpa + msix_table_offset,
-                        size: msix_table_size,
-                    });
+                        offset,
+                        size,
+                        region_info.size,
+                    ));
                 }
+
+                debug!(
+                    "BAR{bar_idx} MSIx table emulated area: [{:#x}..{:#x}]",
+                    bar_gpa + msix_table_offset,
+                    bar_gpa + msix_table_offset + msix_table_size,
+                );
+                msix_table_area = Some(VfioBarEmulatedArea {
+                    bar_idx,
+                    in_bar_offset: msix_table_offset,
+                    gpa: bar_gpa + msix_table_offset,
+                    size: msix_table_size,
+                });
             }
 
             if contain_msix_table && !has_msix_mappable && sparse_mmap_cap.is_none() {
@@ -1170,7 +1167,7 @@ fn vfio_prepare_device(
     });
 
     let (areas, msix_table_area) =
-        vfio_calculate_bar_areas(&bars.bars, &bar_region_infos, Some(&msix_cap))?;
+        vfio_calculate_bar_areas(&bars.bars, &bar_region_infos, &msix_cap)?;
     let Some(msix_table_area) = msix_table_area else {
         return Err(VfioError::NoMsixIrq);
     };
@@ -1788,8 +1785,10 @@ mod tests {
     fn test_vfio_calculate_bar_areas_no_bars_or_region_infos() {
         let bars = Bars::default();
         let region_infos = dummy_region_infos([]);
+        let msix_cap = MsixCap::new(0, 0, 0, 0, 0);
 
-        let (areas, msix_table_area) = vfio_calculate_bar_areas(&bars, &region_infos, None).unwrap();
+        let (areas, msix_table_area) =
+            vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap();
         assert!(areas.is_empty());
         assert!(msix_table_area.is_none());
     }
@@ -1806,8 +1805,11 @@ mod tests {
             // BAR 1
             dummy_region_info(0x1000, vec![VfioRegionInfoCap::MsixMappable]),
         ]);
+        // Set bir to unused BARs
+        let msix_cap = MsixCap::new(3, 0, 0, 3, 0);
 
-        let (areas, msix_table_area) = vfio_calculate_bar_areas(&bars, &region_infos, None).unwrap();
+        let (areas, msix_table_area) =
+            vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap();
 
         assert_eq!(areas.len(), 2);
         assert_eq!(areas[0].gpa, 0x1000);
@@ -1839,7 +1841,7 @@ mod tests {
             let msix_cap = MsixCap::new(0, 32, 0, 2, 0);
 
             let (areas, msix_table_area) =
-                vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
+                vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap();
 
             assert_eq!(areas.len(), 1);
             assert_eq!(areas[0].gpa, 0x2000);
@@ -1869,7 +1871,7 @@ mod tests {
             let msix_cap = MsixCap::new(0, 32, 0, 2, 0);
 
             let (areas, msix_table_area) =
-                vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
+                vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap();
 
             assert_eq!(areas.len(), 2);
             assert_eq!(areas[0].gpa, 0x2000);
@@ -1909,9 +1911,11 @@ mod tests {
                     areas: sparse_areas,
                 })],
             )]);
+            // Set bir to unused BARs
+            let msix_cap = MsixCap::new(3, 0, 0, 3, 0);
 
             let (areas, msix_table_area) =
-                vfio_calculate_bar_areas(&bars, &region_infos, None).unwrap();
+                vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap();
 
             assert_eq!(areas.len(), 2);
             assert_eq!(areas[0].gpa, 0x1000);
@@ -1946,8 +1950,10 @@ mod tests {
                     areas: sparse_areas,
                 })],
             )]);
+            // Set bir to unused BARs
+            let msix_cap = MsixCap::new(3, 0, 0, 3, 0);
 
-            vfio_calculate_bar_areas(&bars, &region_infos, None).unwrap_err();
+            vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap_err();
         }
 
         // Unaligned
@@ -1972,8 +1978,10 @@ mod tests {
                     areas: sparse_areas,
                 })],
             )]);
+            // Set bir to unused BARs
+            let msix_cap = MsixCap::new(3, 0, 0, 3, 0);
 
-            vfio_calculate_bar_areas(&bars, &region_infos, None).unwrap_err();
+            vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap_err();
         }
     }
 
@@ -2019,7 +2027,7 @@ mod tests {
                 })],
             )]);
 
-            let err = vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap_err();
+            let err = vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap_err();
             assert!(
                 matches!(
                     err,
@@ -2057,7 +2065,7 @@ mod tests {
             )]);
 
             let (areas, msix_table_area) =
-                vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
+                vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap();
 
             assert_eq!(areas.len(), 2);
             assert_eq!(areas[0].gpa, 0x1000);
@@ -2086,7 +2094,7 @@ mod tests {
         let msix_cap = MsixCap::new(0, 32, 0, 0, 0x1000);
 
         let (areas, msix_table_area) =
-            vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
+            vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap();
 
         assert_eq!(areas.len(), 1);
         assert_eq!(areas[0].gpa, 0x2000);
@@ -2111,7 +2119,7 @@ mod tests {
         // The pba shares the table page, so it is inside the emulated area [0x0..0x1000)
         let msix_cap = MsixCap::new(0, 32, 0x0, 0, 0x200);
         let (areas, msix_table_area) =
-            vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
+            vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap();
 
         assert_eq!(areas.len(), 1);
         assert_eq!(areas[0].gpa, 0x2000);
@@ -2136,7 +2144,7 @@ mod tests {
         // end of the table at offset 0xff8 with size of 16 will land outside 0x1000 region
         let msix_cap = MsixCap::new(0, 1, 0xff8, 0, 0);
 
-        let err = vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap_err();
+        let err = vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap_err();
         assert!(matches!(
             err,
             VfioError::MsixTableOutOfRange(0, 0xff8, 16, 0x1000)
