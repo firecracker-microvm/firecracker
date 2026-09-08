@@ -12,6 +12,13 @@ and this project adheres to
 
 ### Changed
 
+- [#6201](https://github.com/firecracker-microvm/firecracker/pull/6201):
+  Bounds-check every virtio queue access against the ranges validated at
+  activation, adding defense in depth against out-of-bounds accesses caused by
+  changes to an active queue's configuration. The MMIO and PCI transports
+  already reject queue configuration writes after `DRIVER_OK`, so a guest cannot
+  reach this condition.
+
 ### Deprecated
 
 ### Removed
