@@ -73,6 +73,12 @@ pub enum ResourcesError {
     MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
     /// Device passthrough config error: {0}
     DevicePassthroughConfig(#[from] DevicePassthroughConfigError),
+    /// Passthrough devices attached, but PCI disabled
+    DevicePassthroughWithoutPci,
+    /// Passthrough devices are not compatible with memory hot-plugging device
+    DevicePassthroughWithMemHotplug,
+    /// Passthrough devices are not compatible with memory balloon device
+    DevicePassthroughWithBalloon,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -253,6 +259,22 @@ impl VmResources {
         }
 
         Ok(resources)
+    }
+
+    /// Validate the VM configuration for incompatibilities
+    pub fn validate(&self) -> Result<(), ResourcesError> {
+        if !self.device_passthrough.configs.is_empty() {
+            if !self.pci_enabled {
+                return Err(ResourcesError::DevicePassthroughWithoutPci);
+            }
+            if self.memory_hotplug.is_some() {
+                return Err(ResourcesError::DevicePassthroughWithMemHotplug);
+            }
+            if self.balloon.get().is_some() {
+                return Err(ResourcesError::DevicePassthroughWithBalloon);
+            }
+        }
+        Ok(())
     }
 
     /// If not initialised, create the mmds data store with the default config.
