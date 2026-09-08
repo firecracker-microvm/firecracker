@@ -9,8 +9,6 @@ use std::os::fd::AsRawFd;
 use std::path::Path;
 use std::sync::{Arc, Barrier, Mutex};
 
-use arrayvec::ArrayVec;
-use bitflags::bitflags;
 use kvm_bindings::{
     KVM_MEM_READONLY, kvm_create_device, kvm_device_type_KVM_DEV_TYPE_VFIO,
     kvm_userspace_memory_region,
@@ -79,35 +77,20 @@ pub enum VfioError {
     VfioIoctls(#[from] vfio_ioctls::VfioError),
     /// BAR{0} MSI-X table at offset {1:#x} size {2:#x} does not fit in region of size {3:#x}
     MsixTableOutOfRange(u8, u64, u64, u64),
-    /// BAR{0} MSI-X PBA at offset {1:#x} size {2:#x} does not fit in region of size {3:#x}
-    MsixPbaOutOfRange(u8, u64, u64, u64),
     /// BAR{0} sparse mmap area at offset {1:#x} size {2:#x} does not fit in region of size {3:#x}
     SparseMmapAreaOutOfRange(u8, u64, u64, u64),
     /// BAR{0} sparse mmap area at gpa {1:#x} size {2:#x} overlaps MSI-X at gpa {3:#x} size {4:#x}
     SparseMmapAreaOverlapsEmulatedArea(u8, u64, u64, u64, u64),
 }
 
-bitflags! {
-    /// Type of the area in the bar. A single area can contain both
-    /// the MSI-X table and PBA when their host-page-aligned ranges overlap.
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    struct VfioBarEmulatedAreaUsageFlags: u8 {
-        /// The area contains MSIx table
-        const MSIX_TABLE = 1 << 0;
-        /// The area contains MSIx pba
-        const MSIX_PBA = 1 << 1;
-    }
-}
-
 /// Description of the area within some BAR where all reads/writes are emulated.
-/// These are used for emulation of reads/writes to the MSIx table/pba.
+/// This is used for emulation of reads/writes to the MSIx table.
 #[derive(Debug, Copy, Clone)]
 struct VfioBarEmulatedArea {
     bar_idx: u8,
     in_bar_offset: u64,
     gpa: u64,
     size: u64,
-    usage: VfioBarEmulatedAreaUsageFlags,
 }
 
 /// Wrapper around `Bars` type to automate dropping
@@ -155,8 +138,9 @@ struct VfioMsixState {
     /// Register idx where the capability is in the configuration space
     register: u8,
     cap: MsixCap,
-    /// TABLE and PBA emulated areas
-    emulated_areas: ArrayVec<VfioBarEmulatedArea, 2>,
+    /// Emulated area for the MSIX Table. The PBA is passed through since it is read-only and
+    /// filled by the device itself.
+    emulated_area: VfioBarEmulatedArea,
     config: MsixConfig,
 }
 
@@ -219,73 +203,50 @@ impl Drop for VfioDevice {
 enum HandleBarAccessResult {
     PartialOverlap,
     MsixTable(u64),
-    MsixPba(u64),
     Device(u8, u64),
 }
 
-// Distribute BAR acess aiming at the emulated areas
+// Distribute BAR acess aiming at the emulated area
 fn vfio_distribute_bar_access(
-    emulated_areas: &[VfioBarEmulatedArea],
+    msix_table_area: &VfioBarEmulatedArea,
     msix_cap: &MsixCap,
     base: u64,
     offset: u64,
     data_len: u64,
 ) -> HandleBarAccessResult {
+    // SAFETY: if this is ever hit it would mean we have a bug in the code which adds
+    // VfioBarEmulatedArea into the MmioBus.
+    assert_eq!(msix_table_area.gpa, base);
+
     let data_start = offset;
     let data_end = offset + data_len;
-    for area in emulated_areas.iter() {
-        if area.gpa == base {
-            if area
-                .usage
-                .contains(VfioBarEmulatedAreaUsageFlags::MSIX_TABLE)
-            {
-                let (t_off, t_size) = msix_cap.table_bar_offset_and_size();
-                let (t_off, t_size) = (t_off as u64, t_size as u64);
-                assert!(area.in_bar_offset <= t_off);
-                let t_start = t_off - area.in_bar_offset;
-                let t_end = t_start + t_size;
-                if t_start <= data_start && data_end <= t_end {
-                    return HandleBarAccessResult::MsixTable(offset - t_start);
-                }
-                // Reject partial overlap with table.
-                // This should not happen in normal operations, but malicious
-                // driver can try this.
-                // In this case it should be fine to ignore the access all together
-                if data_start < t_end && t_start < data_end {
-                    return HandleBarAccessResult::PartialOverlap;
-                }
-            }
 
-            if area.usage.contains(VfioBarEmulatedAreaUsageFlags::MSIX_PBA) {
-                let (p_off, p_size) = msix_cap.pba_bar_offset_and_size();
-                let (p_off, p_size) = (p_off as u64, p_size as u64);
-                assert!(area.in_bar_offset <= p_off);
-                let p_start = p_off - area.in_bar_offset;
-                let p_end = p_start + p_size;
-                if p_start <= data_start && data_end <= p_end {
-                    return HandleBarAccessResult::MsixPba(offset - p_start);
-                }
-                // Reject partial overlap with pba.
-                // This should not happen in normal operations, but malicious
-                // driver can try this.
-                // In this case it should be fine to ignore the access all together
-                if data_start < p_end && p_start < data_end {
-                    return HandleBarAccessResult::PartialOverlap;
-                }
-            }
-
-            return HandleBarAccessResult::Device(area.bar_idx, area.in_bar_offset + offset);
-        }
+    let (t_off, t_size) = msix_cap.table_bar_offset_and_size();
+    let (t_off, t_size) = (t_off as u64, t_size as u64);
+    assert!(msix_table_area.in_bar_offset <= t_off);
+    let t_start = t_off - msix_table_area.in_bar_offset;
+    let t_end = t_start + t_size;
+    if t_start <= data_start && data_end <= t_end {
+        return HandleBarAccessResult::MsixTable(offset - t_start);
     }
-    // SAFETY: if this is ever reached it would mean we have a bug in the code which adds
-    // VfioBarEmulatedArea into the MmioBus.
-    unreachable!()
+    // Reject partial overlap with table.
+    // This should not happen in normal operations, but malicious
+    // driver can try this.
+    // In this case it should be fine to ignore the access all together
+    if data_start < t_end && t_start < data_end {
+        return HandleBarAccessResult::PartialOverlap;
+    }
+
+    HandleBarAccessResult::Device(
+        msix_table_area.bar_idx,
+        msix_table_area.in_bar_offset + offset,
+    )
 }
 
 impl BusDevice for VfioDevice {
     fn read(&mut self, base: u64, offset: u64, data: &mut [u8]) {
         match vfio_distribute_bar_access(
-            &self.msix_state.emulated_areas,
+            &self.msix_state.emulated_area,
             &self.msix_state.cap,
             base,
             offset,
@@ -302,9 +263,6 @@ impl BusDevice for VfioDevice {
             HandleBarAccessResult::MsixTable(offset) => {
                 self.msix_state.config.read_table(offset, data);
             }
-            HandleBarAccessResult::MsixPba(offset) => {
-                self.msix_state.config.read_pba(offset, data);
-            }
             HandleBarAccessResult::Device(region_idx, in_region_off) => {
                 let region_size = self.device.get_region_size(region_idx as u32);
                 if in_region_off + (data.len() as u64) <= region_size {
@@ -320,7 +278,7 @@ impl BusDevice for VfioDevice {
 
     fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
         match vfio_distribute_bar_access(
-            &self.msix_state.emulated_areas,
+            &self.msix_state.emulated_area,
             &self.msix_state.cap,
             base,
             offset,
@@ -335,9 +293,6 @@ impl BusDevice for VfioDevice {
             }
             HandleBarAccessResult::MsixTable(offset) => {
                 self.msix_state.config.write_table(offset, data);
-            }
-            HandleBarAccessResult::MsixPba(offset) => {
-                self.msix_state.config.write_pba(offset, data);
             }
             HandleBarAccessResult::Device(region_idx, in_region_off) => {
                 let region_size = self.device.get_region_size(region_idx as u32);
@@ -814,75 +769,29 @@ fn vfio_ranges_overlap(start_a: u64, size_a: u64, start_b: u64, size_b: u64) -> 
     start_a.max(start_b) < (start_a + size_a).min(start_b + size_b)
 }
 
-/// Add an emulated area to the `emulated_areas` array while checking for the overlap with possible
-/// area already present in the array. Currently emulated areas are only used for MSIx table or pba,
-/// so the max length of the array is 2.
-fn vfio_add_emulated_area(
-    bar_idx: u8,
-    bar_gpa: u64,
-    usage_flag: VfioBarEmulatedAreaUsageFlags,
-    host_aligned_offset: u64,
-    host_aligned_size: u64,
-    emulated_areas: &mut ArrayVec<VfioBarEmulatedArea, 2>,
-) {
-    debug!(
-        "BAR{} {:?} emulated area: [{:#x}..{:#x}]",
-        bar_idx,
-        usage_flag,
-        bar_gpa + host_aligned_offset,
-        bar_gpa + host_aligned_offset + host_aligned_size,
-    );
-
-    let new_area = VfioBarEmulatedArea {
-        bar_idx,
-        in_bar_offset: host_aligned_offset,
-        gpa: bar_gpa + host_aligned_offset,
-        size: host_aligned_size,
-        usage: usage_flag,
-    };
-
-    match emulated_areas.last_mut() {
-        Some(last_area)
-            if vfio_ranges_overlap(last_area.gpa, last_area.size, new_area.gpa, new_area.size) =>
-        {
-            assert_eq!(last_area.bar_idx, bar_idx);
-            let end = (last_area.gpa + last_area.size).max(new_area.gpa + new_area.size);
-            last_area.usage |= new_area.usage;
-            last_area.in_bar_offset = last_area.in_bar_offset.min(new_area.in_bar_offset);
-            last_area.gpa = last_area.gpa.min(new_area.gpa);
-            last_area.size = end - last_area.gpa;
-        }
-        _ => emulated_areas.push(new_area),
-    }
-}
-
 /// Calculate different areas of BARs of a device:
 /// - mmapable areas will be `mmap`ed and passed through directly to the guest without any emulation
 ///   on our side
-/// - emulated area will not be given to the guest and so all guest accesses to them will cause
-///   KVMExits which we will emulate
+/// - the MSIX Table emulated area will not be given to the guest and so all guest accesses to it
+///   will cause KVMExits which we will handle in the emulation code
 ///
-/// Emulated areas are only used for MSIx table and pba
+/// As an example, the BAR holding the table is split into this arrangement:
 ///
-/// As an example, a single BAR can be split into this arrangement:
-///
-/// [ mmapped area ][ emulated MSIx table area ][ mmapped area ][ emulated MSIx pba area ]
+/// [ mmapped area ][ emulated MSIx table area ][ mmapped area ]
 ///
 /// where each `area` is host page aligned.
-///
-/// In reality MSIx table/pba most likely will reside inside one shared emulated area
 fn vfio_calculate_bar_areas(
     bars: &Bars,
     region_infos: &[VfioRegionInfo; NUM_BAR_REGS as usize],
     msix_cap: Option<&MsixCap>,
-) -> Result<(Vec<VfioBarMappableArea>, ArrayVec<VfioBarEmulatedArea, 2>), VfioError> {
-    // There are 6 BARs with maximum of 2 emulated_areas, so the maximum number of mappable areas
-    // is 8, The only reasons to use `Vec` instead of `ArrayVec` here is because this vector can be
+) -> Result<(Vec<VfioBarMappableArea>, Option<VfioBarEmulatedArea>), VfioError> {
+    // There are 6 BARs with maximum of 1 emulated area, so the maximum number of mappable areas
+    // is 7, The only reasons to use `Vec` instead of `ArrayVec` here is because this vector can be
     // populated from the `sparse_mmap_cap` which can contain a different number of areas. But
     // in any case the size here is limited by the `nr_areas` field in the
     // `vfio_region_info_cap_sparse_mmap` struct. This field has the `u32` type.
-    let mut mmappable_areas = Vec::with_capacity(8);
-    let mut emulated_areas = ArrayVec::<VfioBarEmulatedArea, 2>::new();
+    let mut mmappable_areas = Vec::with_capacity(7);
+    let mut msix_table_area = None;
     let mut bar_idx: u8 = 0;
     while bar_idx < NUM_BAR_REGS {
         if bars.bars[bar_idx as usize].used() {
@@ -900,10 +809,6 @@ fn vfio_calculate_bar_areas(
             let mut contain_msix_table: bool = false;
             let mut msix_table_offset = 0;
             let mut msix_table_size = 0;
-
-            let mut contain_msix_pba: bool = false;
-            let mut msix_pba_offset = 0;
-            let mut msix_pba_size = 0;
 
             if let Some(msix_cap) = msix_cap {
                 contain_msix_table = bar_idx == msix_cap.table_bir();
@@ -926,57 +831,26 @@ fn vfio_calculate_bar_areas(
                         ));
                     }
 
-                    vfio_add_emulated_area(
-                        bar_idx,
-                        bar_gpa,
-                        VfioBarEmulatedAreaUsageFlags::MSIX_TABLE,
-                        msix_table_offset,
-                        msix_table_size,
-                        &mut emulated_areas,
+                    debug!(
+                        "BAR{bar_idx} MSIx table emulated area: [{:#x}..{:#x}]",
+                        bar_gpa + msix_table_offset,
+                        bar_gpa + msix_table_offset + msix_table_size,
                     );
-                }
-
-                contain_msix_pba = bar_idx == msix_cap.pba_bir();
-                if contain_msix_pba {
-                    let (offset, size) = msix_cap.pba_bar_offset_and_size();
-                    // Since original `offset` and `size` are `u32` and `u16`, their addition
-                    // cannot overflow when widened to `u64`;
-                    let (offset, size) = (offset as u64, size as u64);
-                    let offset_in_area = offset_from_lower_host_page(offset);
-
-                    msix_pba_offset = align_down_host_page(offset);
-                    msix_pba_size = align_up_host_page(offset_in_area + size);
-
-                    if region_info.size < offset + size {
-                        return Err(VfioError::MsixPbaOutOfRange(
-                            bar_idx,
-                            offset,
-                            size,
-                            region_info.size,
-                        ));
-                    }
-
-                    vfio_add_emulated_area(
+                    msix_table_area = Some(VfioBarEmulatedArea {
                         bar_idx,
-                        bar_gpa,
-                        VfioBarEmulatedAreaUsageFlags::MSIX_PBA,
-                        msix_pba_offset,
-                        msix_pba_size,
-                        &mut emulated_areas,
-                    );
+                        in_bar_offset: msix_table_offset,
+                        gpa: bar_gpa + msix_table_offset,
+                        size: msix_table_size,
+                    });
                 }
             }
 
-            if (contain_msix_table || contain_msix_pba)
-                && !has_msix_mappable
-                && sparse_mmap_cap.is_none()
-            {
-                // Theoretically this can happen if BAR only contains MSIx table/pba, but even in
-                // that case it is fine to skip it since we would already handle MSIx areas.
+            if contain_msix_table && !has_msix_mappable && sparse_mmap_cap.is_none() {
+                // Theoretically this can happen if BAR only contains MSIx table, but even in
+                // that case it is fine to skip it since we would already handle MSIx area.
                 debug!(
-                    "BAR{} contains msix_table: {} msix_pba: {}, but it is not mappable and \
-                     kernel did not provide sparse_mmap_cap. Skipping",
-                    bar_idx, contain_msix_table, contain_msix_pba,
+                    "BAR{bar_idx} contains MSIx table, but it is not mappable and kernel did not \
+                     provide sparse_mmap_cap. Skipping"
                 );
             } else {
                 let can_mmap = region_info.flags & VFIO_REGION_INFO_FLAG_MMAP != 0;
@@ -1015,26 +889,26 @@ fn vfio_calculate_bar_areas(
                                     region_size,
                                 ));
                             }
-                            // The kernel is expected to exclude the MSI-X table/pba from the
-                            // sparse mmap areas. If it did not, `mmap`ing the area would pass
-                            // the MSI-X table/pba through to the guest while we also emulate
-                            // it, which would let the guest program interrupts directly.
+                            // The kernel is expected to exclude the MSI-X table from the sparse
+                            // mmap areas. If it did not, `mmap`ing the area would pass the table
+                            // through to the guest while we also emulate it, which would let the
+                            // guest program interrupts directly.
                             let gpa = bar_gpa + area.offset;
-                            for emulated_area in emulated_areas.iter() {
-                                if vfio_ranges_overlap(
+                            if let Some(table_area) = msix_table_area
+                                && vfio_ranges_overlap(
                                     gpa,
                                     area.size,
-                                    emulated_area.gpa,
-                                    emulated_area.size,
-                                ) {
-                                    return Err(VfioError::SparseMmapAreaOverlapsEmulatedArea(
-                                        bar_idx,
-                                        gpa,
-                                        area.size,
-                                        emulated_area.gpa,
-                                        emulated_area.size,
-                                    ));
-                                }
+                                    table_area.gpa,
+                                    table_area.size,
+                                )
+                            {
+                                return Err(VfioError::SparseMmapAreaOverlapsEmulatedArea(
+                                    bar_idx,
+                                    gpa,
+                                    area.size,
+                                    table_area.gpa,
+                                    table_area.size,
+                                ));
                             }
                             mmappable_areas.push(VfioBarMappableArea {
                                 gpa,
@@ -1044,40 +918,24 @@ fn vfio_calculate_bar_areas(
                             });
                         }
                     } else if has_msix_mappable {
-                        // There can only be maximum of 2 gaps/emulated_areas in the BAR,
-                        // so the maximum number of mmappable areas is 3.
-                        //
-                        // First we sort gaps by the starting offset and then
-                        // we go from left to right (low offset to high offset) and areas between
-                        // gaps.
+                        // There can only be one gap in the BAR,
+                        // so the maximum number of mmappable areas is 2.
                         //
                         // The most advanced case will look like this:
                         //
-                        // region start                               region end
-                        //      [ area ][ gap ][ area ][ gap ][ last area ]
-                        //     low                                       high
+                        // region start           region end
+                        //      [ area ][ gap ][ last area ]
+                        //     low                      high
                         //
-                        let mut gaps = [
-                            (msix_table_offset, msix_table_size),
-                            (msix_pba_offset, msix_pba_size),
-                        ];
-                        gaps.sort_unstable_by_key(|(offset, _)| *offset);
-
-                        let mut offset = 0;
-                        for (gap_offset, gap_size) in gaps {
-                            if gap_size != 0 && offset < gap_offset {
-                                let area_size = gap_offset - offset;
-                                if area_size != 0 {
-                                    mmappable_areas.push(VfioBarMappableArea {
-                                        gpa: bar_gpa + offset,
-                                        vfio_fd_offset: region_info.offset + offset,
-                                        size: area_size,
-                                        prot,
-                                    });
-                                }
-                            }
-                            offset = offset.max(gap_offset + gap_size);
+                        if msix_table_offset != 0 {
+                            mmappable_areas.push(VfioBarMappableArea {
+                                gpa: bar_gpa,
+                                vfio_fd_offset: region_info.offset,
+                                size: msix_table_offset,
+                                prot,
+                            });
                         }
+                        let offset = msix_table_offset + msix_table_size;
                         let last_area_size = region_size - offset;
                         if last_area_size != 0 {
                             mmappable_areas.push(VfioBarMappableArea {
@@ -1103,7 +961,7 @@ fn vfio_calculate_bar_areas(
         }
         bar_idx += 1;
     }
-    Ok((mmappable_areas, emulated_areas))
+    Ok((mmappable_areas, msix_table_area))
 }
 
 /// Mmaps the area of the device BAR and creates a sets the KVM memory region for it, giving guest
@@ -1311,8 +1169,11 @@ fn vfio_prepare_device(
         }
     });
 
-    let (areas, emulated_areas) =
+    let (areas, msix_table_area) =
         vfio_calculate_bar_areas(&bars.bars, &bar_region_infos, Some(&msix_cap))?;
+    let Some(msix_table_area) = msix_table_area else {
+        return Err(VfioError::NoMsixIrq);
+    };
 
     let Some(first_area_slot) = vm.next_kvm_slot(
         // SAFETY: areas.len() is bound to fit in u32
@@ -1330,7 +1191,7 @@ fn vfio_prepare_device(
     let msix_state = VfioMsixState {
         register: msix_register,
         cap: msix_cap,
-        emulated_areas,
+        emulated_area: msix_table_area,
         config: msix_config,
     };
     Ok((device, bars, bar_mappings, msix_state, masks))
@@ -1366,14 +1227,13 @@ fn vfio_init_device(
         vm: vm.clone(),
     }));
 
-    for area in vfio_device.lock().unwrap().msix_state.emulated_areas.iter() {
-        vm.common
-            .mmio_bus
-            .insert(vfio_device.clone(), area.gpa, area.size)
-            // SAFETY: the area gpa and size were allocated from internal allocator. we must never
-            // receive overlapping regions from it.
-            .unwrap();
-    }
+    let area = vfio_device.lock().unwrap().msix_state.emulated_area;
+    vm.common
+        .mmio_bus
+        .insert(vfio_device.clone(), area.gpa, area.size)
+        // SAFETY: the area gpa and size were allocated from internal allocator. we must never
+        // receive overlapping regions from it.
+        .unwrap();
     Ok(vfio_device)
 }
 
@@ -1385,14 +1245,13 @@ fn vfio_deinit_device(device: &VfioDevice) {
         vfio_unmap_bar_mapping(device.vm.as_ref(), mapping);
     }
 
-    for area in device.msix_state.emulated_areas.iter() {
-        device
-            .vm
-            .common
-            .mmio_bus
-            .remove(area.gpa, area.size)
-            .unwrap();
-    }
+    let area = device.msix_state.emulated_area;
+    device
+        .vm
+        .common
+        .mmio_bus
+        .remove(area.gpa, area.size)
+        .unwrap();
 }
 
 /// Establish DMA mapping of the Dram region of the guest memory with the vfio container
@@ -1930,9 +1789,9 @@ mod tests {
         let bars = Bars::default();
         let region_infos = dummy_region_infos([]);
 
-        let (areas, emulated_areas) = vfio_calculate_bar_areas(&bars, &region_infos, None).unwrap();
+        let (areas, msix_table_area) = vfio_calculate_bar_areas(&bars, &region_infos, None).unwrap();
         assert!(areas.is_empty());
-        assert!(emulated_areas.is_empty());
+        assert!(msix_table_area.is_none());
     }
 
     #[test]
@@ -1948,7 +1807,7 @@ mod tests {
             dummy_region_info(0x1000, vec![VfioRegionInfoCap::MsixMappable]),
         ]);
 
-        let (areas, emulated_areas) = vfio_calculate_bar_areas(&bars, &region_infos, None).unwrap();
+        let (areas, msix_table_area) = vfio_calculate_bar_areas(&bars, &region_infos, None).unwrap();
 
         assert_eq!(areas.len(), 2);
         assert_eq!(areas[0].gpa, 0x1000);
@@ -1958,12 +1817,12 @@ mod tests {
         assert_eq!(areas[1].size, 0x1000);
         assert_eq!(areas[1].vfio_fd_offset, 0);
 
-        assert!(emulated_areas.is_empty());
+        assert!(msix_table_area.is_none());
     }
 
     #[test]
     fn test_vfio_calculate_bar_areas_msix_table_and_pba_in_different_bars() {
-        // BARs are just one page long, so emulated areas take them
+        // BARs are just one page long, so the emulated area takes the whole table BAR
         {
             let mut bars = Bars::default();
             bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
@@ -1979,27 +1838,21 @@ mod tests {
 
             let msix_cap = MsixCap::new(0, 32, 0, 2, 0);
 
-            let (areas, emulated_areas) =
+            let (areas, msix_table_area) =
                 vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
 
-            assert_eq!(areas.len(), 0);
+            assert_eq!(areas.len(), 1);
+            assert_eq!(areas[0].gpa, 0x2000);
+            assert_eq!(areas[0].size, 0x1000);
+            assert_eq!(areas[0].vfio_fd_offset, 0);
 
-            assert_eq!(emulated_areas.len(), 2);
-            assert_eq!(emulated_areas[0].gpa, 0x1000);
-            assert_eq!(emulated_areas[0].size, 0x1000);
-            assert_eq!(
-                emulated_areas[0].usage,
-                VfioBarEmulatedAreaUsageFlags::MSIX_TABLE
-            );
-            assert_eq!(emulated_areas[1].gpa, 0x2000);
-            assert_eq!(emulated_areas[1].size, 0x1000);
-            assert_eq!(
-                emulated_areas[1].usage,
-                VfioBarEmulatedAreaUsageFlags::MSIX_PBA
-            );
+            let msix_table_area = msix_table_area.unwrap();
+            assert_eq!(msix_table_area.bar_idx, 0);
+            assert_eq!(msix_table_area.gpa, 0x1000);
+            assert_eq!(msix_table_area.size, 0x1000);
         }
 
-        // BARs are multiple pages, so emulated areas leave some space
+        // BARs are multiple pages, so the emulated area leaves some space
         {
             let mut bars = Bars::default();
             bars.set_bar_64(0, 0x1000, 0x2000, BarPrefetchable::No);
@@ -2015,30 +1868,21 @@ mod tests {
 
             let msix_cap = MsixCap::new(0, 32, 0, 2, 0);
 
-            let (areas, emulated_areas) =
+            let (areas, msix_table_area) =
                 vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
 
             assert_eq!(areas.len(), 2);
             assert_eq!(areas[0].gpa, 0x2000);
             assert_eq!(areas[0].size, 0x1000);
             assert_eq!(areas[0].vfio_fd_offset, 0x1000);
-            assert_eq!(areas[1].gpa, 0x4000);
-            assert_eq!(areas[1].size, 0x1000);
-            assert_eq!(areas[1].vfio_fd_offset, 0x1000);
+            assert_eq!(areas[1].gpa, 0x3000);
+            assert_eq!(areas[1].size, 0x2000);
+            assert_eq!(areas[1].vfio_fd_offset, 0);
 
-            assert_eq!(emulated_areas.len(), 2);
-            assert_eq!(emulated_areas[0].gpa, 0x1000);
-            assert_eq!(emulated_areas[0].size, 0x1000);
-            assert_eq!(
-                emulated_areas[0].usage,
-                VfioBarEmulatedAreaUsageFlags::MSIX_TABLE
-            );
-            assert_eq!(emulated_areas[1].gpa, 0x3000);
-            assert_eq!(emulated_areas[1].size, 0x1000);
-            assert_eq!(
-                emulated_areas[1].usage,
-                VfioBarEmulatedAreaUsageFlags::MSIX_PBA
-            );
+            let msix_table_area = msix_table_area.unwrap();
+            assert_eq!(msix_table_area.bar_idx, 0);
+            assert_eq!(msix_table_area.gpa, 0x1000);
+            assert_eq!(msix_table_area.size, 0x1000);
         }
     }
 
@@ -2066,7 +1910,7 @@ mod tests {
                 })],
             )]);
 
-            let (areas, emulated_areas) =
+            let (areas, msix_table_area) =
                 vfio_calculate_bar_areas(&bars, &region_infos, None).unwrap();
 
             assert_eq!(areas.len(), 2);
@@ -2077,7 +1921,7 @@ mod tests {
             assert_eq!(areas[1].vfio_fd_offset, 0x2000);
             assert_eq!(areas[1].size, 0x1000);
 
-            assert!(emulated_areas.is_empty());
+            assert!(msix_table_area.is_none());
         }
 
         // Overflow
@@ -2154,104 +1998,6 @@ mod tests {
     }
 
     #[test]
-    fn test_vfio_add_emulated_area_no_overlap() {
-        let mut emulated_areas = ArrayVec::<VfioBarEmulatedArea, 2>::new();
-
-        vfio_add_emulated_area(
-            0,
-            0x1000,
-            VfioBarEmulatedAreaUsageFlags::MSIX_TABLE,
-            0,
-            0x1000,
-            &mut emulated_areas,
-        );
-
-        vfio_add_emulated_area(
-            0,
-            0x1000,
-            VfioBarEmulatedAreaUsageFlags::MSIX_PBA,
-            0x1000,
-            0x1000,
-            &mut emulated_areas,
-        );
-
-        assert_eq!(emulated_areas.len(), 2);
-        assert_eq!(emulated_areas[0].bar_idx, 0);
-        assert_eq!(emulated_areas[0].in_bar_offset, 0);
-        assert_eq!(emulated_areas[0].gpa, 0x1000);
-        assert_eq!(emulated_areas[0].size, 0x1000);
-        assert_eq!(
-            emulated_areas[0].usage,
-            VfioBarEmulatedAreaUsageFlags::MSIX_TABLE
-        );
-        assert_eq!(emulated_areas[1].bar_idx, 0);
-        assert_eq!(emulated_areas[1].in_bar_offset, 0x1000);
-        assert_eq!(emulated_areas[1].gpa, 0x2000);
-        assert_eq!(emulated_areas[1].size, 0x1000);
-        assert_eq!(
-            emulated_areas[1].usage,
-            VfioBarEmulatedAreaUsageFlags::MSIX_PBA
-        );
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_vfio_add_emulated_area_overlap_different_bar_ids() {
-        let mut emulated_areas = ArrayVec::<VfioBarEmulatedArea, 2>::new();
-
-        vfio_add_emulated_area(
-            0,
-            0x1000,
-            VfioBarEmulatedAreaUsageFlags::MSIX_TABLE,
-            0x1000,
-            0x1000,
-            &mut emulated_areas,
-        );
-
-        vfio_add_emulated_area(
-            1,
-            0x1000,
-            VfioBarEmulatedAreaUsageFlags::MSIX_PBA,
-            0,
-            0x2000,
-            &mut emulated_areas,
-        );
-    }
-
-    #[test]
-    fn test_vfio_add_emulated_area_overlap() {
-        let mut emulated_areas = ArrayVec::<VfioBarEmulatedArea, 2>::new();
-
-        vfio_add_emulated_area(
-            0,
-            0x1000,
-            VfioBarEmulatedAreaUsageFlags::MSIX_TABLE,
-            0x1000,
-            0x1000,
-            &mut emulated_areas,
-        );
-
-        vfio_add_emulated_area(
-            0,
-            0x1000,
-            VfioBarEmulatedAreaUsageFlags::MSIX_PBA,
-            0,
-            0x2000,
-            &mut emulated_areas,
-        );
-
-        assert_eq!(emulated_areas.len(), 1);
-        assert_eq!(emulated_areas[0].bar_idx, 0);
-        assert_eq!(emulated_areas[0].in_bar_offset, 0);
-        assert_eq!(emulated_areas[0].gpa, 0x1000);
-        assert_eq!(emulated_areas[0].size, 0x2000);
-        assert_eq!(
-            emulated_areas[0].usage,
-            VfioBarEmulatedAreaUsageFlags::MSIX_TABLE | VfioBarEmulatedAreaUsageFlags::MSIX_PBA
-        );
-    }
-
-    #[test]
     fn test_vfio_calculate_bar_areas_sparse_mmap_overlaps_msix() {
         // Sparse area exactly covers the MSI-X table emulated area
         {
@@ -2285,48 +2031,12 @@ mod tests {
             );
         }
 
-        // Sparse area partially overlaps the MSI-X pba emulated area
-        {
-            let mut bars = Bars::default();
-            bars.set_bar_64(0, 0x1000, 0x4000, BarPrefetchable::No);
-
-            // PBA in BAR0 at offset 0x2000 -> emulated area [0x2000, 0x3000) -> gpa [0x3000,
-            // 0x4000) Table is in BAR1, which is never visited, so it creates no
-            // emulated area.
-            let msix_cap = MsixCap::new(1, 32, 0, 0, 0x2000);
-
-            // Covers region [0x1000, 0x3000) -> gpa [0x2000, 0x4000), so only the second half
-            // of it overlaps the pba emulated area.
-            let sparse_areas = vec![VfioRegionSparseMmapArea {
-                offset: 0x1000,
-                size: 0x2000,
-            }];
-            let region_infos = dummy_region_infos([dummy_region_info(
-                0x4000,
-                vec![VfioRegionInfoCap::SparseMmap(VfioRegionInfoCapSparseMmap {
-                    areas: sparse_areas,
-                })],
-            )]);
-
-            let err = vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap_err();
-            assert!(
-                matches!(
-                    err,
-                    VfioError::SparseMmapAreaOverlapsEmulatedArea(
-                        0, 0x2000, 0x2000, 0x3000, 0x1000
-                    )
-                ),
-                "{err:?}"
-            );
-        }
-
-        // Sparse areas correctly exclude both the MSI-X table and pba emulated_areas
+        // Sparse areas correctly exclude the MSI-X table emulated area
         {
             let mut bars = Bars::default();
             bars.set_bar_64(0, 0x1000, 0x4000, BarPrefetchable::No);
 
             // Table at offset 0x1000 -> emulated area [0x1000, 0x2000) -> gpa [0x2000, 0x3000)
-            // PBA   at offset 0x2000 -> emulated area [0x2000, 0x3000) -> gpa [0x3000, 0x4000)
             let msix_cap = MsixCap::new(0, 32, 0x1000, 0, 0x2000);
 
             let sparse_areas = vec![
@@ -2346,7 +2056,7 @@ mod tests {
                 })],
             )]);
 
-            let (areas, emulated_areas) =
+            let (areas, msix_table_area) =
                 vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
 
             assert_eq!(areas.len(), 2);
@@ -2357,20 +2067,9 @@ mod tests {
             assert_eq!(areas[1].vfio_fd_offset, 0x3000);
             assert_eq!(areas[1].size, 0x1000);
 
-            // The table and pba emulated_areas are adjacent, so they stay separate areas
-            assert_eq!(emulated_areas.len(), 2);
-            assert_eq!(emulated_areas[0].gpa, 0x2000);
-            assert_eq!(emulated_areas[0].size, 0x1000);
-            assert_eq!(
-                emulated_areas[0].usage,
-                VfioBarEmulatedAreaUsageFlags::MSIX_TABLE
-            );
-            assert_eq!(emulated_areas[1].gpa, 0x3000);
-            assert_eq!(emulated_areas[1].size, 0x1000);
-            assert_eq!(
-                emulated_areas[1].usage,
-                VfioBarEmulatedAreaUsageFlags::MSIX_PBA
-            );
+            let msix_table_area = msix_table_area.unwrap();
+            assert_eq!(msix_table_area.gpa, 0x2000);
+            assert_eq!(msix_table_area.size, 0x1000);
         }
     }
 
@@ -2386,39 +2085,7 @@ mod tests {
 
         let msix_cap = MsixCap::new(0, 32, 0, 0, 0x1000);
 
-        let (areas, emulated_areas) =
-            vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
-
-        assert!(areas.is_empty());
-
-        assert_eq!(emulated_areas.len(), 2);
-        assert_eq!(emulated_areas[0].gpa, 0x1000);
-        assert_eq!(emulated_areas[0].size, 0x1000);
-        assert_eq!(
-            emulated_areas[0].usage,
-            VfioBarEmulatedAreaUsageFlags::MSIX_TABLE
-        );
-        assert_eq!(emulated_areas[1].gpa, 0x2000);
-        assert_eq!(emulated_areas[1].size, 0x1000);
-        assert_eq!(
-            emulated_areas[1].usage,
-            VfioBarEmulatedAreaUsageFlags::MSIX_PBA
-        );
-    }
-
-    #[test]
-    fn test_vfio_calculate_bar_areas_overlapping_msix_emulated_areas() {
-        let mut bars = Bars::default();
-        bars.set_bar_64(0, 0x1000, 0x2000, BarPrefetchable::No);
-
-        let region_infos = dummy_region_infos([dummy_region_info(
-            0x2000,
-            vec![VfioRegionInfoCap::MsixMappable],
-        )]);
-
-        // Both tables create the same emulated area [0x0..0x1000)
-        let msix_cap = MsixCap::new(0, 32, 0x0, 0, 0x200);
-        let (areas, emulated_areas) =
+        let (areas, msix_table_area) =
             vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
 
         assert_eq!(areas.len(), 1);
@@ -2426,21 +2093,13 @@ mod tests {
         assert_eq!(areas[0].size, 0x1000);
         assert_eq!(areas[0].vfio_fd_offset, 0x1000);
 
-        assert_eq!(emulated_areas.len(), 1);
-        assert_eq!(emulated_areas[0].gpa, 0x1000);
-        assert_eq!(emulated_areas[0].size, 0x1000);
-        assert_eq!(
-            emulated_areas[0].usage,
-            VfioBarEmulatedAreaUsageFlags::MSIX_TABLE | VfioBarEmulatedAreaUsageFlags::MSIX_PBA
-        );
+        let msix_table_area = msix_table_area.unwrap();
+        assert_eq!(msix_table_area.gpa, 0x1000);
+        assert_eq!(msix_table_area.size, 0x1000);
     }
 
-    /// Table and PBA share the same starting page (so the same emulated area `gpa`),
-    /// but the PBA contents straddle the page boundary, so its host-page-
-    /// aligned size is larger than the table's. The two emulated_areas must merge
-    /// into one.
     #[test]
-    fn test_vfio_calculate_bar_areas_same_gpa_different_size_msix_emulated_areas() {
+    fn test_vfio_calculate_bar_areas_pba_inside_msix_emulated_area() {
         let mut bars = Bars::default();
         bars.set_bar_64(0, 0x1000, 0x2000, BarPrefetchable::No);
 
@@ -2449,24 +2108,19 @@ mod tests {
             vec![VfioRegionInfoCap::MsixMappable],
         )]);
 
-        // table at offset 0, 128 entries (0x800 bytes) -> emulated area [0x0, 0x1000)
-        // PBA at offset 0xff8, 16 bytes -> straddles 0x1000 -> emulated area [0x0, 0x2000)
-        // Same gpa (bar_gpa + 0), different sizes.
-        let msix_cap = MsixCap::new(0, 128, 0, 0, 0xff8);
-
-        let (areas, emulated_areas) =
+        // The pba shares the table page, so it is inside the emulated area [0x0..0x1000)
+        let msix_cap = MsixCap::new(0, 32, 0x0, 0, 0x200);
+        let (areas, msix_table_area) =
             vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap();
 
-        // No space for areas, all taken by emulated_areas
-        assert!(areas.is_empty());
+        assert_eq!(areas.len(), 1);
+        assert_eq!(areas[0].gpa, 0x2000);
+        assert_eq!(areas[0].size, 0x1000);
+        assert_eq!(areas[0].vfio_fd_offset, 0x1000);
 
-        assert_eq!(emulated_areas.len(), 1);
-        assert_eq!(emulated_areas[0].gpa, 0x1000);
-        assert_eq!(emulated_areas[0].size, 0x2000);
-        assert_eq!(
-            emulated_areas[0].usage,
-            VfioBarEmulatedAreaUsageFlags::MSIX_TABLE | VfioBarEmulatedAreaUsageFlags::MSIX_PBA
-        );
+        let msix_table_area = msix_table_area.unwrap();
+        assert_eq!(msix_table_area.gpa, 0x1000);
+        assert_eq!(msix_table_area.size, 0x1000);
     }
 
     #[test]
@@ -2489,213 +2143,54 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn test_vfio_calculate_bar_areas_msix_pba_past_region_end() {
-        let mut bars = Bars::default();
-        bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
-
-        let region_infos = dummy_region_infos([dummy_region_info(
-            0x1000,
-            vec![VfioRegionInfoCap::MsixMappable],
-        )]);
-
-        // end of the pba at offset 0xff8 with size of 16 will land outside 0x1000 region
-        let msix_cap = MsixCap::new(0, 128, 0, 0, 0xff8);
-
-        let err = vfio_calculate_bar_areas(&bars, &region_infos, Some(&msix_cap)).unwrap_err();
-        assert!(matches!(
-            err,
-            VfioError::MsixPbaOutOfRange(0, 0xff8, 16, 0x1000)
-        ));
-    }
-
     const BAR_GPA: u64 = 0x1000;
 
-    fn emulated_area_table_only() -> ArrayVec<VfioBarEmulatedArea, 2> {
-        let mut areas = ArrayVec::new();
-        areas.push(VfioBarEmulatedArea {
+    fn emulated_area_table_only() -> VfioBarEmulatedArea {
+        VfioBarEmulatedArea {
             bar_idx: 0,
             in_bar_offset: 0,
             gpa: BAR_GPA,
             size: 0x1000,
-            usage: VfioBarEmulatedAreaUsageFlags::MSIX_TABLE,
-        });
-        areas
-    }
-
-    fn emulated_areas_pba_only() -> ArrayVec<VfioBarEmulatedArea, 2> {
-        let mut areas = ArrayVec::new();
-        areas.push(VfioBarEmulatedArea {
-            bar_idx: 0,
-            in_bar_offset: 0,
-            gpa: BAR_GPA,
-            size: 0x1000,
-            usage: VfioBarEmulatedAreaUsageFlags::MSIX_PBA,
-        });
-        areas
-    }
-
-    fn emulated_areas_merged() -> ArrayVec<VfioBarEmulatedArea, 2> {
-        let mut areas = ArrayVec::new();
-        areas.push(VfioBarEmulatedArea {
-            bar_idx: 0,
-            in_bar_offset: 0,
-            gpa: BAR_GPA,
-            size: 0x1000,
-            usage: VfioBarEmulatedAreaUsageFlags::MSIX_TABLE
-                | VfioBarEmulatedAreaUsageFlags::MSIX_PBA,
-        });
-        areas
+        }
     }
 
     #[test]
     fn test_distribute_bar_access_table_inside_table_range() {
-        let areas = emulated_area_table_only();
+        let area = emulated_area_table_only();
         let cap = MsixCap::new(0, 4, 0, 0, 0x800);
-        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x10, 4);
+        let result = vfio_distribute_bar_access(&area, &cap, BAR_GPA, 0x10, 4);
         assert!(matches!(result, HandleBarAccessResult::MsixTable(0x10)));
     }
 
     #[test]
     fn test_distribute_bar_access_table_outside_table_range_forwards_to_device() {
-        let areas = emulated_area_table_only();
+        let area = emulated_area_table_only();
         let cap = MsixCap::new(0, 4, 0, 0, 0x800);
-        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x100, 4);
+        let result = vfio_distribute_bar_access(&area, &cap, BAR_GPA, 0x100, 4);
         assert!(matches!(result, HandleBarAccessResult::Device(0, 0x100)));
     }
 
     #[test]
-    fn test_distribute_bar_access_pba_inside_pba_range() {
-        let areas = emulated_areas_pba_only();
-        let cap = MsixCap::new(0, 4, 0x800, 0, 0x100);
-        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x100, 4);
-        assert!(matches!(result, HandleBarAccessResult::MsixPba(0)));
-    }
-
-    #[test]
-    fn test_distribute_bar_access_pba_outside_pba_range_forwards_to_device() {
-        let areas = emulated_areas_pba_only();
-        let cap = MsixCap::new(0, 4, 0x800, 0, 0x100);
-        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x800, 4);
-        assert!(matches!(result, HandleBarAccessResult::Device(0, 0x800)));
-    }
-
-    #[test]
-    fn test_distribute_bar_access_merged_hits_table() {
-        let areas = emulated_areas_merged();
-        let cap = MsixCap::new(0, 4, 0, 0, 0x200);
-        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x10, 4);
-        assert!(matches!(result, HandleBarAccessResult::MsixTable(0x10)));
-    }
-
-    #[test]
-    fn test_distribute_bar_access_merged_hits_pba() {
-        let areas = emulated_areas_merged();
-        let cap = MsixCap::new(0, 4, 0, 0, 0x200);
-        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x200, 4);
-        assert!(matches!(result, HandleBarAccessResult::MsixPba(0)));
-    }
-
-    #[test]
-    fn test_distribute_bar_access_merged_padding_forwards_to_device() {
-        let areas = emulated_areas_merged();
-        let cap = MsixCap::new(0, 4, 0, 0, 0x200);
-        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x800, 4);
-        assert!(matches!(result, HandleBarAccessResult::Device(0, 0x800)));
-    }
-
-    #[test]
     fn test_distribute_bar_access_partial_overlap_table_start() {
-        let areas = emulated_area_table_only();
+        let area = emulated_area_table_only();
         let cap = MsixCap::new(0, 4, 0x100, 0, 0x800);
-        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0xfe, 4);
+        let result = vfio_distribute_bar_access(&area, &cap, BAR_GPA, 0xfe, 4);
         assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
     }
 
     #[test]
     fn test_distribute_bar_access_partial_overlap_table_end() {
-        let areas = emulated_area_table_only();
+        let area = emulated_area_table_only();
         let cap = MsixCap::new(0, 4, 0, 0, 0x800);
-        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x3e, 4);
+        let result = vfio_distribute_bar_access(&area, &cap, BAR_GPA, 0x3e, 4);
         assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
     }
 
     #[test]
-    fn test_distribute_bar_access_partial_overlap_pba_start() {
-        let areas = emulated_areas_pba_only();
-        let cap = MsixCap::new(0, 4, 0x800, 0, 0x100);
-        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0xfe, 4);
-        assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
-    }
-
-    #[test]
-    fn test_distribute_bar_access_partial_overlap_pba_end() {
-        let areas = emulated_areas_pba_only();
-        let cap = MsixCap::new(0, 4, 0x800, 0, 0x100);
-        let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x106, 4);
-        assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
-    }
-
-    /// A single emulated area covering two host pages, produced by merging a table area and a
-    /// pba area whose host page aligned ranges overlap but start on different pages, so the
-    /// merged area starts BELOW the table's page.
-    fn merged_area_with_pba_on_lower_page() -> (ArrayVec<VfioBarEmulatedArea, 2>, MsixCap) {
-        let page = usize_to_u64(host_page_size());
-
-        let mut areas = ArrayVec::<VfioBarEmulatedArea, 2>::new();
-        areas.push(VfioBarEmulatedArea {
-            bar_idx: 0,
-            in_bar_offset: 0,
-            gpa: BAR_GPA,
-            size: 2 * page,
-            usage: VfioBarEmulatedAreaUsageFlags::MSIX_TABLE
-                | VfioBarEmulatedAreaUsageFlags::MSIX_PBA,
-        });
-
-        // pba:   2 chunks   (16 B)     at BAR offset `page - 8`
-        // table: 128 entries (0x800 B) at BAR offset `page + 8`
-        #[allow(clippy::cast_possible_truncation)]
-        let msix_cap = MsixCap::new(0, 128, (page + 8) as u32, 0, (page - 8) as u32);
-
-        (areas, msix_cap)
-    }
-
-    #[test]
-    fn test_distribute_bar_access_big_merged_emulated_area() {
-        let page = usize_to_u64(host_page_size());
-        let (areas, cap) = merged_area_with_pba_on_lower_page();
-
-        // offset is far bellow MSIX_PBA, so must become a device access
-        {
-            let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, 0x10, 4);
-            assert!(matches!(result, HandleBarAccessResult::Device(0, 0x10)));
-        }
-
-        // offset is the start of the MSIX_PBA
-        {
-            let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, page - 8, 4);
-            assert!(matches!(result, HandleBarAccessResult::MsixPba(0)));
-        }
-
-        // offset is the start of the MSIX_TABLE
-        {
-            let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, page + 8, 4);
-            assert!(matches!(result, HandleBarAccessResult::MsixTable(0)));
-        }
-
-        // offset after MSIX_TABLE, so must be a device access
-        {
-            let offset = page + 8 + 0x800;
-            let result = vfio_distribute_bar_access(&areas, &cap, BAR_GPA, offset, 4);
-            assert!(matches!(result, HandleBarAccessResult::Device(0, o) if o == offset));
-        }
-    }
-
-    #[test]
-    #[should_panic(expected = "unreachable")]
+    #[should_panic]
     fn test_distribute_bar_access_unrelated_base_panics() {
-        let areas = emulated_area_table_only();
+        let area = emulated_area_table_only();
         let cap = MsixCap::new(0, 4, 0, 0, 0x800);
-        let _ = vfio_distribute_bar_access(&areas, &cap, BAR_GPA + 0x1000, 0, 4);
+        let _ = vfio_distribute_bar_access(&area, &cap, BAR_GPA + 0x1000, 0, 4);
     }
 }
