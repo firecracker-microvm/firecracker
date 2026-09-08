@@ -19,7 +19,9 @@ guest driver which will update the size of the raw block device. With that being
 said, a sequence which performs resizing/altering of the block underlying host
 file followed by a PATCH /drives API call is not an atomic operation as the
 guest can also modify the block file via emulation during the sequence, if the
-raw block device is mounted or accessible.
+raw block device is mounted or accessible. Multiqueue follows the same update
+path, but Firecracker updates each queue separately, so in-flight I/O can
+observe a partially updated device.
 
 ### Supported use case
 
