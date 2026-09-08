@@ -1,0 +1,31 @@
+name: PR style and build
+
+on: pull_request
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  style_and_build:
+    name: Style and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: "Checkout pull request head"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: "Check build"
+        run: ./tools/devtool -y checkbuild --all
+
+      - name: "Check style"
+        env:
+          BUILDKITE_PULL_REQUEST_BASE_BRANCH: ${{ github.base_ref }}
+        run: ./tools/devtool -y checkstyle --no-clippy
