@@ -298,6 +298,13 @@ cmd_build_devctr() {
     docker build -t "$DEVCTR_IMAGE_NO_TAG" -f "$docker_file_name" $build_args .
 }
 
+# Prints the development container image reference, so that other tooling
+# can pull, cache or inspect the exact image devtool would run.
+#
+cmd_devctr_image() {
+    echo "$DEVCTR_IMAGE"
+}
+
 
 # Validate the user supplied kernel version number.
 # It must be composed of 2 groups of integers separated by dot, with an optional third group.
@@ -428,6 +435,9 @@ cmd_help() {
     echo ""
     echo "    checkenv"
     echo "        Performs prerequisites checks needed to execute firecracker."
+    echo ""
+    echo "    devctr_image"
+    echo "        Print the development container image reference (name:tag)."
     echo ""
     echo "    distclean"
     echo "        Clean up the build tree and remove the docker container."
