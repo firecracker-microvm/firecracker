@@ -1669,7 +1669,7 @@ mod tests {
         // Available ring must be 2-byte aligned.
         q.avail_ring_address = GuestAddress(2);
         // Used ring must be 4-byte aligned.
-        q.avail_ring_address = GuestAddress(4);
+        q.used_ring_address = GuestAddress(4);
 
         let mem = single_region_mem(0x10000);
         q.initialize(&mem).unwrap();
