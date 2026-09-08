@@ -208,14 +208,19 @@ retry_cmd() {
     {
         $command
     } || {
+        rc=$?
+
         # Command failed, substract one from retry_cnt
         retry_cnt=$((retry_cnt - 1))
 
-        # If retry_cnt is larger than 0, sleep and call again
+        # If retry_cnt is larger than 0, sleep and call again. Otherwise,
+        # give up and report the last failure.
         if [ "$retry_cnt" -gt 0 ]; then
             echo "$command failed, retrying..."
             sleep "$sleep_int"
             retry_cmd "$command" "$retry_cnt" "$sleep_int"
+        else
+            return $rc
         fi
     }
 }
