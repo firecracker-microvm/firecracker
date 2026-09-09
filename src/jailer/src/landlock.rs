@@ -110,32 +110,38 @@ mod tests {
         result.unwrap_err();
     }
 
+    /// Env var that signals this process is the re-exec'd child for
+    /// `test_enforce`. Set only by the parent invocation below.
+    const ENFORCE_CHILD_ENV: &str = "LANDLOCK_TEST_ENFORCE_CHILD";
+
     #[test]
+    #[allow(
+        clippy::exit,
+        reason = "deliberate exit from a re-exec'd child process"
+    )]
     fn test_enforce() {
         if !is_landlock_supported() {
             return;
         }
-        let tmp = TempDir::new_with_prefix("landlock_test_").unwrap();
-        let ruleset = prepare_ruleset(tmp.as_path()).unwrap();
 
-        // enforce() restricts the calling process irreversibly. Fork so the
-        // restriction is confined to the child and does not affect other tests.
-        // SAFETY: no other threads are running at this point in the unit-test
-        // harness, making fork() safe to call.
-        let pid = unsafe { libc::fork() };
-        assert!(pid >= 0, "fork failed");
-        if pid == 0 {
-            // child: enforce and exit 0 on success, 1 on error.
-            let code = i32::from(enforce(ruleset).is_err());
-            // SAFETY: exit code is a valid value.
-            unsafe { libc::exit(code) };
+        // enforce() restricts the calling process irreversibly, and cargo
+        // test runs many tests as threads within one process, so we can't
+        // call it directly here without breaking file access for other
+        // tests. Instead, re-exec this test binary as a real child process,
+        // filtered to just this test, and let the child perform the actual
+        // (irreversible) enforce() call.
+        if std::env::var_os(ENFORCE_CHILD_ENV).is_some() {
+            let tmp = TempDir::new_with_prefix("landlock_test_").unwrap();
+            let ruleset = prepare_ruleset(tmp.as_path()).unwrap();
+            std::process::exit(i32::from(enforce(ruleset).is_err()));
         }
 
-        // parent: wait and check the child exited cleanly.
-        let mut status = 0i32;
-        // SAFETY: pid is a valid child PID returned by fork; status is a valid pointer.
-        unsafe { libc::waitpid(pid, &mut status, 0) };
-        assert!(libc::WIFEXITED(status));
-        assert_eq!(libc::WEXITSTATUS(status), 0);
+        let exe = std::env::current_exe().unwrap();
+        let status = std::process::Command::new(exe)
+            .args(["landlock::tests::test_enforce", "--exact"])
+            .env(ENFORCE_CHILD_ENV, "1")
+            .status()
+            .unwrap();
+        assert!(status.success());
     }
 }
