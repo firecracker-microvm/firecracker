@@ -209,7 +209,7 @@ impl VmdkFileEngine {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::fs;
     use std::os::unix::fs::symlink;
     use std::path::PathBuf;
@@ -217,9 +217,12 @@ mod tests {
     use vmm_sys_util::tempdir::TempDir;
 
     use super::*;
+    use crate::devices::virtio::test_utils::default_mem;
+    use crate::vstate::memory::Bytes;
+
     /// Creates a VMDK whose extent data starts `extent_offset_sectors` sectors into the
     /// extent file, which is zero-filled up to that point.
-    fn create_test_vmdk(extent: &str, extent_offset_sectors: u64) -> (TempDir, PathBuf) {
+    pub(crate) fn create_test_vmdk(extent: &str, extent_offset_sectors: u64) -> (TempDir, PathBuf) {
         let dir = TempDir::new().unwrap();
         let extent_file = dir.as_path().join("extent");
         let extent_size = 1024 * 1024usize;
@@ -270,9 +273,16 @@ RW {extent_sectors} FLAT "{extent}" {extent_offset_sectors}
 
         assert_eq!(engine.disk_size(), 1024 * 1024);
 
+        let mem = default_mem();
+        engine.read(0, &mem, GuestAddress(0), 512).unwrap();
         let mut buf = vec![0u8; 512];
-        engine.access.read(&mut buf[..], 0).unwrap();
+        mem.read_slice(&mut buf, GuestAddress(0)).unwrap();
         assert_eq!(&buf[..28], b"Hello VMDK from Firecracker!");
+        assert!(matches!(
+            engine.write(0, &mem, GuestAddress(0), 512),
+            Err(VmdkIoError::WriteNotSupported)
+        ));
+        engine.flush().unwrap();
     }
 
     #[test]
