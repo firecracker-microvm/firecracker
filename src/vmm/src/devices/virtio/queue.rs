@@ -878,9 +878,7 @@ mod verification {
     }
 
     #[kani::proof]
-    #[kani::unwind(0)] // There are no loops anywhere, but kani really enjoys getting stuck in std::ptr::drop_in_place.
-    // This is a compiler intrinsic that has a "dummy" implementation in stdlib that just
-    // recursively calls itself. Kani will generally unwind this recursion infinitely
+    #[kani::unwind(0)]
     fn verify_spec_2_6_7_2() {
         // Section 2.6.7.2 deals with device-to-driver notification suppression.
         // It describes a mechanism by which the driver can tell the device that it does not
@@ -959,6 +957,36 @@ mod verification {
         };
 
         assert_eq!(queue.prepare_kick(), needs_notification);
+    }
+
+    #[kani::proof]
+    #[kani::should_panic]
+    #[kani::unwind(0)]
+    fn verify_size_raised_after_initialize() {
+        let ProofContext(mut queue, _) = kani::any();
+
+        let validated = queue.size;
+        queue.size = kani::any_where(|size: &u16| *size > validated);
+
+        match kani::any::<u8>() % 3 {
+            0 => {
+                let index =
+                    kani::any_where(|index: &u16| *index >= validated && *index < queue.size);
+                _ = DescriptorChain::checked_new(queue.desc_table, queue.size, index);
+            }
+            1 => {
+                let index =
+                    kani::any_where(|index: &u16| *index >= validated && *index < queue.size);
+                queue.used_ring_ring_set(usize::from(index), UsedElement { id: 0, len: 0 });
+            }
+            // The avail ring ends with `used_event`, so index `validated` is still inside the
+            // range and `validated + 1` is the first index past it.
+            _ => {
+                let index =
+                    kani::any_where(|index: &u16| *index > validated && *index < queue.size);
+                _ = queue.avail_ring_ring_get(usize::from(index));
+            }
+        }
     }
 
     #[kani::proof]
@@ -1700,6 +1728,45 @@ mod tests {
 
         q.size = 32;
         DescriptorChain::checked_new(q.desc_table, q.size, 16);
+    }
+
+    #[test]
+    #[should_panic(expected = "outside the range validated at activation")]
+    fn test_pop_head_index_past_validated_size_panics() {
+        let m = &default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        let mut q = vq.create_queue();
+
+        q.size = 32;
+        vq.avail.ring[0].set(16);
+        vq.avail.idx.set(1);
+        let _ = q.pop();
+    }
+
+    #[test]
+    #[should_panic(expected = "outside the range validated at activation")]
+    fn test_next_descriptor_past_validated_size_panics() {
+        let m = &default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        let mut q = vq.create_queue();
+        vq.dtable[0].set(0x1000, 0x100, VIRTQ_DESC_F_NEXT, 16);
+
+        q.size = 32;
+        let head = DescriptorChain::checked_new(q.desc_table, q.size, 0).unwrap();
+        let _ = head.next_descriptor();
+    }
+
+    #[test]
+    fn test_avail_ring_index_at_validated_size_reads_used_event() {
+        let m = &default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        let mut q = vq.create_queue();
+        vq.avail.event.set(3);
+
+        q.size = 32;
+        q.next_avail = Wrapping(16);
+        vq.avail.idx.set(17);
+        assert_eq!(q.pop().unwrap().unwrap().index, 3);
     }
 
     #[test]
