@@ -309,10 +309,13 @@ class BKPipeline:
     def __init__(self, with_build_step=True, **kwargs):
         self.steps = []
         self.args = args = self.parser.parse_args()
-        # Retry one time if agent was lost. This can happen if we terminate the
-        # instance or the agent gets disconnected for whatever reason
         retry = {
-            "automatic": [{"exit_status": -1, "limit": 1}],
+            "automatic": [
+                # Not retrying automatically in case of timeouts, regardless of exit status
+                {"signal_reason": "cancel", "limit": 0},
+                # Retrying once if Buildkite lost contact with the agent, or it stopped reporting
+                {"exit_status": -1, "limit": 1},
+            ],
         }
         retry = overlay_dict(retry, kwargs.pop("retry", {}))
         # Calculate step defaults with parameters and kwargs
