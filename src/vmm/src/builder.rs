@@ -860,6 +860,50 @@ pub(crate) mod tests {
         }
     }
 
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_synchronize_tsc_offsets() {
+        synchronize_tsc_offsets(&[]);
+        for offsets in [
+            &[-5_000_000_000_i64][..],
+            &[-5_000_000_000, 5_000_000_000][..],
+            &[5_000_000_000, 5_000_000_000][..],
+        ] {
+            let count = u8::try_from(offsets.len()).unwrap();
+            let mut source_vm = setup_vm_with_memory(0x1000);
+            let source_vcpus = source_vm.create_vcpus(count).unwrap();
+            if !source_vcpus[0].kvm_vcpu.supports_tsc_offset_attr() {
+                eprintln!("Skipping TSC offset synchronization: KVM attribute unavailable");
+                return;
+            }
+            let vm_state = source_vm.save_state().unwrap();
+            let states: Vec<_> = source_vcpus
+                .iter()
+                .map(|vcpu| vcpu.kvm_vcpu.save_state().unwrap())
+                .collect();
+
+            let mut vm = setup_vm_with_memory(0x1000);
+            let vcpus = vm.create_vcpus(count).unwrap();
+            for ((vcpu, state), &offset) in vcpus.iter().zip(&states).zip(offsets) {
+                vcpu.kvm_vcpu.restore_state(state).unwrap();
+                // Establish exact offsets without depending on KVM's MSR-write heuristics.
+                vcpu.kvm_vcpu.set_tsc_offset(offset).unwrap();
+                assert_eq!(vcpu.kvm_vcpu.get_tsc_offset().unwrap(), offset);
+            }
+
+            synchronize_tsc_offsets(&vcpus);
+            for vcpu in &vcpus {
+                assert_eq!(vcpu.kvm_vcpu.get_tsc_offset().unwrap(), offsets[0]);
+            }
+
+            // The subsequent VM clock restore must preserve the synchronized offsets.
+            vm.restore_state(&vm_state, false).unwrap();
+            for vcpu in &vcpus {
+                assert_eq!(vcpu.kvm_vcpu.get_tsc_offset().unwrap(), offsets[0]);
+            }
+        }
+    }
+
     fn cmdline_contains(cmdline: &Cmdline, slug: &str) -> bool {
         // The following unwraps can never fail; the only way any of these methods
         // would return an `Err` is if one of the following conditions is met:
