@@ -419,6 +419,39 @@ pub enum BuildMicrovmFromSnapshotError {
     UnsupportedClockRealtime,
 }
 
+/// Align restored TSC offsets before starting any vCPU threads.
+#[cfg(target_arch = "x86_64")]
+fn synchronize_tsc_offsets(vcpus: &[crate::Vcpu]) {
+    let Some(reference) = vcpus.first() else {
+        return;
+    };
+    if !reference.kvm_vcpu.supports_tsc_offset_attr() {
+        debug!("KVM does not support TSC offset synchronization");
+        return;
+    }
+    let offset = match reference.kvm_vcpu.get_tsc_offset() {
+        Ok(offset) => offset,
+        Err(err) => {
+            crate::logger::warn!("Failed to read vCPU 0 TSC offset: {err}");
+            return;
+        }
+    };
+
+    let mut synchronized = true;
+    for vcpu in vcpus {
+        if let Err(err) = vcpu.kvm_vcpu.set_tsc_offset(offset) {
+            crate::logger::warn!(
+                "Failed to synchronize vCPU {} TSC offset: {err}",
+                vcpu.kvm_vcpu.index
+            );
+            synchronized = false;
+        }
+    }
+    if synchronized {
+        debug!("Synchronized all vCPU TSC offsets to {offset}");
+    }
+}
+
 /// Builds and starts a microVM based on the provided MicrovmState.
 ///
 /// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
@@ -471,6 +504,12 @@ pub fn build_microvm_from_snapshot(
             .map_err(VcpuError::VcpuResponse)
             .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
     }
+
+    // Restoring TSC MSRs separately can leave different offsets on each vCPU.
+    // Preserve vCPU0's restored timeline while preventing time from going backwards
+    // when the guest migrates between vCPUs.
+    #[cfg(target_arch = "x86_64")]
+    synchronize_tsc_offsets(&vcpus);
 
     #[cfg(target_arch = "aarch64")]
     {
