@@ -1115,11 +1115,11 @@ impl VirtioDevice for Net {
 #[macro_use]
 #[allow(clippy::cast_possible_truncation)]
 pub mod tests {
+    use std::mem;
     use std::net::Ipv4Addr;
     use std::os::fd::AsRawFd;
     use std::str::FromStr;
     use std::time::Duration;
-    use std::{mem, thread};
 
     use vm_memory::{GuestAddress, GuestMemoryBackend};
 
@@ -1146,6 +1146,7 @@ pub mod tests {
     use crate::test_utils::single_region_mem;
     use crate::utils::net::mac::{MAC_ADDR_LEN, MacAddr};
     use crate::vstate::memory::Address;
+    use utils::time::MockClock;
 
     impl Net {
         pub fn finish_frame(&mut self) {
@@ -2250,7 +2251,8 @@ pub mod tests {
         // Test TX bandwidth rate limiting
         {
             // create bandwidth rate limiter that allows 40960 bytes/s with bucket size 4096 bytes
-            let mut rl = RateLimiter::new(0x1000, 0, 100, 0, 0, 0);
+            let tx_clock = MockClock::new();
+            let mut rl = RateLimiter::new_mocked(0x1000, 0, 100, 0, 0, 0, &tx_clock);
             // use up the budget
             assert!(rl.consume(0x1000, TokenType::Bytes));
 
@@ -2280,9 +2282,8 @@ pub mod tests {
                 assert_eq!(th.net().metrics.tx_rate_limiter_throttled.count(), 2);
             }
 
-            // wait for 100ms to give the rate-limiter timer a chance to replenish
-            // wait for an extra 100ms to make sure the timerfd event makes its way from the kernel
-            thread::sleep(Duration::from_millis(200));
+            // Advance the shared virtual clock past the refill timer (100ms).
+            tx_clock.advance(Duration::from_millis(100));
 
             // following TX procedure should succeed because bandwidth should now be available
             {
@@ -2299,7 +2300,7 @@ pub mod tests {
                 assert_eq!(th.txq.used.idx.get(), 1);
             }
 
-            thread::sleep(Duration::from_millis(200));
+            tx_clock.advance(Duration::from_millis(100));
 
             // following TX procedure should succeed to handle the second frame as well
             {
@@ -2319,7 +2320,8 @@ pub mod tests {
         // Test RX bandwidth rate limiting
         {
             // create bandwidth rate limiter that allows 2000 bytes/s with bucket size 1000 bytes
-            let mut rl = RateLimiter::new(1000, 0, 1000, 0, 0, 0);
+            let rx_clock = MockClock::new();
+            let mut rl = RateLimiter::new_mocked(1000, 0, 1000, 0, 0, 0, &rx_clock);
 
             // set up RX
             assert!(th.net().rx_buffer.used_descriptors == 0);
@@ -2331,8 +2333,7 @@ pub mod tests {
 
             let mut frame = inject_tap_tx_frame(&th.net(), 1000);
 
-            // use up the budget (do it after injecting the tx frame, as socket communication is
-            // slow enough that the ratelimiter could replenish in the meantime).
+            // use up the budget
             assert!(rl.consume(1000, TokenType::Bytes));
 
             // set this rx rate limiter to be used
@@ -2365,9 +2366,9 @@ pub mod tests {
                 assert_eq!(th.net().metrics.rx_rate_limiter_throttled.count(), 2);
             }
 
-            // wait for 1000ms to give the rate-limiter timer a chance to replenish
-            // wait for an extra 1000ms to make sure the timerfd event makes its way from the kernel
-            thread::sleep(Duration::from_millis(2000));
+            // Advance the shared virtual clock by the full refill time (1000ms), replenishing the
+            // bucket and firing the limiter's timer — deterministic, no sleeping.
+            rx_clock.advance(Duration::from_millis(1000));
 
             // following RX procedure should succeed because bandwidth should now be available
             {
@@ -2404,7 +2405,8 @@ pub mod tests {
         // Test TX ops rate limiting
         {
             // create ops rate limiter that allows 10 ops/s with bucket size 1 ops
-            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100);
+            let tx_clock = MockClock::new();
+            let mut rl = RateLimiter::new_mocked(0, 0, 0, 1, 0, 100, &tx_clock);
             // use up the budget
             assert!(rl.consume(1, TokenType::Ops));
 
@@ -2428,9 +2430,8 @@ pub mod tests {
                 assert_eq!(th.txq.used.idx.get(), 0);
             }
 
-            // wait for 100ms to give the rate-limiter timer a chance to replenish
-            // wait for an extra 100ms to make sure the timerfd event makes its way from the kernel
-            thread::sleep(Duration::from_millis(200));
+            // Advance the shared virtual clock past the refill timer (100ms).
+            tx_clock.advance(Duration::from_millis(100));
 
             // following TX procedure should succeed because ops should now be available
             {
@@ -2450,7 +2451,8 @@ pub mod tests {
         // Test RX ops rate limiting
         {
             // create ops rate limiter that allows 2 ops/s with bucket size 1 ops
-            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 1000);
+            let rx_clock = MockClock::new();
+            let mut rl = RateLimiter::new_mocked(0, 0, 0, 1, 0, 1000, &rx_clock);
 
             // set up RX
             assert!(th.net().rx_buffer.used_descriptors == 0);
@@ -2501,9 +2503,8 @@ pub mod tests {
                 assert_eq!(th.rxq.used.idx.get(), 0);
             }
 
-            // wait for 1000ms to give the rate-limiter timer a chance to replenish
-            // wait for an extra 1000ms to make sure the timerfd event makes its way from the kernel
-            thread::sleep(Duration::from_millis(2000));
+            // Advance the shared virtual clock by the full refill time (1000ms).
+            rx_clock.advance(Duration::from_millis(1000));
 
             // following RX procedure should succeed because ops should now be available
             {
