@@ -954,6 +954,37 @@ mod verification {
     }
 
     #[kani::proof]
+    #[kani::should_panic]
+    fn verify_size_raised_after_initialize() {
+        let ProofContext(mut queue, _) = kani::any();
+
+        // A guest register write can raise `size` after the rings were validated. An index that
+        // is valid for the new size but past the validated range must abort, not reach memory.
+        let validated = queue.size;
+        queue.size = kani::any_where(|size: &u16| *size > validated);
+
+        match kani::any::<u8>() % 3 {
+            0 => {
+                let index =
+                    kani::any_where(|index: &u16| *index >= validated && *index < queue.size);
+                _ = DescriptorChain::checked_new(queue.desc_table, queue.size, index);
+            }
+            1 => {
+                let index =
+                    kani::any_where(|index: &u16| *index >= validated && *index < queue.size);
+                queue.used_ring_ring_set(usize::from(index), UsedElement { id: 0, len: 0 });
+            }
+            // The avail ring ends with `used_event`, so index `validated` is still inside the
+            // range and `validated + 1` is the first index past it.
+            _ => {
+                let index =
+                    kani::any_where(|index: &u16| *index > validated && *index < queue.size);
+                _ = queue.avail_ring_ring_get(usize::from(index));
+            }
+        }
+    }
+
+    #[kani::proof]
     #[kani::unwind(0)]
     fn verify_add_used() {
         let ProofContext(mut queue, _) = kani::any();
