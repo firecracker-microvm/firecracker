@@ -956,6 +956,7 @@ mod tests {
     use super::*;
     use crate::check_metric_after_block;
     use crate::devices::virtio::block::virtio::IO_URING_NUM_ENTRIES;
+    use crate::devices::virtio::block::virtio::io::format::vmdk::tests::create_test_vmdk;
     use crate::devices::virtio::block::virtio::test_utils::{
         RequestDescriptorChain, default_block, read_blk_req_descriptors, set_queue,
         set_rate_limiter, simulate_async_completion_event,
@@ -1071,6 +1072,38 @@ mod tests {
                 res
             );
         }
+    }
+
+    #[test]
+    fn test_vmdk_disk_properties() {
+        let (_dir, descriptor) = create_test_vmdk("extent");
+        let path = descriptor.to_string_lossy().into_owned();
+
+        assert!(matches!(
+            DiskProperties::new(path.clone(), false, FileEngineType::Sync),
+            Err(VirtioBlockError::FileEngine(block_io::BlockIoError::Vmdk(
+                block_io::VmdkIoError::RequiresReadOnly
+            )))
+        ));
+        assert!(matches!(
+            DiskProperties::new(path.clone(), true, FileEngineType::Async),
+            Err(VirtioBlockError::FileEngine(block_io::BlockIoError::Vmdk(
+                block_io::VmdkIoError::AsyncNotSupported
+            )))
+        ));
+
+        let mut disk = DiskProperties::new(path.clone(), true, FileEngineType::Sync).unwrap();
+        assert!(matches!(disk.file_engine, FileEngine::Vmdk(_)));
+        assert_eq!(disk.nsectors, 2048);
+
+        let raw = TempFile::new().unwrap();
+        raw.as_file().set_len(4096).unwrap();
+        disk.update(raw.as_path().to_string_lossy().into_owned(), true)
+            .unwrap();
+        assert!(matches!(disk.file_engine, FileEngine::Sync(_)));
+
+        disk.update(path, true).unwrap();
+        assert!(matches!(disk.file_engine, FileEngine::Vmdk(_)));
     }
 
     #[test]

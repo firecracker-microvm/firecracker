@@ -244,6 +244,7 @@ pub mod tests {
 
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
+    use crate::devices::virtio::block::virtio::io::format::vmdk::tests::create_test_vmdk;
     use crate::utils::u64_to_usize;
     use crate::vmm_config::machine_config::HugePageConfig;
     use crate::vstate::memory;
@@ -451,5 +452,51 @@ pub mod tests {
 
         engine.drain(true).unwrap();
         engine.drain_and_flush(true).unwrap();
+    }
+
+    #[test]
+    fn test_vmdk() {
+        let (_dir, descriptor) = create_test_vmdk("extent");
+        let mut engine = FileEngine::Vmdk(VmdkFileEngine::from_path(&descriptor).unwrap());
+        let mem = create_mem();
+
+        assert_sync_execution!(
+            engine.read(0, &mem, GuestAddress(0), 512, PendingRequest::default()),
+            512
+        );
+        assert!(matches!(
+            engine
+                .read(
+                    0,
+                    &mem,
+                    GuestAddress(MEM_LEN as u64),
+                    512,
+                    PendingRequest::default()
+                )
+                .unwrap_err()
+                .error,
+            BlockIoError::Vmdk(VmdkIoError::GuestMemory(_))
+        ));
+        assert!(matches!(
+            engine
+                .write(0, &mem, GuestAddress(0), 512, PendingRequest::default())
+                .unwrap_err()
+                .error,
+            BlockIoError::Vmdk(VmdkIoError::WriteNotSupported)
+        ));
+        assert_sync_execution!(engine.flush(PendingRequest::default()), 0);
+        assert!(matches!(
+            engine
+                .discard((0, 512), PendingRequest::default())
+                .unwrap_err()
+                .error,
+            BlockIoError::Vmdk(VmdkIoError::WriteNotSupported)
+        ));
+        engine.drain(true).unwrap();
+        engine.drain_and_flush(true).unwrap();
+        assert!(matches!(
+            engine.update_file_path(File::open(descriptor).unwrap()),
+            Err(BlockIoError::Vmdk(VmdkIoError::WriteNotSupported))
+        ));
     }
 }
