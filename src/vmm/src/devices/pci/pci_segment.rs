@@ -462,8 +462,38 @@ mod tests {
     use super::*;
     use crate::arch;
     use crate::builder::tests::default_vmm;
+    use crate::pci::configuration::PciConfiguration;
+    use crate::pci::{PciClassCode, PciDevice, PciMassStorageSubclass};
     #[cfg(target_arch = "x86_64")]
     use crate::utils::u64_to_usize;
+
+    struct PciDevMock(PciConfiguration);
+    impl PciDevice for PciDevMock {
+        fn write_config_register(
+            &mut self,
+            reg_idx: u16,
+            offset: u8,
+            data: &[u8],
+        ) -> Option<Arc<std::sync::Barrier>> {
+            self.0.write_config_register(reg_idx, offset, data);
+            None
+        }
+        fn read_config_register(&mut self, reg_idx: u16) -> u32 {
+            self.0.read_reg(reg_idx)
+        }
+    }
+
+    fn mock_dev() -> Arc<Mutex<dyn PciDevice>> {
+        Arc::new(Mutex::new(PciDevMock(PciConfiguration::new_type0(
+            0x42,
+            0x0,
+            0x0,
+            PciClassCode::MassStorageController,
+            PciMassStorageSubclass::SerialScsiController as u8,
+            0x13,
+            0x12,
+        ))))
+    }
 
     #[test]
     fn test_pci_segment_build() {
@@ -556,36 +586,6 @@ mod tests {
 
     #[test]
     fn test_next_device_bdf() {
-        use crate::pci::configuration::PciConfiguration;
-        use crate::pci::{PciClassCode, PciDevice, PciMassStorageSubclass};
-
-        struct PciDevMock(PciConfiguration);
-        impl PciDevice for PciDevMock {
-            fn write_config_register(
-                &mut self,
-                reg_idx: u16,
-                offset: u8,
-                data: &[u8],
-            ) -> Option<Arc<std::sync::Barrier>> {
-                self.0.write_config_register(reg_idx, offset, data);
-                None
-            }
-            fn read_config_register(&mut self, reg_idx: u16) -> u32 {
-                self.0.read_reg(reg_idx)
-            }
-        }
-        fn mock_dev() -> Arc<Mutex<dyn PciDevice>> {
-            Arc::new(Mutex::new(PciDevMock(PciConfiguration::new_type0(
-                0x42,
-                0x0,
-                0x0,
-                PciClassCode::MassStorageController,
-                PciMassStorageSubclass::SerialScsiController as u8,
-                0x13,
-                0x12,
-            ))))
-        }
-
         let vmm = default_vmm();
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let pci_irq_slots = &[0u8; 32];
@@ -612,4 +612,54 @@ mod tests {
         pci_segment.next_device_sbdf().unwrap_err();
     }
 
+    #[test]
+    fn test_attach_root_ports() {
+        let vmm = default_vmm();
+        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
+        let mut pci_segment = PciSegment::new(0, &kvm_vm, &[0u8; 32], 2).unwrap();
+
+        // Stand in for a boot device that was attached before the ports are
+        // provisioned, so that it takes the slot right after the host bridge.
+        let boot_device_sbdf = pci_segment.next_device_sbdf().unwrap();
+        assert_eq!(boot_device_sbdf.device(), 1);
+        pci_segment
+            .pci_buses
+            .root_bus()
+            .lock()
+            .unwrap()
+            .add_device(boot_device_sbdf.device(), mock_dev())
+            .unwrap();
+
+        pci_segment.attach_root_ports(&kvm_vm).unwrap();
+        assert_eq!(pci_segment.root_ports.len(), 2);
+
+        for (index, port) in pci_segment.root_ports.iter().enumerate() {
+            // The ports follow the boot device rather than displacing it, ...
+            let expected_slot = u8::try_from(index).unwrap() + boot_device_sbdf.device() + 1;
+            let root_bus = pci_segment.pci_buses.root_bus();
+            let bus = root_bus.lock().unwrap();
+            assert!(bus.get_device(expected_slot).is_some());
+
+            // ... while the secondary bus numbers are handed out by port index,
+            // so they stay contiguous from 1 whatever slots the ports occupy.
+            let secondary_bus = port.lock().unwrap().secondary_bus();
+            assert_eq!(secondary_bus, u8::try_from(index).unwrap() + 1);
+            // Each secondary bus exists in the topology and starts out empty.
+            let bus = pci_segment.pci_buses.get(secondary_bus).unwrap();
+            assert!(bus.lock().unwrap().get_device(0).is_none());
+        }
+    }
+
+    #[test]
+    fn test_attach_root_ports_none_by_default() {
+        let vmm = default_vmm();
+        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
+        let mut pci_segment = PciSegment::new(0, &kvm_vm, &[0u8; 32], 0).unwrap();
+
+        pci_segment.attach_root_ports(&kvm_vm).unwrap();
+        assert!(pci_segment.root_ports.is_empty());
+        // Only the host bridge is on the root bus.
+        let root_bus = pci_segment.pci_buses.root_bus();
+        assert_eq!(root_bus.lock().unwrap().next_device_id().unwrap(), 1);
+    }
 }
