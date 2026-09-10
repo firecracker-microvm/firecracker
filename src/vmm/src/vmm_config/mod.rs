@@ -61,6 +61,15 @@ impl HotplugDeviceConfig {
             Self::Net(_) => VirtioDeviceType::Net,
         }
     }
+
+    /// Whether this device is served by a vhost-user backend, which needs guest
+    /// memory it can map by fd.
+    pub(crate) fn is_vhost_user(&self) -> bool {
+        match self {
+            Self::Block(cfg) => cfg.is_vhost_user(),
+            Self::Pmem(_) | Self::Net(_) => false,
+        }
+    }
 }
 
 /// A public-facing, stateless structure, holding all the data we need to create a TokenBucket
@@ -188,6 +197,28 @@ mod tests {
     const SIZE: u64 = 1024 * 1024;
     const ONE_TIME_BURST: u64 = 1024;
     const REFILL_TIME: u64 = 1000;
+
+    #[test]
+    fn test_hotplug_is_vhost_user() {
+        let block = |socket: Option<&str>| crate::vmm_config::drive::BlockDeviceConfig {
+            path_on_host: socket.is_none().then(|| String::from("/dev/null")),
+            socket: socket.map(String::from),
+            ..Default::default()
+        };
+
+        assert!(HotplugDeviceConfig::Block(block(Some("/tmp/vhost.sock"))).is_vhost_user());
+        assert!(!HotplugDeviceConfig::Block(block(None)).is_vhost_user());
+        // Only block has a vhost-user variant today.
+        let net = crate::vmm_config::net::NetworkInterfaceConfig {
+            iface_id: String::from("eth0"),
+            host_dev_name: String::from("tap0"),
+            guest_mac: None,
+            mtu: None,
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+        };
+        assert!(!HotplugDeviceConfig::Net(net).is_vhost_user());
+    }
 
     #[test]
     fn test_rate_limiter_configs() {

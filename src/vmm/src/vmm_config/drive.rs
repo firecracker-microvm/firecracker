@@ -74,6 +74,14 @@ pub struct BlockDeviceConfig {
     pub socket: Option<String>,
 }
 
+impl BlockDeviceConfig {
+    /// The config-level counterpart of `Block::is_vhost_user`, for before the
+    /// device is built. `socket` is the field `Block::new` selects the backend on.
+    pub fn is_vhost_user(&self) -> bool {
+        self.socket.is_some()
+    }
+}
+
 /// Only provided fields will be updated. I.e. if any optional fields
 /// are missing, they will not be updated.
 #[derive(Debug, Default, PartialEq, Eq, Deserialize)]
@@ -233,6 +241,21 @@ mod tests {
     fn test_create_block_devs() {
         let block_devs = BlockBuilder::new();
         assert_eq!(block_devs.devices.len(), 0);
+    }
+
+    #[test]
+    fn test_is_vhost_user() {
+        let virtio = BlockDeviceConfig {
+            path_on_host: Some(String::from("/dev/null")),
+            ..Default::default()
+        };
+        assert!(!virtio.is_vhost_user());
+
+        let vhost_user = BlockDeviceConfig {
+            socket: Some(String::from("/tmp/vhost.sock")),
+            ..Default::default()
+        };
+        assert!(vhost_user.is_vhost_user());
     }
 
     #[test]
