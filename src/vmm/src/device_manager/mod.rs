@@ -472,6 +472,15 @@ impl DeviceManager {
             VirtioDevices::Mmio(_) => return Err(VmmActionError::PciNotEnabled),
         }
 
+        // After the transport check, so a VM that cannot hotplug at all says so
+        // first. Without this the request succeeds and fails only at DRIVER_OK.
+        if config.is_vhost_user() && !vm.vhost_user_memory_shareable() {
+            return Err(VmmActionError::NotSupported(
+                "vhost-user hot-add requires guest memory that a backend can map shared"
+                    .to_string(),
+            ));
+        }
+
         let device = match config {
             HotplugDeviceConfig::Block(cfg) => Self::hotplug_make_block(cfg)?,
             HotplugDeviceConfig::Pmem(cfg) => Self::hotplug_make_pmem(vm.clone(), cfg)?,
