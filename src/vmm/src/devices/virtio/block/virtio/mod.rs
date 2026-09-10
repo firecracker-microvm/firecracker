@@ -10,6 +10,7 @@ pub mod metrics;
 pub mod persist;
 pub mod request;
 pub mod test_utils;
+mod worker;
 
 use vm_memory::GuestMemoryError;
 
@@ -28,8 +29,9 @@ pub const SECTOR_SIZE: u32 = (0x01_u32) << SECTOR_SHIFT;
 /// of letting one large discard ioctl block the VMM thread for too long.
 pub const MAX_DISCARD_SECTORS: u32 = (128_u32 << 20) / SECTOR_SIZE;
 /// The number of queues of block device.
-pub const BLOCK_NUM_QUEUES: usize = 1;
-pub const BLOCK_QUEUE_SIZES: [u16; BLOCK_NUM_QUEUES] = [FIRECRACKER_MAX_QUEUE_SIZE];
+pub const DEFAULT_BLOCK_NUM_QUEUES: usize = 1;
+
+pub const BLOCK_QUEUE_SIZE: u16 = FIRECRACKER_MAX_QUEUE_SIZE;
 // The virtio queue can hold up to 256 descriptors, but 1 request spreads across 2-3 descriptors.
 // So we can use 128 IO_URING entries without ever triggering a FullSq Error.
 /// Maximum number of io uring entries we allow in the queue.
