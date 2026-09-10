@@ -18,7 +18,7 @@ const DMB_MAX_MIB: u64 = 256;
 /// 2 MiB allocation alignment used for the buffer.
 const DMB_GRANULARITY_MIB: u64 = 2;
 
-/// Errors validating an [`EnclaveConfig`].
+/// Enclave configuration errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum EnclaveConfigError {
     /// No enclave has been configured
@@ -27,6 +27,37 @@ pub enum EnclaveConfigError {
     InvalidDmbSize(u64),
     /// dmb_size_mib cannot be set in direct mode (no DMB is used)
     DmbSizeInDirectMode,
+}
+
+/// Validated per-device DMB size in MiB: a multiple of 2 between 2 and 256.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "u64")]
+pub struct DmbSizeMib(u64);
+
+impl DmbSizeMib {
+    /// Return the validated size in MiB.
+    pub fn get(self) -> u64 {
+        self.0
+    }
+}
+
+impl Default for DmbSizeMib {
+    fn default() -> Self {
+        Self(DEFAULT_DMB_SIZE_MIB)
+    }
+}
+
+impl TryFrom<u64> for DmbSizeMib {
+    type Error = EnclaveConfigError;
+
+    fn try_from(size_mib: u64) -> Result<Self, Self::Error> {
+        if !(DMB_MIN_MIB..=DMB_MAX_MIB).contains(&size_mib)
+            || !size_mib.is_multiple_of(DMB_GRANULARITY_MIB)
+        {
+            return Err(EnclaveConfigError::InvalidDmbSize(size_mib));
+        }
+        Ok(Self(size_mib))
+    }
 }
 
 /// Per-parent-NUMA-node placement of a slice of the enclave's vCPUs and memory.
@@ -132,6 +163,14 @@ impl EnclaveConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_dmb_size_default_is_valid() {
+        assert_eq!(
+            DmbSizeMib::try_from(DEFAULT_DMB_SIZE_MIB),
+            Ok(DmbSizeMib::default())
+        );
+    }
 
     #[test]
     fn test_deserialize_rejects_unknown_field() {
@@ -246,6 +285,27 @@ mod tests {
                 "size {bad} should be rejected"
             );
         }
+    }
+
+    #[test]
+    fn test_dmb_size_mib_try_from() {
+        for valid in [2, 256] {
+            assert_eq!(DmbSizeMib::try_from(valid).unwrap().get(), valid);
+        }
+
+        for invalid in [0, 1, 3, 255, 258] {
+            assert_eq!(
+                DmbSizeMib::try_from(invalid),
+                Err(EnclaveConfigError::InvalidDmbSize(invalid)),
+                "size {invalid} should be rejected"
+            );
+        }
+
+        let error = serde_json::from_str::<DmbSizeMib>("300")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("must be a multiple of 2 between 2 and 256 MiB"));
+        assert_eq!(serde_json::from_str::<DmbSizeMib>("32").unwrap().get(), 32);
     }
 
     #[test]
