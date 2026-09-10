@@ -355,6 +355,43 @@ def make_guest_dirty_memory(ssh_connection, amount_mib=32, oom_expected=False):
     ), f"fillmem failed to dirty {amount_mib} MiB: {status}"
 
 
+FAST_PAGE_FAULT_HELPER_BIN = "/usr/local/bin/fast_page_fault_helper"
+FAST_PAGE_FAULT_HELPER_OUTPUT_PATH = "/tmp/fast_page_fault_helper.out"
+
+
+def wait_for_fast_page_fault_helper_ready(ssh_connection, pid, timeout_s=10):
+    """Poll until fast_page_fault_helper (pid) is blocked in sigwait."""
+    for attempt in Retrying(
+        stop=stop_after_delay(timeout_s),
+        wait=wait_fixed(0.1),
+        retry=retry_if_exception_type(AssertionError),
+        reraise=True,
+    ):
+        with attempt:
+            _, wchan, _ = ssh_connection.run(f"cat /proc/{pid}/wchan")
+            assert (
+                "sigtimedwait" in wchan
+            ), f"fast_page_fault_helper not blocked in sigwait (wchan={wchan!r})"
+
+
+def start_fast_page_fault_helper(ssh_connection, timeout_s=10) -> str:
+    """Start fast_page_fault_helper detached in the guest, wait until it has
+    touched its memory and is blocked in sigwait, and return its pid.
+
+    Callers can then snapshot the VM and/or send SIGUSR1 to the returned pid.
+    """
+    # The helper truncates its output file when it finishes; remove any
+    # leftover from a previous run (e.g. inside a restored snapshot).
+    ssh_connection.check_output(
+        f"rm -f {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH}; "
+        f"nohup {FAST_PAGE_FAULT_HELPER_BIN} >/dev/null 2>&1 </dev/null &"
+    )
+    _, pid, _ = ssh_connection.check_output("pidof fast_page_fault_helper")
+    pid = pid.strip()
+    wait_for_fast_page_fault_helper_ready(ssh_connection, pid, timeout_s)
+    return pid
+
+
 def _format_output_message(proc, stdout, stderr):
     output_message = f"\n[{proc.pid}] Command:\n{proc.args}"
     # Append stdout/stderr to the output message
