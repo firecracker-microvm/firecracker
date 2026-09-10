@@ -27,6 +27,10 @@ running microVM without requiring a reboot. Supported device types are:
   hotplug notification to the guest. After hotplugging a device, the guest must
   manually rescan the PCI bus to discover it. Similarly, before unplugging, the
   guest must manually remove the device.
+- **vhost-user devices need shareable guest memory**: a vhost-user backend maps
+  guest memory by file descriptor, which Firecracker only provides when a
+  vhost-user device is configured *before boot*. Hot-adding one to a VM booted
+  without any, or to a VM restored from a snapshot file, is rejected.
 
 ## Hotplugging a device
 
