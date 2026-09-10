@@ -112,7 +112,7 @@ impl Drop for VfioBars {
     fn drop(&mut self) {
         let mut resource_allocator_lock = self.vm.resource_allocator();
         let resource_allocator = resource_allocator_lock.deref_mut();
-        vfio_dellocate_memory_ranges_for_bars(resource_allocator, &self.bars);
+        vfio_deallocate_memory_ranges_for_bars(resource_allocator, &self.bars);
     }
 }
 
@@ -671,7 +671,7 @@ fn vfio_allocate_memory_ranges_for_bars(
                         bars.set_bar_64(bar_idx, gpa, size, is_prefetchable.into());
                     }
                     Err(_) => {
-                        vfio_dellocate_memory_ranges_for_bars(resource_allocator, &bars);
+                        vfio_deallocate_memory_ranges_for_bars(resource_allocator, &bars);
                         return Err(VfioError::BarAllocation);
                     }
                 }
@@ -689,7 +689,7 @@ fn vfio_allocate_memory_ranges_for_bars(
                         bars.set_bar_32(bar_idx, gpa as u32, size as u32, is_prefetchable.into());
                     }
                     Err(_) => {
-                        vfio_dellocate_memory_ranges_for_bars(resource_allocator, &bars);
+                        vfio_deallocate_memory_ranges_for_bars(resource_allocator, &bars);
                         return Err(VfioError::BarAllocation);
                     }
                 }
@@ -716,7 +716,7 @@ fn vfio_allocate_memory_ranges_for_bars(
 }
 
 /// Give memory ranges allocated for BARs back to the resource allocator
-fn vfio_dellocate_memory_ranges_for_bars(resource_allocator: &mut ResourceAllocator, bars: &Bars) {
+fn vfio_deallocate_memory_ranges_for_bars(resource_allocator: &mut ResourceAllocator, bars: &Bars) {
     let mut bar_idx = 0;
     while bar_idx < NUM_BAR_REGS {
         if bars.bars[bar_idx as usize].used() {
@@ -1586,7 +1586,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vfio_dellocate_memory_ranges_for_bars_32bit() {
+    fn test_vfio_deallocate_memory_ranges_for_bars_32bit() {
         let bar_infos: [VfioBarInfo; NUM_BAR_REGS as usize] =
             std::array::from_fn(|_| VfioBarInfo {
                 value: 0,
@@ -1598,7 +1598,7 @@ mod tests {
             vfio_allocate_memory_ranges_for_bars(&mut resource_allocator, &bar_infos).unwrap();
         let first_bar_addr = bars.get_bar_addr_32(0);
 
-        vfio_dellocate_memory_ranges_for_bars(&mut resource_allocator, &bars);
+        vfio_deallocate_memory_ranges_for_bars(&mut resource_allocator, &bars);
 
         let bars2 =
             vfio_allocate_memory_ranges_for_bars(&mut resource_allocator, &bar_infos).unwrap();
@@ -1610,7 +1610,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vfio_dellocate_memory_ranges_for_bars_64bit() {
+    fn test_vfio_deallocate_memory_ranges_for_bars_64bit() {
         let mut bar_infos: [VfioBarInfo; NUM_BAR_REGS as usize] =
             std::array::from_fn(|_| VfioBarInfo { value: 0, size: 0 });
 
@@ -1629,7 +1629,7 @@ mod tests {
             vfio_allocate_memory_ranges_for_bars(&mut resource_allocator, &bar_infos).unwrap();
         let first_bar_addr = bars.get_bar_addr_64(0);
 
-        vfio_dellocate_memory_ranges_for_bars(&mut resource_allocator, &bars);
+        vfio_deallocate_memory_ranges_for_bars(&mut resource_allocator, &bars);
 
         let bars2 =
             vfio_allocate_memory_ranges_for_bars(&mut resource_allocator, &bar_infos).unwrap();
