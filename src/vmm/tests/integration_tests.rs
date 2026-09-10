@@ -106,7 +106,7 @@ fn test_build_microvm() {
 }
 
 fn pause_resume_microvm(vmm: Arc<Mutex<Vmm>>) {
-    let mut api_controller = RuntimeApiController::new(vmm.clone());
+    let mut api_controller = RuntimeApiController::new(vmm.clone(), &get_empty_filters());
     let mut event_manager = EventManager::new().unwrap();
 
     // There's a race between this thread and the vcpu thread, but this thread
@@ -230,7 +230,7 @@ fn verify_create_snapshot(
     );
 
     let vm_info = VmInfo::from(&*vmm.lock().unwrap());
-    let mut controller = RuntimeApiController::new(vmm.clone());
+    let mut controller = RuntimeApiController::new(vmm.clone(), &get_empty_filters());
     let mut event_manager = EventManager::new().unwrap();
 
     // Be sure that the microVM is running.
@@ -495,6 +495,7 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
 
         is_read_only: Some(false),
         discard: None,
+        threaded: false,
         path_on_host: Some(tmp_file),
         rate_limiter: None,
         file_engine_type: None,

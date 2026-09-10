@@ -68,6 +68,8 @@ pub struct VirtioBlockState {
     blk_size: u32,
     topology: VirtioBlkTopology,
     discard_sector_alignment: u32,
+    #[serde(default)]
+    threaded: bool,
 }
 
 impl Persist<'_> for VirtioBlock {
@@ -100,6 +102,7 @@ impl Persist<'_> for VirtioBlock {
             blk_size: self.config_space.blk_size,
             topology: self.config_space.topology,
             discard_sector_alignment: self.config_space.discard_sector_alignment,
+            threaded: self.config.threaded,
         }
     }
 
@@ -118,6 +121,7 @@ impl Persist<'_> for VirtioBlock {
             cache_type: state.cache_type,
             is_read_only,
             discard: state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD) != 0,
+            threaded: state.threaded,
             path_on_host: state.disk_path.clone(),
             rate_limiter: rate_limiter_config.into_option(),
             file_engine_type: state.file_engine_type.into(),
@@ -180,11 +184,14 @@ impl Persist<'_> for VirtioBlock {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
+    use crate::devices::virtio::block::virtio::test_utils::{default_block_with_path, set_queue};
     use crate::devices::virtio::device::VirtioDevice;
-    use crate::devices::virtio::test_utils::default_mem;
+    use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
+    use crate::vstate::memory::GuestAddress;
 
     #[test]
     fn test_cache_semantic_ser() {
@@ -199,6 +206,7 @@ mod tests {
             partuuid: None,
             is_read_only: false,
             discard: false,
+            threaded: false,
             cache_type: CacheType::Writeback,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
@@ -243,6 +251,7 @@ mod tests {
             partuuid: None,
             is_read_only: false,
             discard: false,
+            threaded: false,
             cache_type: CacheType::Unsafe,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
@@ -272,5 +281,38 @@ mod tests {
 
         // Test that block specific fields are the same.
         assert_eq!(restored_block.disk().file_path, block.disk().file_path);
+    }
+
+    #[test]
+    fn test_threaded_persistence() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let disk = TempFile::new().unwrap();
+            disk.as_file().set_len(0x1000).unwrap();
+            let mut block =
+                default_block_with_path(disk.as_path().to_str().unwrap().to_string(), engine);
+            block.config.threaded = true;
+            block.spawn_worker(Arc::new(vec![])).unwrap();
+            let mem = default_mem();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, BLOCK_QUEUE_SIZE);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.set_acked_features(block.avail_features());
+            block.activate(mem.clone(), default_interrupt()).unwrap();
+            // Pause the worker for snapshotting
+            block.prepare_save();
+
+            let state = block.save();
+            let serialized = bitcode::serialize(&state).unwrap();
+            let restored_state = bitcode::deserialize(&serialized).unwrap();
+            let restored =
+                VirtioBlock::restore(BlockConstructorArgs { mem }, &restored_state).unwrap();
+
+            assert!(state.threaded);
+            assert!(state.virtio_state.activated);
+            assert!(restored.config().threaded);
+            assert!(!restored.is_activated());
+            assert_eq!(restored.acked_features(), block.acked_features());
+            assert_eq!(restored.queue_config(0), block.queue_config(0));
+            assert_eq!(restored.file_engine_type(), engine);
+        }
     }
 }

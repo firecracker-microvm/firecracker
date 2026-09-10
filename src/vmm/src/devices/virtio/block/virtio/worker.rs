@@ -802,3 +802,155 @@ impl MutEventSubscriber for ThreadedWorker {
         self.register_control_event(ops);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::RECV_TIMEOUT_SEC;
+    use crate::devices::virtio::block::virtio::device::{BlockState, FileEngineType};
+    use crate::devices::virtio::block::virtio::request::{
+        VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_OK, VIRTIO_BLK_T_GET_ID,
+    };
+    use crate::devices::virtio::block::virtio::test_utils::{
+        default_block, read_blk_req_descriptors, set_queue,
+    };
+    use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
+    use crate::vstate::memory::{Bytes, GuestAddress};
+
+    #[test]
+    fn test_control_msg_batch() {
+        let mut block = default_block(FileEngineType::Sync);
+        let BlockState::Configuring(resources, _) =
+            std::mem::replace(&mut block.state, BlockState::Placeholder)
+        else {
+            unreachable!()
+        };
+        let expected_queue_state = resources.queue.save();
+        let queue_evt = resources.queue_evt.try_clone().unwrap();
+        let worker = BlockWorker {
+            resources,
+            active_state: ActiveState {
+                mem: default_mem(),
+                interrupt: default_interrupt(),
+            },
+            rate_limiter: block.rate_limiter.clone(),
+            is_blocked: block.lock_rate_limiter().clone_blocked_flag(),
+            discard_supported: false,
+            metrics: block.metrics.clone(),
+        };
+        let handle = WorkerHandle::spawn(Arc::new(vec![]), queue_evt, "fc_test".into()).unwrap();
+
+        handle.to_worker.send(ControlMsg::Start(worker)).unwrap();
+        handle.to_worker.send(ControlMsg::Pause).unwrap();
+        handle.to_worker.send(ControlMsg::GetQueueState).unwrap();
+        handle.control_evt.write(1).unwrap();
+
+        assert!(matches!(
+            handle.from_worker.recv_timeout(RECV_TIMEOUT_SEC).unwrap(),
+            ControlResponse::Paused
+        ));
+        match handle.from_worker.recv_timeout(RECV_TIMEOUT_SEC).unwrap() {
+            ControlResponse::QueueState(queue_state) => {
+                assert_eq!(queue_state, expected_queue_state);
+            }
+            response => panic!("Unexpected {} response", response.name()),
+        }
+
+        handle.finish(FlushMode::Drain);
+    }
+
+    #[test]
+    fn test_kick_while_paused() {
+        let mut block = default_block(FileEngineType::Sync);
+        let mem = default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        let BlockState::Configuring(mut resources, _) =
+            std::mem::replace(&mut block.state, BlockState::Placeholder)
+        else {
+            unreachable!()
+        };
+        resources.queue.initialize(&mem).unwrap();
+        let queue_evt = resources.queue_evt.try_clone().unwrap();
+        let worker = BlockWorker {
+            resources,
+            active_state: ActiveState {
+                mem: mem.clone(),
+                interrupt: default_interrupt(),
+            },
+            rate_limiter: block.rate_limiter.clone(),
+            is_blocked: block.lock_rate_limiter().clone_blocked_flag(),
+            discard_supported: false,
+            metrics: block.metrics.clone(),
+        };
+        let handle = WorkerHandle::spawn(Arc::new(vec![]), queue_evt, "fc_test".into()).unwrap();
+
+        let pause = || {
+            handle.to_worker.send(ControlMsg::Pause).unwrap();
+            handle.control_evt.write(1).unwrap();
+            assert!(matches!(
+                handle.from_worker.recv_timeout(RECV_TIMEOUT_SEC).unwrap(),
+                ControlResponse::Paused
+            ));
+        };
+        let queue_state = || {
+            handle.to_worker.send(ControlMsg::GetQueueState).unwrap();
+            handle.control_evt.write(1).unwrap();
+            match handle.from_worker.recv_timeout(RECV_TIMEOUT_SEC).unwrap() {
+                ControlResponse::QueueState(state) => state,
+                response => panic!("Unexpected {} response", response.name()),
+            }
+        };
+
+        handle.start(worker);
+        pause();
+        let paused_queue_state = queue_state();
+
+        read_blk_req_descriptors(&vq);
+        let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
+        let status_addr = GuestAddress(vq.dtable[2].addr.get());
+        vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
+        mem.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, request_type_addr)
+            .unwrap();
+
+        handle.kick(false);
+        assert_eq!(queue_state(), paused_queue_state);
+        assert_eq!(vq.used.idx.get(), 0);
+
+        handle.kick(true);
+        pause();
+        assert_eq!(vq.used.idx.get(), 1);
+        assert_eq!(vq.used.ring[0].get().id, 0);
+        assert_eq!(vq.used.ring[0].get().len, VIRTIO_BLK_ID_BYTES + 1);
+        assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
+
+        handle.finish(FlushMode::Drain);
+    }
+
+    #[test]
+    fn test_parked_disk_update() {
+        let worker = WorkerHandle::spawn(
+            Arc::new(vec![]),
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+            "fc_test".into(),
+        )
+        .unwrap();
+
+        worker
+            .to_worker
+            .send(ControlMsg::UpdateDiskImage {
+                path: String::new(),
+                read_only: false,
+            })
+            .unwrap();
+        worker.control_evt.write(1).unwrap();
+        match worker.from_worker.recv_timeout(RECV_TIMEOUT_SEC).unwrap() {
+            ControlResponse::DiskUpdated(Err(VirtioBlockError::WorkerControl(err))) => {
+                assert!(err.contains("worker is parked"), "unexpected error: {err}");
+            }
+            response => panic!("Unexpected {} response", response.name()),
+        }
+
+        worker.finish(FlushMode::Drain);
+    }
+}
