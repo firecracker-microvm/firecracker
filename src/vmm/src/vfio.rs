@@ -86,6 +86,10 @@ struct VfioBarEmulatedArea {
     size: u64,
 }
 
+// TODO with addition of BAR relocation to `Bars` type, guest now can change the gpa addresses of
+// BARs, which will cause the `vfio_deallocate_memory_ranges_for_bars` to panic when it will try to
+// give the ranges back to the memory allocator. This will be addressed when BAR relocation will be
+// implemented for VFIO devices.
 /// Wrapper around `Bars` type to automate dropping
 #[derive(Debug)]
 struct VfioBars {
