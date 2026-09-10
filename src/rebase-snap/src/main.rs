@@ -4,6 +4,7 @@
 use std::env;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
+use std::num::TryFromIntError;
 use std::os::unix::io::AsRawFd;
 
 use utils::arg_parser::{ArgParser, Argument, Arguments, UtilsArgParserError as ArgError};
@@ -31,6 +32,8 @@ enum FileError {
     SendFile(std::io::Error),
     /// Failed to get metadata: {0}
     Metadata(std::io::Error),
+    /// Invalid block size: {0}
+    InvalidBlockSize(TryFromIntError),
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -100,8 +103,9 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), FileError> {
                 libc::sendfile64(
                     base_file.as_raw_fd(),
                     diff_file.as_raw_fd(),
-                    (&mut cursor as *mut u64).cast::<i64>(),
-                    usize::try_from(block_end.saturating_sub(cursor)).unwrap(),
+                    std::ptr::from_mut::<u64>(&mut cursor).cast::<i64>(),
+                    usize::try_from(block_end.saturating_sub(cursor))
+                        .map_err(FileError::InvalidBlockSize)?,
                 )
             };
             if num_transferred_bytes < 0 {
@@ -259,7 +263,7 @@ mod tests {
 
         // 2. Diff file that has only holes
         diff_file
-            .set_len(initial_base_file_content.len() as u64)
+            .set_len(u64::try_from(initial_base_file_content.len()).unwrap())
             .unwrap();
         rebase(&mut base_file, &mut diff_file).unwrap();
         check_file_content(&mut base_file, initial_base_file_content.as_bytes());

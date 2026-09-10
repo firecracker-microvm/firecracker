@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{Read, Seek};
+use std::num::TryFromIntError;
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
@@ -47,8 +48,12 @@ pub enum CompilationError {
     MemfdCreate(std::io::Error),
     /// Cannot rewind memfd: {0}
     MemfdRewind(std::io::Error),
+    /// Cannot get memfd metadata: {0}
+    MemfdMetadata(std::io::Error),
     /// Cannot read from memfd: {0}
     MemfdRead(std::io::Error),
+    /// Integer conversion failed: {0}
+    IntConversion(#[from] TryFromIntError),
     /// Cannot create output file: {0}
     OutputCreate(std::io::Error),
     /// Cannot serialize bfp: {0}
@@ -132,16 +137,15 @@ pub fn compile_bpf(
                     .map(|rule| rule.to_scmp_type())
                     .collect::<Vec<scmp_arg_cmp>>();
 
+                let comparator_count = u32::try_from(comparators.len())?;
+
                 // SAFETY: Safe as all args are correct.
-                // We can assume no one will define u32::MAX
-                // filters for a syscall.
-                #[allow(clippy::cast_possible_truncation)]
                 unsafe {
                     if seccomp_rule_add_array(
                         bpf_filter,
                         filter_action,
                         syscall,
-                        comparators.len() as u32,
+                        comparator_count,
                         comparators.as_ptr(),
                     ) != 0
                     {
@@ -166,9 +170,12 @@ pub fn compile_bpf(
         }
         memfd.rewind().map_err(CompilationError::MemfdRewind)?;
 
-        // Cast is safe because usize == u64
-        #[allow(clippy::cast_possible_truncation)]
-        let size = memfd.metadata().unwrap().size() as usize;
+        let size = usize::try_from(
+            memfd
+                .metadata()
+                .map_err(CompilationError::MemfdMetadata)?
+                .size(),
+        )?;
         // Bpf instructions are 8 byte values and 4 byte alignment.
         // We use u64 to satisfy these requirements.
         let instructions = size / std::mem::size_of::<u64>();

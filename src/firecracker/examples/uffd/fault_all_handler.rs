@@ -37,7 +37,8 @@ fn main() {
             userfaultfd::Event::Pagefault { .. } => {
                 let start = get_time_us(ClockType::Monotonic);
                 for region in uffd_handler.mem_regions.clone() {
-                    uffd_handler.serve_pf(region.base_host_virt_addr as _, region.size);
+                    #[allow(clippy::cast_possible_truncation)]
+                    uffd_handler.serve_pf(region.base_host_virt_addr as *mut u8, region.size);
                 }
                 let end = get_time_us(ClockType::Monotonic);
 

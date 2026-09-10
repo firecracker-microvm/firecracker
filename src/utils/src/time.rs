@@ -215,17 +215,17 @@ impl TimerFd {
     /// Arm the timer to be triggered after `duration` and then
     /// at optional `interval`
     pub fn arm(&mut self, duration: Duration, interval: Option<Duration>) {
-        #[allow(clippy::cast_possible_wrap)]
+        fn duration_to_timespec(duration: Duration) -> libc::timespec {
+            libc::timespec {
+                tv_sec: i64::try_from(duration.as_secs()).unwrap_or(i64::MAX),
+                tv_nsec: i64::from(duration.subsec_nanos()),
+            }
+        }
+
         let spec = libc::itimerspec {
-            it_value: libc::timespec {
-                tv_sec: duration.as_secs() as i64,
-                tv_nsec: duration.subsec_nanos() as i64,
-            },
+            it_value: duration_to_timespec(duration),
             it_interval: if let Some(interval) = interval {
-                libc::timespec {
-                    tv_sec: interval.as_secs() as i64,
-                    tv_nsec: interval.subsec_nanos() as i64,
-                }
+                duration_to_timespec(interval)
             } else {
                 libc::timespec {
                     tv_sec: 0,

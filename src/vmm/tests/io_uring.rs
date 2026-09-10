@@ -1,7 +1,12 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![allow(clippy::cast_possible_truncation, clippy::tests_outside_test_module)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_lossless,
+    clippy::ptr_as_ptr,
+    clippy::tests_outside_test_module
+)]
 
 use std::os::unix::fs::FileExt;
 use std::os::unix::io::AsRawFd;

@@ -49,6 +49,7 @@ impl Dsdt {
 }
 
 impl Sdt for Dsdt {
+    #[allow(clippy::cast_possible_truncation)]
     fn len(&self) -> usize {
         self.header.length.get() as usize
     }
@@ -56,7 +57,7 @@ impl Sdt for Dsdt {
     fn write_to_guest<AS: GuestMemory>(&mut self, mem: &AS, address: GuestAddress) -> Result<()> {
         mem.write_slice(self.header.as_bytes(), address)?;
         let address = address
-            .checked_add(size_of::<SdtHeader>() as u64)
+            .checked_add(u64::try_from(size_of::<SdtHeader>())?)
             .ok_or(AcpiError::InvalidGuestAddress)?;
         mem.write_slice(self.definition_block.as_slice(), address)?;
 
