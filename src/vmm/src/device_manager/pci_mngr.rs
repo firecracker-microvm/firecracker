@@ -864,6 +864,7 @@ mod tests {
       "is_read_only": true,
       "discard": false,
       "threaded": false,
+      "num_queues": 1,
       "path_on_host": "{}",
       "rate_limiter": null,
       "io_engine": "Sync",

@@ -87,6 +87,7 @@ pub(crate) struct WorkerHandle {
 }
 
 /// Determines how pending I/O is handled during worker teardown.
+#[derive(Clone, Copy)]
 pub(crate) enum FlushMode {
     Drain,
     DrainAndFlush,
@@ -138,6 +139,10 @@ impl BlockWorker {
 
     /// Device specific function for peaking inside a queue and processing descriptors.
     pub(super) fn process_queue(&mut self) -> Result<(), InvalidAvailIdx> {
+        if !self.resources.queue.config.ready {
+            return Ok(());
+        }
+
         let rate_limiter = &self.rate_limiter;
         let queue = &mut self.resources.queue;
         let mut used_any = false;
@@ -224,6 +229,10 @@ impl BlockWorker {
     }
 
     fn process_async_completion_queue(&mut self) {
+        if !self.resources.queue.config.ready {
+            return;
+        }
+
         let engine = unwrap_async_file_engine_or_return!(&mut self.resources.disk.file_engine);
         let queue = &mut self.resources.queue;
 
@@ -677,7 +686,11 @@ impl ThreadedWorker {
     fn mark_queue_memory_dirty(&mut self) {
         let result = if let WorkerState::Paused(worker) = &mut self.state {
             let mem = worker.active_state.mem.clone();
-            worker.resources.queue.initialize(&mem)
+            if worker.resources.queue.config.ready {
+                worker.resources.queue.initialize(&mem)
+            } else {
+                Ok(())
+            }
         } else {
             warn!("Queue memory dirty requested while block worker is not paused");
             Err(QueueError::NotReady)
@@ -820,11 +833,12 @@ mod tests {
     #[test]
     fn test_control_msg_batch() {
         let mut block = default_block(FileEngineType::Sync);
-        let BlockState::Configuring(resources, _) =
+        let BlockState::Configuring(mut resources, _) =
             std::mem::replace(&mut block.state, BlockState::Placeholder)
         else {
             unreachable!()
         };
+        let resources = resources.pop().unwrap();
         let expected_queue_state = resources.queue.save();
         let queue_evt = resources.queue_evt.try_clone().unwrap();
         let worker = BlockWorker {
@@ -870,6 +884,7 @@ mod tests {
         else {
             unreachable!()
         };
+        let mut resources = resources.pop().unwrap();
         resources.queue.initialize(&mem).unwrap();
         let queue_evt = resources.queue_evt.try_clone().unwrap();
         let worker = BlockWorker {

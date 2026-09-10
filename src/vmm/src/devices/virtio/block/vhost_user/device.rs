@@ -15,6 +15,7 @@ use vmm_sys_util::eventfd::EventFd;
 use super::{NUM_QUEUES, QUEUE_SIZE, VhostUserBlockError};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::block::CacheType;
+use crate::devices::virtio::block::virtio::DEFAULT_BLOCK_NUM_QUEUES;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::{VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
@@ -67,7 +68,7 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
     type Error = VhostUserBlockError;
 
     fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
-        if value.threaded {
+        if value.threaded || value.num_queues != DEFAULT_BLOCK_NUM_QUEUES {
             return Err(VhostUserBlockError::Config);
         }
 
@@ -106,6 +107,7 @@ impl From<VhostUserBlockConfig> for BlockDeviceConfig {
             is_read_only: None,
             discard: None,
             threaded: false,
+            num_queues: 1,
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
@@ -441,6 +443,7 @@ mod tests {
             is_read_only: None,
             discard: None,
             threaded: false,
+            num_queues: 1,
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
@@ -452,6 +455,12 @@ mod tests {
         VhostUserBlockConfig::try_from(&block_config).unwrap();
 
         let block_config = BlockDeviceConfig {
+            num_queues: 2,
+            ..block_config
+        };
+        VhostUserBlockConfig::try_from(&block_config).unwrap_err();
+
+        let block_config = BlockDeviceConfig {
             drive_id: "".to_string(),
             partuuid: None,
             is_root_device: false,
@@ -460,6 +469,7 @@ mod tests {
             is_read_only: Some(true),
             discard: None,
             threaded: false,
+            num_queues: 1,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
@@ -479,6 +489,7 @@ mod tests {
             is_read_only: Some(true),
             discard: None,
             threaded: false,
+            num_queues: 1,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),

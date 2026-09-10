@@ -923,6 +923,7 @@ pub(crate) mod tests {
             is_read_only: Some(false),
             discard: None,
             threaded: false,
+            num_queues: 1,
             path_on_host: Some(f.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: None,
@@ -938,6 +939,21 @@ pub(crate) mod tests {
         let seccomp_filters = get_empty_filters();
         let mut vmm = default_vmm_with_pci();
         let f = TempFile::new().unwrap();
+
+        // Queue count cannot exceed the vCPU count.
+        let mut invalid_cfg = make_hotplug_block_cfg("invalid", &f, false);
+        invalid_cfg.threaded = true;
+        invalid_cfg.num_queues = 2;
+        assert!(matches!(
+            vmm.hotplug_device(
+                HotplugDeviceConfig::Block(invalid_cfg),
+                &mut evt_manager,
+                &seccomp_filters
+            ),
+            Err(VmmActionError::DriveConfig(DriveError::InvalidQueueCount(
+                2, 1
+            )))
+        ));
 
         // Successful case
         let cfg = HotplugDeviceConfig::Block(make_hotplug_block_cfg("block0", &f, false));
