@@ -31,6 +31,12 @@ and this project adheres to
   duration of every `printk` and expects the RX interrupt to be re-asserted once
   it restores IER, so input that arrived meanwhile stayed in the FIFO and was
   never delivered to the guest.
+- [#6204](https://github.com/firecracker-microvm/firecracker/pull/6204):
+  Hot-adding a vhost-user block device (`PUT /drives/{id}` with `socket`) to a
+  microVM booted without any vhost-user device, or restored from a snapshot
+  memory file, now fails with 400. The vhost-user backend cannot map such guest
+  memory, so the request used to return 204 and the device then failed to
+  activate.
 
 ## [1.17.0]
 
