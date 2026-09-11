@@ -13,7 +13,8 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
-from framework.microvm import HugePagesConfig, Microvm, SnapshotType
+from framework.microvm import Microvm, SnapshotType
+from framework.utils_hugepages import HugePagesConfig
 
 USEC_IN_MSEC = 1000
 NS_IN_MSEC = 1_000_000

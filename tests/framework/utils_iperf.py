@@ -39,7 +39,7 @@ class IPerf3Test:
 
     def run_test(self, first_free_cpu):
         """Runs the performance test, using pinning the iperf3 servers to CPUs starting from `first_free_cpu`"""
-        assert self._num_clients < CpuMap.len() - self._microvm.vcpus_count - 2
+        assert first_free_cpu + self._num_clients <= CpuMap.len()
 
         for server_idx in range(self._num_clients):
             assigned_cpu = CpuMap(first_free_cpu)

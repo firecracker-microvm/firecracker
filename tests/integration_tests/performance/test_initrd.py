@@ -4,7 +4,8 @@
 
 import pytest
 
-from framework.microvm import HugePagesConfig, Serial
+from framework.microvm import Serial
+from framework.utils_hugepages import HugePagesConfig
 
 INITRD_FILESYSTEM = "rootfs"
 
