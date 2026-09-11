@@ -87,6 +87,60 @@ def test_vsock(vsock_uvm_any, bin_vsock_path, test_fc_session_root_path):
     validate_fc_metrics(metrics)
 
 
+def test_vsock_peer_connection_backlog_full(vsock_uvm_any):
+    """Reject a full host backlog without stalling the VMM, then recover."""
+    vm = vsock_uvm_any
+    port = 5300
+    path = os.path.join(vm.path, make_host_port_path(VSOCK_UDS_PATH, port))
+
+    with ExitStack() as stack:
+        listener = stack.enter_context(
+            socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        )
+        listener.bind(path)
+        listener.listen(0)
+        listener.settimeout(5)
+        vm.create_jailed_resource(path)
+
+        pending = []
+        while True:
+            client = stack.enter_context(
+                socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            )
+            client.setblocking(False)
+            try:
+                client.connect(path)
+            except BlockingIOError:
+                break
+            pending.append(client)
+
+        rejected = vm.ssh.run(
+            f"timeout 5 socat -u /dev/null VSOCK-CONNECT:2:{port}", timeout=10
+        )
+        assert rejected.returncode == 1, rejected
+        assert "Connection reset by peer" in rejected.stderr
+
+        response = vm.api.session.get(vm.api.endpoint + "/", timeout=5)
+        assert response.status_code == 200
+        assert response.json()["state"] == "Running"
+
+        for client in pending:
+            accepted, _ = listener.accept()
+            accepted.close()
+            client.close()
+
+        payload = "vsock-recovered"
+        vm.ssh.check_output(
+            f"printf {payload} | timeout 5 socat -u - VSOCK-CONNECT:2:{port}",
+            timeout=10,
+        )
+        accepted, _ = listener.accept()
+        with accepted:
+            accepted.settimeout(5)
+            with accepted.makefile("rb") as stream:
+                assert stream.read(len(payload)) == payload.encode()
+
+
 def negative_test_host_connections(vm, blob_path, blob_hash):
     """Negative test for host-initiated connections.
 
