@@ -18,6 +18,11 @@ and this project adheres to
 
 ### Fixed
 
+- [#6208](https://github.com/firecracker-microvm/firecracker/pull/6208): Fixed
+  the vsock device stalling the VMM thread when the guest connects to a
+  host-side Unix socket whose accept backlog is full. Such connection requests
+  are now refused instead.
+
 ## [1.17.0]
 
 ### Added

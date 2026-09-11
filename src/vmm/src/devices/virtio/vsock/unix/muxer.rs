@@ -33,7 +33,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::io::Read;
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 
 use vmm_sys_util::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
@@ -628,6 +628,48 @@ impl VsockMuxer {
         self.local_port_set.remove(&port);
     }
 
+    /// Connect to the Unix socket at `path` without blocking; a full accept backlog
+    /// fails with `EAGAIN`.
+    fn connect_nonblocking(path: &str) -> std::io::Result<UnixStream> {
+        // SAFETY: constant arguments; the return value is checked.
+        let fd = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0) };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: `fd` is valid and not owned by anything else.
+        let stream = unsafe { UnixStream::from_raw_fd(fd) };
+        stream.set_nonblocking(true)?;
+
+        // SAFETY: all-zero bytes are a valid `sockaddr_un`.
+        let mut addr: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+        addr.sun_family = libc::sa_family_t::try_from(libc::AF_UNIX).unwrap();
+        let path = path.as_bytes();
+        if path.len() >= addr.sun_path.len() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "path must be shorter than SUN_LEN",
+            ));
+        }
+        for (dst, src) in addr.sun_path.iter_mut().zip(path) {
+            *dst = libc::c_char::from_ne_bytes([*src]);
+        }
+        let addr_len = std::mem::offset_of!(libc::sockaddr_un, sun_path) + path.len() + 1;
+        let addr_len = libc::socklen_t::try_from(addr_len).unwrap();
+
+        // SAFETY: valid fd, initialised `sockaddr_un` and its length; the return value is checked.
+        let ret = unsafe {
+            libc::connect(
+                stream.as_raw_fd(),
+                (&addr as *const libc::sockaddr_un).cast::<libc::sockaddr>(),
+                addr_len,
+            )
+        };
+        if ret < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(stream)
+    }
+
     /// Handle a new connection request comming from our peer (the guest vsock driver).
     ///
     /// This will attempt to connect to a host-side Unix socket, expected to be listening at
@@ -637,8 +679,7 @@ impl VsockMuxer {
     fn handle_peer_request_pkt(&mut self, pkt: &VsockPacketTx) {
         let port_path = format!("{}_{}", self.host_sock_path, pkt.hdr.dst_port());
 
-        UnixStream::connect(port_path)
-            .and_then(|stream| stream.set_nonblocking(true).map(|_| stream))
+        Self::connect_nonblocking(&port_path)
             .map_err(VsockUnixBackendError::UnixConnect)
             .and_then(|stream| {
                 self.add_connection(
@@ -1341,6 +1382,51 @@ mod tests {
         };
         assert!(!ctx.muxer.conn_map.contains_key(&key));
         assert!(!ctx.muxer.local_port_set.contains(&local_port));
+    }
+
+    #[test]
+    fn test_peer_connection_backlog_full() {
+        const LOCAL_PORT: u32 = 1026;
+        const PEER_PORT: u32 = 1025;
+
+        let mut ctx = MuxerTestContext::new("peer_connection_backlog_full");
+        let mut listener = ctx.create_local_listener(LOCAL_PORT);
+        // Shrink the backlog so filling it stays within the test fd limit.
+        // SAFETY: valid, listening fd; the return value is checked.
+        assert_eq!(unsafe { libc::listen(listener.sock.as_raw_fd(), 0) }, 0);
+
+        let mut pending = Vec::new();
+        loop {
+            match VsockMuxer::connect_nonblocking(listener.path.to_str().unwrap()) {
+                Ok(stream) => pending.push(stream),
+                Err(err) => {
+                    assert_eq!(err.kind(), std::io::ErrorKind::WouldBlock);
+                    break;
+                }
+            }
+        }
+
+        ctx.init_tx_pkt(LOCAL_PORT, PEER_PORT, uapi::VSOCK_OP_REQUEST);
+        ctx.send();
+        assert!(ctx.muxer.conn_map.is_empty());
+        assert!(ctx.muxer.has_pending_rx());
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
+        assert_eq!(ctx.rx_pkt.hdr.src_port(), LOCAL_PORT);
+        assert_eq!(ctx.rx_pkt.hdr.dst_port(), PEER_PORT);
+
+        for _ in pending {
+            drop(listener.accept());
+        }
+
+        ctx.init_tx_pkt(LOCAL_PORT, PEER_PORT, uapi::VSOCK_OP_REQUEST);
+        ctx.send();
+        assert_eq!(ctx.muxer.conn_map.len(), 1);
+        let _stream = listener.accept();
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RESPONSE);
+        assert_eq!(ctx.rx_pkt.hdr.src_port(), LOCAL_PORT);
+        assert_eq!(ctx.rx_pkt.hdr.dst_port(), PEER_PORT);
     }
 
     #[test]

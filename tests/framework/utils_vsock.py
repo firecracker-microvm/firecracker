@@ -186,12 +186,9 @@ def host_echo_server(vm, server_port_path):
     path and tears the server down on exit.
     """
     # The backlog must be >= the number of concurrent guest connections
-    # (`TEST_CONNECTION_COUNT`). Firecracker's vsock muxer establishes the
-    # host-side connection with a *blocking* `connect()` on its event-loop
-    # thread; if the listener's accept backlog is saturated (e.g. the whole
-    # worker burst reconnecting at once right after a snapshot restore), that
-    # `connect()` stalls the VMM, delaying `OP_RESPONSE`s past the guest's 2s
-    # vsock connect timeout and causing spurious `connect(): timed out`.
+    # (`TEST_CONNECTION_COUNT`): Firecracker sends RST when the accept backlog
+    # is full, so a larger burst (e.g. all workers reconnecting after a
+    # snapshot restore) fails with `ECONNRESET` in the guest.
     echo_server = Popen(
         [
             "socat",
