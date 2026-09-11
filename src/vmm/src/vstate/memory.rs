@@ -541,6 +541,15 @@ impl<'a> GuestMemorySlot<'a> {
 }
 
 impl GuestRegionMmapExt {
+    /// The backing file, if another process could map the same pages from it:
+    /// file-backed and `MAP_SHARED`. A private mapping copies on write, so a
+    /// second mapping of the file diverges from this one.
+    pub fn shared_file_offset(&self) -> Option<&FileOffset> {
+        self.inner
+            .file_offset()
+            .filter(|_| self.inner.flags() & libc::MAP_SHARED != 0)
+    }
+
     /// Adds a DRAM region which only contains a single plugged slot
     pub(crate) fn dram_from_mmap_region(region: GuestRegionMmap, slot: u32) -> Self {
         let slot_size = u64_to_usize(region.len());

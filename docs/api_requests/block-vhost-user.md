@@ -87,6 +87,12 @@ status, which is an expensive operation under specific conditions. We advise
 users to profile performance on their workloads when considering to use
 vhost-user devices.
 
+For the same reason, a vhost-user device can only be hot-added to a microVM that
+was booted with one. A microVM booted without any has anonymous guest memory,
+and one restored from a snapshot memory file has a private mapping; in both
+cases the backend could not map the guest's pages, so the request fails with
+400\. See [device hotplug](../device-hotplug.md).
+
 ## Other considerations
 
 Compared to virtio block device where Firecracker interacts with a drive file on

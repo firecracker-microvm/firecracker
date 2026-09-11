@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import host_tools.drive as drive_tools
+from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_pci
 from framework.utils_drive import partuuid_and_disk_path
 from host_tools.fcmetrics import FcDeviceMetrics
 
@@ -291,6 +292,86 @@ def test_partuuid_update(uvm_vhost_user_plain_any, rootfs):
     }
     _check_drives(vm, assert_dict, assert_dict.keys())
     vhost_user_block_metrics.validate(vm)
+
+
+@pin_pci(True)
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+def test_hotplug_vhost_user(uvm_vhost_user_booted_ro):
+    """A vhost-user block can be hot-added to a VM booted with one.
+
+    Booting with a vhost-user drive makes guest memory memfd-backed, which is
+    what the backend of a hot-added drive maps. The new drive must appear in
+    the guest and carry data through the backend.
+    """
+    vm = uvm_vhost_user_booted_ro
+    _, before, _ = vm.ssh.check_output("ls /sys/block")
+
+    fs = drive_tools.FilesystemFile(size=16)
+    vm.add_vhost_user_drive("scratch", fs.path)
+
+    # No hotplug notification yet, so the guest rescans the bus itself.
+    vm.ssh.check_output("echo 1 > /sys/bus/pci/rescan")
+    _, after, _ = vm.ssh.check_output("ls /sys/block")
+    new = set(after.split()) - set(before.split())
+    assert len(new) == 1, new
+    dev = f"/dev/{new.pop()}"
+
+    # The rootfs is read-only; /tmp is writable.
+    vm.ssh.check_output(f"mkfs.ext4 {dev}")
+    vm.ssh.check_output(f"mkdir -p /tmp/scratch && mount {dev} /tmp/scratch")
+    vm.ssh.check_output("echo vhost_user_hotplug > /tmp/scratch/probe")
+    assert (
+        vm.ssh.check_output("cat /tmp/scratch/probe").stdout.strip()
+        == "vhost_user_hotplug"
+    )
+    vm.ssh.check_output("umount /tmp/scratch")
+
+
+@pin_pci(True)
+def test_hotplug_without_memfd_rejected(uvm):
+    """A vhost-user block cannot be hot-added to a VM booted without one.
+
+    Guest memory is memfd-backed only when a vhost-user device is configured
+    before boot. The request must be refused up front rather than accepted and
+    failed at DRIVER_OK. It is refused before any backend connection, so no
+    backend is started here.
+    """
+    vm = uvm
+    vm.spawn(log_level="Info")
+    vm.basic_config()
+    vm.add_net_iface()
+    vm.start()
+
+    with pytest.raises(RuntimeError, match="vhost-user hot-add requires guest memory"):
+        vm.api.drive.put(
+            drive_id="vub0",
+            socket="/tmp/nonexistent-vhost-user.sock",
+            is_root_device=False,
+        )
+
+
+@pin_pci(True)
+def test_hotplug_after_file_restore_rejected(uvm, microvm_factory):
+    """A vhost-user block cannot be hot-added to a VM restored from a snapshot file.
+
+    The restored memory is a private mapping of the snapshot file: it has a
+    descriptor, yet a backend given it would map its own copy of the file. The
+    request must be refused rather than accepted and failed at DRIVER_OK.
+    """
+    vm = uvm
+    vm.spawn(log_level="Info")
+    vm.basic_config()
+    vm.add_net_iface()
+    vm.start()
+    snapshot = vm.snapshot_full()
+
+    restored = microvm_factory.build_from_snapshot(snapshot)
+    with pytest.raises(RuntimeError, match="vhost-user hot-add requires guest memory"):
+        restored.api.drive.put(
+            drive_id="vub0",
+            socket="/tmp/nonexistent-vhost-user.sock",
+            is_root_device=False,
+        )
 
 
 def test_config_change(uvm):

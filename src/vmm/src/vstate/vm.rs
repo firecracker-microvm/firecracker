@@ -552,6 +552,19 @@ impl KvmVm {
         &self.common.guest_memory
     }
 
+    /// Whether a vhost-user backend can map this VM's guest memory.
+    ///
+    /// Guest memory is a shared memfd mapping only when a vhost-user device is
+    /// configured before boot. Otherwise it is anonymous, or a private mapping
+    /// of a snapshot file, and a backend given its descriptor would see other
+    /// pages than the guest.
+    pub fn vhost_user_memory_shareable(&self) -> bool {
+        // Never empty after boot, so `all` cannot pass vacuously.
+        self.guest_memory()
+            .iter()
+            .all(|r| r.shared_file_offset().is_some())
+    }
+
     /// Gets a mutable reference to this [`KvmVm`]'s [`ResourceAllocator`] object
     pub fn resource_allocator(&self) -> MutexGuard<'_, ResourceAllocator> {
         self.common
@@ -829,6 +842,39 @@ pub(crate) mod tests {
         let gm = single_region_mem_raw(mem_size);
         vm.register_dram_memory_regions(gm).unwrap();
         vm
+    }
+
+    #[test]
+    fn test_vhost_user_memory_shareable() {
+        // Anonymous: what a VM booted without a vhost-user device gets.
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
+        assert!(!vm.vhost_user_memory_shareable());
+
+        // memfd-backed: what a VM configured with a vhost-user block before boot
+        // gets.
+        let mut vm = setup_vm();
+        let regions = arch::arch_memory_regions(mib_to_bytes(128));
+        let gm =
+            crate::vstate::memory::memfd_backed(&regions, false, HugePageConfig::None).unwrap();
+        vm.register_dram_memory_regions(gm).unwrap();
+        assert!(vm.vhost_user_memory_shareable());
+
+        // A snapshot file is mapped private: it has a descriptor and must still be
+        // rejected.
+        let mut vm = setup_vm();
+        let file = vmm_sys_util::tempfile::TempFile::new().unwrap().into_file();
+        let regions = arch::arch_memory_regions(mib_to_bytes(128));
+        let total: u64 = regions.iter().map(|&(_, size)| size as u64).sum();
+        file.set_len(total).unwrap();
+        let gm = crate::vstate::memory::snapshot_file(
+            file,
+            regions.into_iter(),
+            false,
+            HugePageConfig::None,
+        )
+        .unwrap();
+        vm.register_dram_memory_regions(gm).unwrap();
+        assert!(!vm.vhost_user_memory_shareable());
     }
 
     #[test]
