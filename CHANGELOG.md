@@ -25,6 +25,11 @@ and this project adheres to
 
 ### Fixed
 
+- [#6208](https://github.com/firecracker-microvm/firecracker/pull/6208): Fixed
+  the vsock device stalling the VMM thread when the guest connects to a
+  host-side Unix socket whose accept backlog is full. Such connection requests
+  are now refused instead.
+
 - [#6218](https://github.com/firecracker-microvm/firecracker/pull/6218): Bumped
   `vm-superio` to 0.8.2, fixing serial console input being dropped while the
   guest has the UART interrupts masked. The Linux 8250 console masks IER for the
