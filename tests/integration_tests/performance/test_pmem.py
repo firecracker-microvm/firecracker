@@ -16,7 +16,8 @@ from framework.utils import track_cpu_utilization
 
 PMEM_DEVICE_SIZE_MB = 2048
 PMEM_DEVICE_SIZE_SINGLE_READ_MB = 512
-WARMUP_SEC = 10
+# pmem settles within ~1-2s; pre-read pass already warms pages
+WARMUP_SEC = 2
 RUNTIME_SEC = 30
 GUEST_MEM_MIB = 1024
 

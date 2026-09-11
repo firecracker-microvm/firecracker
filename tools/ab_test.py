@@ -396,8 +396,6 @@ def analyze_data(
         if is_ignored(dict(dimension_set) | {"metric": metric}):
             continue
 
-        print(f"Doing A/B-test for dimensions {dimension_set} and property {metric}")
-
         values_a = data_a[dimension_set][metric][0]
         baseline_mean = numpy.mean(values_a)
 

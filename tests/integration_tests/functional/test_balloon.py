@@ -10,7 +10,11 @@ import requests
 from tenacity import Retrying, stop_after_delay, wait_fixed
 
 from framework.guest_stats import MeminfoGuest
-from framework.utils import get_stable_rss_mem, make_guest_dirty_memory
+from framework.utils import (
+    get_stable_rss_mem,
+    make_guest_dirty_memory,
+    start_fast_page_fault_helper,
+)
 
 STATS_POLLING_INTERVAL_S = 1
 RSS_TEST_BALLOON_SIZE_MIB = 128
@@ -560,16 +564,12 @@ def test_hinting_reporting_snapshot(uvm, microvm_factory, method):
 
     vm.start()
 
-    vm.ssh.check_output(
-        "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
-    )
-
-    time.sleep(1)
+    # Blocks until the helper has touched its 128 MiB and is waiting in sigwait.
+    pid = start_fast_page_fault_helper(vm.ssh)
 
     # Check memory usage.
     first_reading = get_stable_rss_mem(vm)
 
-    _, pid, _ = vm.ssh.check_output("pidof fast_page_fault_helper")
     # Kill the application which will free the held memory
     vm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
     time.sleep(2)
@@ -591,16 +591,12 @@ def test_hinting_reporting_snapshot(uvm, microvm_factory, method):
     # making it harder to identify them in the memory monitor.
     microvm.memory_monitor = None
 
-    microvm.ssh.check_output(
-        "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
-    )
-
-    time.sleep(1)
+    # Blocks until the helper has touched its 128 MiB and is waiting in sigwait.
+    pid = start_fast_page_fault_helper(microvm.ssh)
 
     # Check memory usage.
     third_reading = get_stable_rss_mem(microvm)
 
-    _, pid, _ = microvm.ssh.check_output("pidof fast_page_fault_helper")
     # Kill the application which will free the held memory
     microvm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
     time.sleep(2)

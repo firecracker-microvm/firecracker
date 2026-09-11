@@ -180,15 +180,9 @@ def test_ept_violation_count(
     )
 
     # Wait for microvm to boot. Then spawn fast_page_fault_helper to setup an environment where we can trigger
-    # a lot of fast_page_faults after restoring the snapshot.
-    vm.ssh.check_output(
-        "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
-    )
-
-    _, pid, _ = vm.ssh.check_output("pidof fast_page_fault_helper")
-
-    # Give the helper time to initialize
-    time.sleep(5)
+    # a lot of fast_page_faults after restoring the snapshot. This blocks until the helper has touched its
+    # memory and is waiting in sigwait.
+    pid = utils.start_fast_page_fault_helper(vm.ssh)
 
     snapshot = vm.snapshot_full()
 

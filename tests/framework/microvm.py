@@ -371,7 +371,7 @@ class Microvm:
             # https://github.com/firecracker-microvm/firecracker/pull/4442/commits/d63eb7a65ffaaae0409d15ed55d99ecbd29bc572
             # Note: we have to retry a bit because /proc might show killed processes for a brief amount of time.
             for attempt in Retrying(
-                wait=wait_fixed(0.1), stop=stop_after_delay(1.0), reraise=True
+                wait=wait_fixed(0.01), stop=stop_after_delay(1.0), reraise=True
             ):
                 with attempt:
                     # filter ps results for the jailer's unique id
@@ -784,7 +784,11 @@ class Microvm:
         # and leave 0.2 delay between them.
         os.stat(self.jailer.api_socket_path())
 
-    @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
+    # Firecracker typically prints this within a few milliseconds of being
+    # spawned, so poll frequently: a coarse fixed delay here adds directly to
+    # the wall time of every test that boots a VM. Keep the total budget at
+    # ~1 second.
+    @retry(wait=wait_fixed(0.01), stop=stop_after_delay(1.0), reraise=True)
     def check_log_message(self, message):
         """Wait until `message` appears in logging output."""
         assert (
