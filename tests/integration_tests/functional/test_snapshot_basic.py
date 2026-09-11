@@ -9,6 +9,7 @@ import os
 import platform
 import re
 import shutil
+import textwrap
 import time
 import uuid
 from pathlib import Path
@@ -743,6 +744,36 @@ def read_guest_clocksource(vm):
     return stdout.strip()
 
 
+def check_guest_monotonic_across_vcpus(vm):
+    """Check clock monotonicity and timer progress on both restored vCPUs."""
+    _, stdout, _ = vm.ssh.check_output(
+        textwrap.dedent("""\
+            python3 - <<'PY'
+            import os
+            import time
+
+            cpus = sorted(os.sched_getaffinity(0))
+            assert len(cpus) == 2, cpus
+            previous = time.monotonic_ns()
+            for _ in range(10_000):
+                for cpu in cpus:
+                    os.sched_setaffinity(0, {cpu})
+                    current = time.monotonic_ns()
+                    assert current >= previous, (cpu, previous, current)
+                    previous = current
+
+            for cpu in cpus:
+                os.sched_setaffinity(0, {cpu})
+                for _ in range(10):
+                    time.sleep(0.001)
+            print("20,000 clock samples: no regressions; timer wakeups completed on both vCPUs")
+            PY
+            """),
+        timeout=30,
+    )
+    print(stdout.strip())
+
+
 @pytest.mark.parametrize("clocksource", CLOCK_SOURCES)
 @pytest.mark.parametrize("clock_realtime", [False, True])
 def test_clocksource_snapshot_restore(
@@ -760,6 +791,8 @@ def test_clocksource_snapshot_restore(
         "reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0"
         f" clocksource={clocksource}"
     )
+    if clocksource == "tsc":
+        boot_args += " tsc=reliable"
 
     vm = uvm
     vm.spawn()
@@ -804,6 +837,8 @@ def test_clocksource_snapshot_restore(
     # If guest_delta is close to host_delta, the clock jumped forward
     # (suspend/resume behavior). If it's near 0, it resumed from where
     # it left off.
+    if not clock_realtime:
+        assert 0 <= guest_delta < 5.0, f"Unexpected clock delta: {guest_delta:.6f}s"
     jumped = abs(guest_delta - host_delta) < 5.0
 
     jumped_str = "JUMPED" if jumped else "RESUMED"
@@ -820,3 +855,7 @@ def test_clocksource_snapshot_restore(
     assert (
         jumped == clock_realtime
     ), f"Clock {jumped_str} but clock_realtime was {"not" if clock_realtime else ""} set."
+
+    if clocksource == "tsc":
+        check_guest_monotonic_across_vcpus(restored_vm)
+        assert read_guest_clocksource(restored_vm) == "tsc"
