@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.1]
+
+### Fixed
+
+- [#6208](https://github.com/firecracker-microvm/firecracker/pull/6208): Fixed
+  the vsock device stalling the VMM thread when the guest connects to a
+  host-side Unix socket whose accept backlog is full. Such connection requests
+  are now refused instead.
+
 ## [1.17.0]
 
 ### Added
