@@ -293,6 +293,16 @@ impl Queue {
             + std::mem::size_of::<u16>()
     }
 
+    /// Position of a ring index within the ring.
+    ///
+    /// `initialize` requires a power-of-two `size`, so this is `index % size` without the divide.
+    /// The mask is `usize` to keep the load of `index` 16 bits wide. A wider load overlaps the
+    /// store that advanced it and loses store forwarding.
+    #[inline(always)]
+    fn ring_index(&self, index: u16) -> usize {
+        usize::from(index) & (usize::from(self.size) - 1)
+    }
+
     fn check_alignment(addr: GuestAddress, alignment: u64) -> Result<(), QueueError> {
         // Guest memory base address is page aligned, so as long as alignment divides page size,
         // it suffices to check that the GPA is properly aligned (e.g. we don't need to recheck
@@ -487,8 +497,7 @@ impl Queue {
         // We use `self.next_avail` to store the position, in `ring`, of the next available
         // descriptor index, with a twist: we always only increment `self.next_avail`, so the
         // actual position will be `self.next_avail % self.size`.
-        let idx = self.next_avail.0 % self.size;
-        let desc_index = self.avail_ring_ring_get(usize::from(idx));
+        let desc_index = self.avail_ring_ring_get(self.ring_index(self.next_avail.0));
 
         DescriptorChain::checked_new(self.desc_table, self.size, desc_index).inspect(|_| {
             self.next_avail += Wrapping(1);
@@ -518,12 +527,12 @@ impl Queue {
             return Err(QueueError::DescIndexOutOfBounds(desc_index));
         }
 
-        let next_used = (self.next_used + Wrapping(ring_index_offset)).0 % self.size;
+        let next_used = self.ring_index((self.next_used + Wrapping(ring_index_offset)).0);
         let used_element = UsedElement {
             id: u32::from(desc_index),
             len,
         };
-        self.used_ring_ring_set(usize::from(next_used), used_element);
+        self.used_ring_ring_set(next_used, used_element);
         Ok(())
     }
 
