@@ -29,13 +29,13 @@ use std::fmt::Debug;
 use std::io::{Read, Write};
 
 use crc64::crc64;
-use semver::Version;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::persist::SNAPSHOT_VERSION;
 use crate::snapshot::crc::CRC64Writer;
 pub use crate::snapshot::persist::Persist;
+use crate::utils::Version;
 
 #[cfg(target_arch = "x86_64")]
 const SNAPSHOT_MAGIC_ID: u64 = 0x0710_1984_8664_0000u64;
@@ -138,7 +138,7 @@ impl<Data> Snapshot<Data> {
         Self {
             header: SnapshotHdr {
                 magic: SNAPSHOT_MAGIC_ID,
-                version: SNAPSHOT_VERSION.clone(),
+                version: SNAPSHOT_VERSION,
             },
             data,
         }
@@ -166,12 +166,10 @@ impl<Data: DeserializeOwned> Snapshot<Data> {
             return Err(SnapshotError::InvalidMagic(snapshot.header.magic));
         }
 
-        if snapshot.header.version.major != SNAPSHOT_VERSION.major
-            || snapshot.header.version.minor > SNAPSHOT_VERSION.minor
+        if snapshot.header.version.major() != SNAPSHOT_VERSION.major()
+            || snapshot.header.version.minor() > SNAPSHOT_VERSION.minor()
         {
-            return Err(SnapshotError::InvalidFormatVersion(
-                snapshot.header.version.clone(),
-            ));
+            return Err(SnapshotError::InvalidFormatVersion(snapshot.header.version));
         }
 
         Ok(snapshot)
@@ -315,21 +313,29 @@ mod tests {
     fn test_bad_version() {
         // Different major version: shouldn't work
         let mut bad_snapshot = Snapshot::new(());
-        bad_snapshot.header.version.major = SNAPSHOT_VERSION.major + 1;
+        bad_snapshot.header.version = Version::new(
+            SNAPSHOT_VERSION.major() + 1,
+            SNAPSHOT_VERSION.minor(),
+            SNAPSHOT_VERSION.patch(),
+        );
         let data = bitcode::serialize(&bad_snapshot).unwrap();
 
         assert!(matches!(
             Snapshot::<()>::load_without_crc_check(&data),
-            Err(SnapshotError::InvalidFormatVersion(v)) if v.major == SNAPSHOT_VERSION.major + 1
+            Err(SnapshotError::InvalidFormatVersion(v)) if v.major() == SNAPSHOT_VERSION.major() + 1
         ));
 
         //  minor > SNAPSHOT_VERSION.minor: shouldn't work
         let mut bad_snapshot = Snapshot::new(());
-        bad_snapshot.header.version.minor = SNAPSHOT_VERSION.minor + 1;
+        bad_snapshot.header.version = Version::new(
+            SNAPSHOT_VERSION.major(),
+            SNAPSHOT_VERSION.minor() + 1,
+            SNAPSHOT_VERSION.patch(),
+        );
         let data = bitcode::serialize(&bad_snapshot).unwrap();
         assert!(matches!(
             Snapshot::<()>::load_without_crc_check(&data),
-            Err(SnapshotError::InvalidFormatVersion(v)) if v.minor == SNAPSHOT_VERSION.minor + 1
+            Err(SnapshotError::InvalidFormatVersion(v)) if v.minor() == SNAPSHOT_VERSION.minor() + 1
         ));
 
         // But we can support minor versions smaller or equal to ours. We also support
@@ -338,25 +344,36 @@ mod tests {
         let data = bitcode::serialize(&snapshot).unwrap();
         Snapshot::<()>::load_without_crc_check(&data).unwrap();
 
-        if SNAPSHOT_VERSION.minor != 0 {
+        if SNAPSHOT_VERSION.minor() != 0 {
             let mut snapshot = Snapshot::new(());
-            snapshot.header.version.minor = SNAPSHOT_VERSION.minor - 1;
+            snapshot.header.version = Version::new(
+                SNAPSHOT_VERSION.major(),
+                SNAPSHOT_VERSION.minor() - 1,
+                SNAPSHOT_VERSION.patch(),
+            );
+
             let data = bitcode::serialize(&snapshot).unwrap();
             Snapshot::<()>::load_without_crc_check(&data).unwrap();
         }
 
         let mut snapshot = Snapshot::new(());
-        snapshot.header.version.patch = 0;
+        snapshot.header.version =
+            Version::new(SNAPSHOT_VERSION.major(), SNAPSHOT_VERSION.minor(), 0);
         let data = bitcode::serialize(&snapshot).unwrap();
         Snapshot::<()>::load_without_crc_check(&data).unwrap();
 
         let mut snapshot = Snapshot::new(());
-        snapshot.header.version.patch = SNAPSHOT_VERSION.patch + 1;
+        snapshot.header.version = Version::new(
+            SNAPSHOT_VERSION.major(),
+            SNAPSHOT_VERSION.minor(),
+            SNAPSHOT_VERSION.patch() + 1,
+        );
         let data = bitcode::serialize(&snapshot).unwrap();
         Snapshot::<()>::load_without_crc_check(&data).unwrap();
 
         let mut snapshot = Snapshot::new(());
-        snapshot.header.version.patch = 1024;
+        snapshot.header.version =
+            Version::new(SNAPSHOT_VERSION.major(), SNAPSHOT_VERSION.minor(), 1024);
         let data = bitcode::serialize(&snapshot).unwrap();
         Snapshot::<()>::load_without_crc_check(&data).unwrap();
     }

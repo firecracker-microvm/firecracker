@@ -260,7 +260,16 @@ def test_no_serial_fd_error_when_daemonized(uvm):
 @pin_cpu_template(ALL_CPU_TEMPLATES)
 def test_serial_file_output(uvm_any):
     """Test that redirecting serial console output to a file works for booted and restored VMs"""
-    uvm_any.ssh.check_output("echo 'hello' > /dev/ttyS0")
+    # write() returns once the bytes are in the tty's transmit FIFO, not
+    # once the UART has transmitted them, and closing /dev/ttyS0 only drains
+    # on the last close (the console getty keeps it open). On kernels >= 6.4
+    # with a runtime-PM-enabled UART driver (8250_of on aarch64), a write to
+    # an idle (runtime-suspended) port is even transmitted later by a kworker.
+    # Drain explicitly: stty applies settings with tcsetattr(TCSADRAIN), which
+    # waits for the tty buffer and the UART transmitter to be empty.
+    uvm_any.ssh.check_output(
+        "echo 'hello' > /dev/ttyS0 && stty -F /dev/ttyS0 $(stty -F /dev/ttyS0 -g)"
+    )
 
     assert b"hello" in uvm_any.serial_out_path.read_bytes()
 
