@@ -482,9 +482,21 @@ impl RateLimiter {
                     // order to enforce the bandwidth limit we need to prevent
                     // further calls to the rate limiter for
                     // `ratio * refill_time` milliseconds.
-                    // The conversion should be safe because the ratio is positive.
+                    //
+                    // Compute the duration in nanoseconds instead of
+                    // milliseconds and round up. Truncating sub-millisecond
+                    // debts to zero would call `TimerFd::arm` with a zero
+                    // `Duration`, which disarms the underlying timerfd while
+                    // `timer_active` is still set. The limiter would then never
+                    // receive an event and stay blocked forever.
+                    //
+                    // The conversion is safe because the ratio is strictly
+                    // positive and `refill_time` is at least 1, so after
+                    // rounding up the duration is at least one nanosecond.
                     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                    self.activate_timer(Duration::from_millis((ratio * refill_time as f64) as u64));
+                    let duration_ns =
+                        (ratio * refill_time as f64 * NANOSEC_IN_ONE_MILLISEC as f64).ceil() as u64;
+                    self.activate_timer(Duration::from_nanos(duration_ns));
                     true
                 }
             }
@@ -1197,6 +1209,30 @@ pub(crate) mod tests {
         l.event_handler().unwrap();
         assert!(!l.is_blocked());
         assert!(l.consume(100, TokenType::Bytes));
+    }
+
+    #[test]
+    fn test_rate_limiter_overconsumption_sub_millisecond() {
+        // Bucket of 1_000_000 bytes that refills completely in one second.
+        // Borrowing one single token beyond the bucket capacity must be
+        // replenished in `1/1_000_000 * 1000 ms = 0.001 ms`. The limiter has
+        // to arm a real (sub-millisecond) timer for that debt. If the duration
+        // is truncated to zero, the timerfd gets disarmed while `timer_active`
+        // stays set, and the limiter is wedged forever.
+        let clock = MockClock::new();
+        let mut l = RateLimiter::new_mocked(1_000_000, 0, 1000, 0, 0, 0, &clock);
+
+        // Consume one byte more than the full bucket, i.e. borrow 1 token.
+        assert!(l.consume(1_000_001, TokenType::Bytes));
+        assert!(l.is_blocked());
+
+        // The timer has to fire and unblock the limiter. With the buggy
+        // millisecond truncation the timer is disarmed, so `event_handler`
+        // returns `SpuriousRateLimiterEvent` and the assertions below fail.
+        clock.advance(Duration::from_millis(50));
+        l.event_handler().unwrap();
+        assert!(!l.is_blocked());
+        assert!(l.consume(1, TokenType::Bytes));
     }
 
     #[test]
