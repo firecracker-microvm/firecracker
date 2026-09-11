@@ -632,7 +632,9 @@ def wait_process_termination(p_pid, timeout=10.0):
             return
         if time.time() >= deadline:
             raise TimeoutError(f"Process {p_pid} did not exit within {timeout}s")
-        time.sleep(0.05)
+        # Processes normally die within a few ms of SIGKILL; poll finely so we
+        # do not pay a coarse sleep on every VM teardown.
+        time.sleep(0.01)
 
 
 def get_firecracker_version_from_toml():
