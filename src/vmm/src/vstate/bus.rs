@@ -13,6 +13,8 @@ use std::sync::{Arc, Barrier, Mutex, RwLock, Weak};
 
 use slab::Slab;
 
+use crate::utils::usize_to_u64;
+
 /// Trait for devices that respond to reads or writes in an arbitrary address space.
 ///
 /// The device does not care where it exists in address space as each method is only given an offset
@@ -185,13 +187,17 @@ impl Bus {
     fn with_device<T>(
         &self,
         addr: u64,
+        len: u64,
         f: impl FnOnce(&mut dyn BusDevice, u64, u64) -> T,
     ) -> Result<T, BusError> {
+        let access = BusRange::new(addr, len)?;
+
         let devices = self.devices.read().unwrap();
         let (base, slot) = {
             let ranges = self.ranges.read().unwrap();
-            match ranges.range(..=BusRange::new(addr, 1).unwrap()).next_back() {
-                Some((range, &slot)) if addr <= range.end() => (range.base(), slot),
+            match ranges.range(..=access).next_back() {
+                // `range` query already guarantees `range.base() <= addr`.
+                Some((range, &slot)) if access.end() <= range.end() => (range.base(), slot),
                 _ => return Err(BusError::MissingAddressRange),
             }
         };
@@ -240,17 +246,17 @@ impl Bus {
     }
 
     /// Reads data from the device that owns the range containing `addr` and puts it into `data`.
-    ///
-    /// Returns true on success, otherwise `data` is untouched.
     pub fn read(&self, addr: u64, data: &mut [u8]) -> Result<(), BusError> {
-        self.with_device(addr, |dev, base, offset| dev.read(base, offset, data))
+        self.with_device(addr, usize_to_u64(data.len()), |dev, base, offset| {
+            dev.read(base, offset, data)
+        })
     }
 
     /// Writes `data` to the device that owns the range containing `addr`.
-    ///
-    /// Returns true on success, otherwise `data` is untouched.
     pub fn write(&self, addr: u64, data: &[u8]) -> Result<Option<Arc<Barrier>>, BusError> {
-        self.with_device(addr, |dev, base, offset| dev.write(base, offset, data))
+        self.with_device(addr, usize_to_u64(data.len()), |dev, base, offset| {
+            dev.write(base, offset, data)
+        })
     }
 }
 
@@ -387,6 +393,35 @@ mod tests {
         // Reusing the freed range rebinds it to the new device
         bus.insert(dev_e.clone(), 0x2000, 0x100).unwrap();
         assert_eq!(read(0x2000), 0xe);
+
+        // Accesses must be fully contained in a single device's range. Add a
+        // device right after `dev_e` and one at the very top of the address
+        // space to exercise the boundaries.
+        bus.insert(dev_a.clone(), 0x2100, 0x100).unwrap();
+        bus.insert(dev_a.clone(), u64::MAX, 1).unwrap();
+
+        // An access ending on the last byte of a range is served, while one
+        // crossing into the adjacent device is served by neither.
+        let mut data = [0; 4];
+        bus.read(0x20fc, &mut data).unwrap();
+        assert_eq!(data, [0xe; 4]);
+        assert!(matches!(
+            bus.read(0x20fe, &mut data),
+            Err(BusError::MissingAddressRange)
+        ));
+
+        // An access wrapping around the end of the address space is rejected.
+        bus.read(u64::MAX, &mut [0; 1]).unwrap();
+        assert!(matches!(
+            bus.read(u64::MAX, &mut data),
+            Err(BusError::InvalidRange)
+        ));
+
+        // Zero sized accesses are rejected.
+        assert!(matches!(
+            bus.read(0x2000, &mut []),
+            Err(BusError::ZeroSizedRange)
+        ));
     }
 
     #[test]
@@ -497,6 +532,10 @@ mod tests {
         bus.write(0x11, &[0, 0, 0, 0]).unwrap();
         bus.read(0x16, &mut [0, 0, 0, 0]).unwrap();
         bus.write(0x16, &[0, 0, 0, 0]).unwrap();
+        bus.read(0x1c, &mut [0, 0, 0, 0]).unwrap();
+        bus.write(0x1c, &[0, 0, 0, 0]).unwrap();
+        bus.read(0x1d, &mut [0, 0, 0, 0]).unwrap_err();
+        bus.write(0x1d, &[0, 0, 0, 0]).unwrap_err();
         bus.read(0x20, &mut [0, 0, 0, 0]).unwrap_err();
         bus.write(0x20, &[0, 0, 0, 0]).unwrap_err();
         bus.read(0x06, &mut [0, 0, 0, 0]).unwrap_err();
