@@ -12,6 +12,12 @@ and this project adheres to
 
 ### Changed
 
+- [#6201](https://github.com/firecracker-microvm/firecracker/pull/6201):
+  Bounds-check every virtio queue access to the descriptor table, available ring
+  and used ring against the range validated when the queue was activated,
+  replacing the cached raw host pointers and `unsafe impl Send` in the virtio
+  `Queue`.
+
 ### Deprecated
 
 ### Removed

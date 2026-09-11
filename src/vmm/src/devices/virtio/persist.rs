@@ -16,7 +16,7 @@ use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::mmio::MmioTransport;
 use crate::snapshot::Persist;
-use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
+use crate::vstate::memory::{GuestAddress, GuestMemoryMmap, MemoryRegionCache};
 
 /// Errors thrown during restoring virtio state.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -97,9 +97,9 @@ impl Persist<'_> for Queue {
             avail_ring_address: GuestAddress(state.avail_ring),
             used_ring_address: GuestAddress(state.used_ring),
 
-            desc_table_ptr: std::ptr::null(),
-            avail_ring_ptr: std::ptr::null_mut(),
-            used_ring_ptr: std::ptr::null_mut(),
+            desc_table: MemoryRegionCache::UNRESOLVED,
+            avail_ring: MemoryRegionCache::UNRESOLVED,
+            used_ring: MemoryRegionCache::UNRESOLVED,
 
             next_avail: state.next_avail,
             next_used: state.next_used,
