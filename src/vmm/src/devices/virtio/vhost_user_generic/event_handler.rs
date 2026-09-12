@@ -1,13 +1,14 @@
-// Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use vmm_sys_util::epoll::EventSet;
 
-use super::VhostUserBlock;
+use super::VhostUserGeneric;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::logger::{error, warn};
 
-impl VhostUserBlock {
+impl VhostUserGeneric {
     const PROCESS_ACTIVATE: u32 = 0;
 
     fn register_activate_event(&self, ops: &mut EventOps) {
@@ -22,7 +23,10 @@ impl VhostUserBlock {
 
     fn process_activate_event(&self, ops: &mut EventOps) {
         if let Err(err) = self.vu_device.activate_evt.read() {
-            error!("Failed to consume block activate event: {:?}", err);
+            error!(
+                "Failed to consume generic vhost-user activate event: {:?}",
+                err
+            );
         }
         if let Err(err) = ops.remove(Events::with_data(
             &self.vu_device.activate_evt,
@@ -34,8 +38,7 @@ impl VhostUserBlock {
     }
 }
 
-impl MutEventSubscriber for VhostUserBlock {
-    // Handle an event for queue or rate limiter.
+impl MutEventSubscriber for VhostUserGeneric {
     fn process(&mut self, event: Events, ops: &mut EventOps) {
         let source = event.data();
         let event_set = event.event_set();
@@ -53,11 +56,11 @@ impl MutEventSubscriber for VhostUserBlock {
             if Self::PROCESS_ACTIVATE == source {
                 self.process_activate_event(ops)
             } else {
-                warn!("BlockVhost: Spurious event received: {:?}", source)
+                warn!("VhostUserGeneric: Spurious event received: {:?}", source)
             }
         } else {
             warn!(
-                "BlockVhost: The device is not yet activated. Spurious event received: {:?}",
+                "VhostUserGeneric: The device is not yet activated. Spurious event received: {:?}",
                 source
             );
         }
@@ -67,9 +70,8 @@ impl MutEventSubscriber for VhostUserBlock {
         // This function can be called during different points in the device lifetime:
         //  - shortly after device creation,
         //  - on device activation (is-activated already true at this point),
-        //  - on device restore from snapshot.
         if self.is_activated() {
-            warn!("Vhost-user block: unexpected init event");
+            warn!("VhostUserGeneric: unexpected init event");
         } else {
             self.register_activate_event(ops);
         }
