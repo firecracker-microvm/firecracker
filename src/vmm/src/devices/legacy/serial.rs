@@ -10,7 +10,7 @@ use std::fmt::Debug;
 use std::fs::File;
 use std::io::{self, Read, Stdin, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::sync::{Arc, Barrier};
+use std::sync::{Arc, Barrier, RwLock};
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use libc::EFD_NONBLOCK;
@@ -44,23 +44,14 @@ pub struct SerialDeviceMetrics {
     /// Total bytes dropped by the serial output rate limiter.
     pub rate_limiter_dropped_bytes: SharedIncMetric,
 }
-impl SerialDeviceMetrics {
-    /// Const default construction.
-    pub const fn new() -> Self {
-        Self {
-            error_count: SharedIncMetric::new(),
-            flush_count: SharedIncMetric::new(),
-            missed_read_count: SharedIncMetric::new(),
-            missed_write_count: SharedIncMetric::new(),
-            read_count: SharedIncMetric::new(),
-            write_count: SharedIncMetric::new(),
-            rate_limiter_dropped_bytes: SharedIncMetric::new(),
-        }
-    }
-}
 
-/// Stores aggregated metrics
-pub(super) static METRICS: SerialDeviceMetrics = SerialDeviceMetrics::new();
+/// Stores the metrics of the (single) UART device.
+///
+/// The device owns its `Arc<SerialDeviceMetrics>` and registers a clone here on construction, so
+/// that `flush_metrics` can serialize them without reaching into the device. Keeping the metrics
+/// off a process-wide global lets unit tests, which each build their own device, run in parallel
+/// without clobbering each other's counters.
+pub(super) static METRICS: RwLock<Option<Arc<SerialDeviceMetrics>>> = RwLock::new(None);
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum RawIOError {
@@ -93,21 +84,36 @@ impl<EV: SerialEvents + Debug, W: Write + Debug> RawIOHandler for Serial<EventFd
 /// Wrapper over available events (i.e metrics, buffer ready etc).
 #[derive(Debug)]
 pub struct SerialEventsWrapper {
+    /// Metrics for the device this wrapper belongs to.
+    pub metrics: Arc<SerialDeviceMetrics>,
     /// Buffer ready event.
     pub buffer_ready_event_fd: Option<EventFdTrigger>,
 }
 
+impl SerialEventsWrapper {
+    /// Create a `SerialEventsWrapper` backed by the given metrics and buffer-ready event.
+    pub fn new(
+        metrics: Arc<SerialDeviceMetrics>,
+        buffer_ready_event_fd: Option<EventFdTrigger>,
+    ) -> Self {
+        Self {
+            metrics,
+            buffer_ready_event_fd,
+        }
+    }
+}
+
 impl SerialEvents for SerialEventsWrapper {
     fn buffer_read(&self) {
-        METRICS.read_count.inc();
+        self.metrics.read_count.inc();
     }
 
     fn out_byte(&self) {
-        METRICS.write_count.inc();
+        self.metrics.write_count.inc();
     }
 
     fn tx_lost_byte(&self) {
-        METRICS.missed_write_count.inc();
+        self.metrics.missed_write_count.inc();
     }
 
     fn in_buffer_empty(&self) {
@@ -139,6 +145,13 @@ pub struct SerialOut {
     inner: SerialOutInner,
     /// Optional rate limiter for serial output bandwidth.
     rate_limiter: Option<TokenBucket>,
+    /// Metrics for the device this output belongs to.
+    ///
+    /// A `SerialOut` is created by the caller before the owning `SerialDevice` exists, so it starts
+    /// with a private default instance; `SerialDevice::new` swaps in the shared, registered metrics
+    /// via [`SerialOut::set_metrics`] so the rate-limiter counter lands in the same place as the
+    /// rest of the device's metrics.
+    metrics: Arc<SerialDeviceMetrics>,
 }
 
 impl SerialOut {
@@ -147,7 +160,13 @@ impl SerialOut {
         Self {
             inner,
             rate_limiter,
+            metrics: Arc::new(SerialDeviceMetrics::default()),
         }
+    }
+
+    /// Point this output's metrics at the device's shared, registered instance.
+    pub fn set_metrics(&mut self, metrics: Arc<SerialDeviceMetrics>) {
+        self.metrics = metrics;
     }
 }
 
@@ -161,7 +180,7 @@ impl std::io::Write for SerialOut {
         if let Some(ref mut rl) = self.rate_limiter {
             match rl.reduce(usize_to_u64(buf.len())) {
                 BucketReduction::Failure | BucketReduction::OverConsumption(_) => {
-                    METRICS
+                    self.metrics
                         .rate_limiter_dropped_bytes
                         .add(usize_to_u64(buf.len()));
                     return Ok(buf.len());
@@ -267,14 +286,19 @@ pub type SerialDevice = SerialWrapper<EventFdTrigger, SerialEventsWrapper, Stdin
 impl SerialDevice {
     pub fn new(
         serial_in: Option<Stdin>,
-        serial_out: SerialOut,
+        mut serial_out: SerialOut,
         state: Option<&SerialState>,
     ) -> Result<Self, std::io::Error> {
         let interrupt_evt = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK)?);
         let buffer_read_event_fd = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK)?);
-        let events = SerialEventsWrapper {
-            buffer_ready_event_fd: Some(buffer_read_event_fd),
-        };
+
+        let metrics = Arc::new(SerialDeviceMetrics::default());
+        // A microVM only ever has one UART device, so replacing the slot is fine.
+        let _ = METRICS.write().unwrap().replace(metrics.clone());
+        // The output was built by the caller with its own default metrics; point it at the shared
+        // instance so the rate-limiter counter is aggregated with the rest.
+        serial_out.set_metrics(metrics.clone());
+        let events = SerialEventsWrapper::new(metrics, Some(buffer_read_event_fd));
 
         let serial =
             match state {
@@ -416,7 +440,7 @@ where
         if let (Ok(offset), 1) = (u8::try_from(offset), data.len()) {
             data[0] = self.serial.read(offset);
         } else {
-            METRICS.missed_read_count.inc();
+            self.serial.events().metrics.missed_read_count.inc();
         }
     }
 
@@ -425,10 +449,10 @@ where
             if let Err(err) = self.serial.write(offset, data[0]) {
                 // Counter incremented for any handle_write() error.
                 error!("Failed the write to serial: {:?}", err);
-                METRICS.error_count.inc();
+                self.serial.events().metrics.error_count.inc();
             }
         } else {
-            METRICS.missed_write_count.inc();
+            self.serial.events().metrics.missed_write_count.inc();
         }
         None
     }
@@ -453,34 +477,30 @@ mod tests {
     fn test_serial_bus_read() {
         let intr_evt = EventFdTrigger::new(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
-        let metrics = &METRICS;
-
+        // Build the device with a caller-owned metrics instance so the test observes only its own
+        // counters, independent of any other device or test.
+        let metrics = Arc::new(SerialDeviceMetrics::default());
         let mut serial = SerialDevice {
             serial: Serial::with_events(
                 intr_evt,
-                SerialEventsWrapper {
-                    buffer_ready_event_fd: None,
-                },
+                SerialEventsWrapper::new(metrics.clone(), None),
                 test_serial_out_sink(),
             ),
             input: None::<std::io::Stdin>,
         };
         serial.serial.raw_input(b"abc").unwrap();
 
-        let invalid_reads_before = metrics.missed_read_count.count();
+        // The device is freshly built, so the counter starts at 0.
         let mut v = [0x00; 2];
         serial.read(0x0, 0u64, &mut v);
-
-        let invalid_reads_after = metrics.missed_read_count.count();
-        assert_eq!(invalid_reads_before + 1, invalid_reads_after);
+        assert_eq!(metrics.missed_read_count.count(), 1);
 
         let mut v = [0x00; 1];
         serial.read(0x0, 0u64, &mut v);
         assert_eq!(v[0], b'a');
 
-        let invalid_reads_after_2 = metrics.missed_read_count.count();
-        // The `invalid_read_count` metric should be the same as before the one-byte reads.
-        assert_eq!(invalid_reads_after_2, invalid_reads_after);
+        // A valid one-byte read must not bump the missed-read counter.
+        assert_eq!(metrics.missed_read_count.count(), 1);
     }
 
     #[test]
@@ -522,15 +542,17 @@ mod tests {
 
     #[test]
     fn test_serial_dev_metrics() {
-        let serial_metrics: SerialDeviceMetrics = SerialDeviceMetrics::new();
-        let serial_metrics_local: String = serde_json::to_string(&serial_metrics).unwrap();
-        // the 1st serialize flushes the metrics and resets values to 0 so that
-        // we can compare the values with local metrics.
-        serde_json::to_string(&METRICS).unwrap();
-        let serial_metrics_global: String = serde_json::to_string(&METRICS).unwrap();
-        assert_eq!(serial_metrics_local, serial_metrics_global);
-        serial_metrics.read_count.inc();
-        assert_eq!(serial_metrics.read_count.count(), 1);
+        let metrics = SerialDeviceMetrics::default();
+        metrics.read_count.inc();
+        metrics.write_count.add(3);
+        metrics.error_count.inc();
+
+        let serialized = serde_json::to_string(&metrics).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("read_count").and_then(|v| v.as_u64()), Some(1));
+        assert_eq!(obj.get("write_count").and_then(|v| v.as_u64()), Some(3));
+        assert_eq!(obj.get("error_count").and_then(|v| v.as_u64()), Some(1));
     }
 
     #[test]
@@ -566,12 +588,11 @@ mod tests {
         let result = serial_out.write(b"abcd").unwrap();
         assert_eq!(result, 4);
 
-        let dropped_before = METRICS.rate_limiter_dropped_bytes.count();
+        // A freshly built `SerialOut` owns its own metrics, so the counter starts at 0.
         let big_data = vec![b'X'; 1024];
         let result = serial_out.write(&big_data).unwrap();
         assert_eq!(result, 1024);
-        let dropped_delta = METRICS.rate_limiter_dropped_bytes.count() - dropped_before;
-        assert!(dropped_delta >= 1024);
+        assert!(serial_out.metrics.rate_limiter_dropped_bytes.count() >= 1024);
 
         use std::io::Seek;
         let mut file = file;
@@ -584,9 +605,9 @@ mod tests {
     #[test]
     fn test_serial_out_sink_discards_everything() {
         let mut serial_out = test_serial_out_sink();
-        let dropped_before = METRICS.rate_limiter_dropped_bytes.count();
         let result = serial_out.write(b"anything").unwrap();
         assert_eq!(result, 8);
-        assert_eq!(METRICS.rate_limiter_dropped_bytes.count(), dropped_before);
+        // A sink with no rate limiter never drops bytes.
+        assert_eq!(serial_out.metrics.rate_limiter_dropped_bytes.count(), 0);
     }
 }
