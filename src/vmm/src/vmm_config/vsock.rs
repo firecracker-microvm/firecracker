@@ -110,8 +110,10 @@ impl VsockBuilder {
         cfg: VsockDeviceConfig,
     ) -> Result<Vsock<VsockUnixBackend>, VsockConfigError> {
         let backend = VsockUnixBackend::new(u64::from(cfg.guest_cid), cfg.uds_path)?;
+        let metrics = backend.metrics.clone();
 
-        Vsock::new(u64::from(cfg.guest_cid), backend).map_err(VsockConfigError::CreateVsockDevice)
+        Vsock::new(u64::from(cfg.guest_cid), backend, metrics)
+            .map_err(VsockConfigError::CreateVsockDevice)
     }
 
     /// Returns the structure used to configure the vsock device.
@@ -180,12 +182,11 @@ pub(crate) mod tests {
         let mut vsock_builder = VsockBuilder::new();
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
-        let vsock = Vsock::new(
-            0,
+        let backend =
             VsockUnixBackend::new(1, tmp_sock_file.as_path().to_str().unwrap().to_string())
-                .unwrap(),
-        )
-        .unwrap();
+                .unwrap();
+        let metrics = backend.metrics.clone();
+        let vsock = Vsock::new(0, backend, metrics).unwrap();
 
         vsock_builder.set_device(Arc::new(Mutex::new(vsock)));
         assert!(vsock_builder.inner.is_some());

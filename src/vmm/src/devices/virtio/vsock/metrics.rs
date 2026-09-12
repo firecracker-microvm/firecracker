@@ -36,24 +36,29 @@
 //! * Shared Incremental Metrics (SharedIncMetrics) - dedicated for the metrics which need a counter
 //!   (i.e the number of times an API request failed). These metrics are reset upon flush.
 
+use std::sync::{Arc, RwLock};
+
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
 use crate::logger::SharedIncMetric;
 
-/// Stores aggregate metrics of all Vsock connections/actions
-pub(super) static METRICS: VsockDeviceMetrics = VsockDeviceMetrics::new();
-
 /// Called by METRICS.flush(), this function facilitates serialization of vsock device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_map(Some(1))?;
-    seq.serialize_entry("vsock", &METRICS)?;
+    match METRICS.read().unwrap().as_ref() {
+        Some(metrics) => seq.serialize_entry("vsock", metrics.as_ref())?,
+        None => seq.serialize_entry("vsock", &VsockDeviceMetrics::default())?,
+    }
     seq.end()
 }
 
+/// Metrics of the (single) vsock device, shared by the device, its muxer and all connections.
+pub(super) static METRICS: RwLock<Option<Arc<VsockDeviceMetrics>>> = RwLock::new(None);
+
 /// Vsock-related metrics.
-#[derive(Debug, Serialize)]
-pub(super) struct VsockDeviceMetrics {
+#[derive(Debug, Serialize, Default)]
+pub struct VsockDeviceMetrics {
     /// Number of times when activate failed on a vsock device.
     pub activate_fails: SharedIncMetric,
     /// Number of times when interacting with the space config of a vsock device failed.
@@ -96,50 +101,130 @@ pub(super) struct VsockDeviceMetrics {
     pub rx_read_fails: SharedIncMetric,
 }
 
-impl VsockDeviceMetrics {
-    // We need this because vsock::metrics::METRICS does not accept
-    // VsockDeviceMetrics::default()
-    const fn new() -> Self {
-        Self {
-            activate_fails: SharedIncMetric::new(),
-            cfg_fails: SharedIncMetric::new(),
-            rx_queue_event_fails: SharedIncMetric::new(),
-            tx_queue_event_fails: SharedIncMetric::new(),
-            ev_queue_event_fails: SharedIncMetric::new(),
-            muxer_event_fails: SharedIncMetric::new(),
-            conn_event_fails: SharedIncMetric::new(),
-            rx_queue_event_count: SharedIncMetric::new(),
-            tx_queue_event_count: SharedIncMetric::new(),
-            rx_bytes_count: SharedIncMetric::new(),
-            tx_bytes_count: SharedIncMetric::new(),
-            rx_packets_count: SharedIncMetric::new(),
-            tx_packets_count: SharedIncMetric::new(),
-            conns_added: SharedIncMetric::new(),
-            conns_killed: SharedIncMetric::new(),
-            conns_removed: SharedIncMetric::new(),
-            killq_resync: SharedIncMetric::new(),
-            tx_flush_fails: SharedIncMetric::new(),
-            tx_write_fails: SharedIncMetric::new(),
-            rx_read_fails: SharedIncMetric::new(),
-        }
-    }
-}
-
 #[cfg(test)]
 pub mod tests {
     use super::*;
     use crate::logger::IncMetric;
 
     #[test]
-    fn test_vsock_dev_metrics() {
-        let vsock_metrics: VsockDeviceMetrics = VsockDeviceMetrics::new();
-        let vsock_metrics_local: String = serde_json::to_string(&vsock_metrics).unwrap();
-        // the 1st serialize flushes the metrics and resets values to 0 so that
-        // we can compare the values with local metrics.
-        serde_json::to_string(&METRICS).unwrap();
-        let vsock_metrics_global: String = serde_json::to_string(&METRICS).unwrap();
-        assert_eq!(vsock_metrics_local, vsock_metrics_global);
-        vsock_metrics.conns_added.inc();
-        assert_eq!(vsock_metrics.conns_added.count(), 1);
+    fn test_vsock_default() {
+        let metrics = VsockDeviceMetrics::default();
+
+        // Increment a field (e.g. activate_fails) to ensure it's being tracked.
+        metrics.activate_fails.inc();
+
+        let count = metrics.activate_fails.count();
+        assert!(
+            count > 0,
+            "Expected activate_fails count > 0 but got {}",
+            count
+        );
+
+        // Add more metric changes and assert correctness.
+        metrics.activate_fails.inc();
+        metrics.rx_bytes_count.add(5);
+
+        let rx_count = metrics.rx_bytes_count.count();
+        assert!(
+            rx_count >= 5,
+            "Expected rx_bytes_count >= 5 but got {}",
+            rx_count
+        );
+    }
+
+    #[test]
+    fn test_vsock_metrics_serialization() {
+        // Create a fresh metrics instance
+        let metrics = VsockDeviceMetrics::default();
+
+        // Set specific values for each metric
+        metrics.activate_fails.add(1);
+        metrics.cfg_fails.add(2);
+        metrics.rx_queue_event_fails.add(3);
+        metrics.tx_queue_event_fails.add(4);
+        metrics.ev_queue_event_fails.add(5);
+        metrics.muxer_event_fails.add(6);
+        metrics.conn_event_fails.add(7);
+        metrics.rx_queue_event_count.add(100);
+        metrics.tx_queue_event_count.add(200);
+        metrics.rx_bytes_count.add(1024);
+        metrics.tx_bytes_count.add(2048);
+        metrics.rx_packets_count.add(10);
+        metrics.tx_packets_count.add(20);
+        metrics.conns_added.add(5);
+        metrics.conns_killed.add(2);
+        metrics.conns_removed.add(3);
+        metrics.killq_resync.add(1);
+        metrics.tx_flush_fails.add(8);
+        metrics.tx_write_fails.add(9);
+        metrics.rx_read_fails.add(10);
+
+        let serialized = serde_json::to_string(&metrics).expect("Failed to serialize metrics");
+
+        let json_value: serde_json::Value =
+            serde_json::from_str(&serialized).expect("Failed to parse JSON");
+
+        assert!(
+            json_value.is_object(),
+            "Serialized metrics should be a JSON object"
+        );
+
+        let obj = json_value.as_object().unwrap();
+
+        assert_eq!(obj.get("activate_fails").and_then(|v| v.as_u64()), Some(1));
+        assert_eq!(obj.get("cfg_fails").and_then(|v| v.as_u64()), Some(2));
+        assert_eq!(
+            obj.get("rx_queue_event_fails").and_then(|v| v.as_u64()),
+            Some(3)
+        );
+        assert_eq!(
+            obj.get("tx_queue_event_fails").and_then(|v| v.as_u64()),
+            Some(4)
+        );
+        assert_eq!(
+            obj.get("ev_queue_event_fails").and_then(|v| v.as_u64()),
+            Some(5)
+        );
+        assert_eq!(
+            obj.get("muxer_event_fails").and_then(|v| v.as_u64()),
+            Some(6)
+        );
+        assert_eq!(
+            obj.get("conn_event_fails").and_then(|v| v.as_u64()),
+            Some(7)
+        );
+        assert_eq!(
+            obj.get("rx_queue_event_count").and_then(|v| v.as_u64()),
+            Some(100)
+        );
+        assert_eq!(
+            obj.get("tx_queue_event_count").and_then(|v| v.as_u64()),
+            Some(200)
+        );
+        assert_eq!(
+            obj.get("rx_bytes_count").and_then(|v| v.as_u64()),
+            Some(1024)
+        );
+        assert_eq!(
+            obj.get("tx_bytes_count").and_then(|v| v.as_u64()),
+            Some(2048)
+        );
+        assert_eq!(
+            obj.get("rx_packets_count").and_then(|v| v.as_u64()),
+            Some(10)
+        );
+        assert_eq!(
+            obj.get("tx_packets_count").and_then(|v| v.as_u64()),
+            Some(20)
+        );
+        assert_eq!(obj.get("conns_added").and_then(|v| v.as_u64()), Some(5));
+        assert_eq!(obj.get("conns_killed").and_then(|v| v.as_u64()), Some(2));
+        assert_eq!(obj.get("conns_removed").and_then(|v| v.as_u64()), Some(3));
+        assert_eq!(obj.get("killq_resync").and_then(|v| v.as_u64()), Some(1));
+        assert_eq!(obj.get("tx_flush_fails").and_then(|v| v.as_u64()), Some(8));
+        assert_eq!(obj.get("tx_write_fails").and_then(|v| v.as_u64()), Some(9));
+        assert_eq!(obj.get("rx_read_fails").and_then(|v| v.as_u64()), Some(10));
+
+        assert_eq!(obj.len(), 20, "Expected exactly 20 metric fields");
     }
 }
