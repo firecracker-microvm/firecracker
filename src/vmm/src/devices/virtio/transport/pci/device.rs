@@ -260,6 +260,8 @@ pub enum VirtioPciDeviceError {
     UnexpectedMsixVectorCount(usize, usize),
     /// Could not activate restored device: {0}
     Activate(#[from] ActivateError),
+    /// Could not allocate the virtio-pci BAR: {0}
+    BarAllocation(#[from] vm_allocator::Error),
 }
 
 pub struct VirtioPciDevice {
@@ -351,7 +353,10 @@ impl VirtioPciDevice {
     /// This must happen only during the creation of a brand new VM. When a VM is restored from a
     /// known state, the BARs are already created with the right content, therefore we don't need
     /// to go through this codepath.
-    pub fn allocate_bars(&mut self, allocator: &mut AddressAllocator) {
+    pub fn allocate_bars(
+        &mut self,
+        allocator: &mut AddressAllocator,
+    ) -> Result<(), VirtioPciDeviceError> {
         // Allocate the virtio-pci capability BAR.
         // See http://docs.oasis-open.org/virtio/virtio/v1.0/cs04/virtio-v1.0-cs04.html#x1-740004
         self.bar_address = allocator
@@ -359,8 +364,7 @@ impl VirtioPciDevice {
                 CAPABILITY_BAR_SIZE,
                 CAPABILITY_BAR_SIZE,
                 AllocPolicy::FirstMatch,
-            )
-            .unwrap()
+            )?
             .start();
         self.bars.set_bar_64(
             VIRTIO_BAR_INDEX,
@@ -369,6 +373,8 @@ impl VirtioPciDevice {
             BarPrefetchable::No,
         );
         self.add_pci_capabilities();
+
+        Ok(())
     }
 
     /// Free the PCI BAR of the VirtIO device.
@@ -1228,10 +1234,13 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use linux_loader::loader::Cmdline;
-    use vm_allocator::{AllocPolicy, RangeInclusive};
+    use vm_allocator::{AddressAllocator, AllocPolicy, RangeInclusive};
     use vm_memory::{ByteValued, Le32};
 
-    use super::{EventFd, IoEventAddress, KvmVm, NoDatamatch, PciCapabilityType, VirtioPciDevice};
+    use super::{
+        EventFd, IoEventAddress, KvmVm, NoDatamatch, PciCapabilityType, VirtioPciDevice,
+        VirtioPciDeviceError,
+    };
     use crate::Vmm;
     use crate::arch::{MEM_32BIT_DEVICES_SIZE, MEM_32BIT_DEVICES_START};
     use crate::builder::tests::default_vmm_with_pci;
@@ -1379,6 +1388,23 @@ mod tests {
         // We don't specify any of those
         let reg15 = locked_virtio_pci_device.read_config_register(0xf);
         assert_eq!(reg15, 0);
+    }
+
+    #[test]
+    fn test_bar_allocation_failure() {
+        let vmm = create_vmm_with_virtio_pci_device();
+        let device = get_virtio_device(&vmm);
+        let mut locked_virtio_pci_device = device.lock().unwrap();
+        let bar_address = locked_virtio_pci_device.bar_address;
+
+        let mut allocator = AddressAllocator::new(FIRST_BAR_BASE, CAPABILITY_BAR_SIZE - 1).unwrap();
+        assert!(matches!(
+            locked_virtio_pci_device.allocate_bars(&mut allocator),
+            Err(VirtioPciDeviceError::BarAllocation(_))
+        ));
+
+        // The device is left with the BAR it already had.
+        assert_eq!(locked_virtio_pci_device.bar_address, bar_address);
     }
 
     #[test]
