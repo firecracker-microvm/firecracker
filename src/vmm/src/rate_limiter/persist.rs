@@ -86,7 +86,7 @@ impl Persist<'_> for RateLimiter {
                 None
             },
             timer_fd: TimerFd::new(),
-            timer_active: false,
+            timer_active: Arc::new(AtomicBool::new(false)),
         };
 
         Ok(rate_limiter)
