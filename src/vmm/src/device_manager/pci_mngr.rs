@@ -145,7 +145,7 @@ impl PciDevices {
         // Don't hold the resource allocator lock across attach_common()
         // below: a device access holds the bus lock and can take the allocator
         // lock, so the reverse order can deadlock.
-        virtio_device.allocate_bars(&mut vm.resource_allocator().mmio32_memory)?;
+        virtio_device.allocate_bars(&mut vm.resource_allocator().mmio32_memory, None)?;
 
         let virtio_device = Arc::new(Mutex::new(virtio_device));
 
