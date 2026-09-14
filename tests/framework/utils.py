@@ -746,9 +746,12 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
 
     # Run 'screen -ls' in a retry loop, 30 times with a 1s delay between calls.
     # If the output of 'screen -ls' matches the regex object, it will return the
-    # PID. Otherwise, a RuntimeError will be raised.
+    # PID. Retry both the RuntimeError raised when the output does not match
+    # and the ChildProcessError raised when 'screen -ls' exits non-zero: right
+    # after 'screen -dmS' returns, the session socket may not exist yet, and
+    # 'screen -ls' then fails with "No Sockets found" until it does.
     for attempt in Retrying(
-        retry=retry_if_exception_type(RuntimeError),
+        retry=retry_if_exception_type((RuntimeError, ChildProcessError)),
         stop=stop_after_attempt(30),
         wait=wait_fixed(1),
         reraise=True,
