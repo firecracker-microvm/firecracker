@@ -59,7 +59,6 @@ pub enum FileEngineType {
 /// Helper object for setting up all `Block` fields derived from its backing file.
 #[derive(Debug)]
 pub struct DiskProperties {
-    pub file_path: String,
     pub file_engine: FileEngine,
     pub nsectors: u64,
     pub image_id: [u8; VIRTIO_BLK_ID_BYTES as usize],
@@ -105,7 +104,6 @@ impl DiskProperties {
         let image_id = Self::build_disk_image_id(&disk_image);
 
         Ok(Self {
-            file_path: disk_image_path,
             file_engine: FileEngine::from_file(disk_image, file_engine_type)
                 .map_err(VirtioBlockError::FileEngine)?,
             nsectors: disk_size >> SECTOR_SHIFT,
@@ -127,7 +125,6 @@ impl DiskProperties {
             .update_file_path(disk_image)
             .map_err(VirtioBlockError::FileEngine)?;
         self.nsectors = disk_size >> SECTOR_SHIFT;
-        self.file_path = disk_image_path;
 
         Ok(())
     }
