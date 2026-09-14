@@ -172,7 +172,9 @@ def test_config_start_no_api_exit(uvm, vm_config_file):
     test_microvm.spawn(serial_out_path=None)  # Start Firecracker and MicroVM
     test_microvm.ssh.run("reboot")  # Exit
 
-    test_microvm.mark_killed()  # waits for process to terminate
+    # systemd may spend up to DefaultTimeoutStopSec (90s) on a unit stuck on
+    # stop before the kernel reboots and Firecracker exits; see test_reboot.
+    test_microvm.mark_killed(timeout=120)  # waits for process to terminate
 
     # Check error log and exit code
     test_microvm.check_log_message("Firecracker exiting successfully")
