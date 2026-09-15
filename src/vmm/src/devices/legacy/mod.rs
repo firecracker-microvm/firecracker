@@ -63,11 +63,24 @@ impl EventFdTrigger {
 }
 
 /// Called by METRICS.flush(), this function facilitates serialization of aggregated metrics.
+///
+/// Each legacy device owns its metrics (registered in its module-level `METRICS` slot on
+/// construction); when no device has been built yet we serialize a default instance to keep the
+/// output shape stable.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_map(Some(1))?;
-    seq.serialize_entry("i8042", &i8042::METRICS)?;
+    match i8042::METRICS.read().unwrap().as_ref() {
+        Some(metrics) => seq.serialize_entry("i8042", metrics)?,
+        None => seq.serialize_entry("i8042", &i8042::I8042DeviceMetrics::default())?,
+    }
     #[cfg(target_arch = "aarch64")]
-    seq.serialize_entry("rtc", &rtc_pl031::METRICS)?;
-    seq.serialize_entry("uart", &serial::METRICS)?;
+    match rtc_pl031::METRICS.read().unwrap().as_ref() {
+        Some(metrics) => seq.serialize_entry("rtc", metrics)?,
+        None => seq.serialize_entry("rtc", &rtc_pl031::RTCDeviceMetrics::default())?,
+    }
+    match serial::METRICS.read().unwrap().as_ref() {
+        Some(metrics) => seq.serialize_entry("uart", metrics)?,
+        None => seq.serialize_entry("uart", &serial::SerialDeviceMetrics::default())?,
+    }
     seq.end()
 }
