@@ -54,7 +54,7 @@ vm-memory = { version = "0.18.0", features = [
   "backend-mmap",
   "backend-bitmap",
 ] }
-vm-superio = "0.8.1"
+vm-superio = "0.8.2"
 vmm-sys-util = { version = "0.15.0", features = ["with-serde"] }
 zerocopy = { version = "0.8.50" }
 
