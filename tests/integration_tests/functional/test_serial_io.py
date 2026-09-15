@@ -5,6 +5,7 @@
 import fcntl
 import os
 import platform
+import re
 import signal
 import termios
 import time
@@ -135,6 +136,96 @@ def test_serial_console_login(uvm):
     serial.rx(microvm.distro.shell_prompt)
     serial.tx("id")
     serial.rx("uid=0(root) gid=0(root) groups=0(root)")
+
+
+# A printk line from the flood below, as it lands in the screen log:
+# "[   12.345678] xxxx...\r\r\n". serial8250_console_write() emits a message
+# atomically under the port lock, so such a line is never split, but it can
+# land in the middle of a line the shell is writing.
+KMSG_LINE_RE = re.compile(r"\[ *\d+\.\d+\] x+\r*\n")
+
+# Length of each flood message. Anything comfortably larger than the 16-byte
+# FIFO keeps IER masked for several character times per message.
+KMSG_MSG_LEN = 200
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_serial_input_during_console_printk(uvm):
+    """
+    Serial input must not be lost while the guest writes to the console.
+
+    serial8250_console_write() masks the UART interrupts for the duration of a
+    printk and restores IER afterwards, relying on the UART to re-assert the RX
+    interrupt if data arrived meanwhile. Flood the console with printk messages
+    so that IER is masked most of the time, and check that input injected from
+    the host still reaches the shell.
+    """
+    vm = uvm
+    vm.help.enable_console()
+    vm.spawn(serial_out_path=None)
+    vm.memory_monitor = None
+    # 1 vCPU: the vCPU writing the printk is the one that has to take the RX
+    # interrupt, which is the configuration the console tests use.
+    vm.basic_config(vcpu_count=1)
+    vm.add_net_iface()
+    vm.start()
+
+    serial = Serial(vm)
+    serial.open()
+    serial.rx(vm.distro.shell_prompt)
+
+    # Lift the per-fd rate limit on /dev/kmsg, then flood the console from the
+    # background. Each message keeps IER masked for its whole console write.
+    vm.ssh.check_output("echo on > /proc/sys/kernel/printk_devkmsg")
+    vm.ssh.check_output(
+        f'nohup sh -c \'msg=$(head -c {KMSG_MSG_LEN} /dev/zero | tr "\\0" x); '
+        "while :; do echo $msg; done > /dev/kmsg' >/dev/null 2>&1 </dev/null &"
+    )
+    # Let the flood get going before injecting input.
+    time.sleep(0.5)
+
+    # Serial.rx_char() reads a single byte per poll() and cannot keep up with
+    # the flood, so read the screen log in chunks instead, starting from its
+    # current end.
+    log_fd = os.open(vm.screen_log, os.O_RDONLY)
+    os.lseek(log_fd, 0, os.SEEK_END)
+
+    def rx_until(token, timeout):
+        """Read the console until token shows up outside the printk lines."""
+        buf = ""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            chunk = os.read(log_fd, 1 << 16)
+            if not chunk:
+                time.sleep(0.05)
+                continue
+            buf += chunk.decode("utf-8", errors="ignore")
+            if token in KMSG_LINE_RE.sub("", buf):
+                return True
+            # Keep the tail only. A printk line is shorter than 512 bytes, so
+            # the token cannot straddle more than that.
+            buf = buf[-4096:]
+        return False
+
+    trials = 10
+    lost = []
+    try:
+        for i in range(trials):
+            # The echoed command line reads `echo pi''ng<i>`, so `ping<i>` in
+            # the output can only come from the command being executed.
+            serial.tx(f"echo pi''ng{i}")
+            # Under the flood the shell is slow, but a few seconds is plenty.
+            # No output at all means the input never reached the guest.
+            if not rx_until(f"ping{i}", timeout=5):
+                lost.append(i)
+    finally:
+        os.close(log_fd)
+        # Stop the flood rather than leave a vCPU spinning on printk through
+        # teardown, where it only adds host load for whatever test runs next to
+        # this one.
+        vm.ssh.run("pkill -f 'while :'")
+
+    assert not lost, f"guest lost serial input in {len(lost)}/{trials} trials: {lost}"
 
 
 def get_total_mem_size(pid):
