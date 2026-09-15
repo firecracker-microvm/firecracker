@@ -1,0 +1,99 @@
+From 66fd698a3a17c6091893b0d1d3c4f50962d07738 Mon Sep 17 00:00:00 2001
+From: Jack Thomson <jackabt@amazon.com>
+Date: Tue, 15 Sep 2026 08:57:04 +0000
+Subject: [PATCH 2/2] x86/uaccess: Avoid REP MOVSB for 4K-aliased user copies
+ on affected CPUs
+
+copy_user_generic() is a bare 'rep movsb' on FSRM CPUs. On CPUs with
+X86_BUG_REP_MOVSB_ALIAS that copy runs 16x slower whenever the
+destination is 1..15 bytes ahead of the source modulo 4K. The relative
+alignment of a user buffer and a kernel destination is arbitrary, and
+for a stream of copies it is sticky: TCP copies user data into skb page
+frags with the same (dst - src) offset for as long as both advance
+together, so once a socket lands in the window it stays there.
+
+This was found on an EPYC 9R14 host sending TCP into a Firecracker
+microVM over a tap device with iperf3: throughput alternated between two
+stable plateaus, 36 Gbps and 21.7 Gbps. In the slow one the iperf3
+thread saturated its core with the same instruction count per byte but
+10x the load and store uops (1105 stores and 1082 loads per KB, i.e. one
+of each per byte, versus 112 and 96), IPC 0.19 versus 0.69, and 78% of
+its cycles in _copy_from_iter(). A kprobe at the tcp_sendmsg_locked()
+copy showed 100% of the copied bytes at (dst - src) mod 4K == 8 in every
+slow window and 0% in the 1..15 window in every fast one.
+
+On affected CPUs route user copies through rep_movs_alternative(), and
+there use the existing 'rep movsq' path when the distance is in the
+pathological window: 27 GB/s instead of 3.5 GB/s in the microbenchmark,
+with the unaffected distances unchanged. Both changes are alternatives
+keyed on the bug bit, so other CPUs keep the current code. With this the
+slow plateau no longer appears in runs that previously reproduced it.
+
+memcpy_64.S uses 'rep movsb' for __memcpy() on FSRM CPUs as well and is
+exposed to the same hazard; it is not addressed here.
+
+Link: https://lore.kernel.org/lkml/20211101044955.2295495-1-goldstein.w.n@gmail.com/
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
+---
+ arch/x86/include/asm/uaccess_64.h | 10 ++++++++--
+ arch/x86/lib/copy_user_64.S       | 20 +++++++++++++++++++-
+ 2 files changed, 27 insertions(+), 3 deletions(-)
+
+diff --git a/arch/x86/include/asm/uaccess_64.h b/arch/x86/include/asm/uaccess_64.h
+index 641f45c..7c27cfe 100644
+--- a/arch/x86/include/asm/uaccess_64.h
++++ b/arch/x86/include/asm/uaccess_64.h
+@@ -122,11 +122,17 @@ copy_user_generic(void *to, const void *from, unsigned long len)
+ 	/*
+ 	 * If CPU has FSRM feature, use 'rep movs'.
+ 	 * Otherwise, use rep_movs_alternative.
++	 *
++	 * CPUs with X86_BUG_REP_MOVSB_ALIAS also go through
++	 * rep_movs_alternative, which avoids 'rep movsb' for the
++	 * source/destination distances that make it degrade to one byte
++	 * per cycle.
+ 	 */
+ 	asm volatile(
+ 		"1:\n\t"
+-		ALTERNATIVE("rep movsb",
+-			    "call rep_movs_alternative", ALT_NOT(X86_FEATURE_FSRM))
++		ALTERNATIVE_2("rep movsb",
++			      "call rep_movs_alternative", ALT_NOT(X86_FEATURE_FSRM),
++			      "call rep_movs_alternative", X86_BUG_REP_MOVSB_ALIAS)
+ 		"2:\n"
+ 		_ASM_EXTABLE_UA(1b, 2b)
+ 		:"+c" (len), "+D" (to), "+S" (from), ASM_CALL_CONSTRAINT
+diff --git a/arch/x86/lib/copy_user_64.S b/arch/x86/lib/copy_user_64.S
+index 06296eb..63bb373 100644
+--- a/arch/x86/lib/copy_user_64.S
++++ b/arch/x86/lib/copy_user_64.S
+@@ -71,7 +71,25 @@ SYM_FUNC_START(rep_movs_alternative)
+ 	_ASM_EXTABLE_UA( 3b, .Lcopy_user_tail)
+ 
+ .Llarge:
+-0:	ALTERNATIVE "jmp .Llarge_movsq", "rep movsb", X86_FEATURE_ERMS
++0:	ALTERNATIVE_2 "jmp .Llarge_movsq", "rep movsb", X86_FEATURE_ERMS, \
++		      "jmp .Llarge_alias_check", X86_BUG_REP_MOVSB_ALIAS
++1:	RET
++
++	_ASM_EXTABLE_UA( 0b, 1b)
++
++.Llarge_alias_check:
++	/*
++	 * On CPUs with X86_BUG_REP_MOVSB_ALIAS, 'rep movsb' degrades to one
++	 * byte per cycle when the destination is 1..15 bytes ahead of the
++	 * source modulo 4K. Copy those with 'rep movsq' instead.
++	 */
++	movq %rdi,%rax
++	subq %rsi,%rax
++	andl $0xfff,%eax
++	decl %eax
++	cmpl $15,%eax
++	jb .Llarge_movsq
++0:	rep movsb
+ 1:	RET
+ 
+ 	_ASM_EXTABLE_UA( 0b, 1b)
+-- 
+2.43.0
+

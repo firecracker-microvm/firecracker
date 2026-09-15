@@ -1,0 +1,71 @@
+From 74e893691f1b959286a2979e873b54193e63559d Mon Sep 17 00:00:00 2001
+From: Jack Thomson <jackabt@amazon.com>
+Date: Tue, 15 Sep 2026 08:57:04 +0000
+Subject: [PATCH 1/2] x86/cpu/amd: Add X86_BUG_REP_MOVSB_ALIAS for Zen 3 and
+ Zen 4
+
+On Zen 3 and Zen 4, REP MOVSB falls back to a slow microcode path of one
+byte per cycle whenever the destination address is 1..15 bytes ahead of
+the source address modulo 4K, independently of the absolute alignment of
+either operand and of the copy length. Measured on an EPYC 9R14 with
+32 KB copies between cache-hot buffers:
+
+  (dst - src) mod 4K    0     4     8    12    16    32    64   2048
+  REP MOVSB  GB/s    57.5   3.5   3.5   3.5  55.5  56.4  57.1  57.5
+  REP MOVSQ  GB/s    57.3  27.4  27.4  27.4  27.4  33.9  57.2  57.5
+  AVX2 loop  GB/s    57.9  53.3  53.3  53.3  53.3  53.9  57.7  56.4
+
+A Sapphire Rapids Xeon copies at 41-43 GB/s for every distance with all
+three methods. glibc ran into the same behaviour (BZ 30994, "REP MOVSB
+performance suffers from page aliasing on Zen 4": "if the source is
+aligned and the destination is not the performance can be 20x slower")
+and stopped using REP MOVSB for memcpy/memmove on these cores in 2.40
+("x86: Fix Zen3/Zen4 ERMS selection (BZ 30994)"), so the kernel is now
+the main remaining user of REP MOVSB on them.
+
+Add a bug flag so that the kernel's REP MOVSB users can steer clear of
+the pathological distances, and set it for Zen 3 and Zen 4. Zen 5 has
+not been measured.
+
+Link: https://sourceware.org/bugzilla/show_bug.cgi?id=30994
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
+---
+ arch/x86/include/asm/cpufeatures.h | 1 +
+ arch/x86/kernel/cpu/amd.c          | 4 ++++
+ 2 files changed, 5 insertions(+)
+
+diff --git a/arch/x86/include/asm/cpufeatures.h b/arch/x86/include/asm/cpufeatures.h
+index 4091a77..61213f1 100644
+--- a/arch/x86/include/asm/cpufeatures.h
++++ b/arch/x86/include/asm/cpufeatures.h
+@@ -556,4 +556,5 @@
+ #define X86_BUG_ITS_NATIVE_ONLY		X86_BUG( 1*32+ 8) /* "its_native_only" CPU is affected by ITS, VMX is not affected */
+ #define X86_BUG_TSA			X86_BUG( 1*32+ 9) /* "tsa" CPU is affected by Transient Scheduler Attacks */
+ #define X86_BUG_VMSCAPE			X86_BUG( 1*32+10) /* "vmscape" CPU is affected by VMSCAPE attacks from guests */
++#define X86_BUG_REP_MOVSB_ALIAS		X86_BUG( 1*32+11) /* "rep_movsb_alias" REP MOVSB is very slow when the destination is 1-15 bytes past the source modulo 4K */
+ #endif /* _ASM_X86_CPUFEATURES_H */
+diff --git a/arch/x86/kernel/cpu/amd.c b/arch/x86/kernel/cpu/amd.c
+index 5d46709..9d5f9bb 100644
+--- a/arch/x86/kernel/cpu/amd.c
++++ b/arch/x86/kernel/cpu/amd.c
+@@ -1016,6 +1016,8 @@ static void init_amd_zen3(struct cpuinfo_x86 *c)
+ 		if (!cpu_has(c, X86_FEATURE_BTC_NO))
+ 			set_cpu_cap(c, X86_FEATURE_BTC_NO);
+ 	}
++
++	set_cpu_bug(c, X86_BUG_REP_MOVSB_ALIAS);
+ }
+ 
+ static void init_amd_zen4(struct cpuinfo_x86 *c)
+@@ -1033,6 +1035,8 @@ static void init_amd_zen4(struct cpuinfo_x86 *c)
+ 		clear_cpu_cap(c, X86_FEATURE_V_VMSAVE_VMLOAD);
+ 		break;
+ 	}
++
++	set_cpu_bug(c, X86_BUG_REP_MOVSB_ALIAS);
+ }
+ 
+ static const struct x86_cpu_id zen5_rdseed_microcode[] = {
+-- 
+2.43.0
+
