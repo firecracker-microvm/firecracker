@@ -18,12 +18,16 @@ from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.defs import ARTIFACT_DIR
 from framework.enclave import DEFAULT_DMB_SIZE_MIB
 from framework.guest_stats import MeminfoGuest
-from framework.utils import CpuMap, get_threads, parse_cpu_list
+from framework.utils import (
+    CpuMap,
+    check_network_data_integrity,
+    get_threads,
+    parse_cpu_list,
+)
 from framework.utils_vsock import (
-    ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
+    check_vsock_echo,
     start_guest_echo_server,
-    vsock_connect_to_guest,
 )
 from framework.vm_backend import VM_BACKENDS_ENCLAVE, VmBackend, pin_vm_backend
 
@@ -316,6 +320,62 @@ def test_enclave_direct_rejects_dmb_size(uvm_configured):
     _assert_vm_process_is_alive(vm)
 
 
+@pytest.mark.parametrize("dmb_size_mib", [2, 4, 8, 16])
+def test_enclave_small_block_dmb(uvm_configured, dmb_size_mib):
+    """Read from a small block DMB with the network DMB left at its default."""
+    vm = uvm_configured
+    if vm.backend is not VmBackend.ENCLAVE_CONFIDENTIAL:
+        pytest.skip("DMB sizing applies only to confidential enclaves")
+
+    vm.add_drive(
+        drive_id="rootfs",
+        path_on_host=vm.rootfs_file,
+        is_root_device=True,
+        is_read_only=vm.rootfs_file.suffix == ".squashfs",
+        dmb_size_mib=dmb_size_mib,
+    )
+    vm.add_net_iface()
+    vm.start(debug_mode=True)
+    assert vm.api.vm_config.get().json()["drives"][0]["dmb_size_mib"] == dmb_size_mib
+    vm.ssh.check_output("dd if=/dev/vda of=/dev/null bs=1M count=8 iflag=direct")
+
+
+@pytest.mark.parametrize("dmb_size_mib", [2, 4, 8, 16])
+def test_enclave_small_net_dmb(uvm_configured, dmb_size_mib):
+    """Transfer data through a small network DMB with the block DMB at its default."""
+    vm = uvm_configured
+    if vm.backend is not VmBackend.ENCLAVE_CONFIDENTIAL:
+        pytest.skip("DMB sizing applies only to confidential enclaves")
+
+    vm.add_net_iface(dmb_size_mib=dmb_size_mib)
+    vm.start(debug_mode=True)
+    assert (
+        vm.api.vm_config.get().json()["network-interfaces"][0]["dmb_size_mib"]
+        == dmb_size_mib
+    )
+    check_network_data_integrity(vm.ssh)
+
+
+@pytest.mark.parametrize("dmb_size_mib", [2, 4, 8, 16])
+def test_enclave_small_vsock_dmb(uvm_configured, dmb_size_mib):
+    """Echo data through a small vsock DMB with other DMBs left at their defaults."""
+    vm = uvm_configured
+    if vm.backend is not VmBackend.ENCLAVE_CONFIDENTIAL:
+        pytest.skip("DMB sizing applies only to confidential enclaves")
+
+    vm.add_net_iface()
+    vm.api.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path="/" + VSOCK_UDS_PATH,
+        dmb_size_mib=dmb_size_mib,
+    )
+    vm.start(debug_mode=True)
+    assert vm.api.vm_config.get().json()["vsock"]["dmb_size_mib"] == dmb_size_mib
+    host_uds = start_guest_echo_server(vm)
+    check_vsock_echo(host_uds, b"enclave-dmb-roundtrip" * 1024)
+
+
 def test_enclave_max_vcpus(uvm):
     """Boot an enclave with as many vCPUs as the host has online CPUs.
 
@@ -578,18 +638,7 @@ def test_enclave_vsock(uvm_configured):
         assert "dmb_size_mib" not in runtime_vsock
 
     host_uds = start_guest_echo_server(vm)
-    sock = vsock_connect_to_guest(host_uds, ECHO_SERVER_PORT)
-    try:
-        payload = b"enclave-vsock-roundtrip"
-        sock.sendall(payload)
-        received = b""
-        while len(received) < len(payload):
-            chunk = sock.recv(len(payload) - len(received))
-            assert chunk, "vsock connection closed before echo completed"
-            received += chunk
-        assert received == payload
-    finally:
-        sock.close()
+    check_vsock_echo(host_uds, b"enclave-vsock-roundtrip")
 
 
 # ---------------------------------------------------------------------------
