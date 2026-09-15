@@ -128,16 +128,15 @@ impl TryFrom<&Request> for ParsedRequest {
                 parse_patch_memory_hotplug(body)
             }
             (Method::Patch, _, None) => method_to_error(Method::Patch),
-            (Method::Delete, "drives", None) => {
-                parse_unplug_device(VirtioDeviceType::Block, path_tokens.next())
+            (Method::Delete, "drives", body) => {
+                parse_unplug_device(VirtioDeviceType::Block, path_tokens.next(), body)
             }
-            (Method::Delete, "pmem", None) => {
-                parse_unplug_device(VirtioDeviceType::Pmem, path_tokens.next())
+            (Method::Delete, "pmem", body) => {
+                parse_unplug_device(VirtioDeviceType::Pmem, path_tokens.next(), body)
             }
-            (Method::Delete, "network-interfaces", None) => {
-                parse_unplug_device(VirtioDeviceType::Net, path_tokens.next())
+            (Method::Delete, "network-interfaces", body) => {
+                parse_unplug_device(VirtioDeviceType::Net, path_tokens.next(), body)
             }
-            (Method::Delete, _, Some(_)) => method_to_error(Method::Delete),
             (method, unknown_uri, _) => Err(RequestError::InvalidPathMethod(
                 unknown_uri.to_string(),
                 method,
