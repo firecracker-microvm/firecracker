@@ -55,6 +55,8 @@ pub struct PciDevices {
 pub enum PciManagerError {
     /// Resource allocation error: {0}
     ResourceAllocation(#[from] vm_allocator::Error),
+    /// Device {0} sets dmb_size_mib, which this transport does not support
+    DmbNotSupported(String),
     /// Bus error: {0}
     Bus(#[from] BusError),
     /// PCI root error: {0}
@@ -126,6 +128,15 @@ impl PciDevices {
         device: Arc<Mutex<dyn VirtioDevice>>,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
+        if device
+            .lock()
+            .expect("Poisoned lock")
+            .dmb_size_mib()
+            .is_some()
+        {
+            return Err(PciManagerError::DmbNotSupported(id));
+        }
+
         let sbdf = self.pci_segment.next_device_sbdf()?;
         debug!("Allocating SBDF: {sbdf:?} for device");
 

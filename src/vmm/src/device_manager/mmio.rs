@@ -39,6 +39,8 @@ use crate::vstate::vm::KvmVm;
 pub enum MmioError {
     /// Failed to allocate requested resource: {0}
     Allocator(#[from] vm_allocator::Error),
+    /// Device {0} sets dmb_size_mib, which this transport does not support
+    DmbNotSupported(String),
     /// Failed to insert device on the bus: {0}
     BusInsert(#[from] BusError),
     /// Failed to allocate requested resourc: {0}
@@ -151,6 +153,15 @@ impl MMIOVirtioDevices {
         event_manager: &mut EventManager,
         is_vhost_user: bool,
     ) -> Result<(), MmioError> {
+        if device
+            .lock()
+            .expect("Poisoned lock")
+            .dmb_size_mib()
+            .is_some()
+        {
+            return Err(MmioError::DmbNotSupported(id));
+        }
+
         let interrupt = Arc::new(IrqTrigger::new());
         // The device mutex mustn't be locked here otherwise it will deadlock.
         let device =
