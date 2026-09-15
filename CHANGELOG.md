@@ -22,6 +22,8 @@ and this project adheres to
 
 ### Added
 
+- [#6154](https://github.com/firecracker-microvm/firecracker/pull/6154): Added
+  support for configuring SMT topology on aarch64 microVMs.
 - [#5891](https://github.com/firecracker-microvm/firecracker/pull/5891): Added
   support for virtio device reset.
 - [#5983](https://github.com/firecracker-microvm/firecracker/pull/5983): Add two
