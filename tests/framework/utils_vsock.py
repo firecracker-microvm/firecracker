@@ -294,6 +294,19 @@ def vsock_connect_to_guest(uds_path, port):
     return sock
 
 
+def check_vsock_echo(uds_path, payload):
+    """Verify the guest echo server returns the complete payload unchanged."""
+    with vsock_connect_to_guest(uds_path, ECHO_SERVER_PORT) as sock:
+        sock.settimeout(10)
+        sock.sendall(payload)
+        received = bytearray()
+        while len(received) < len(payload):
+            chunk = sock.recv(len(payload) - len(received))
+            assert chunk, "vsock connection closed before echo completed"
+            received.extend(chunk)
+        assert received == payload
+
+
 def _copy_vsock_data_to_guest(ssh_connection, blob_path, vm_blob_path, vsock_helper):
     # Copy the data file and a vsock helper to the guest.
 
