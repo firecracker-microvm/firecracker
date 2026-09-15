@@ -18,6 +18,13 @@ and this project adheres to
 
 ### Fixed
 
+- [#6217](https://github.com/firecracker-microvm/firecracker/pull/6217): Fixed
+  serial console input being silently lost when it arrived while the guest was
+  printing to the console. Linux' 8250 console masks the UART's interrupt enable
+  register for the duration of every message it prints, and the interrupt for
+  input that arrived inside that window was not re-asserted when the register
+  was restored, so those bytes stayed in the FIFO and the guest never read them.
+
 ## [1.17.0]
 
 ### Added
