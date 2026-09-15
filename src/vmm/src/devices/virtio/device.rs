@@ -110,10 +110,14 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     /// Returns unique device id
     fn id(&self) -> &str;
 
-    /// Returns the device's DMB size.
+    /// Returns the device's DMB size. Successful attachment resolves an omitted size.
     fn dmb_size_mib(&self) -> Option<DmbSizeMib> {
         None
     }
+
+    /// Sets the default DMB size if unset, leaving an explicit size unchanged.
+    /// Called only after successful registration on a transport using a DMB.
+    fn set_default_dmb_size(&mut self) {}
 
     /// Returns the number of queues offered by the device.
     fn num_queues(&self) -> usize;

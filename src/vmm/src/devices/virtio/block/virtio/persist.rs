@@ -135,6 +135,7 @@ impl Persist<'_> for VirtioBlock {
             partuuid: state.partuuid.clone(),
             is_root_device: state.root_device,
             cache_type: state.cache_type,
+            dmb_size_mib: None,
             is_read_only,
             discard: state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD) != 0,
             num_queues: state.num_queues,
@@ -206,6 +207,7 @@ mod tests {
     };
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
+    use crate::vmm_config::enclave::DmbSizeMib;
     use crate::vstate::memory::GuestAddress;
 
     #[test]
@@ -223,6 +225,7 @@ mod tests {
             discard: false,
             num_queues: None,
             cache_type: CacheType::Writeback,
+            dmb_size_mib: None,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
             image_format: DiskImageFormat::Raw,
@@ -269,6 +272,7 @@ mod tests {
             discard: false,
             num_queues: None,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: Some(DmbSizeMib::try_from(32).unwrap()),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
             image_format: DiskImageFormat::Raw,
@@ -299,6 +303,7 @@ mod tests {
         assert!(!block.is_activated());
         assert!(!restored_block.is_activated());
 
+        assert_eq!(restored_block.dmb_size_mib(), None);
         // Test that block specific fields are the same.
         assert_eq!(
             restored_block.config().path_on_host,

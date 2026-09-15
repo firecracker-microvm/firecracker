@@ -380,6 +380,9 @@ pub struct VirtioBlockConfig {
     /// the guest driver.
     #[serde(default)]
     pub cache_type: CacheType,
+    /// DMB size in MiB when using a transport that supports DMBs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dmb_size_mib: Option<DmbSizeMib>,
 
     /// If set to true, the drive is opened in read-only mode. Otherwise, the
     /// drive is opened as read-write.
@@ -416,6 +419,7 @@ impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
                 partuuid: value.partuuid.clone(),
                 is_root_device: value.is_root_device,
                 cache_type: value.cache_type,
+                dmb_size_mib: value.dmb_size_mib,
 
                 is_read_only: value.is_read_only.unwrap_or(false),
                 discard: value.discard.unwrap_or(false),
@@ -440,6 +444,7 @@ impl From<VirtioBlockConfig> for BlockDeviceConfig {
             partuuid: value.partuuid,
             is_root_device: value.is_root_device,
             cache_type: value.cache_type,
+            dmb_size_mib: value.dmb_size_mib,
 
             is_read_only: Some(value.is_read_only),
             discard: Some(value.discard),
@@ -617,8 +622,8 @@ impl VirtioBlock {
             config_space,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
 
+            dmb_size_mib: config.dmb_size_mib,
             config,
-            dmb_size_mib: None,
             rate_limiter: Arc::new(Mutex::new(rate_limiter)),
             state: BlockRuntimeState::Configuring(resources, Vec::new()),
             metrics,
@@ -627,7 +632,11 @@ impl VirtioBlock {
 
     /// Returns a copy of a device config
     pub fn config(&self) -> VirtioBlockConfig {
-        self.config.clone()
+        VirtioBlockConfig {
+            // The transport may have written back a default DMB size.
+            dmb_size_mib: self.dmb_size_mib,
+            ..self.config.clone()
+        }
     }
 
     pub(crate) fn resources(&self) -> &[BlockResources] {
@@ -842,6 +851,10 @@ impl VirtioDevice for VirtioBlock {
 
     fn dmb_size_mib(&self) -> Option<DmbSizeMib> {
         self.dmb_size_mib
+    }
+
+    fn set_default_dmb_size(&mut self) {
+        self.dmb_size_mib.get_or_insert_default();
     }
 
     fn avail_features(&self) -> u64 {
@@ -1200,6 +1213,7 @@ mod tests {
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(true),
             discard: None,
@@ -1220,6 +1234,7 @@ mod tests {
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: None,
             discard: None,
@@ -1240,6 +1255,7 @@ mod tests {
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(true),
             discard: None,
@@ -1360,6 +1376,19 @@ mod tests {
     }
 
     #[test]
+    fn test_default_dmb_size_preserves_explicit_size() {
+        let mut block = default_block(FileEngineType::Sync);
+        assert_eq!(block.config().dmb_size_mib, None);
+        block.set_default_dmb_size();
+        assert_eq!(block.config().dmb_size_mib, Some(DmbSizeMib::default()));
+
+        let explicit = DmbSizeMib::try_from(32).unwrap();
+        block.dmb_size_mib = Some(explicit);
+        block.set_default_dmb_size();
+        assert_eq!(block.config().dmb_size_mib, Some(explicit));
+    }
+
+    #[test]
     fn test_virtio_features() {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
@@ -1403,6 +1432,7 @@ mod tests {
             discard: true,
             num_queues: None,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
             rate_limiter: None,
             file_engine_type: FileEngineType::Sync,
             image_format: DiskImageFormat::Raw,
@@ -1433,6 +1463,7 @@ mod tests {
             discard: true,
             num_queues: None,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
             rate_limiter: None,
             file_engine_type: FileEngineType::Async,
             image_format: DiskImageFormat::Raw,
@@ -1455,6 +1486,7 @@ mod tests {
             discard: true,
             num_queues: None,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
             rate_limiter: None,
             file_engine_type: FileEngineType::Sync,
             image_format: DiskImageFormat::Raw,
@@ -1480,6 +1512,7 @@ mod tests {
             discard: true,
             num_queues: None,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
             rate_limiter: None,
             file_engine_type: FileEngineType::Sync,
             image_format: DiskImageFormat::Raw,

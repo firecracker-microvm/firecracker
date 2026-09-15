@@ -906,6 +906,7 @@ class Microvm:
         blk_size=None,
         num_queues=None,
         image_format=None,
+        **kwargs,
     ):
         """Add a block device."""
 
@@ -923,6 +924,7 @@ class Microvm:
             blk_size=blk_size,
             num_queues=num_queues,
             image_format=image_format,
+            **kwargs,
         )
         self.disks[drive_id] = path_on_host
 

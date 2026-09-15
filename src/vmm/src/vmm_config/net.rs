@@ -13,6 +13,7 @@ use crate::devices::virtio::net::{Net, TapError};
 use crate::logger::warn;
 use crate::rate_limiter::RateLimiter;
 use crate::utils::net::mac::MacAddr;
+use crate::vmm_config::enclave::DmbSizeMib;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
@@ -27,6 +28,10 @@ pub struct NetworkInterfaceConfig {
     pub guest_mac: Option<MacAddr>,
     /// Maximum Transmission Unit to advertise to the guest via VIRTIO_NET_F_MTU.
     pub mtu: Option<u16>,
+    /// DMB size for confidential enclaves. Defaults to 16 MiB at attachment;
+    /// transports without DMBs reject explicit sizes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dmb_size_mib: Option<DmbSizeMib>,
     /// Rate Limiter for received packages.
     pub rx_rate_limiter: Option<RateLimiterConfig>,
     /// Rate Limiter for transmitted packages.
@@ -42,6 +47,7 @@ impl From<&Net> for NetworkInterfaceConfig {
             host_dev_name: net.iface_name(),
             guest_mac: net.guest_mac().copied(),
             mtu: net.mtu(),
+            dmb_size_mib: net.dmb_size_mib(),
             rx_rate_limiter: rx_rl.into_option(),
             tx_rate_limiter: tx_rl.into_option(),
         }
@@ -155,8 +161,7 @@ impl NetBuilder {
             .map(RateLimiter::from)
             .unwrap_or_default();
 
-        // Create and return the Net device
-        crate::devices::virtio::net::Net::new(
+        let mut net = crate::devices::virtio::net::Net::new(
             cfg.iface_id,
             &cfg.host_dev_name,
             cfg.guest_mac,
@@ -164,7 +169,9 @@ impl NetBuilder {
             tx_rate_limiter,
             cfg.mtu,
         )
-        .map_err(NetworkInterfaceError::CreateNetworkDevice)
+        .map_err(NetworkInterfaceError::CreateNetworkDevice)?;
+        net.dmb_size_mib = cfg.dmb_size_mib;
+        Ok(net)
     }
 
     /// Returns a vec with the structures used to configure the net devices.
@@ -196,6 +203,7 @@ mod tests {
             host_dev_name: String::from(name),
             guest_mac: Some(MacAddr::from_str(mac).unwrap()),
             mtu: None,
+            dmb_size_mib: None,
             rx_rate_limiter: RateLimiterConfig::default().into_option(),
             tx_rate_limiter: RateLimiterConfig::default().into_option(),
         }
@@ -208,6 +216,7 @@ mod tests {
                 host_dev_name: self.host_dev_name.clone(),
                 guest_mac: self.guest_mac,
                 mtu: self.mtu,
+                dmb_size_mib: self.dmb_size_mib,
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
             }
@@ -223,9 +232,11 @@ mod tests {
         let mut guest_mac_1 = "01:23:45:67:89:0a";
 
         // Test create.
-        let netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
+        let mut netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
+        netif_1.dmb_size_mib = Some(DmbSizeMib::try_from(64).unwrap());
         net_builder.build(netif_1).unwrap();
         assert_eq!(net_builder.net_devices.len(), 1);
+        assert_eq!(net_builder.configs()[0].dmb_size_mib.unwrap().get(), 64);
 
         // Test update mac address (this test does not modify the tap).
         guest_mac_1 = "01:23:45:67:89:0b";
@@ -233,6 +244,7 @@ mod tests {
 
         net_builder.build(netif_1).unwrap();
         assert_eq!(net_builder.net_devices.len(), 1);
+        assert_eq!(net_builder.configs()[0].dmb_size_mib, None);
 
         // Test update host_dev_name (the tap will be updated).
         host_dev_name_1 = "dev2";
@@ -348,6 +360,7 @@ mod tests {
 
         net_builder.add_device(Arc::new(Mutex::new(net)));
         assert_eq!(net_builder.net_devices.len(), 1);
+        assert_eq!(net_builder.configs()[0].dmb_size_mib, None);
         assert_eq!(
             net_builder
                 .net_devices

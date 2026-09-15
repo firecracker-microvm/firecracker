@@ -99,9 +99,27 @@ def test_hotplug_block(uvm_any):
 
     # Hotplug a block device
     host_file = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "block0"), size=4)
+    path_on_host = vm.create_jailed_resource(host_file.path)
+    if vm.backend is VM_BACKEND_KVM:
+        with pytest.raises(RuntimeError) as exc_info:
+            vm.api.drive.put(
+                drive_id="block0",
+                path_on_host=path_on_host,
+                is_root_device=False,
+                is_read_only=False,
+                dmb_size_mib=32,
+            )
+        assert exc_info.value.args[2].status_code == HTTPStatus.BAD_REQUEST
+        error = str(exc_info.value.args[0])
+        assert "dmb_size_mib" in error
+        assert "block0" in error
+        assert "block0" not in {
+            drive["drive_id"] for drive in vm.api.vm_config.get().json()["drives"]
+        }
+
     vm.api.drive.put(
         drive_id="block0",
-        path_on_host=vm.create_jailed_resource(host_file.path),
+        path_on_host=path_on_host,
         is_root_device=False,
         is_read_only=False,
         rate_limiter={
@@ -109,6 +127,12 @@ def test_hotplug_block(uvm_any):
         },
         num_queues=2,
     )
+    if vm.backend is VM_BACKEND_KVM:
+        drives = {
+            drive["drive_id"]: drive
+            for drive in vm.api.vm_config.get().json()["drives"]
+        }
+        assert "dmb_size_mib" not in drives["block0"]
 
     time.sleep(PLUG_SLEEP)
 
@@ -310,11 +334,34 @@ def test_hotplug_net(uvm_any):
     # Hotplug a network device
     iface1 = net_tools.NetIfaceConfig.with_id(1)
     vm.netns.add_tap(iface1.tap_name, ip=f"{iface1.host_ip}/{iface1.netmask_len}")
+    if vm.backend is VM_BACKEND_KVM:
+        with pytest.raises(RuntimeError) as exc_info:
+            vm.api.network.put(
+                iface_id=iface1.dev_name,
+                host_dev_name=iface1.tap_name,
+                guest_mac=iface1.guest_mac,
+                dmb_size_mib=64,
+            )
+        assert exc_info.value.args[2].status_code == HTTPStatus.BAD_REQUEST
+        error = str(exc_info.value.args[0])
+        assert "dmb_size_mib" in error
+        assert iface1.dev_name in error
+        assert iface1.dev_name not in {
+            iface["iface_id"]
+            for iface in vm.api.vm_config.get().json()["network-interfaces"]
+        }
+
     vm.api.network.put(
         iface_id=iface1.dev_name,
         host_dev_name=iface1.tap_name,
         guest_mac=iface1.guest_mac,
     )
+    if vm.backend is VM_BACKEND_KVM:
+        ifaces = {
+            iface["iface_id"]: iface
+            for iface in vm.api.vm_config.get().json()["network-interfaces"]
+        }
+        assert "dmb_size_mib" not in ifaces[iface1.dev_name]
 
     time.sleep(PLUG_SLEEP)
 

@@ -218,6 +218,7 @@ mod tests {
             mtu: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
+            dmb_size_mib: None,
         };
         assert!(!HotplugDeviceConfig::Net(net).is_vhost_user());
     }

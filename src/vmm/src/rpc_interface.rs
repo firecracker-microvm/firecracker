@@ -651,10 +651,8 @@ impl<'a> PrebootApiController<'a> {
 
     fn set_enclave_config(&mut self, cfg: EnclaveConfig) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
-        self.vm_resources
-            .set_enclave_config(cfg)
-            .map(|()| VmmData::Empty)
-            .map_err(VmmActionError::EnclaveConfig)
+        self.vm_resources.set_enclave_config(cfg);
+        Ok(VmmData::Empty)
     }
 
     // On success, this command will end the pre-boot stage and this controller
@@ -1387,6 +1385,7 @@ mod tests {
                 vsock_id: Some(String::new()),
                 guest_cid: 0,
                 uds_path: String::new(),
+                dmb_size_mib: None,
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetBalloonDevice(
@@ -1397,6 +1396,7 @@ mod tests {
                 vsock_id: Some(String::new()),
                 guest_cid: 0,
                 uds_path: String::new(),
+                dmb_size_mib: None,
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetMmdsConfiguration(

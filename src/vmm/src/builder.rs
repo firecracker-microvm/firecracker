@@ -1078,6 +1078,7 @@ pub(crate) mod tests {
                 topology: None,
 
                 socket: None,
+                dmb_size_mib: None,
             };
 
             block_dev_configs
@@ -1273,6 +1274,7 @@ pub(crate) mod tests {
             mtu: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
+            dmb_size_mib: None,
         };
 
         let mut cmdline = default_kernel_cmdline();

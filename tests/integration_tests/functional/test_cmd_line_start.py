@@ -18,6 +18,7 @@ from framework.enclave import DEFAULT_DMB_SIZE_MIB
 from framework.utils import generate_mmds_get_request, generate_mmds_session_token
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 from framework.vm_backend import (
+    VM_BACKEND_ENCLAVE_CONFIDENTIAL,
     VM_BACKEND_ENCLAVE_DIRECT,
     VM_BACKEND_KVM,
     pin_vm_backend,
@@ -55,10 +56,6 @@ def _configure_vm_from_json(test_microvm, vm_config_file):
             "cpu_accounting": False,
             "hotplug_mode": False,
         }
-        # A confidential enclave reports the DMB size it resolved; direct mode
-        # allocates none and omits the field.
-        if test_microvm.backend is not VM_BACKEND_ENCLAVE_DIRECT:
-            obj["enclave"]["dmb_size_mib"] = DEFAULT_DMB_SIZE_MIB
         # The VMM defaults this to one node holding the whole VM, so mirror it.
         # Skipped for the fixtures that omit a size to be rejected.
         machine_config = obj["machine-config"]
@@ -157,6 +154,8 @@ def test_config_start_with_api(uvm, vm_config_file):
     assert test_microvm.state == "Running"
 
     # Validate full vm configuration.
+    if test_microvm.backend is VM_BACKEND_ENCLAVE_CONFIDENTIAL:
+        vm_config["drives"][0]["dmb_size_mib"] = DEFAULT_DMB_SIZE_MIB
     response = test_microvm.api.vm_config.get()
     assert response.json() == vm_config
 
