@@ -3,6 +3,7 @@
 """Some common defines used in different modules of the testing framework."""
 
 import platform
+from enum import StrEnum
 from pathlib import Path
 
 # Firecracker's binary name
@@ -44,3 +45,34 @@ if not ARTIFACT_DIR.exists():
         .strip()
     )
     ARTIFACT_DIR = FC_WORKSPACE_DIR / current_artifacts_dir
+
+
+class LogLevel(StrEnum):
+    """A log level accepted by Firecracker's `--level`.
+
+    Firecracker parses the value case-insensitively (see
+    `LevelFilter::from_str`), but the framework used to compare raw strings, so
+    `"INFO"` and `"Info"` behaved differently here while being identical to
+    Firecracker. Normalising through this enum keeps the two ends in agreement;
+    callers may pass any casing.
+
+    Firecracker also accepts `Warning` as an alias of `Warn`. Only the latter is
+    a member, so the framework has one spelling per level.
+    """
+
+    OFF = "Off"
+    ERROR = "Error"
+    WARN = "Warn"
+    INFO = "Info"
+    DEBUG = "Debug"
+    TRACE = "Trace"
+
+    @classmethod
+    def _missing_(cls, value):
+        if not isinstance(value, str):
+            return None
+        folded = value.casefold()
+        for member in cls:
+            if member.value.casefold() == folded:
+                return member
+        return None

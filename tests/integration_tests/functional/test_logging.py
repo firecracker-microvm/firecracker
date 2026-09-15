@@ -13,29 +13,11 @@ from time import strptime
 import pytest
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.defs import LogLevel
 
 # Array of supported log levels of the current logging system.
 # Do not change order of values inside this array as logic depends on this.
 LOG_LEVELS = ["ERROR", "WARN", "INFO", "DEBUG"]
-
-
-def to_formal_log_level(log_level):
-    """Convert a pretty-print log level into the related log level code.
-
-    Turns a pretty formatted log level (i.e Warning) into the one actually
-    being logged (i.e WARN).
-    :param log_level: pretty formatted log level
-    :return: actual level being logged
-    """
-    if log_level == "Error":
-        return LOG_LEVELS[0]
-    if log_level == "Warning":
-        return LOG_LEVELS[1]
-    if log_level == "Info":
-        return LOG_LEVELS[2]
-    if log_level == "Debug":
-        return LOG_LEVELS[3]
-    return ""
 
 
 def check_log_message_format(log_str, instance_id, level, show_level, show_origin):
@@ -69,7 +51,7 @@ def check_log_message_format(log_str, instance_id, level, show_level, show_origi
     if show_level:
         tag_level = mo.group(3)
         tag_level_no = LOG_LEVELS.index(tag_level)
-        configured_level_no = LOG_LEVELS.index(to_formal_log_level(level))
+        configured_level_no = LOG_LEVELS.index(str(level).upper())
         assert tag_level_no <= configured_level_no
 
 
@@ -154,12 +136,12 @@ def test_api_requests_logs(uvm):
 @pytest.mark.parametrize(
     "log_level,show_level,show_origin",
     [
-        ("Info", True, True),
-        ("Info", False, True),
-        ("Info", True, False),
-        ("Info", False, False),
-        ("Error", False, False),
-        ("Warning", False, False),
+        (LogLevel.INFO, True, True),
+        (LogLevel.INFO, False, True),
+        (LogLevel.INFO, True, False),
+        (LogLevel.INFO, False, False),
+        (LogLevel.ERROR, False, False),
+        (LogLevel.WARN, False, False),
     ],
 )
 def test_log_config(uvm, log_level, show_level, show_origin):
@@ -173,7 +155,7 @@ def test_log_config(uvm, log_level, show_level, show_origin):
     lines = microvm.log_data.splitlines()
 
     # Check for `Running Firecracker` message.
-    configured_level_no = LOG_LEVELS.index(to_formal_log_level(log_level))
+    configured_level_no = LOG_LEVELS.index(str(log_level).upper())
     info_level_no = LOG_LEVELS.index("INFO")
     if info_level_no <= configured_level_no:
         assert "Running Firecracker" in lines[0]
