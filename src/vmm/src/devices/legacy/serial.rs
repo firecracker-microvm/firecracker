@@ -483,6 +483,70 @@ mod tests {
         assert_eq!(invalid_reads_after_2, invalid_reads_after);
     }
 
+    /// Linux' 8250 console masks IER for the duration of every message it
+    /// prints and restores it once the message is out. Input that arrives
+    /// inside that window must still be signalled to the guest when IER is
+    /// restored, the way the level-triggered interrupt output of a real 16550
+    /// would. Otherwise the bytes sit in the FIFO that nothing tells the guest
+    /// to drain, and the input is silently lost.
+    ///
+    /// Regression test for rust-vmm/vm-superio#135, fixed in vm-superio 0.8.2.
+    #[test]
+    fn test_input_interrupt_reasserted_when_guest_restores_ier() {
+        const IER_OFFSET: u64 = 1;
+        const IIR_OFFSET: u64 = 2;
+        const LSR_OFFSET: u64 = 5;
+        const IER_RDA_BIT: u8 = 0b0000_0001;
+        const IIR_RDA_BIT: u8 = 0b0000_0100;
+        const LSR_DATA_READY_BIT: u8 = 0b0000_0001;
+
+        let intr_evt = EventFdTrigger::new(EventFd::new(libc::EFD_NONBLOCK).unwrap());
+        let mut serial = SerialDevice {
+            serial: Serial::with_events(
+                intr_evt.try_clone().unwrap(),
+                SerialEventsWrapper {
+                    buffer_ready_event_fd: None,
+                },
+                test_serial_out_sink(),
+            ),
+            input: None::<std::io::Stdin>,
+        };
+
+        // The guest driver enables the received-data-available interrupt.
+        serial.write(0, IER_OFFSET, &[IER_RDA_BIT]);
+
+        // The guest starts printing: the console driver masks every interrupt
+        // and drives the transmitter by polling until the message is out.
+        serial.write(0, IER_OFFSET, &[0x00]);
+
+        // Input arrives while interrupts are masked. It is buffered and shows
+        // up in LSR, but no interrupt may be raised while the guest asked for
+        // none.
+        serial.serial.raw_input(b"pwd\n").unwrap();
+        let mut lsr = [0u8; 1];
+        serial.read(0, LSR_OFFSET, &mut lsr);
+        assert_ne!(lsr[0] & LSR_DATA_READY_BIT, 0);
+        assert_eq!(
+            intr_evt.read().unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+
+        // The message is out and the guest restores IER. The buffered input is
+        // still pending, so re-enabling the interrupt has to assert it now.
+        serial.write(0, IER_OFFSET, &[IER_RDA_BIT]);
+        assert_eq!(intr_evt.read().unwrap(), 1);
+        let mut iir = [0u8; 1];
+        serial.read(0, IIR_OFFSET, &mut iir);
+        assert_ne!(iir[0] & IIR_RDA_BIT, 0);
+
+        // The guest then reads exactly the bytes that were sent.
+        let mut data = [0u8; 1];
+        for &byte in b"pwd\n" {
+            serial.read(0, 0, &mut data);
+            assert_eq!(data[0], byte);
+        }
+    }
+
     #[test]
     fn test_restore_from_state() {
         let mut serial = SerialDevice::new(None, test_serial_out_sink(), None).unwrap();
