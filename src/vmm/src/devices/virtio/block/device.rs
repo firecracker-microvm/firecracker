@@ -18,6 +18,7 @@ use crate::impl_device_type;
 use crate::rate_limiter::BucketUpdate;
 use crate::snapshot::Persist;
 use crate::vmm_config::drive::BlockDeviceConfig;
+use crate::vmm_config::enclave::DmbSizeMib;
 use crate::vstate::memory::GuestMemoryMmap;
 
 // Clippy thinks that values of the enum are too different in size.
@@ -123,6 +124,13 @@ impl VirtioDevice for Block {
         match self {
             Self::Virtio(b) => b.id(),
             Self::VhostUser(b) => b.id(),
+        }
+    }
+
+    fn dmb_size_mib(&self) -> Option<DmbSizeMib> {
+        match self {
+            Self::Virtio(b) => b.dmb_size_mib(),
+            Self::VhostUser(_) => None,
         }
     }
 

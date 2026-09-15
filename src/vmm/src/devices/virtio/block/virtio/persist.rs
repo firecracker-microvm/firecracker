@@ -138,6 +138,7 @@ impl Persist<'_> for VirtioBlock {
             id: state.id.clone(),
             partuuid: state.partuuid.clone(),
             cache_type: state.cache_type,
+            dmb_size_mib: None,
             root_device: state.root_device,
             read_only: is_read_only,
 

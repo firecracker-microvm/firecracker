@@ -39,6 +39,7 @@ use crate::devices::virtio::vsock::VsockError;
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::impl_device_type;
 use crate::logger::{IncMetric, error, info, warn};
+use crate::vmm_config::enclave::DmbSizeMib;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};
 
 pub(crate) const RXQ_INDEX: usize = 0;
@@ -61,6 +62,7 @@ pub(crate) const AVAIL_FEATURES: u64 = (1 << VIRTIO_F_VERSION_1 as u64)
 #[derive(Debug)]
 pub struct Vsock<B> {
     cid: u64,
+    pub(crate) dmb_size_mib: Option<DmbSizeMib>,
     pub(crate) queues: Vec<VirtQueue>,
     pub(crate) queue_events: Vec<EventFd>,
     pub(crate) backend: B,
@@ -99,6 +101,7 @@ where
 
         Ok(Vsock {
             cid,
+            dmb_size_mib: None,
             queues,
             queue_events,
             backend,
@@ -296,6 +299,10 @@ where
 
     fn id(&self) -> &str {
         defs::VSOCK_DEV_ID
+    }
+
+    fn dmb_size_mib(&self) -> Option<DmbSizeMib> {
+        self.dmb_size_mib
     }
 
     fn avail_features(&self) -> u64 {

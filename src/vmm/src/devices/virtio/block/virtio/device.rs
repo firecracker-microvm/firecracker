@@ -44,6 +44,7 @@ use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
 use crate::vmm_config::RateLimiterConfig;
 use crate::vmm_config::drive::BlockDeviceConfig;
+use crate::vmm_config::enclave::DmbSizeMib;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// The engine file type, either Sync or Async (through io_uring).
@@ -396,6 +397,7 @@ pub struct VirtioBlock {
     pub id: String,
     pub partuuid: Option<String>,
     pub cache_type: CacheType,
+    pub(crate) dmb_size_mib: Option<DmbSizeMib>,
     pub root_device: bool,
     pub read_only: bool,
 
@@ -498,6 +500,7 @@ impl VirtioBlock {
             id: config.drive_id.clone(),
             partuuid: config.partuuid,
             cache_type: config.cache_type,
+            dmb_size_mib: None,
             root_device: config.is_root_device,
             read_only: config.is_read_only,
 
@@ -760,6 +763,10 @@ impl VirtioDevice for VirtioBlock {
 
     fn id(&self) -> &str {
         &self.id
+    }
+
+    fn dmb_size_mib(&self) -> Option<DmbSizeMib> {
+        self.dmb_size_mib
     }
 
     fn avail_features(&self) -> u64 {
