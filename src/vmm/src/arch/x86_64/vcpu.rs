@@ -5,7 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -20,7 +19,7 @@ use vmm_sys_util::fam::{self, FamStruct};
 use crate::arch::EntryPoint;
 use crate::arch::x86_64::generated::msr_index::{MSR_IA32_TSC, MSR_IA32_TSC_DEADLINE};
 use crate::arch::x86_64::interrupts;
-use crate::arch::x86_64::msr::{MsrError, create_boot_msr_entries};
+use crate::arch::x86_64::msr::{MsrError, create_boot_msr_entries, msrs_insert};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::cpu_config::x86_64::{CpuConfiguration, cpuid};
 use crate::logger::{IncMetric, METRICS, error, warn};
@@ -120,8 +119,6 @@ pub struct SetTscError(#[from] kvm_ioctls::Error);
 /// Errors associated with configuring an x86_64 vCPU.
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum KvmVcpuConfigureError {
-    /// Failed to convert `Cpuid` to `kvm_bindings::CpuId`: {0}
-    ConvertCpuidType(#[from] vmm_sys_util::fam::Error),
     /// Failed to apply modifications to CPUID: {0}
     NormalizeCpuidError(#[from] cpuid::NormalizeCpuidError),
     /// Failed to set CPUID: {0}
@@ -217,7 +214,7 @@ impl KvmVcpu {
             u8::from(vcpu_count > 1 && smt),
         )?;
 
-        let kvm_cpuid = CpuId::try_from(cpuid)?;
+        let kvm_cpuid = CpuId::from(cpuid);
         self.fd
             .set_cpuid2(&kvm_cpuid)
             .map_err(KvmVcpuConfigureError::SetCpuid)?;
@@ -239,15 +236,16 @@ impl KvmVcpu {
     /// Returns an error if the MSRs cannot be installed on the vCPU.
     pub fn configure_msrs_for_boot(
         &mut self,
-        msrs: &BTreeMap<u32, u64>,
+        msrs: &Msrs,
         configured_cpuid: &CpuId,
     ) -> Result<(), KvmVcpuConfigureError> {
         let mut msrs = msrs.clone();
-        self.msrs_to_save.extend(msrs.keys());
+        self.msrs_to_save
+            .extend(msrs.as_slice().iter().map(|entry| entry.index));
 
-        create_boot_msr_entries().into_iter().for_each(|entry| {
-            msrs.insert(entry.index, entry.data);
-        });
+        for entry in create_boot_msr_entries() {
+            msrs_insert(&mut msrs, entry.index, entry.data);
+        }
 
         // TODO - Add/amend MSRs for vCPUs based on cpu_config
         // By this point the Guest CPUID is established. Some CPU features require MSRs
@@ -267,16 +265,7 @@ impl KvmVcpu {
         let extra_msrs = cpuid::common::msrs_to_save_by_cpuid(configured_cpuid);
         self.msrs_to_save.extend(extra_msrs);
 
-        let kvm_msrs = msrs
-            .into_iter()
-            .map(|entry| kvm_bindings::kvm_msr_entry {
-                index: entry.0,
-                data: entry.1,
-                ..Default::default()
-            })
-            .collect::<Vec<_>>();
-
-        crate::arch::x86_64::msr::set_msrs(&self.fd, &kvm_msrs)?;
+        crate::arch::x86_64::msr::set_msrs(&self.fd, &msrs)?;
         Ok(())
     }
 
@@ -572,18 +561,17 @@ impl KvmVcpu {
     /// # Errors
     ///
     /// * When `KvmVcpu::get_msr_chunks()` returns errors.
+    /// * When [`kvm_bindings::Msrs::new`] returns errors.
     pub fn get_msrs(
         &self,
         msr_index_iter: impl ExactSizeIterator<Item = u32>,
-    ) -> Result<BTreeMap<u32, u64>, KvmVcpuError> {
-        let mut msrs = BTreeMap::new();
-        self.get_msr_chunks(msr_index_iter)?
-            .iter()
-            .for_each(|msr_chunk| {
-                msr_chunk.as_slice().iter().for_each(|msr| {
-                    msrs.insert(msr.index, msr.data);
-                });
-            });
+    ) -> Result<Msrs, KvmVcpuError> {
+        let mut msrs = Msrs::new(0).map_err(KvmVcpuError::Fam)?;
+        for chunk in self.get_msr_chunks(msr_index_iter)? {
+            for entry in chunk.as_slice() {
+                msrs_insert(&mut msrs, entry.index, entry.data);
+            }
+        }
         Ok(msrs)
     }
 
@@ -855,7 +843,7 @@ mod tests {
     };
     use crate::cpu_config::x86_64::{
         apply_template_to_cpuid, apply_template_to_msrs,
-        cpuid::{Cpuid, CpuidEntry, CpuidKey},
+        cpuid::{Cpuid, CpuidEntry, CpuidKey, CpuidTrait},
     };
     use crate::vstate::vm::tests::{setup_vm, setup_vm_with_memory};
 
@@ -1031,7 +1019,6 @@ mod tests {
         let state = vcpu.save_state().unwrap();
         let cpuid = Cpuid::try_from(state.cpuid).unwrap();
         let leaf3 = cpuid
-            .inner()
             .get(&CpuidKey {
                 leaf: 0x3,
                 subleaf: 0x0,
@@ -1065,7 +1052,6 @@ mod tests {
         let cpuid = Cpuid::try_from(cpuid).unwrap();
         assert_ne!(
             cpuid
-                .inner()
                 .get(&CpuidKey {
                     leaf: 0,
                     subleaf: 0,

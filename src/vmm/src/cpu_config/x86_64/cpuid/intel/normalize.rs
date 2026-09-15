@@ -6,7 +6,7 @@ use crate::cpu_config::x86_64::cpuid::normalize::{
 };
 use crate::cpu_config::x86_64::cpuid::{
     BRAND_STRING_LENGTH, CpuidKey, CpuidRegisters, CpuidTrait, MissingBrandStringLeaves,
-    host_brand_string,
+    cpuid_insert, host_brand_string,
 };
 
 /// Error type for [`super::IntelCpuid::normalize`].
@@ -267,9 +267,8 @@ impl super::IntelCpuid {
         }
 
         for index in 0.. {
-            if let Some(subleaf) = self.get(&CpuidKey::subleaf(0xB, index)) {
-                self.0
-                    .insert(CpuidKey::subleaf(0x1F, index), subleaf.clone());
+            if let Some(subleaf) = self.get(&CpuidKey::subleaf(0xB, index)).copied() {
+                cpuid_insert(&mut self.0, CpuidKey::subleaf(0x1F, index), subleaf);
             } else {
                 break;
             }
@@ -394,11 +393,10 @@ mod tests {
         clippy::as_conversions
     )]
 
-    use std::collections::BTreeMap;
     use std::ffi::CStr;
 
     use super::*;
-    use crate::cpu_config::x86_64::cpuid::{CpuidEntry, IntelCpuid, KvmCpuidFlags};
+    use crate::cpu_config::x86_64::cpuid::{IntelCpuid, KvmCpuidFlags};
 
     #[test]
     fn default_brand_string_test() {
@@ -437,16 +435,15 @@ mod tests {
 
     #[test]
     fn test_update_extended_feature_flags_entry() {
-        let mut cpuid = IntelCpuid(BTreeMap::from([(
-            CpuidKey {
-                leaf: 0x7,
-                subleaf: 0,
-            },
-            CpuidEntry {
-                flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+        let mut cpuid = IntelCpuid(
+            kvm_bindings::CpuId::from_entries(&[kvm_bindings::kvm_cpuid_entry2 {
+                function: 0x7,
+                index: 0,
+                flags: KvmCpuidFlags::SIGNIFICANT_INDEX.0,
                 ..Default::default()
-            },
-        )]));
+            }])
+            .unwrap(),
+        );
 
         cpuid.update_extended_feature_flags_entry().unwrap();
 
@@ -463,16 +460,15 @@ mod tests {
 
     #[test]
     fn test_update_extended_topology_v2_entry_no_leaf_0x1f() {
-        let mut cpuid = IntelCpuid(BTreeMap::from([(
-            CpuidKey {
-                leaf: 0xB,
-                subleaf: 0,
-            },
-            CpuidEntry {
-                flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+        let mut cpuid = IntelCpuid(
+            kvm_bindings::CpuId::from_entries(&[kvm_bindings::kvm_cpuid_entry2 {
+                function: 0xB,
+                index: 0,
+                flags: KvmCpuidFlags::SIGNIFICANT_INDEX.0,
                 ..Default::default()
-            },
-        )]));
+            }])
+            .unwrap(),
+        );
 
         cpuid.update_extended_topology_v2_entry();
 
@@ -488,53 +484,41 @@ mod tests {
 
     #[test]
     fn test_update_extended_topology_v2_entry() {
-        let mut cpuid = IntelCpuid(BTreeMap::from([
-            (
-                CpuidKey {
-                    leaf: 0xB,
-                    subleaf: 0,
+        let mut cpuid = IntelCpuid(
+            kvm_bindings::CpuId::from_entries(&[
+                kvm_bindings::kvm_cpuid_entry2 {
+                    function: 0xB,
+                    index: 0,
+                    flags: KvmCpuidFlags::SIGNIFICANT_INDEX.0,
+                    eax: 0x1,
+                    ebx: 0x2,
+                    ecx: 0x3,
+                    edx: 0x4,
+                    ..Default::default()
                 },
-                CpuidEntry {
-                    flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
-                    result: CpuidRegisters {
-                        eax: 0x1,
-                        ebx: 0x2,
-                        ecx: 0x3,
-                        edx: 0x4,
-                    },
+                kvm_bindings::kvm_cpuid_entry2 {
+                    function: 0xB,
+                    index: 1,
+                    flags: KvmCpuidFlags::SIGNIFICANT_INDEX.0,
+                    eax: 0xa,
+                    ebx: 0xb,
+                    ecx: 0xc,
+                    edx: 0xd,
+                    ..Default::default()
                 },
-            ),
-            (
-                CpuidKey {
-                    leaf: 0xB,
-                    subleaf: 1,
+                kvm_bindings::kvm_cpuid_entry2 {
+                    function: 0x1F,
+                    index: 0,
+                    flags: KvmCpuidFlags::SIGNIFICANT_INDEX.0,
+                    eax: 0xFFFFFFFF,
+                    ebx: 0xFFFFFFFF,
+                    ecx: 0xFFFFFFFF,
+                    edx: 0xFFFFFFFF,
+                    ..Default::default()
                 },
-                CpuidEntry {
-                    flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
-                    result: CpuidRegisters {
-                        eax: 0xa,
-                        ebx: 0xb,
-                        ecx: 0xc,
-                        edx: 0xd,
-                    },
-                },
-            ),
-            (
-                CpuidKey {
-                    leaf: 0x1F,
-                    subleaf: 0,
-                },
-                CpuidEntry {
-                    flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
-                    result: CpuidRegisters {
-                        eax: 0xFFFFFFFF,
-                        ebx: 0xFFFFFFFF,
-                        ecx: 0xFFFFFFFF,
-                        edx: 0xFFFFFFFF,
-                    },
-                },
-            ),
-        ]));
+            ])
+            .unwrap(),
+        );
 
         cpuid.update_extended_topology_v2_entry();
 
