@@ -18,6 +18,13 @@ and this project adheres to
 
 ### Fixed
 
+- [#6218](https://github.com/firecracker-microvm/firecracker/pull/6218): Bumped
+  `vm-superio` to 0.8.2, fixing serial console input being dropped while the
+  guest has the UART interrupts masked. The Linux 8250 console masks IER for the
+  duration of every `printk` and expects the RX interrupt to be re-asserted once
+  it restores IER, so input that arrived meanwhile stayed in the FIFO and was
+  never delivered to the guest.
+
 ## [1.17.0]
 
 ### Added
