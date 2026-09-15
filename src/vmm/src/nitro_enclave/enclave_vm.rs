@@ -252,9 +252,9 @@ impl EnclaveVm {
         self.config.hotplug_mode
     }
 
-    /// Per-device DMB size in MiB for confidential mode; `None` in direct mode.
-    pub fn dmb_size_mib(&self) -> Option<u64> {
-        self.config.dmb_size_mib()
+    /// Whether the enclave runs in direct (non-confidential) mode.
+    pub fn direct_mode(&self) -> bool {
+        self.config.direct_mode
     }
 
     /// Retain the CPU-accounting threads so they are stopped and joined when

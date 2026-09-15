@@ -248,6 +248,74 @@ def test_enclave_ssh(uvm_booted):
     assert "enclave test" in vm.ssh.check_output("cat /tmp/test.txt").stdout
 
 
+def test_enclave_per_device_dmb_size(uvm_configured):
+    """Report mixed explicit sizes and an omitted default before and after boot."""
+    vm = uvm_configured
+    if vm.backend is not VmBackend.ENCLAVE_CONFIDENTIAL:
+        pytest.skip("DMB allocation reporting requires confidential mode")
+
+    vm.add_drive(
+        drive_id="rootfs",
+        path_on_host=vm.rootfs_file,
+        is_root_device=True,
+        is_read_only=vm.rootfs_file.suffix == ".squashfs",
+        dmb_size_mib=32,
+    )
+    sized_iface = vm.add_net_iface(dmb_size_mib=64)
+    unsized_iface = vm.add_net_iface()
+    vm.api.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path="/" + VSOCK_UDS_PATH,
+        dmb_size_mib=8,
+    )
+
+    preboot_config = vm.api.vm_config.get().json()
+    assert preboot_config["drives"][0]["dmb_size_mib"] == 32
+    preboot_network_configs = {
+        iface["iface_id"]: iface for iface in preboot_config["network-interfaces"]
+    }
+    assert preboot_network_configs[sized_iface.dev_name]["dmb_size_mib"] == 64
+    assert "dmb_size_mib" not in preboot_network_configs[unsized_iface.dev_name]
+    assert preboot_config["vsock"]["dmb_size_mib"] == 8
+
+    vm.start(debug_mode=True)
+
+    runtime_config = vm.api.vm_config.get().json()
+    assert runtime_config["drives"][0]["dmb_size_mib"] == 32
+    runtime_network_configs = {
+        iface["iface_id"]: iface for iface in runtime_config["network-interfaces"]
+    }
+    assert runtime_network_configs[sized_iface.dev_name]["dmb_size_mib"] == 64
+    assert (
+        runtime_network_configs[unsized_iface.dev_name]["dmb_size_mib"]
+        == DEFAULT_DMB_SIZE_MIB
+    )
+    assert runtime_config["vsock"]["dmb_size_mib"] == 8
+
+
+def test_enclave_direct_rejects_dmb_size(uvm_configured):
+    """Reject an explicit DMB size at direct-mode startup without killing the VMM."""
+    vm = uvm_configured
+    if vm.backend is not VmBackend.ENCLAVE_DIRECT:
+        pytest.skip("This test checks direct-mode rejection")
+
+    vm.add_drive(
+        drive_id="rootfs",
+        path_on_host=vm.rootfs_file,
+        is_root_device=True,
+        is_read_only=vm.rootfs_file.suffix == ".squashfs",
+        dmb_size_mib=2,
+    )
+    assert vm.api.vm_config.get().json()["drives"][0]["dmb_size_mib"] == 2
+    with pytest.raises(
+        RuntimeError,
+        match="Failed to attach enclave block device rootfs: .*cannot be set in direct mode",
+    ):
+        vm.start(debug_mode=True)
+    _assert_vm_process_is_alive(vm)
+
+
 def test_enclave_max_vcpus(uvm):
     """Boot an enclave with as many vCPUs as the host has online CPUs.
 
@@ -346,18 +414,38 @@ def test_enclave_cpu_accounting(uvm_booted, vcpu_count):
 
 @pytest.mark.parametrize("hotplug_mode", [True], ids=["hotplug"], indirect=True)
 def test_enclave_hotplug(uvm_booted):
-    """Hotplug block devices to a running enclave and verify they are usable."""
+    """Hotplug the device limit with custom/default DMBs and verify guest I/O."""
     # Two slots are used pre-boot: the root block device and the SSH NIC.
     num_hotplug_devices = MAX_ENCLAVE_DEVICES - 2
-
     vm = uvm_booted
-
     blocks_before = set(vm.ssh.check_output("ls -1 /sys/block").stdout.split())
 
     for i in range(num_hotplug_devices):
         host_file = drive_tools.FilesystemFile(
             os.path.join(vm.fsfiles, f"hotplug{i}"), size=4
         )
+        if i == 0:
+            if vm.backend is VmBackend.ENCLAVE_DIRECT:
+                with pytest.raises(
+                    RuntimeError, match="cannot be set in direct mode"
+                ) as exc_info:
+                    vm.add_drive(
+                        drive_id="hotplug0",
+                        path_on_host=host_file.path,
+                        is_root_device=False,
+                        is_read_only=False,
+                        dmb_size_mib=32,
+                    )
+                assert exc_info.value.args[2].status_code == 400
+            else:
+                vm.add_drive(
+                    drive_id="hotplug0",
+                    path_on_host=host_file.path,
+                    is_root_device=False,
+                    is_read_only=False,
+                    dmb_size_mib=32,
+                )
+                continue
         vm.add_drive(
             drive_id=f"hotplug{i}",
             path_on_host=host_file.path,
@@ -390,21 +478,15 @@ def test_enclave_hotplug(uvm_booted):
         vm.ssh.check_output(f"echo {payload} > {mnt}/test")
         assert vm.ssh.check_output(f"cat {mnt}/test").stdout.strip() == payload
 
-
-def test_enclave_reports_effective_dmb_size(uvm_booted):
-    """GET /enclave must report the DMB size actually in use.
-
-    dmb_size_mib is omitted when None, so a confidential enclave left on the
-    built-in default used to report nothing and the effective value was
-    unobservable. Direct mode allocates no DMB, so there the field stays absent.
-    """
-    vm = uvm_booted
-    config = vm.api.enclave.get().json()
-
-    if vm.backend is VmBackend.ENCLAVE_DIRECT:
-        assert "dmb_size_mib" not in config
+    runtime_drives = {
+        drive["drive_id"]: drive for drive in vm.api.vm_config.get().json()["drives"]
+    }
+    if vm.backend is VmBackend.ENCLAVE_CONFIDENTIAL:
+        assert runtime_drives["hotplug0"]["dmb_size_mib"] == 32
+        assert runtime_drives["hotplug1"]["dmb_size_mib"] == DEFAULT_DMB_SIZE_MIB
     else:
-        assert config["dmb_size_mib"] == DEFAULT_DMB_SIZE_MIB
+        assert "dmb_size_mib" not in runtime_drives["hotplug0"]
+        assert "dmb_size_mib" not in runtime_drives["hotplug1"]
 
 
 def test_enclave_hotplug_disabled(uvm_booted):
@@ -479,15 +561,21 @@ def test_enclave_poweroff(uvm_booted):
 
 
 def test_enclave_vsock(uvm_configured):
-    """Boot an enclave with a vsock device and verify host<->guest echo.
+    """Boot an enclave with a default-sized vsock DMB and verify host<->guest echo.
 
     Exercises the NE transport for virtio-vsock: NE_ADD_DEVICE, info-event
-    DRIVER_OK activation, and an end-to-end vsock round-trip.
+    DRIVER_OK activation, end-to-end I/O, and runtime DMB allocation reporting.
     """
     vm = uvm_configured
     vm.add_net_iface()
     vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
+    assert "dmb_size_mib" not in vm.api.vm_config.get().json()["vsock"]
     vm.start(debug_mode=True)
+    runtime_vsock = vm.api.vm_config.get().json()["vsock"]
+    if vm.backend is VmBackend.ENCLAVE_CONFIDENTIAL:
+        assert runtime_vsock["dmb_size_mib"] == DEFAULT_DMB_SIZE_MIB
+    else:
+        assert "dmb_size_mib" not in runtime_vsock
 
     host_uds = start_guest_echo_server(vm)
     sock = vsock_connect_to_guest(host_uds, ECHO_SERVER_PORT)

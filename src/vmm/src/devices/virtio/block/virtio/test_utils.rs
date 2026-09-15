@@ -45,6 +45,7 @@ pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -
         is_read_only: false,
         discard: false,
         cache_type: CacheType::Unsafe,
+        dmb_size_mib: None,
         // Rate limiting is enabled but with a high operation rate (10 million ops/s).
         rate_limiter: Some(RateLimiterConfig {
             bandwidth: Some(TokenBucketConfig {

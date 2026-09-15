@@ -6,7 +6,9 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
+use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
+use crate::vmm_config::enclave::DmbSizeMib;
 
 type MutexVsockUnix = Arc<Mutex<Vsock<VsockUnixBackend>>>;
 
@@ -32,6 +34,10 @@ pub struct VsockDeviceConfig {
     pub guest_cid: u32,
     /// Path to local unix socket.
     pub uds_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// DMB size for confidential enclaves. Defaults to 16 MiB at attachment;
+    /// transports without DMBs reject explicit sizes.
+    pub dmb_size_mib: Option<DmbSizeMib>,
 }
 
 #[derive(Debug)]
@@ -47,6 +53,7 @@ impl From<&VsockAndUnixPath> for VsockDeviceConfig {
             vsock_id: None,
             guest_cid: u32::try_from(vsock_lock.cid()).unwrap(),
             uds_path: vsock.uds_path.clone(),
+            dmb_size_mib: vsock_lock.dmb_size_mib(),
         }
     }
 }
@@ -57,6 +64,7 @@ impl From<&Vsock<VsockUnixBackend>> for VsockDeviceConfig {
             vsock_id: None, // deprecated
             guest_cid: u32::try_from(vsock.cid()).unwrap(),
             uds_path: vsock.backend().host_sock_path().to_owned(),
+            dmb_size_mib: vsock.dmb_size_mib(),
         }
     }
 }
@@ -75,14 +83,13 @@ impl VsockBuilder {
 
     /// Inserts an existing vsock device.
     pub fn set_device(&mut self, device: Arc<Mutex<Vsock<VsockUnixBackend>>>) {
+        let uds_path = {
+            let device = device.lock().expect("Poisoned lock");
+            device.backend().host_sock_path().to_owned()
+        };
         self.inner = Some(VsockAndUnixPath {
-            uds_path: device
-                .lock()
-                .expect("Poisoned lock")
-                .backend()
-                .host_sock_path()
-                .to_owned(),
-            vsock: device.clone(),
+            vsock: device,
+            uds_path,
         });
     }
 
@@ -109,9 +116,11 @@ impl VsockBuilder {
     pub fn create_unixsock_vsock(
         cfg: VsockDeviceConfig,
     ) -> Result<Vsock<VsockUnixBackend>, VsockConfigError> {
-        let backend = VsockUnixBackend::new(u64::from(cfg.guest_cid), cfg.uds_path)?;
-
-        Vsock::new(u64::from(cfg.guest_cid), backend).map_err(VsockConfigError::CreateVsockDevice)
+        let cid = u64::from(cfg.guest_cid);
+        let backend = VsockUnixBackend::new(cid, cfg.uds_path)?;
+        let mut vsock = Vsock::new(cid, backend).map_err(VsockConfigError::CreateVsockDevice)?;
+        vsock.dmb_size_mib = cfg.dmb_size_mib;
+        Ok(vsock)
     }
 
     /// Returns the structure used to configure the vsock device.
@@ -133,6 +142,7 @@ pub(crate) mod tests {
             vsock_id: None,
             guest_cid: 3,
             uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
+            dmb_size_mib: None,
         }
     }
 
@@ -150,16 +160,23 @@ pub(crate) mod tests {
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
         let mut vsock_config = default_config(&tmp_sock_file);
+        vsock_config.dmb_size_mib = Some(DmbSizeMib::try_from(8).unwrap());
 
         store.insert(vsock_config.clone()).unwrap();
         let vsock = store.get().unwrap();
         assert_eq!(vsock.lock().unwrap().id(), VSOCK_DEV_ID);
+        assert_eq!(
+            store.config().unwrap().dmb_size_mib,
+            vsock_config.dmb_size_mib
+        );
 
         let new_cid = vsock_config.guest_cid + 1;
         vsock_config.guest_cid = new_cid;
+        vsock_config.dmb_size_mib = None;
         store.insert(vsock_config).unwrap();
         let vsock = store.get().unwrap();
         assert_eq!(vsock.lock().unwrap().cid(), u64::from(new_cid));
+        assert_eq!(store.config().unwrap().dmb_size_mib, None);
     }
 
     #[test]
@@ -187,11 +204,13 @@ pub(crate) mod tests {
         )
         .unwrap();
 
-        vsock_builder.set_device(Arc::new(Mutex::new(vsock)));
-        assert!(vsock_builder.inner.is_some());
+        let device = Arc::new(Mutex::new(vsock));
+        vsock_builder.set_device(device);
+        let config = vsock_builder.config().unwrap();
+        assert_eq!(config.dmb_size_mib, None);
         assert_eq!(
-            vsock_builder.inner.unwrap().uds_path,
+            config.uds_path,
             tmp_sock_file.as_path().to_str().unwrap().to_string()
-        )
+        );
     }
 }

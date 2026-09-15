@@ -19,6 +19,7 @@ use crate::logger::info;
 use crate::nitro_enclave::enclave_vm::{EnclaveVm, EnclaveVmError};
 use crate::nitro_enclave::ne_ioctl::EnclaveFd;
 use crate::utils::{mib_to_bytes, u64_to_usize};
+use crate::vmm_config::enclave::EnclaveConfigError;
 
 /// Errors from NE device manager operations.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -27,6 +28,8 @@ pub enum NeDeviceError {
     Transport(#[from] NeTransportError),
     /// Failed to allocate DMB: {0}
     Dmb(#[from] EnclaveVmError),
+    /// Cannot size DMB: {0}
+    DmbSize(#[from] EnclaveConfigError),
     /// Device not found
     DeviceNotFound,
 }
@@ -50,13 +53,16 @@ impl NeDevices {
         &mut self,
         device: Arc<Mutex<dyn VirtioDevice>>,
         enclave_vm: &EnclaveVm,
-        dmb_size_mib: Option<u64>,
         event_manager: &mut EventManager,
     ) -> Result<(), NeDeviceError> {
-        let (device_id, num_vqs) = {
+        let (device_id, num_vqs, dmb_size_mib) = {
             let locked = device.lock().expect("Poisoned lock");
             let num_vqs = u32::try_from(locked.queues().len()).expect("queue count exceeds u32");
-            ((locked.device_type(), locked.id().to_string()), num_vqs)
+            (
+                (locked.device_type(), locked.id().to_string()),
+                num_vqs,
+                locked.dmb_size_mib(),
+            )
         };
 
         // Installed by enclave_builder before any device is attached.
@@ -64,28 +70,24 @@ impl NeDevices {
             .info_page()
             .expect("info page must be installed before device attachment");
 
-        // A DMB size selects confidential mode: allocate a per-device DMB and
-        // use it as the device's DMA memory. No size selects direct mode: the
-        // device uses the donated enclave RAM, which is accessible to the parent
-        // only in that mode. The size is resolved and validated by the config
-        // layer (bounded to at most 256 MiB), so it converts to bytes without
-        // overflow.
-        let dma_memory = match dmb_size_mib {
-            Some(size_mib) => {
-                let dmb = enclave_vm.create_dmb(mib_to_bytes(u64_to_usize(size_mib)))?;
-                info!(
-                    "Allocated {size_mib} MiB DMB for {:?} id={}",
-                    device_id.0, device_id.1
-                );
-                DeviceDmaMemory::Dmb(dmb)
+        let dma_memory = if enclave_vm.direct_mode() {
+            if dmb_size_mib.is_some() {
+                return Err(EnclaveConfigError::DmbSizeInDirectMode.into());
             }
-            None => {
-                let memory = enclave_vm
-                    .guest_memory()
-                    .expect("direct mode keeps enclave guest memory for device DMA")
-                    .clone();
-                DeviceDmaMemory::GuestMemory(memory)
-            }
+            // Direct mode uses donated enclave RAM instead of a DMB.
+            let memory = enclave_vm
+                .guest_memory()
+                .expect("direct mode keeps enclave guest memory for device DMA")
+                .clone();
+            DeviceDmaMemory::GuestMemory(memory)
+        } else {
+            let size_mib = dmb_size_mib.unwrap_or_default().get();
+            let dmb = enclave_vm.create_dmb(mib_to_bytes(u64_to_usize(size_mib)))?;
+            info!(
+                "Allocated {size_mib} MiB DMB for {:?} id={}",
+                device_id.0, device_id.1
+            );
+            DeviceDmaMemory::Dmb(dmb)
         };
 
         let mut transport =

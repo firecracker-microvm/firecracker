@@ -313,6 +313,9 @@ pub struct VirtioBlockConfig {
     /// the guest driver.
     #[serde(default)]
     pub cache_type: CacheType,
+    /// DMB size in MiB when using a transport that supports DMBs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dmb_size_mib: Option<DmbSizeMib>,
 
     /// If set to true, the drive is opened in read-only mode. Otherwise, the
     /// drive is opened as read-write.
@@ -343,6 +346,7 @@ impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
                 partuuid: value.partuuid.clone(),
                 is_root_device: value.is_root_device,
                 cache_type: value.cache_type,
+                dmb_size_mib: value.dmb_size_mib,
 
                 is_read_only: value.is_read_only.unwrap_or(false),
                 discard: value.discard.unwrap_or(false),
@@ -365,6 +369,7 @@ impl From<VirtioBlockConfig> for BlockDeviceConfig {
             partuuid: value.partuuid,
             is_root_device: value.is_root_device,
             cache_type: value.cache_type,
+            dmb_size_mib: value.dmb_size_mib,
 
             is_read_only: Some(value.is_read_only),
             discard: Some(value.discard),
@@ -500,7 +505,7 @@ impl VirtioBlock {
             id: config.drive_id.clone(),
             partuuid: config.partuuid,
             cache_type: config.cache_type,
-            dmb_size_mib: None,
+            dmb_size_mib: config.dmb_size_mib,
             root_device: config.is_root_device,
             read_only: config.is_read_only,
 
@@ -522,6 +527,7 @@ impl VirtioBlock {
             is_read_only: self.read_only,
             discard: self.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD) != 0,
             cache_type: self.cache_type,
+            dmb_size_mib: self.dmb_size_mib,
             rate_limiter: rl.into_option(),
             file_engine_type: self.file_engine_type(),
             blk_size: Some(self.config_space.blk_size),
@@ -769,6 +775,10 @@ impl VirtioDevice for VirtioBlock {
         self.dmb_size_mib
     }
 
+    fn set_default_dmb_size(&mut self) {
+        self.dmb_size_mib.get_or_insert_default();
+    }
+
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
@@ -929,6 +939,7 @@ mod tests {
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(true),
             discard: None,
@@ -947,6 +958,7 @@ mod tests {
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: None,
             discard: None,
@@ -965,6 +977,7 @@ mod tests {
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(true),
             discard: None,
@@ -1003,6 +1016,19 @@ mod tests {
                 res
             );
         }
+    }
+
+    #[test]
+    fn test_default_dmb_size_preserves_explicit_size() {
+        let mut block = default_block(FileEngineType::Sync);
+        assert_eq!(block.config().dmb_size_mib, None);
+        block.set_default_dmb_size();
+        assert_eq!(block.config().dmb_size_mib, Some(DmbSizeMib::default()));
+
+        let explicit = DmbSizeMib::try_from(32).unwrap();
+        block.dmb_size_mib = Some(explicit);
+        block.set_default_dmb_size();
+        assert_eq!(block.config().dmb_size_mib, Some(explicit));
     }
 
     #[test]
@@ -1047,6 +1073,7 @@ mod tests {
             is_read_only: false,
             discard: true,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
             rate_limiter: None,
             file_engine_type: FileEngineType::Sync,
             blk_size: Some(4096),
@@ -1075,6 +1102,7 @@ mod tests {
             is_read_only: false,
             discard: true,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
             rate_limiter: None,
             file_engine_type: FileEngineType::Async,
             blk_size: None,
@@ -1095,6 +1123,7 @@ mod tests {
             is_read_only: true,
             discard: true,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
             rate_limiter: None,
             file_engine_type: FileEngineType::Sync,
             blk_size: None,
@@ -1118,6 +1147,7 @@ mod tests {
             is_read_only: false,
             discard: true,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
             rate_limiter: None,
             file_engine_type: FileEngineType::Sync,
             blk_size: None,

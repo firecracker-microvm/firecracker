@@ -352,12 +352,11 @@ impl DeviceManager {
         &mut self,
         device: Arc<Mutex<dyn VirtioDevice>>,
         enclave_vm: &EnclaveVm,
-        dmb_size_mib: Option<u64>,
         event_manager: &mut EventManager,
     ) -> Result<(), AttachDeviceError> {
         if let Some(enclave_devices) = self.enclave_devices() {
             enclave_devices
-                .attach_ne_virtio_device(device, enclave_vm, dmb_size_mib, event_manager)
+                .attach_ne_virtio_device(device, enclave_vm, event_manager)
                 .map_err(AttachDeviceError::from)
         } else {
             Err(AttachDeviceError::NotSupported)
@@ -537,12 +536,7 @@ impl DeviceManager {
                     .as_enclave()
                     .expect("Enclave virtio transport requires enclave VM");
                 ne_devices
-                    .attach_ne_virtio_device(
-                        device,
-                        enclave_vm,
-                        enclave_vm.dmb_size_mib(),
-                        event_manager,
-                    )
+                    .attach_ne_virtio_device(device, enclave_vm, event_manager)
                     .map_err(VmmActionError::NeDevice)
             }
             VirtioDevices::Mmio(_) => Err(VmmActionError::PciNotEnabled),
@@ -846,9 +840,9 @@ impl<'a> Persist<'a> for DeviceManager {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
     use vmm_sys_util::tempfile::TempFile;
 
+    use super::*;
     use crate::builder::tests::{
         CustomBlockConfig, default_kernel_cmdline, default_vmm, default_vmm_with_pci,
         insert_block_devices,
@@ -987,6 +981,7 @@ pub(crate) mod tests {
             blk_size: None,
             topology: None,
             socket: None,
+            dmb_size_mib: None,
         }
     }
 
@@ -1179,6 +1174,7 @@ pub(crate) mod tests {
             mtu: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
+            dmb_size_mib: None,
         });
         vmm.hotplug_device(cfg, &mut evt_manager).unwrap();
         assert!(
@@ -1195,6 +1191,7 @@ pub(crate) mod tests {
             mtu: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
+            dmb_size_mib: None,
         });
         assert!(matches!(
             vmm.hotplug_device(cfg2, &mut evt_manager),

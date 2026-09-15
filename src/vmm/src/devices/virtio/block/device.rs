@@ -134,6 +134,12 @@ impl VirtioDevice for Block {
         }
     }
 
+    fn set_default_dmb_size(&mut self) {
+        if let Self::Virtio(b) = self {
+            b.set_default_dmb_size();
+        }
+    }
+
     fn avail_features(&self) -> u64 {
         match self {
             Self::Virtio(b) => b.avail_features,

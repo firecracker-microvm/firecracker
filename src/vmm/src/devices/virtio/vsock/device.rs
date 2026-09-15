@@ -305,6 +305,10 @@ where
         self.dmb_size_mib
     }
 
+    fn set_default_dmb_size(&mut self) {
+        self.dmb_size_mib.get_or_insert_default();
+    }
+
     fn avail_features(&self) -> u64 {
         self.avail_features
     }

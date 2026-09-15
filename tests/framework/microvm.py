@@ -870,6 +870,7 @@ class Microvm:
         io_engine=None,
         topology=None,
         blk_size=None,
+        **kwargs,
     ):
         """Add a block device."""
 
@@ -885,6 +886,7 @@ class Microvm:
             io_engine=io_engine,
             topology=topology,
             blk_size=blk_size,
+            **kwargs,
         )
         self.disks[drive_id] = path_on_host
 

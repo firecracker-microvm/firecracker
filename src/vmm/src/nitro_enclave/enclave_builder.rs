@@ -377,7 +377,6 @@ pub fn build_and_boot_enclave(
     // launched, not the raw request order.
     let mut normalized_config = enclave_config.clone();
     normalized_config.numa_nodes = Some(numa_nodes.clone());
-    normalized_config.dmb_size_mib = enclave_config.dmb_size_mib();
     let mut enclave_vm = EnclaveVm::new(dev_fd, create_flags, normalized_config)?;
     info!(
         "Enclave VM created: slot={:#x}, direct_mode={}, cpu_overcommit={}, \
@@ -423,8 +422,8 @@ pub fn build_and_boot_enclave(
         vm_resources.machine_config.mem_size_mib
     );
 
-    // A DMB size selects confidential mode (per-device DMB); `None` selects
-    // direct mode, where devices use the donated enclave RAM directly.
+    // Resolve each device's requested DMB size at attachment. Confidential mode
+    // allocates a per-device DMB; direct mode uses donated enclave RAM directly.
     // Device attachment must happen before the VM is started.
     let mut device_manager = DeviceManager {
         virtio_devices: VirtioDevices::Enclave(NeDevices::default()),
@@ -434,7 +433,6 @@ pub fn build_and_boot_enclave(
         &mut device_manager,
         &enclave_vm,
         vm_resources,
-        enclave_vm.dmb_size_mib(),
         event_manager,
     )?;
     debug!("event_end: build microvm for boot");
@@ -516,19 +514,20 @@ pub fn build_and_boot_enclave(
 /// Attach enclave virtio devices to the enclave via the NE transport.
 ///
 /// Each device backend is registered with the event manager and wired
-/// to the enclave via NE_ADD_DEVICE + NE_SET_VRING_KICK/CALL.
+/// to the enclave via NE_ADD_DEVICE + NE_SET_VRING_KICK/CALL. Attachment queries
+/// the device's requested DMB size, resolves it against the enclave mode, and
+/// allocates the device's DMA memory.
 fn attach_enclave_devices(
     device_manager: &mut DeviceManager,
     enclave_vm: &EnclaveVm,
     vm_resources: &VmResources,
-    dmb_size_mib: Option<u64>,
     event_manager: &mut EventManager,
 ) -> Result<(), EnclaveBuilderError> {
     let mut count: usize = 0;
     if let Some(entropy) = vm_resources.entropy.get() {
         info!("Attaching enclave entropy device");
         device_manager
-            .attach_ne_virtio_device(entropy.clone(), enclave_vm, dmb_size_mib, event_manager)
+            .attach_ne_virtio_device(entropy.clone(), enclave_vm, event_manager)
             .map_err(EnclaveBuilderError::AttachEntropy)?;
         count += 1;
     }
@@ -537,7 +536,7 @@ fn attach_enclave_devices(
         let id = block.lock().expect("Poisoned lock").id().to_string();
         info!("Attaching enclave block device id={id}");
         device_manager
-            .attach_ne_virtio_device(block.clone(), enclave_vm, dmb_size_mib, event_manager)
+            .attach_ne_virtio_device(block.clone(), enclave_vm, event_manager)
             .map_err(|source| EnclaveBuilderError::AttachBlock { id, source })?;
         count += 1;
     }
@@ -546,7 +545,7 @@ fn attach_enclave_devices(
         let id = net.lock().expect("Poisoned lock").id().to_string();
         info!("Attaching enclave net device id={id}");
         device_manager
-            .attach_ne_virtio_device(net.clone(), enclave_vm, dmb_size_mib, event_manager)
+            .attach_ne_virtio_device(net.clone(), enclave_vm, event_manager)
             .map_err(|source| EnclaveBuilderError::AttachNet { id, source })?;
         count += 1;
     }
@@ -554,7 +553,7 @@ fn attach_enclave_devices(
     if let Some(vsock) = vm_resources.vsock.get() {
         info!("Attaching enclave vsock device");
         device_manager
-            .attach_ne_virtio_device(vsock.clone(), enclave_vm, dmb_size_mib, event_manager)
+            .attach_ne_virtio_device(vsock.clone(), enclave_vm, event_manager)
             .map_err(EnclaveBuilderError::AttachVsock)?;
         count += 1;
     }
@@ -679,8 +678,7 @@ mod tests {
 
     #[test]
     fn test_validate_supported_features() {
-        use crate::cpu_config::templates::StaticCpuTemplate;
-        use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate};
+        use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
 
         #[cfg(target_arch = "x86_64")]
         const STATIC_TEMPLATE: StaticCpuTemplate = StaticCpuTemplate::T2;

@@ -10,8 +10,7 @@ use vmm_sys_util::eventfd::EventFd;
 use super::device::DiskProperties;
 use super::*;
 use crate::devices::virtio::block::persist::BlockConstructorArgs;
-use crate::devices::virtio::block::virtio::device::FileEngineType;
-use crate::devices::virtio::block::virtio::device::VirtioBlkTopology;
+use crate::devices::virtio::block::virtio::device::{FileEngineType, VirtioBlkTopology};
 use crate::devices::virtio::block::virtio::metrics::BlockMetricsPerDevice;
 use crate::devices::virtio::device::{DeviceState, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::VIRTIO_BLK_F_RO;
@@ -158,6 +157,7 @@ mod tests {
     use crate::devices::virtio::block::virtio::device::VirtioBlockConfig;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::default_mem;
+    use crate::vmm_config::enclave::DmbSizeMib;
 
     #[test]
     fn test_cache_semantic_ser() {
@@ -173,6 +173,7 @@ mod tests {
             is_read_only: false,
             discard: false,
             cache_type: CacheType::Writeback,
+            dmb_size_mib: None,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
             blk_size: None,
@@ -217,6 +218,7 @@ mod tests {
             is_read_only: false,
             discard: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: Some(DmbSizeMib::try_from(32).unwrap()),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
             blk_size: None,
@@ -243,6 +245,7 @@ mod tests {
         assert!(!block.is_activated());
         assert!(!restored_block.is_activated());
 
+        assert_eq!(restored_block.dmb_size_mib(), None);
         // Test that block specific fields are the same.
         assert_eq!(restored_block.disk.file_path, block.disk.file_path);
     }

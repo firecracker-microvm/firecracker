@@ -8,6 +8,7 @@ import os
 import platform
 import re
 import resource
+from http import HTTPStatus
 from pathlib import Path
 
 import pytest
@@ -108,7 +109,21 @@ def test_api_put_update_pre_boot(uvm, io_engine):
         is_root_device=False,
         is_read_only=False,
         io_engine=io_engine,
+        dmb_size_mib=32,
     )
+    scratch_config = next(
+        drive
+        for drive in test_microvm.api.vm_config.get().json()["drives"]
+        if drive["drive_id"] == "scratch"
+    )
+    assert scratch_config.pop("dmb_size_mib") == 32
+
+    for invalid_size in (3, 300):
+        with pytest.raises(
+            RuntimeError, match="must be a multiple of 2 between 2 and 256 MiB"
+        ) as exc_info:
+            test_microvm.api.drive.put(**scratch_config, dmb_size_mib=invalid_size)
+        assert exc_info.value.args[2].status_code == 400
 
     # Updates to `kernel_image_path` with an invalid path are not allowed.
     expected_msg = re.escape(
@@ -151,6 +166,10 @@ def test_api_put_update_pre_boot(uvm, io_engine):
         is_read_only=True,
         is_root_device=False,
         io_engine=io_engine,
+    )
+    assert all(
+        "dmb_size_mib" not in drive
+        for drive in test_microvm.api.vm_config.get().json()["drives"]
     )
 
     # Valid updates to all fields in the machine configuration are allowed.
@@ -1534,6 +1553,59 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
     response = uvm2.api.vm_config.get().json()
     assert response != setup_cfg
     assert response == expected_cfg
+
+
+@pytest.mark.parametrize("device_type", ["block", "net", "vsock"])
+@pin_vm_backend(VM_BACKEND_KVM)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_get_full_config_kvm_rejects_dmb_size(uvm_configured, device_type):
+    """Report preboot DMB sizes, then reject them when attaching on KVM."""
+    vm = uvm_configured
+    dmb_size_mib = {"block": 32, "net": 64, "vsock": 8}[device_type]
+    drive_id = "rootfs"
+    vm.add_drive(
+        drive_id=drive_id,
+        path_on_host=vm.rootfs_file,
+        is_root_device=True,
+        is_read_only=vm.rootfs_file.suffix == ".squashfs",
+        **({"dmb_size_mib": dmb_size_mib} if device_type == "block" else {}),
+    )
+
+    device_id = drive_id
+    config_section = "drives"
+    id_key = "drive_id"
+    if device_type == "net":
+        iface = vm.add_net_iface(dmb_size_mib=dmb_size_mib)
+        device_id = iface.dev_name
+        config_section = "network-interfaces"
+        id_key = "iface_id"
+    elif device_type == "vsock":
+        vm.api.vsock.put(
+            guest_cid=3,
+            uds_path="/vsock.sock",
+            dmb_size_mib=dmb_size_mib,
+        )
+        device_id = "vsock"
+
+    preboot_config = vm.api.vm_config.get().json()
+    if device_type == "vsock":
+        requested_device = preboot_config["vsock"]
+        assert requested_device["guest_cid"] == 3
+    else:
+        requested_device = next(
+            device
+            for device in preboot_config[config_section]
+            if device[id_key] == device_id
+        )
+    assert requested_device["dmb_size_mib"] == dmb_size_mib
+
+    with pytest.raises(RuntimeError) as exc_info:
+        vm.api.actions.put(action_type="InstanceStart")
+
+    assert exc_info.value.args[2].status_code == HTTPStatus.BAD_REQUEST
+    error = str(exc_info.value.args[0])
+    assert "dmb_size_mib" in error
+    assert device_id in error
 
 
 @pin_vm_backend(VM_BACKEND_KVM)

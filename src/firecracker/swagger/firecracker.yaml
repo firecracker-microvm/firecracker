@@ -1260,6 +1260,18 @@ definitions:
         type: string
         description: 32-bit bitmap string defining which bits to modify. Format is "0b" followed by 32 characters where '0' = clear bit, '1' = set bit, 'x' = don't modify. Example "0b00000000000000000000000001100000"
 
+  DmbSizeMib:
+    type: integer
+    minimum: 2
+    maximum: 256
+    multipleOf: 2
+    description:
+      Device Memory Buffer size in MiB for confidential enclaves; defaults to 16
+      at attachment. Explicit sizes are rejected by vhost-user block and by KVM
+      or direct-mode transports at attachment (InstanceStart or hotplug PUT).
+      GET /vm/config reports supplied values before start and resolved sizes
+      after attachment, including the default. KVM and direct mode omit it.
+
   Drive:
     type: object
     required:
@@ -1328,6 +1340,9 @@ definitions:
         description:
           Path to the socket of vhost-user-block backend.
           This field is required for vhost-user-block config should be omitted for virtio-block configuration.
+
+      dmb_size_mib:
+        $ref: "#/definitions/DmbSizeMib"
 
   BlockTopology:
     type: object
@@ -1405,16 +1420,8 @@ definitions:
         default: false
         description:
           Whether to run in direct, non-confidential mode. The default is confidential
-          mode, which uses per-device data memory buffers (DMBs).
-      dmb_size_mib:
-        type: integer
-        minimum: 2
-        maximum: 256
-        multipleOf: 2
-        default: 16
-        description:
-          Per-device DMB size in MiB for confidential mode. This property cannot
-          be set in direct mode, since DMBs are not used.
+          mode, which uses per-device data memory buffers (DMBs) sized by each device's
+          `dmb_size_mib`.
       cpu_overcommit:
         type: boolean
         default: false
@@ -1748,6 +1755,8 @@ definitions:
         $ref: "#/definitions/RateLimiter"
       tx_rate_limiter:
         $ref: "#/definitions/RateLimiter"
+      dmb_size_mib:
+        $ref: "#/definitions/DmbSizeMib"
 
   PartialDrive:
     type: object
@@ -2104,3 +2113,5 @@ definitions:
         description:
           This parameter has been deprecated and it will be removed in future
           Firecracker release.
+      dmb_size_mib:
+        $ref: "#/definitions/DmbSizeMib"

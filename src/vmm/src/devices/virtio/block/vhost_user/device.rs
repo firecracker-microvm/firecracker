@@ -67,7 +67,7 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
     type Error = VhostUserBlockError;
 
     fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
-        if let (Some(socket), None, None, None, None, None, None, None) = (
+        if let (Some(socket), None, None, None, None, None, None, None, None) = (
             &value.socket,
             &value.is_read_only,
             &value.discard,
@@ -76,6 +76,7 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
             &value.file_engine_type,
             &value.blk_size,
             &value.topology,
+            &value.dmb_size_mib,
         ) {
             Ok(Self {
                 drive_id: value.drive_id.clone(),
@@ -98,6 +99,7 @@ impl From<VhostUserBlockConfig> for BlockDeviceConfig {
             partuuid: value.partuuid,
             is_root_device: value.is_root_device,
             cache_type: value.cache_type,
+            dmb_size_mib: None,
 
             is_read_only: None,
             discard: None,
@@ -408,15 +410,17 @@ mod tests {
     use crate::devices::virtio::transport::mmio::VIRTIO_MMIO_INT_CONFIG;
     use crate::devices::virtio::vhost_user::tests::create_mem;
     use crate::test_utils::create_tmp_socket;
+    use crate::vmm_config::enclave::DmbSizeMib;
     use crate::vstate::memory::GuestAddress;
 
     #[test]
     fn test_from_config() {
-        let block_config = BlockDeviceConfig {
+        let mut block_config = BlockDeviceConfig {
             drive_id: "".to_string(),
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: None,
             discard: None,
@@ -430,11 +434,18 @@ mod tests {
         };
         VhostUserBlockConfig::try_from(&block_config).unwrap();
 
+        block_config.dmb_size_mib = Some(DmbSizeMib::try_from(2).unwrap());
+        assert!(matches!(
+            VhostUserBlockConfig::try_from(&block_config),
+            Err(VhostUserBlockError::Config)
+        ));
+
         let block_config = BlockDeviceConfig {
             drive_id: "".to_string(),
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(true),
             discard: None,
@@ -453,6 +464,7 @@ mod tests {
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(true),
             discard: None,

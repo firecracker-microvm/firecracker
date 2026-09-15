@@ -306,6 +306,14 @@ impl NeTransport {
             .set_info_event_fd(req.info_event_vector, self.info_event_fd.as_raw_fd())
             .map_err(NeTransportError::SetInfoEventFd)?;
 
+        // Materialize the default only after registration succeeds. Direct mode has no DMB.
+        if matches!(self.dma_memory, DeviceDmaMemory::Dmb(_)) {
+            self.device
+                .lock()
+                .expect("Poisoned lock")
+                .set_default_dmb_size();
+        }
+
         Ok(())
     }
 
@@ -464,6 +472,7 @@ mod tests {
         DEVICE_ENTRY_MIN_SIZE, TestPageBuilder, VirtioDeviceMirror, test_device_mirror,
     };
     use crate::test_utils::single_region_mem;
+    use crate::vmm_config::enclave::DmbSizeMib;
 
     // Two features the dummy device offers: a plain one, and IOMMU_PLATFORM.
     const PLAIN_FEATURE: u64 = 1;
@@ -518,6 +527,34 @@ mod tests {
         let mut transport = ne_transport(page, 7);
         transport.activate_if_ready();
         assert!(!transport.device.lock().unwrap().is_activated());
+    }
+
+    #[test]
+    fn test_registration_failure_preserves_device_config() {
+        use crate::devices::virtio::block::device::Block;
+        use crate::devices::virtio::block::virtio::device::FileEngineType;
+        use crate::devices::virtio::block::virtio::test_utils::default_block;
+        use crate::utils::mib_to_bytes;
+
+        for size in [None, Some(DmbSizeMib::try_from(32).unwrap())] {
+            let mut block = default_block(FileEngineType::Sync);
+            block.dmb_size_mib = size;
+            let device = Arc::new(Mutex::new(Block::Virtio(block)));
+            let before = device.lock().unwrap().config();
+            let mut transport = NeTransport::new(
+                device.clone(),
+                DeviceDmaMemory::Dmb(single_region_mem(mib_to_bytes(32))),
+                Arc::new(TestPageBuilder::new().build()),
+                VirtioDeviceType::Block,
+                1,
+            )
+            .unwrap();
+            assert!(matches!(
+                transport.register_device(&EnclaveFd::dev_null()),
+                Err(NeTransportError::AddDevice(err)) if err.raw_os_error() == Some(libc::ENOTTY)
+            ));
+            assert_eq!(device.lock().unwrap().config(), before);
+        }
     }
 
     #[test]
