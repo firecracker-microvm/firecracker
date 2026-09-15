@@ -143,6 +143,7 @@ use crate::devices::virtio::mem::{VIRTIO_MEM_DEV_ID, VirtioMemError, VirtioMemSt
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::pmem::device::Pmem;
 use crate::devices::virtio::rng::Entropy;
+use crate::devices::virtio::vhost_user_generic::device::VhostUserGeneric;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{METRICS, MetricsError, log_dev_preview_warning};
 use crate::mmds::data_store::Mmds;
@@ -159,6 +160,7 @@ use crate::vmm_config::machine_config::MachineConfig;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::mmds::MmdsConfig;
 use crate::vmm_config::net::NetworkInterfaceConfig;
+use crate::vmm_config::vhost_user_device::VhostUserDeviceConfig;
 use crate::vmm_config::vsock::VsockDeviceConfig;
 pub use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{GuestMemoryMmap, GuestMemoryRegion};
@@ -352,6 +354,7 @@ impl Vmm {
         let mut vsock = None;
         let mut entropy = None;
         let mut memory_hotplug = None;
+        let mut vhost_user_devices = Vec::new();
         let mut mmds_ipv4_address = None;
         let mut mmds_ref = None;
 
@@ -399,6 +402,18 @@ impl Vmm {
                         memory_hotplug = Some(MemoryHotplugConfig::from(m));
                     }
                 }
+                VirtioDeviceType::VhostUserGeneric => {
+                    if let Some(d) = device.as_any().downcast_ref::<VhostUserGeneric>() {
+                        vhost_user_devices.push(VhostUserDeviceConfig {
+                            id: d.id.clone(),
+                            device_type: d.device_type_id,
+                            socket: d.vu_device.socket_path().to_string(),
+                            num_queues: d.vu_device.queues.len() as u64,
+                            queue_size: d.vu_device.queues.first().map(|q| q.max_size),
+                            config_space_size: Some(d.config_space_size),
+                        });
+                    }
+                }
             });
 
         let mmds_config = mmds_ref.map(|mmds| {
@@ -430,6 +445,7 @@ impl Vmm {
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots
             serial_config: None,
             memory_hotplug,
+            vhost_user_devices,
         }
     }
 
@@ -443,6 +459,12 @@ impl Vmm {
                     && b.is_vhost_user()
                 {
                     tuples.push(("vhost-user-block", b.id().to_owned()));
+                }
+
+                // The generic device is vhost-user whatever it is configured
+                // as, so the sentinel device type identifies it on its own.
+                if let VirtioDeviceType::VhostUserGeneric = device_type {
+                    tuples.push(("vhost-user-generic", device.id().to_owned()));
                 }
             });
         if tuples.is_empty() {
