@@ -156,7 +156,7 @@ pub enum VmmAction {
     /// action can only be called before the microVM has booted.
     UpdateMachineConfiguration(MachineConfigUpdate),
     /// Hot-unplug a device.
-    HotUnplugDevice(VirtioDeviceId),
+    HotUnplugDevice(VirtioDeviceId, bool),
 }
 
 /// Wrapper for all errors associated with VMM actions.
@@ -521,7 +521,7 @@ impl<'a> PrebootApiController<'a> {
             | StartFreePageHinting(_)
             | GetFreePageHintingStatus
             | StopFreePageHinting
-            | HotUnplugDevice(_)
+            | HotUnplugDevice(..)
             | SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
     }
@@ -784,7 +784,7 @@ impl RuntimeApiController {
                 .expect("Poisoned lock")
                 .hotplug_device(HotplugDeviceConfig::Net(config), event_manager)
                 .map(|()| VmmData::Empty),
-            HotUnplugDevice(device_id) => self
+            HotUnplugDevice(device_id, _force) => self
                 .vmm
                 .lock()
                 .expect("Poisoned lock")
