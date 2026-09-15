@@ -45,6 +45,7 @@ use crate::rate_limiter::{BucketUpdate, RateLimiter};
 use crate::seccomp::BpfProgram;
 use crate::vmm_config::RateLimiterConfig;
 use crate::vmm_config::drive::BlockDeviceConfig;
+use crate::vmm_config::enclave::DmbSizeMib;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// The engine file type, either Sync or Async (through io_uring).
@@ -466,6 +467,7 @@ pub struct VirtioBlock {
     pub activate_evt: EventFd,
 
     pub(crate) config: VirtioBlockConfig,
+    pub(crate) dmb_size_mib: Option<DmbSizeMib>,
     pub(crate) rate_limiter: Arc<Mutex<RateLimiter>>,
     pub(crate) state: BlockRuntimeState,
     pub metrics: Arc<BlockDeviceMetrics>,
@@ -616,6 +618,7 @@ impl VirtioBlock {
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
 
             config,
+            dmb_size_mib: None,
             rate_limiter: Arc::new(Mutex::new(rate_limiter)),
             state: BlockRuntimeState::Configuring(resources, Vec::new()),
             metrics,
@@ -835,6 +838,10 @@ impl VirtioDevice for VirtioBlock {
 
     fn id(&self) -> &str {
         &self.config.drive_id
+    }
+
+    fn dmb_size_mib(&self) -> Option<DmbSizeMib> {
+        self.dmb_size_mib
     }
 
     fn avail_features(&self) -> u64 {

@@ -20,6 +20,7 @@ use crate::devices::virtio::AsAny;
 use crate::devices::virtio::generated::virtio_ids;
 use crate::logger::{error, info, warn};
 use crate::utils::u64_to_usize;
+use crate::vmm_config::enclave::DmbSizeMib;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// State of an active VirtIO device
@@ -108,6 +109,11 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
 
     /// Returns unique device id
     fn id(&self) -> &str;
+
+    /// Returns the device's DMB size.
+    fn dmb_size_mib(&self) -> Option<DmbSizeMib> {
+        None
+    }
 
     /// Returns the number of queues offered by the device.
     fn num_queues(&self) -> usize;

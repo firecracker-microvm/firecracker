@@ -41,6 +41,7 @@ use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use crate::utils::net::mac::MacAddr;
+use crate::vmm_config::enclave::DmbSizeMib;
 use crate::vstate::memory::{ByteValued, GuestMemoryMmap};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
@@ -203,6 +204,7 @@ impl RxBuffers {
 #[derive(Debug)]
 pub struct Net {
     pub(crate) id: String,
+    pub(crate) dmb_size_mib: Option<DmbSizeMib>,
 
     /// The backend for this device: a tap.
     pub tap: Tap,
@@ -281,6 +283,7 @@ impl Net {
 
         Ok(Net {
             id: id.clone(),
+            dmb_size_mib: None,
             tap,
             avail_features,
             acked_features: 0u64,
@@ -941,6 +944,10 @@ impl VirtioDevice for Net {
 
     fn id(&self) -> &str {
         &self.id
+    }
+
+    fn dmb_size_mib(&self) -> Option<DmbSizeMib> {
+        self.dmb_size_mib
     }
 
     fn avail_features(&self) -> u64 {

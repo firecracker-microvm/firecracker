@@ -187,6 +187,7 @@ impl Persist<'_> for VirtioBlock {
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
 
             config,
+            dmb_size_mib: None,
             rate_limiter: Arc::new(Mutex::new(rate_limiter)),
             state: BlockRuntimeState::Configuring(resources, Vec::new()),
             metrics: BlockMetricsPerDevice::alloc(state.id.clone()),
