@@ -33,7 +33,7 @@ import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
 from framework import utils
 from framework.artifacts import GuestKernel
-from framework.defs import DEFAULT_BINARY_DIR, MAX_API_CALL_DURATION_MS
+from framework.defs import DEFAULT_BINARY_DIR, MAX_API_CALL_DURATION_MS, LogLevel
 from framework.guest import GuestDistro
 from framework.http_api import Api
 from framework.jailer import JailerContext
@@ -48,6 +48,11 @@ from host_tools.fcmetrics import FCMetricsMonitor
 from host_tools.memory import MemoryMonitor
 
 LOG = logging.getLogger("microvm")
+
+# Firecracker logs "Running Firecracker" and "API server started." at info
+# level, so the framework can only wait on them when the configured level is at
+# least that verbose.
+_LEVELS_LOGGING_API_STARTUP = (LogLevel.TRACE, LogLevel.DEBUG, LogLevel.INFO)
 
 
 class SnapshotType(Enum):
@@ -660,7 +665,7 @@ class Microvm:
         self,
         log_file="fc.log",
         serial_out_path="serial.log",
-        log_level="Debug",
+        log_level=LogLevel.DEBUG,
         log_show_level=False,
         log_show_origin=False,
         metrics_path="fc.ndjson",
@@ -670,6 +675,7 @@ class Microvm:
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
         # pylint: disable=too-many-branches
+        log_level = LogLevel(log_level)
         self.jailer.setup()
         self.api = Api(
             self.jailer.api_socket_path(),
@@ -764,14 +770,14 @@ class Microvm:
             assert not serial_out_path
             self.wait_for_ssh_up()
         elif "no-api" not in self.jailer.extra_args:
-            if self.log_file and log_level in ("Trace", "Debug", "Info"):
+            if self.log_file and log_level in _LEVELS_LOGGING_API_STARTUP:
                 self.check_log_message("API server started.")
             else:
                 self._wait_for_api_socket()
 
             if serial_out_path is not None:
                 self.api.serial.put(serial_out_path=serial_out_path)
-        elif self.log_file and log_level in ("Trace", "Debug", "Info"):
+        elif self.log_file and log_level in _LEVELS_LOGGING_API_STARTUP:
             assert not serial_out_path
             self.check_log_message("Running Firecracker")
 
