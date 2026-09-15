@@ -231,18 +231,37 @@ sudo ip addr add "${TAP_IP}${MASK_SHORT}" dev "$TAP_DEV"
 sudo ip link set dev "$TAP_DEV" up
 
 # Enable ip forwarding
-sudo sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
-sudo iptables -P FORWARD ACCEPT
+echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
 
 # This tries to determine the name of the host network interface to forward
 # VM's outbound network traffic through. If outbound traffic doesn't work,
 # double check this returns the correct interface!
 HOST_IFACE=$(ip -j route list default |jq -r '.[0].dev')
+```
 
-# Set up microVM internet access
-sudo iptables -t nat -D POSTROUTING -o "$HOST_IFACE" -j MASQUERADE || true
-sudo iptables -t nat -A POSTROUTING -o "$HOST_IFACE" -j MASQUERADE
+Set up microVM internet access using either `nft` (recommended) or `iptables-nft`:
 
+#### Using `nft`
+
+```bash
+sudo nft add table firecracker
+sudo nft 'add chain firecracker postrouting { type nat hook postrouting priority srcnat; policy accept; }'
+sudo nft 'add chain firecracker filter { type filter hook forward priority filter; policy accept; }'
+sudo nft add rule firecracker postrouting oifname "$HOST_IFACE" counter masquerade
+sudo nft add rule firecracker filter iifname "$TAP_DEV" oifname "$HOST_IFACE" accept
+```
+
+#### Using `iptables-nft`
+
+```bash
+sudo iptables-nft -t nat -A POSTROUTING -o "$HOST_IFACE" -j MASQUERADE
+sudo iptables-nft -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+sudo iptables-nft -A FORWARD -i "$TAP_DEV" -o "$HOST_IFACE" -j ACCEPT
+```
+
+Then continue configuring and starting the microVM:
+
+```bash
 API_SOCKET="/tmp/firecracker.socket"
 LOGFILE="./firecracker.log"
 
