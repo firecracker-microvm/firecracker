@@ -13,11 +13,11 @@ bench = false
 tracing = ["log-instrument", "utils/tracing"]
 
 [dependencies]
-displaydoc = "0.2.6"
-libc = "0.2.186"
+displaydoc = { version = "0.2.6", default-features = false, features = ["std"] }
+libc = { version = "0.2.186", default-features = false, features = ["std"] }
 log-instrument = { path = "../log-instrument", optional = true }
-thiserror = "2.0.18"
-vmm-sys-util = "0.15.0"
+thiserror = { version = "2.0.18", default-features = false, features = ["std"] }
+vmm-sys-util = { version = "0.15.0", default-features = false }
 
 utils = { path = "../utils" }
 

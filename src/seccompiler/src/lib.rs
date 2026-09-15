@@ -16,8 +16,9 @@ pub mod types;
 pub use types::*;
 use zerocopy::IntoBytes;
 
-// This byte limit is passed to `bitcode` to guard against a potential memory
-// allocation DOS caused by binary filters that are too large.
+// Compilation refuses to emit an output larger than this, so that the result is
+// always loadable by `vmm::seccomp::deserialize_binary`, which truncates its input
+// to the same limit. Keep the two in sync.
 // This limit can be safely determined since the maximum length of a BPF
 // filter is 4096 instructions and Firecracker has a finite number of threads.
 const DESERIALIZATION_BYTES_LIMIT: usize = 100_000;
