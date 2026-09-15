@@ -242,6 +242,13 @@ impl VirtioDevice for Block {
         }
     }
 
+    fn kick(&mut self) {
+        match self {
+            Self::Virtio(b) => b.kick(),
+            Self::VhostUser(b) => b.kick(),
+        }
+    }
+
     fn prepare_save(&mut self) {
         match self {
             Self::Virtio(b) => b.prepare_save(),
