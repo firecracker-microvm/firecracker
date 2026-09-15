@@ -19,7 +19,7 @@ use vm_allocator::AllocPolicy;
 
 use crate::arch::PCI_MMCONFIG_START;
 use crate::device_manager::pci_mngr::PciManagerError;
-use crate::devices::pci::root_port::{PciRootPort, ROOT_PORT_MSIX_BAR_SIZE};
+use crate::devices::pci::root_port::{HotplugCompletion, PciRootPort, ROOT_PORT_MSIX_BAR_SIZE};
 use crate::logger::info;
 use crate::pci::PciSBDF;
 #[cfg(target_arch = "x86_64")]
@@ -27,7 +27,6 @@ use crate::pci::bus::{PCI_CONFIG_IO_PORT, PCI_CONFIG_IO_PORT_SIZE, PciConfigIo};
 use crate::pci::bus::{
     PCI_MMIO_CONFIG_SIZE_PER_SEGMENT, PciBusError, PciBuses, PciConfigMmio, PciHostBridge,
 };
-use crate::vstate::bus::BusError;
 use crate::vstate::vm::KvmVm;
 
 pub struct PciSegment {
@@ -55,6 +54,8 @@ pub struct PciSegment {
     // Hot-plug capable root ports on the primary bus.
     // Root port `i` starts secondary bus `i + 1`.
     pub(crate) root_ports: Vec<Arc<Mutex<PciRootPort>>>,
+    /// Channel by which the root ports report acknowledged device removals
+    pub(crate) hotplug_completion: Arc<HotplugCompletion>,
 }
 
 impl std::fmt::Debug for PciSegment {
@@ -79,7 +80,7 @@ impl PciSegment {
         vm: &Arc<KvmVm>,
         pci_irq_slots: &[u8; 32],
         num_root_ports: u8,
-    ) -> Result<PciSegment, BusError> {
+    ) -> Result<PciSegment, PciManagerError> {
         let pci_buses = Arc::new(PciBuses::new(num_root_ports));
         pci_buses
             .root_bus()
@@ -119,6 +120,9 @@ impl PciSegment {
             end_of_mem64_area,
             pci_irq_slots: *pci_irq_slots,
             root_ports: Vec::new(),
+            hotplug_completion: Arc::new(
+                HotplugCompletion::new().map_err(PciManagerError::HotplugCompletion)?,
+            ),
         };
 
         Ok(segment)
@@ -130,7 +134,7 @@ impl PciSegment {
         vm: &Arc<KvmVm>,
         pci_irq_slots: &[u8; 32],
         num_root_ports: u8,
-    ) -> Result<PciSegment, BusError> {
+    ) -> Result<PciSegment, PciManagerError> {
         let mut segment = Self::build(id, vm, pci_irq_slots, num_root_ports)?;
         let pci_config_io = Arc::new(Mutex::new(PciConfigIo::new(segment.pci_buses.clone())));
 
@@ -163,7 +167,7 @@ impl PciSegment {
         vm: &Arc<KvmVm>,
         pci_irq_slots: &[u8; 32],
         num_root_ports: u8,
-    ) -> Result<PciSegment, BusError> {
+    ) -> Result<PciSegment, PciManagerError> {
         let segment = Self::build(id, vm, pci_irq_slots, num_root_ports)?;
         info!(
             "pci: adding PCI segment: id={:#x}, PCI MMIO config address: {:#x}, mem32 area: \
@@ -201,6 +205,7 @@ impl PciSegment {
                 secondary_bus,
                 msix_vectors,
                 msix_bar_addr,
+                self.hotplug_completion.clone(),
             )));
 
             self.attach_root_port(vm, sbdf, root_port, msix_bar_addr)?;

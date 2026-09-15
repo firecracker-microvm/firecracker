@@ -784,11 +784,11 @@ impl RuntimeApiController {
                 .expect("Poisoned lock")
                 .hotplug_device(HotplugDeviceConfig::Net(config), event_manager)
                 .map(|()| VmmData::Empty),
-            HotUnplugDevice(device_id, _force) => self
+            HotUnplugDevice(device_id, force) => self
                 .vmm
                 .lock()
                 .expect("Poisoned lock")
-                .hot_unplug_device(device_id, event_manager)
+                .hot_unplug_device(device_id, event_manager, force)
                 .map(|()| VmmData::Empty),
             Pause => self.pause(),
             PutMMDS(value) => mmds_put_data(

@@ -74,6 +74,8 @@ pub enum PciManagerError {
     VirtioPciDevice(#[from] VirtioPciDeviceError),
     /// KVM error: {0}
     Kvm(#[from] vmm_sys_util::errno::Error),
+    /// Could not create the hot-unplug completion channel: {0}
+    HotplugCompletion(std::io::Error),
     /// No PCIe root port is free. Every configured root port already has a
     /// device in it; raise `pcie_hotplug_ports` in the machine configuration to
     /// allow more hot-plugged devices.
@@ -269,6 +271,22 @@ impl PciDevices {
         assert_eq!(Arc::strong_count(&pci_device_arc), 1);
 
         Ok(())
+    }
+
+    /// Ask the guest to release a device.
+    pub(crate) fn request_unplug(&self, device_id: &VirtioDeviceId) {
+        let bus = self
+            .virtio_devices
+            .get(device_id)
+            .expect("device presence should be checked before unplug")
+            .lock()
+            .expect("Poisoned lock")
+            .sbdf
+            .bus();
+
+        if let Some(port) = self.pci_segment.root_port_for_bus(bus) {
+            port.lock().expect("Poisoned lock").request_unplug();
+        }
     }
 
     fn restore_pci_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
