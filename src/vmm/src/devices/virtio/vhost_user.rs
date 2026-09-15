@@ -51,8 +51,8 @@ pub enum VhostUserError {
     VhostUserSetVringKick(VhostError),
     /// Set vring enable failed: {0}
     VhostUserSetVringEnable(VhostError),
-    /// Failed to read vhost eventfd: No memory region found
-    VhostUserNoMemoryRegion,
+    /// Guest memory is not a shared file mapping, so the backend cannot map it
+    VhostUserMemoryNotShareable,
     /// Invalid used address
     UsedAddress(GuestMemoryError),
 }
@@ -368,12 +368,10 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
         let mut regions: Vec<VhostUserMemoryRegionInfo> = Vec::new();
 
         for region in mem.iter() {
-            let (mmap_handle, mmap_offset) = match region.file_offset() {
-                Some(_file_offset) => (_file_offset.file().as_raw_fd(), _file_offset.start()),
-                None => {
-                    return Err(VhostUserError::VhostUserNoMemoryRegion);
-                }
-            };
+            let file_offset = region
+                .shared_file_offset()
+                .ok_or(VhostUserError::VhostUserMemoryNotShareable)?;
+            let (mmap_handle, mmap_offset) = (file_offset.file().as_raw_fd(), file_offset.start());
 
             let vhost_user_net_reg = VhostUserMemoryRegionInfo {
                 guest_phys_addr: region.start_addr().raw_value(),
@@ -484,7 +482,7 @@ pub(crate) mod tests {
         GuestMemoryMmap::from_regions(
             memory::create(
                 regions.iter().copied(),
-                libc::MAP_PRIVATE,
+                libc::MAP_SHARED,
                 Some(file),
                 false,
                 libc::MADV_NORMAL,
@@ -758,6 +756,48 @@ pub(crate) mod tests {
             unsafe { &*vuh.vu.hdr_flags.get() }.bits(),
             VhostUserHeaderFlag::NEED_REPLY.bits(),
         );
+    }
+
+    #[test]
+    fn test_update_mem_table_rejects_unshareable_memory() {
+        struct NoBackend;
+        impl VhostUserHandleBackend for NoBackend {}
+
+        let vuh = VhostUserHandleImpl {
+            vu: NoBackend,
+            socket_path: "".to_string(),
+        };
+        let region_size = 0x10000;
+        let regions = [(GuestAddress(0), region_size)];
+
+        // Anonymous memory has no file to hand over.
+        let anon = crate::test_utils::single_region_mem(region_size);
+        assert!(matches!(
+            vuh.update_mem_table(&anon),
+            Err(VhostUserError::VhostUserMemoryNotShareable)
+        ));
+
+        // A private file mapping has one, but the backend would map its own copy.
+        let file = TempFile::new().unwrap().into_file();
+        file.set_len(region_size as u64).unwrap();
+        let private = GuestMemoryMmap::from_regions(
+            memory::create(
+                regions.iter().copied(),
+                libc::MAP_PRIVATE,
+                Some(file),
+                false,
+                libc::MADV_NORMAL,
+            )
+            .unwrap()
+            .into_iter()
+            .map(|region| GuestRegionMmapExt::dram_from_mmap_region(region, 0))
+            .collect(),
+        )
+        .unwrap();
+        assert!(matches!(
+            vuh.update_mem_table(&private),
+            Err(VhostUserError::VhostUserMemoryNotShareable)
+        ));
     }
 
     #[test]

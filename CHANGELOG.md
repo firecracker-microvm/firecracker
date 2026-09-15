@@ -18,6 +18,13 @@ and this project adheres to
 
 ### Fixed
 
+- [#6204](https://github.com/firecracker-microvm/firecracker/pull/6204):
+  Hot-adding a vhost-user block device (`PUT /drives/{id}` with `socket`) to a
+  microVM booted without any vhost-user device, or restored from a snapshot
+  memory file, now fails with 400. The vhost-user backend cannot map such guest
+  memory, so the request used to return 204 and the device then failed to
+  activate.
+
 ## [1.17.0]
 
 ### Added
