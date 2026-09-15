@@ -18,6 +18,14 @@ and this project adheres to
 
 ### Fixed
 
+- [#6211](https://github.com/firecracker-microvm/firecracker/pull/6211): Fixed
+  the rate limiter permanently throttling a device when a single request
+  exceeded the bucket size by less than one millisecond's worth of tokens. The
+  overconsumption debt was truncated to `0ms`, which disarmed the underlying
+  timerfd while the limiter stayed marked as blocked, so the timer never fired
+  and the device I/O hung until the microVM was restarted. The debt is now
+  computed in nanoseconds and rounded up.
+
 ## [1.17.0]
 
 ### Added
