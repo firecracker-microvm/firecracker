@@ -677,7 +677,10 @@ fn run_without_api(
             .run()
             .expect("Failed to start the event manager");
 
-        match vmm.lock().unwrap().shutdown_exit_code() {
+        let mut locked_vmm = vmm.lock().expect("Poisoned lock");
+        locked_vmm.complete_hotplug_removals(&mut event_manager);
+
+        match locked_vmm.shutdown_exit_code() {
             Some(FcExitCode::Ok) => break,
             Some(exit_code) => return Err(RunWithoutApiError::Shutdown(exit_code)),
             None => continue,

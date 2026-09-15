@@ -784,11 +784,11 @@ impl RuntimeApiController {
                 .expect("Poisoned lock")
                 .hotplug_device(HotplugDeviceConfig::Net(config), event_manager)
                 .map(|()| VmmData::Empty),
-            HotUnplugDevice(device_id, _force) => self
+            HotUnplugDevice(device_id, force) => self
                 .vmm
                 .lock()
                 .expect("Poisoned lock")
-                .hot_unplug_device(device_id, event_manager)
+                .hot_unplug_device(device_id, event_manager, force)
                 .map(|()| VmmData::Empty),
             Pause => self.pause(),
             PutMMDS(value) => mmds_put_data(
@@ -868,6 +868,14 @@ impl RuntimeApiController {
     /// Creates a new `RuntimeApiController`.
     pub fn new(vmm: Arc<Mutex<Vmm>>) -> Self {
         Self { vmm }
+    }
+
+    /// Tears down the devices whose removal the guest has acknowledged.
+    pub fn complete_hotplug_removals(&mut self, event_manager: &mut EventManager) {
+        self.vmm
+            .lock()
+            .expect("Poisoned lock")
+            .complete_hotplug_removals(event_manager);
     }
 
     /// Pauses the microVM by pausing the vCPUs.
