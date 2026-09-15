@@ -16,6 +16,7 @@ use crate::devices::virtio::queue::{InvalidAvailIdx, QueueConfig, QueueError};
 use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::impl_device_type;
 use crate::rate_limiter::BucketUpdate;
+use crate::seccomp::BpfProgram;
 use crate::snapshot::Persist;
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -112,6 +113,19 @@ impl Block {
         match self {
             Self::Virtio(_) => false,
             Self::VhostUser(_) => true,
+        }
+    }
+
+    pub(crate) fn spawn_worker(
+        &mut self,
+        seccomp_filter: Option<Arc<BpfProgram>>,
+    ) -> Result<(), BlockError> {
+        match self {
+            Self::Virtio(b) if b.config.threaded => b
+                .spawn_worker(seccomp_filter.ok_or(BlockError::MissingSeccompFilter)?)
+                .map_err(BlockError::VirtioBackend),
+            Self::Virtio(_) => Ok(()),
+            Self::VhostUser(_) => Ok(()),
         }
     }
 }
@@ -298,5 +312,28 @@ impl Persist<'_> for Block {
                     .map_err(BlockError::VhostUserBackend)?,
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::devices::virtio::block::virtio::device::FileEngineType;
+    use crate::devices::virtio::block::virtio::test_utils::default_block;
+
+    #[test]
+    fn test_spawn_worker_filter() {
+        let mut inline = Block::Virtio(default_block(FileEngineType::Sync));
+        inline.spawn_worker(None).unwrap();
+
+        let mut threaded = default_block(FileEngineType::Sync);
+        threaded.config.threaded = true;
+        let mut threaded = Block::Virtio(threaded);
+
+        assert!(matches!(
+            threaded.spawn_worker(None),
+            Err(BlockError::MissingSeccompFilter)
+        ));
+        threaded.spawn_worker(Some(Arc::new(vec![]))).unwrap();
     }
 }
