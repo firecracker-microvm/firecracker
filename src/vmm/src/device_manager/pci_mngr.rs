@@ -34,7 +34,7 @@ use crate::devices::virtio::vsock::persist::{
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{debug, warn};
 use crate::pci::PciSBDF;
-use crate::pci::bus::PciRootError;
+use crate::pci::bus::PciBusError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
@@ -57,8 +57,8 @@ pub enum PciManagerError {
     ResourceAllocation(#[from] vm_allocator::Error),
     /// Bus error: {0}
     Bus(#[from] BusError),
-    /// PCI root error: {0}
-    PciRoot(#[from] PciRootError),
+    /// PCI bus error: {0}
+    PciBus(#[from] PciBusError),
     /// MSI error: {0}
     Msi(#[from] InterruptError),
     /// VirtIO PCI device error: {0}
@@ -144,7 +144,7 @@ impl PciDevices {
         // Don't hold the resource allocator lock across attach_common()
         // below: a device access holds the bus lock and can take the allocator
         // lock, so the reverse order can deadlock.
-        virtio_device.allocate_bars(&mut vm.resource_allocator().mmio64_memory);
+        virtio_device.allocate_bars(&mut vm.resource_allocator().mmio32_memory);
 
         let virtio_device = Arc::new(Mutex::new(virtio_device));
 
@@ -213,7 +213,7 @@ impl PciDevices {
         pci_device_arc
             .lock()
             .expect("Poisoned lock")
-            .free_bars(&mut vm.resource_allocator().mmio64_memory);
+            .free_bars(&mut vm.resource_allocator().mmio32_memory);
 
         // Ensure no other references to the device remain, so it is freed when
         // this function returns.

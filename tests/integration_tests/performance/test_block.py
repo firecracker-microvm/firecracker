@@ -17,8 +17,21 @@ pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
 # size of the block device used in the test, in MB
 BLOCK_DEVICE_SIZE_MB = 2048
 
-# Time (in seconds) for which fio "warms up"
-WARMUP_SEC = 10
+# Time (in seconds) for which fio "warms up" before measurements are taken.
+# The bandwidth ramp is direction-dependent: reads reach steady state almost
+# immediately, while writes take a few seconds to settle. These values were
+# derived from per-second fio bandwidth logs: the worst-case (libaio randwrite)
+# transient clears by ~6-7s (10s rounding up), while reads are within noise
+# from the first second, so they need no ramp.
+WARMUP_SEC_READ = 0
+WARMUP_SEC_WRITE = 10
+
+
+def warmup_sec_for(mode: fio.Mode) -> int:
+    """Return the fio warmup (ramp) time appropriate for the given mode."""
+    write_modes = {fio.Mode.WRITE, fio.Mode.RANDWRITE, fio.Mode.TRIM, fio.Mode.RANDTRIM}
+    return WARMUP_SEC_WRITE if mode in write_modes else WARMUP_SEC_READ
+
 
 # Time (in seconds) for which fio runs after warmup is done
 RUNTIME_SEC = 30
@@ -50,6 +63,7 @@ def run_fio(
     microvm, mode: fio.Mode, block_size: int, test_output_dir, fio_engine: fio.Engine
 ):
     """Run a fio test in the specified mode with block size bs."""
+    warmup_sec = warmup_sec_for(mode)
     cmd = fio.build_cmd(
         "/dev/vdb",
         BLOCK_DEVICE_SIZE_MB,
@@ -58,7 +72,7 @@ def run_fio(
         microvm.vcpus_count,
         fio_engine,
         RUNTIME_SEC,
-        WARMUP_SEC,
+        warmup_sec,
     )
 
     prepare_microvm_for_test(microvm)
@@ -69,7 +83,7 @@ def run_fio(
             track_cpu_utilization,
             microvm.firecracker_pid,
             RUNTIME_SEC,
-            omit=WARMUP_SEC,
+            omit=warmup_sec,
         )
 
         # Print the fio command in the log and run it
