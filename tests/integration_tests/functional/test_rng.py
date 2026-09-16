@@ -9,45 +9,33 @@ from framework.utils import check_entropy
 from host_tools.network import SSHConnection
 
 
-def uvm_with_rng_booted(uvm, microvm_factory, rate_limiter):
-    """Return a booted microvm with virtio-rng configured"""
-    # pylint: disable=unused-argument
+# The two fixtures below shadow the conftest lifecycle stages for the whole
+# module. `uvm_configured` mirrors the conftest stage but spawns at INFO: the
+# virtio-rng device logs so much at DEBUG that the overhead can distort the
+# rate-limiter throughput measurements (see b755a67fb). `uvm_booted` attaches
+# the entropy device before boot; no test requests it directly — the shared
+# `uvm_any`/`uvm_restored` fixtures resolve it by name, so booted and restored
+# variants both carry the device.
+@pytest.fixture
+def uvm_configured(uvm, vcpu_count, mem_size_mib, huge_pages, cpu_template):
+    """Spawned + configured microVM logging at INFO."""
     uvm.spawn(log_level="INFO")
-    uvm.basic_config(vcpu_count=2, mem_size_mib=256)
-    uvm.add_net_iface()
-    uvm.api.entropy.put(rate_limiter=rate_limiter)
-    uvm.start()
-    # Just stuff it in the microvm so we can look at it later
-    uvm.rng_rate_limiter = rate_limiter
+    uvm.basic_config(
+        vcpu_count=vcpu_count,
+        mem_size_mib=mem_size_mib,
+        huge_pages=huge_pages,
+        cpu_template=cpu_template,
+    )
     return uvm
 
 
-def uvm_with_rng_restored(uvm, microvm_factory, rate_limiter):
-    """Return a restored uvm with virtio-rng configured"""
-    uvm = uvm_with_rng_booted(uvm, microvm_factory, rate_limiter)
-    snapshot = uvm.snapshot_full()
-    uvm.kill()
-    uvm2 = microvm_factory.build_from_snapshot(snapshot)
-    uvm2.rng_rate_limiter = uvm.rng_rate_limiter
-    return uvm2
-
-
-@pytest.fixture(params=[uvm_with_rng_booted, uvm_with_rng_restored])
-def uvm_ctor(request):
-    """Fixture to return uvms with different constructors"""
-    return request.param
-
-
-@pytest.fixture(params=[None])
-def rate_limiter(request):
-    """Fixture to return different rate limiters"""
-    return request.param
-
-
 @pytest.fixture
-def uvm_any(microvm_factory, uvm_ctor, uvm, rate_limiter):
-    """Return booted and restored uvms"""
-    return uvm_ctor(uvm, microvm_factory, rate_limiter)
+def uvm_booted(uvm_configured):
+    """Booted microVM with a virtio-rng device."""
+    uvm_configured.api.entropy.put()
+    uvm_configured.add_net_iface()
+    uvm_configured.start()
+    return uvm_configured
 
 
 def list_rng_available(ssh_connection: SSHConnection) -> list[str]:
@@ -215,17 +203,19 @@ def _rate_limiter_id(rate_limiter):
         {"bandwidth": {"size": 10000, "refill_time": 100}},
         {"bandwidth": {"size": 100000, "refill_time": 100}},
     ],
-    indirect=True,
     ids=_rate_limiter_id,
 )
-@pytest.mark.parametrize("uvm_ctor", [uvm_with_rng_booted], indirect=True)
-def test_rng_bw_rate_limiter(uvm_any):
+def test_rng_bw_rate_limiter(uvm_configured, rate_limiter):
     """
     Test that rate limiter without initial burst budget works
     """
-    vm = uvm_any
-    size = vm.rng_rate_limiter["bandwidth"]["size"]
-    refill_time = vm.rng_rate_limiter["bandwidth"]["refill_time"]
+    vm = uvm_configured
+    vm.api.entropy.put(rate_limiter=rate_limiter)
+    vm.add_net_iface()
+    vm.start()
+
+    size = rate_limiter["bandwidth"]["size"]
+    refill_time = rate_limiter["bandwidth"]["refill_time"]
     expected_kbps = size / refill_time
 
     assert_virtio_rng_is_current_hwrng_device(vm.ssh)

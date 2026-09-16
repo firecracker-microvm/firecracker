@@ -9,12 +9,12 @@ import time
 import pytest
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
-from framework.microvm import HugePagesConfig
 from framework.utils import (
     get_stable_rss_mem,
-    supports_hugetlbfs_discard,
+    start_fast_page_fault_helper,
     track_cpu_utilization,
 )
+from framework.utils_hugepages import HugePagesConfig, supports_hugetlbfs_discard
 
 # Every test in this module exercises all huge_pages variants.
 pytestmark = pytest.mark.parametrize(
@@ -92,13 +92,8 @@ def test_hinting_reporting_cpu(
         }
     )
 
-    test_microvm.ssh.check_output(
-        "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
-    )
-
-    # Give helper time to initialize
-    time.sleep(5)
-    _, pid, _ = test_microvm.ssh.check_output("pidof fast_page_fault_helper")
+    # Blocks until the helper has touched its memory and is waiting in sigwait.
+    pid = start_fast_page_fault_helper(test_microvm.ssh)
     test_microvm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
 
     cpu_util = None
@@ -217,15 +212,11 @@ def test_size_reduction(uvm, method, huge_pages):
 
     get_stable_rss_mem(test_microvm)
 
-    test_microvm.ssh.check_output(
-        "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
-    )
-
-    time.sleep(1)
+    # Blocks until the helper has touched its 128 MiB and is waiting in sigwait.
+    pid = start_fast_page_fault_helper(test_microvm.ssh)
 
     first_reading = get_stable_rss_mem(test_microvm)
 
-    _, pid, _ = test_microvm.ssh.check_output("pidof fast_page_fault_helper")
     # Kill the application which will free the held memory
     test_microvm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
 

@@ -7,12 +7,12 @@ from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.microvm import MicroVMFactory
 
 
-def test_fuzzing_warning(guest_kernel, rootfs):
+def test_fuzzing_warning(guest_kernel, rootfs, vm_backend):
     """Checks that a Firecracker binary built with fuzzing logs a warning at startup"""
 
     bin_dir = host_tools.cargo_build.build_fuzzing()
 
-    vmfcty = MicroVMFactory(bin_dir)
+    vmfcty = MicroVMFactory(bin_dir, backend=vm_backend)
     uvm = vmfcty.build(guest_kernel, rootfs)
     uvm.spawn()
     uvm.basic_config()
