@@ -345,7 +345,7 @@ def test_start_with_metadata_limit(uvm):
     metadata_file = DIR / "metadata.json"
     _add_metadata_file(test_microvm, metadata_file)
 
-    test_microvm.spawn(serial_out_path=None)
+    test_microvm.spawn(serial_out_path=None, expect_failure=True)
 
     test_microvm.check_log_message(
         "Populating MMDS from file failed: The MMDS patch request doesn't fit."
@@ -366,7 +366,7 @@ def test_start_with_metadata_default_limit(uvm):
 
     _add_metadata_file(test_microvm, metadata_file)
 
-    test_microvm.spawn(serial_out_path=None)
+    test_microvm.spawn(serial_out_path=None, expect_failure=True)
 
     test_microvm.check_log_message(
         "Populating MMDS from file failed: The MMDS patch request doesn't fit."
