@@ -23,6 +23,10 @@ and this project adheres to
 
 ### Removed
 
+- [#6223](https://github.com/firecracker-microvm/firecracker/pull/6223): Custom
+  CPU template JSON files are no longer included in release artifacts. The
+  template definitions remain available in `tests/data/custom_cpu_templates`.
+
 ### Fixed
 
 - [#6218](https://github.com/firecracker-microvm/firecracker/pull/6218): Bumped
