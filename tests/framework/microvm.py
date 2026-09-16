@@ -891,11 +891,11 @@ class Microvm:
             backend_type, path_on_host, self.chroot(), drive_id, is_read_only
         )
 
-        socket = backend.spawn(self.jailer.uid, self.jailer.gid)
+        socket_path = backend.spawn(self.jailer.uid, self.jailer.gid)
 
         self.api.drive.put(
             drive_id=drive_id,
-            socket=socket,
+            socket=socket_path,
             partuuid=partuuid,
             is_root_device=is_root_device,
             cache_type=cache_type,
