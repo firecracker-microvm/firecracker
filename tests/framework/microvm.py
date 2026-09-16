@@ -677,6 +677,9 @@ class Microvm:
         """
         # pylint: disable=subprocess-run-check
         # pylint: disable=too-many-branches
+        # Firecracker matches `--level` case-insensitively, so normalise the
+        # value to the one spelling the comparisons below are written against.
+        log_level = log_level.capitalize()
         self.jailer.setup()
         self.api = Api(
             self.jailer.api_socket_path(),
