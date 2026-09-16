@@ -68,6 +68,8 @@ pub enum VfioError {
     MsixConfig(#[from] InterruptError),
     /// Device does not provide MSIx irq
     NoMsixIrq,
+    /// BAR{0} size is {1} smaller than host page {2}
+    BARSmallerThanHostPage(u8, u64, u64),
     /// BAR{0} MSI-X table at offset {1:#x} size {2:#x} does not fit in region of size {3:#x}
     MsixTableOutOfRange(u8, u64, u64, u64),
     /// BAR{0} sparse mmap area at offset {1:#x} size {2:#x} does not fit in region of size {3:#x}
@@ -618,6 +620,7 @@ fn vfio_allocate_memory_ranges_for_bars(
 ) -> Result<Bars, VfioError> {
     let mut bars = Bars::default();
     let mut bar_idx = 0;
+    let host_page_size = usize_to_u64(host_page_size());
     while bar_idx < NUM_BAR_REGS {
         let VfioBarInfo {
             value: bar_value,
@@ -653,8 +656,7 @@ fn vfio_allocate_memory_ranges_for_bars(
             // PCIe spec revision 6.0: 7.5.1.2.1 Base Address Registers
             // This design implies that all address spaces used are a power of two
             // in size and are naturally aligned.
-            let alignment = std::cmp::max(host_page_size(), u64_to_usize(size));
-            let alignment = usize_to_u64(alignment);
+            let alignment = std::cmp::max(host_page_size, size);
 
             let gpa;
             if is_io_bar {
@@ -664,7 +666,17 @@ fn vfio_allocate_memory_ranges_for_bars(
                 );
                 bar_idx += 1;
                 continue;
-            } else if is_64_bits {
+            }
+
+            if size < host_page_size {
+                return Err(VfioError::BARSmallerThanHostPage(
+                    bar_idx,
+                    size,
+                    host_page_size,
+                ));
+            }
+
+            if is_64_bits {
                 match resource_allocator.mmio64_memory.allocate(
                     size,
                     alignment,
@@ -1424,6 +1436,23 @@ mod tests {
         let (msix, masks) = vfio_get_pci_capabilities(&config_space);
         assert!(msix.is_some());
         assert_eq!(masks.len(), 1);
+    }
+
+    #[test]
+    fn test_vfio_calculate_bar_areas_bar_smaller_than_host_page() {
+        let bar_infos: [VfioBarInfo; NUM_BAR_REGS as usize] =
+            std::array::from_fn(|_| VfioBarInfo {
+                value: 0,
+                size: encode_32_bits_bar_size(0x100),
+            });
+
+        let mut resource_allocator = ResourceAllocator::new();
+        let err =
+            vfio_allocate_memory_ranges_for_bars(&mut resource_allocator, &bar_infos).unwrap_err();
+        assert!(matches!(
+            err,
+            VfioError::BARSmallerThanHostPage(0, 0x100, 0x1000)
+        ));
     }
 
     #[test]
