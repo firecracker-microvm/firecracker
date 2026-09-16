@@ -99,6 +99,9 @@ pub enum VmmAction {
     /// Partial update of the MMDS contents.
     PatchMMDS(Value),
     /// Pause the guest, by pausing the microVM VCPUs.
+    ///
+    /// This also pauses device emulation: `ApiServerAdapter::handle_request` stops
+    /// polling the event loop and only serves API requests until `Resume`.
     Pause,
     /// Repopulate the MMDS contents.
     PutMMDS(Value),
@@ -867,6 +870,9 @@ impl RuntimeApiController {
     }
 
     /// Pauses the microVM by pausing the vCPUs.
+    ///
+    /// Device emulation is not stopped here; `ApiServerAdapter::handle_request` stops
+    /// polling the event loop once this returns `Ok`.
     pub fn pause(&mut self) -> Result<VmmData, VmmActionError> {
         let pause_start_us = get_time_us(ClockType::Monotonic);
 
