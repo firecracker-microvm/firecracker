@@ -500,6 +500,12 @@ impl Vmm {
     pub fn save_state(&mut self, vm_info: &VmInfo) -> Result<MicrovmState, MicrovmStateError> {
         self.check_unsnapshottable_devices()?;
 
+        if self.instance_info.state != VmState::Paused {
+            return Err(MicrovmStateError::NotAllowed(
+                "snapshot requires a paused microVM".into(),
+            ));
+        }
+
         // We need to save device state before saving KVM state.
         // Some devices, (at the time of writing this comment block device with async engine)
         // might modify the VirtIO transport and send an interrupt to the guest. If we save KVM
