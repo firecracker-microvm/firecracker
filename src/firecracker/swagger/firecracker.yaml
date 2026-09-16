@@ -833,7 +833,9 @@ paths:
     patch:
       summary: Updates the microVM state.
       description:
-        Sets the desired state (Paused or Resumed) for the microVM.
+        Sets the desired state (Paused or Resumed) for the microVM. While Paused, the
+        vCPUs are paused and the VMM thread only serves API requests, so no device
+        emulation runs.
       operationId: patchVm
       parameters:
         - name: body

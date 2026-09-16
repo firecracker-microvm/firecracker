@@ -472,6 +472,10 @@ impl Vmm {
     }
 
     /// Sends a pause command to the vCPUs.
+    ///
+    /// This only parks the vCPU threads. Device emulation is stopped by
+    /// `ApiServerAdapter::handle_request`, which after a successful pause stops polling
+    /// the event loop and only serves API requests until `Resume`.
     pub fn pause_vm(&mut self) -> Result<(), VmmError> {
         let kvm_vm = self
             .vm
