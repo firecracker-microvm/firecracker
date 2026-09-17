@@ -148,8 +148,10 @@ mod tests {
     use vm_superio::Serial;
     use vmm_sys_util::eventfd::EventFd;
 
+    use std::sync::Arc;
+
     use super::*;
-    use crate::devices::legacy::serial::{SerialOut, SerialOutInner};
+    use crate::devices::legacy::serial::{SerialDeviceMetrics, SerialOut, SerialOutInner};
     use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper};
     use crate::vstate::vm::tests::setup_vm_with_memory;
 
@@ -161,9 +163,7 @@ mod tests {
             stdio_serial: Arc::new(Mutex::new(SerialDevice {
                 serial: Serial::with_events(
                     EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
-                    SerialEventsWrapper {
-                        buffer_ready_event_fd: None,
-                    },
+                    SerialEventsWrapper::new(Arc::new(SerialDeviceMetrics::default()), None),
                     SerialOut::new(SerialOutInner::Sink, None),
                 ),
                 input: None,
