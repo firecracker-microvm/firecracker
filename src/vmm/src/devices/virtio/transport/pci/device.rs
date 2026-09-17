@@ -224,6 +224,9 @@ const MSIX_PBA_SIZE: u32 = 0x800;
 /// The BAR size must be a power of 2.
 pub const CAPABILITY_BAR_SIZE: u64 = 0x80000;
 
+/// The default PCI bridge window size that Linux uses
+const BRIDGE_WINDOW_SIZE: u64 = 0x10_0000;
+
 /// PCI configuration register index of the Command/Status DWORD.
 const COMMAND_REG: u16 = 1;
 /// Command register "Memory Space Enable" bit
@@ -367,7 +370,7 @@ impl VirtioPciDevice {
         } else {
             let range = allocator.allocate(
                 CAPABILITY_BAR_SIZE,
-                CAPABILITY_BAR_SIZE,
+                BRIDGE_WINDOW_SIZE,
                 AllocPolicy::FirstMatch,
             )?;
 
@@ -1261,7 +1264,10 @@ mod tests {
     use vm_allocator::{AddressAllocator, AllocPolicy, RangeInclusive};
     use vm_memory::{ByteValued, Le32};
 
-    use super::{EventFd, IoEventAddress, KvmVm, NoDatamatch, PciCapabilityType, VirtioPciDevice};
+    use super::{
+        BRIDGE_WINDOW_SIZE, EventFd, IoEventAddress, KvmVm, NoDatamatch, PciCapabilityType,
+        VirtioPciDevice,
+    };
     use crate::Vmm;
     use crate::arch::{MEM_32BIT_DEVICES_SIZE, MEM_32BIT_DEVICES_START};
     use crate::builder::tests::default_vmm_with_pci;
@@ -1287,7 +1293,7 @@ mod tests {
     /// The address the single virtio-pci BAR of a freshly booted VM ends up
     /// at: the first CAPABILITY_BAR_SIZE-aligned address of the 32-bit MMIO
     /// window.
-    const FIRST_BAR_BASE: u64 = MEM_32BIT_DEVICES_START.next_multiple_of(CAPABILITY_BAR_SIZE);
+    const FIRST_BAR_BASE: u64 = MEM_32BIT_DEVICES_START.next_multiple_of(BRIDGE_WINDOW_SIZE);
 
     fn create_vmm_with_virtio_pci_device() -> Vmm {
         let mut vmm = default_vmm_with_pci();
