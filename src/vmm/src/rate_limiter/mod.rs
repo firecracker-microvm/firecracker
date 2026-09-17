@@ -48,8 +48,8 @@ pub enum BucketReduction {
     Failure,
     /// A part of the available tokens have been consumed.
     Success,
-    /// A number of tokens `inner` times larger than the bucket size have been consumed.
-    OverConsumption(f64),
+    /// The time required to replenish the tokens consumed in excess of the bucket capacity.
+    OverConsumption(Duration),
 }
 
 /// TokenBucket provides a lower level interface to rate limiting with a
@@ -150,6 +150,15 @@ impl TokenBucket {
         })
     }
 
+    /// Returns the time needed to refill `tokens`, rounded up and saturated at `u64::MAX`
+    /// nanoseconds.
+    fn time_to_refill(&self, tokens: u64) -> Duration {
+        let ns = (u128::from(tokens) * u128::from(self.processed_refill_time))
+            .div_ceil(u128::from(self.processed_capacity));
+
+        Duration::from_nanos(u64::try_from(ns).unwrap_or(u64::MAX))
+    }
+
     // Replenishes token bucket based on elapsed time. Should only be called internally by `Self`.
     #[allow(clippy::cast_possible_truncation)]
     fn auto_replenish(&mut self) {
@@ -166,41 +175,28 @@ impl TokenBucket {
             // `processed_capacity` and `processed_refill_time` are the result of simplifying above
             // fraction formula with their greatest-common-factor.
 
-            // In the constructor, we assured that (self.refill_time * NANOSEC_IN_ONE_MILLISEC)
-            // fits into a u64 That means, at this point we know that time_delta <
-            // u64::MAX. Since all other values here are u64, this assures that u128
-            // multiplication cannot overflow.
             let processed_capacity = u128::from(self.processed_capacity);
             let processed_refill_time = u128::from(self.processed_refill_time);
 
-            let tokens = (time_delta * processed_capacity) / processed_refill_time;
+            // `time_delta` < `refill_time * NANOSEC_IN_ONE_MILLISEC`, which fits into a u64
+            // (checked in the constructor), and the `processed_*` values are u64, so this
+            // u128 multiplication cannot overflow.
+            // Since `time_delta` is less than the full refill time, `tokens` is less than
+            // `self.size`, so this cast cannot truncate.
+            let tokens = ((time_delta * processed_capacity) / processed_refill_time) as u64;
 
-            // We increment `self.last_update` by the minimum time required to generate `tokens`, in
-            // the case where we have the time to generate `1.8` tokens but only
-            // generate `x` tokens due to integer arithmetic this will carry the time
-            // required to generate 0.8th of a token over to the next call, such that if
-            // the next call where to generate `2.3` tokens it would instead
-            // generate `3.1` tokens. This minimizes dropping tokens at high frequencies.
-            // We want the integer division here to round up instead of down (as if we round down,
-            // we would allow some fraction of a nano second to be used twice, allowing
-            // for the generation of one extra token in extreme circumstances).
-            let mut time_adjustment = tokens * processed_refill_time / processed_capacity;
-            if !(tokens * processed_refill_time).is_multiple_of(processed_capacity) {
-                time_adjustment += 1;
-            }
+            // Increment `last_update` by the minimum time required to generate `tokens`.
+            // Rounding up carries the unused fractional token time over to the next call.
+            let time_adjustment = self.time_to_refill(tokens);
 
-            // Ensure that we always generate as many tokens as we can: assert that the "unused"
-            // part of time_delta is less than the time it would take to generate a
-            // single token (= processed_refill_time / processed_capacity)
-            debug_assert!(time_adjustment <= time_delta);
+            debug_assert!(time_adjustment.as_nanos() <= time_delta);
             debug_assert!(
-                (time_delta - time_adjustment) * processed_capacity <= processed_refill_time
+                (time_delta - time_adjustment.as_nanos()) * processed_capacity
+                    <= processed_refill_time
             );
 
-            // time_adjustment is at most time_delta, and since time_delta <= u64::MAX, this cast is
-            // fine
-            self.last_update += Duration::from_nanos(time_adjustment as u64);
-            self.budget = std::cmp::min(self.budget.saturating_add(tokens as u64), self.size);
+            self.last_update += time_adjustment;
+            self.budget = std::cmp::min(self.budget.saturating_add(tokens), self.size);
         }
     }
 
@@ -234,11 +230,11 @@ impl TokenBucket {
                     tokens,
                     self.size
                 );
-                // Empty the bucket and report an overconsumption of
-                // (remaining tokens / size) times larger than the bucket size
+                // Empty the bucket and report the time required to replenish
+                // the tokens consumed in excess of the bucket capacity
                 tokens -= self.budget;
                 self.budget = 0;
-                return BucketReduction::OverConsumption(tokens as f64 / self.size as f64);
+                return BucketReduction::OverConsumption(self.time_to_refill(tokens));
             }
 
             if tokens > self.budget {
@@ -460,7 +456,6 @@ impl RateLimiter {
         };
         // Try to consume from the token bucket.
         if let Some(bucket) = token_bucket {
-            let refill_time = bucket.refill_time_ms();
             match bucket.reduce(tokens) {
                 // When we report budget is over, there will be no further calls here,
                 // register a timer to replenish the bucket and resume processing;
@@ -475,16 +470,13 @@ impl RateLimiter {
                 BucketReduction::Success => true,
                 // The operation succeeded as the tokens have been consumed
                 // but the timer still needs to be armed.
-                BucketReduction::OverConsumption(ratio) => {
-                    // The operation "borrowed" a number of tokens `ratio` times
-                    // greater than the size of the bucket, and since it takes
-                    // `refill_time` milliseconds to fill an empty bucket, in
-                    // order to enforce the bandwidth limit we need to prevent
-                    // further calls to the rate limiter for
-                    // `ratio * refill_time` milliseconds.
-                    // The conversion should be safe because the ratio is positive.
-                    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                    self.activate_timer(Duration::from_millis((ratio * refill_time as f64) as u64));
+                BucketReduction::OverConsumption(duration) => {
+                    // The operation "borrowed" tokens from the bucket. `duration` is
+                    // the minimum time required to replenish the borrowed tokens.
+                    //
+                    // Use the duration directly so that sub-millisecond debts are
+                    // preserved instead of being truncated to zero.
+                    self.activate_timer(duration);
                     true
                 }
             }
@@ -976,7 +968,10 @@ pub(crate) mod tests {
         clock.advance(Duration::from_millis(500));
         assert_eq!(tb.reduce(500), BucketReduction::Success);
         clock.advance(Duration::from_millis(1000));
-        assert_eq!(tb.reduce(2500), BucketReduction::OverConsumption(1.5));
+        assert_eq!(
+            tb.reduce(2500),
+            BucketReduction::OverConsumption(Duration::from_millis(1500))
+        );
 
         tb.reset();
         assert_eq!(tb.capacity(), 1000);
@@ -1197,6 +1192,35 @@ pub(crate) mod tests {
         l.event_handler().unwrap();
         assert!(!l.is_blocked());
         assert!(l.consume(100, TokenType::Bytes));
+    }
+
+    #[test]
+    fn test_rate_limiter_overconsumption_sub_millisecond() {
+        // Bucket of 1_000_000 bytes that refills completely in one second.
+        // Borrowing one single token beyond the bucket capacity must be
+        // replenished in `1/1_000_000 * 1000 ms = 0.001 ms`. The limiter has
+        // to arm a (sub-millisecond) timer for that debt. If the duration
+        // is truncated to zero, the timerfd gets disarmed while `timer_active`
+        // stays set, and the limiter is wedged forever.
+        let clock = MockClock::new();
+        let mut l = RateLimiter::new_mocked(1_000_000, 0, 1000, 0, 0, 0, &clock);
+
+        // Consume one byte more than the full bucket, i.e. borrow 1 token.
+        assert!(l.consume(1_000_001, TokenType::Bytes));
+        assert!(l.is_blocked());
+
+        // The debt of 1 token takes exactly 1000 ns to replenish, so the timer
+        // must not fire one nanosecond earlier. With the buggy millisecond
+        // truncation the timer is disarmed, so `event_handler` keeps returning
+        // `SpuriousRateLimiterEvent` and the limiter never unblocks.
+        clock.advance(Duration::from_nanos(999));
+        l.event_handler().unwrap_err();
+        assert!(l.is_blocked());
+
+        clock.advance(Duration::from_nanos(1));
+        l.event_handler().unwrap();
+        assert!(!l.is_blocked());
+        assert!(l.consume(1, TokenType::Bytes));
     }
 
     #[test]
