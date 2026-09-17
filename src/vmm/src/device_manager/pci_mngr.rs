@@ -68,10 +68,10 @@ pub enum PciManagerError {
 }
 
 impl PciDevices {
-    pub fn new(vm: &Arc<KvmVm>) -> Result<Self, PciManagerError> {
+    pub fn new(vm: &Arc<KvmVm>, hotplug_ports: u8) -> Result<Self, PciManagerError> {
         // Currently we don't assign any IRQs to PCI devices. We will be using MSI-X interrupts
         // only.
-        let pci_segment = PciSegment::new(0, vm, &[0u8; 32])?;
+        let pci_segment = PciSegment::new(0, vm, &[0u8; 32], hotplug_ports)?;
 
         Ok(Self {
             pci_segment,
@@ -154,6 +154,11 @@ impl PciDevices {
 
     pub(crate) fn pci_segment(&self) -> &PciSegment {
         &self.pci_segment
+    }
+
+    /// Attach the configured number of PCIe root ports.
+    pub(crate) fn attach_root_ports(&mut self, vm: &Arc<KvmVm>) -> Result<(), PciManagerError> {
+        self.pci_segment.attach_root_ports(vm)
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -497,7 +502,7 @@ impl<'a> Persist<'a> for PciDevices {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let mem = constructor_args.mem;
-        let mut pci_devices = PciDevices::new(constructor_args.vm)?;
+        let mut pci_devices = PciDevices::new(constructor_args.vm, 0)?;
 
         if let Some(balloon_state) = &state.balloon_device {
             let device = Arc::new(Mutex::new(Balloon::restore(
@@ -881,7 +886,8 @@ mod tests {
     "mem_size_mib": 128,
     "smt": false,
     "track_dirty_pages": false,
-    "huge_pages": "None"
+    "huge_pages": "None",
+    "pcie_hotplug_ports": 0
   }},
   "metrics": null,
   "mmds-config": {{

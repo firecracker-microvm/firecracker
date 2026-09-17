@@ -237,6 +237,7 @@ impl DeviceManager {
         serial_output: Option<&PathBuf>,
         serial_rate_limiter: Option<TokenBucket>,
         pci_enabled: bool,
+        pcie_hotplug_ports: u8,
     ) -> Result<Self, DeviceManagerCreateError> {
         #[cfg(target_arch = "x86_64")]
         let legacy_devices = Self::create_legacy_devices(
@@ -253,18 +254,30 @@ impl DeviceManager {
             #[cfg(target_arch = "x86_64")]
             legacy_devices: Some(legacy_devices),
             acpi_devices: ACPIDeviceManager::default(),
-            virtio_devices: Self::create_virtio_devices(pci_enabled, vm)?,
+            virtio_devices: Self::create_virtio_devices(pci_enabled, vm, pcie_hotplug_ports)?,
         })
     }
 
     fn create_virtio_devices(
         pci_enabled: bool,
         vm: &Arc<KvmVm>,
+        pcie_hotplug_ports: u8,
     ) -> Result<VirtioDevices, PciManagerError> {
         if pci_enabled {
-            Ok(VirtioDevices::Pci(PciDevices::new(vm)?))
+            Ok(VirtioDevices::Pci(PciDevices::new(vm, pcie_hotplug_ports)?))
         } else {
             Ok(VirtioDevices::Mmio(MMIOVirtioDevices::new()))
+        }
+    }
+
+    /// Attach the configured number of PCIe root ports.
+    pub(crate) fn attach_root_ports(&mut self, vm: &Arc<KvmVm>) -> Result<(), AttachDeviceError> {
+        match &mut self.virtio_devices {
+            VirtioDevices::Pci(pci_devices) => pci_devices
+                .attach_root_ports(vm)
+                .map_err(AttachDeviceError::from),
+            // The option cannot be set without PCI enabled.
+            VirtioDevices::Mmio(_) => Ok(()),
         }
     }
 
@@ -821,9 +834,13 @@ pub(crate) mod tests {
         }
     }
 
-    pub(crate) fn default_device_manager_with_pci(vm: &Arc<KvmVm>) -> DeviceManager {
+    pub(crate) fn default_device_manager_with_pci(
+        vm: &Arc<KvmVm>,
+        hotplug_ports: u8,
+    ) -> DeviceManager {
         let mut device_manager = default_device_manager();
-        device_manager.virtio_devices = VirtioDevices::Pci(PciDevices::new(vm).unwrap());
+        device_manager.virtio_devices =
+            VirtioDevices::Pci(PciDevices::new(vm, hotplug_ports).unwrap());
         device_manager
     }
 

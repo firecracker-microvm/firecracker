@@ -270,6 +270,10 @@ impl VmResources {
     ) -> Result<(), MachineConfigError> {
         let updated = self.machine_config.update(update)?;
 
+        if updated.pcie_hotplug_ports > 0 && !self.pci_enabled {
+            return Err(MachineConfigError::PcieHotplugPortsRequirePci);
+        }
+
         // The VM cannot have a memory size smaller than the target size
         // of the balloon device, if present.
         if self.balloon.get().is_some()
@@ -583,7 +587,9 @@ mod tests {
     use crate::vmm_config::boot_source::{BootConfig, BootSource, BootSourceConfig};
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
     use crate::vmm_config::machine_config::HugePageConfig::{Hugetlbfs2M, Transparent};
-    use crate::vmm_config::machine_config::{HugePageConfig, MachineConfig, MachineConfigError};
+    use crate::vmm_config::machine_config::{
+        HugePageConfig, MAX_PCIE_HOTPLUG_PORTS, MachineConfig, MachineConfigError,
+    };
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
 
@@ -1481,6 +1487,7 @@ mod tests {
             cpu_template: Some(StaticCpuTemplate::V1N1),
             track_dirty_pages: Some(false),
             huge_pages: Some(HugePageConfig::None),
+            pcie_hotplug_ports: Some(0),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         };
@@ -1590,6 +1597,50 @@ mod tests {
         // trigger the "ballooning incompatible with huge pages" check.
         vm_resources.balloon = BalloonBuilder::new();
         vm_resources.update_machine_config(&aux_vm_config).unwrap();
+    }
+
+    #[test]
+    fn test_update_machine_config_pcie_hotplug_ports() {
+        let mut vm_resources = default_vm_resources();
+        let mut update = MachineConfigUpdate::from(vm_resources.machine_config.clone());
+
+        // No ports by default.
+        assert_eq!(vm_resources.machine_config.pcie_hotplug_ports, 0);
+
+        // Ports need the PCI bus.
+        assert!(!vm_resources.pci_enabled);
+        update.pcie_hotplug_ports = Some(1);
+        assert_eq!(
+            vm_resources.update_machine_config(&update).unwrap_err(),
+            MachineConfigError::PcieHotplugPortsRequirePci
+        );
+
+        // Asking for none of them does not, though.
+        update.pcie_hotplug_ports = Some(0);
+        vm_resources.update_machine_config(&update).unwrap();
+
+        vm_resources.pci_enabled = true;
+        update.pcie_hotplug_ports = Some(MAX_PCIE_HOTPLUG_PORTS);
+        vm_resources.update_machine_config(&update).unwrap();
+        assert_eq!(
+            vm_resources.machine_config.pcie_hotplug_ports,
+            MAX_PCIE_HOTPLUG_PORTS
+        );
+
+        // One more than we have bus numbers for.
+        update.pcie_hotplug_ports = Some(MAX_PCIE_HOTPLUG_PORTS + 1);
+        assert_eq!(
+            vm_resources.update_machine_config(&update).unwrap_err(),
+            MachineConfigError::InvalidPcieHotplugPorts
+        );
+
+        // An update that does not mention the ports leaves them alone.
+        update.pcie_hotplug_ports = None;
+        vm_resources.update_machine_config(&update).unwrap();
+        assert_eq!(
+            vm_resources.machine_config.pcie_hotplug_ports,
+            MAX_PCIE_HOTPLUG_PORTS
+        );
     }
 
     #[test]

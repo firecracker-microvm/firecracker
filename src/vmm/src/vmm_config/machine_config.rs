@@ -5,12 +5,16 @@ use std::fmt::Debug;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
+use crate::pci::bus::MAX_PCI_BUSES;
 
 /// The default memory size of the VM, in MiB.
 pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
 /// Firecracker aims to support small scale workloads only, so limit the maximum
 /// vCPUs supported.
 pub const MAX_SUPPORTED_VCPUS: u8 = 32;
+/// The maximum number of PCIe hot-plug ports. Each port starts a secondary bus,
+/// and the root bus takes one of the bus numbers.
+pub const MAX_PCIE_HOTPLUG_PORTS: u8 = MAX_PCI_BUSES - 1;
 
 /// Errors associated with configuring the microVM.
 #[rustfmt::skip]
@@ -29,6 +33,10 @@ pub enum MachineConfigError {
     SmtNotSupported,
     /// Could not determine host kernel version when checking hugetlbfs compatibility
     KernelVersion,
+    /// The number of PCIe hot-plug ports must be at most {MAX_PCIE_HOTPLUG_PORTS:}.
+    InvalidPcieHotplugPorts,
+    /// PCIe hot-plug ports require `--enable-pci`.
+    PcieHotplugPortsRequirePci,
 }
 
 /// Describes the possible (huge)page configurations for a microVM's memory.
@@ -128,6 +136,9 @@ pub struct MachineConfig {
     /// Configures what page size Firecracker should use to back guest memory.
     #[serde(default)]
     pub huge_pages: HugePageConfig,
+    /// Number of PCIe root ports to create.
+    #[serde(default)]
+    pub pcie_hotplug_ports: u8,
     /// GDB socket address.
     #[cfg(feature = "gdb")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -170,6 +181,7 @@ impl Default for MachineConfig {
             cpu_template: None,
             track_dirty_pages: false,
             huge_pages: HugePageConfig::None,
+            pcie_hotplug_ports: 0,
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         }
@@ -203,6 +215,9 @@ pub struct MachineConfigUpdate {
     /// Configures what page size Firecracker should use to back guest memory.
     #[serde(default)]
     pub huge_pages: Option<HugePageConfig>,
+    /// Number of PCIe root ports to create.
+    #[serde(default)]
+    pub pcie_hotplug_ports: Option<u8>,
     /// GDB socket address.
     #[cfg(feature = "gdb")]
     #[serde(default)]
@@ -227,6 +242,7 @@ impl From<MachineConfig> for MachineConfigUpdate {
             cpu_template: cfg.static_template(),
             track_dirty_pages: Some(cfg.track_dirty_pages),
             huge_pages: Some(cfg.huge_pages),
+            pcie_hotplug_ports: Some(cfg.pcie_hotplug_ports),
             #[cfg(feature = "gdb")]
             gdb_socket_path: cfg.gdb_socket_path,
         }
@@ -281,6 +297,11 @@ impl MachineConfig {
             return Err(MachineConfigError::InvalidMemorySize);
         }
 
+        let pcie_hotplug_ports = update.pcie_hotplug_ports.unwrap_or(self.pcie_hotplug_ports);
+        if pcie_hotplug_ports > MAX_PCIE_HOTPLUG_PORTS {
+            return Err(MachineConfigError::InvalidPcieHotplugPorts);
+        }
+
         let cpu_template = match update.cpu_template {
             None => self.cpu_template.clone(),
             Some(StaticCpuTemplate::None) => None,
@@ -294,6 +315,7 @@ impl MachineConfig {
             cpu_template,
             track_dirty_pages: update.track_dirty_pages.unwrap_or(self.track_dirty_pages),
             huge_pages: page_config,
+            pcie_hotplug_ports,
             #[cfg(feature = "gdb")]
             gdb_socket_path: update.gdb_socket_path.clone(),
         })
