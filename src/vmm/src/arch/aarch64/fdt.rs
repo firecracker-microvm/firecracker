@@ -16,7 +16,7 @@ use super::cache_info::{CacheEntry, read_cache_config};
 use super::gic::GICDevice;
 use crate::arch::{
     MEM_32BIT_DEVICES_SIZE, MEM_32BIT_DEVICES_START, MEM_64BIT_DEVICES_SIZE,
-    MEM_64BIT_DEVICES_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT,
+    MEM_64BIT_DEVICES_START,
 };
 use crate::device_manager::DeviceManager;
 use crate::device_manager::mmio::MMIODeviceInfo;
@@ -24,6 +24,7 @@ use crate::devices::acpi::vmclock::{VMCLOCK_SIZE, VmClock};
 use crate::devices::acpi::vmgenid::{VMGENID_MEM_SIZE, VmGenId};
 use crate::devices::pci::PciSegment;
 use crate::initrd::InitrdConfig;
+use crate::pci::bus::PCI_MMIO_CONFIG_SIZE_PER_SEGMENT;
 use crate::vstate::memory::{Address, GuestMemoryMmap, GuestRegionType};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
@@ -531,11 +532,12 @@ fn create_pci_nodes(fdt: &mut FdtWriter, segment: &PciSegment) -> Result<(), Fdt
     ];
 
     let pci_node = fdt.begin_node(&pci_node_name)?;
+    let last_bus = u32::from(segment.pci_buses.num_buses() - 1);
 
     fdt.property_string("compatible", "pci-host-ecam-generic")?;
     fdt.property_string("device_type", "pci")?;
     fdt.property_array_u32("ranges", &ranges)?;
-    fdt.property_array_u32("bus-range", &[0, 0])?;
+    fdt.property_array_u32("bus-range", &[0, last_bus])?;
     fdt.property_u32("linux,pci-domain", segment.id.into())?;
     fdt.property_u32("#address-cells", 3)?;
     fdt.property_u32("#size-cells", 2)?;
