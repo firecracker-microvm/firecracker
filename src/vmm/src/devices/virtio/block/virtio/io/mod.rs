@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod async_io;
+pub mod format;
 pub mod sync_io;
 
 use std::fmt::Debug;
 use std::fs::File;
 
 pub use self::async_io::{AsyncFileEngine, AsyncIoError};
+pub use self::format::{DiskImageFormat, VmdkFileEngine, VmdkIoError, detect_disk_format};
 pub use self::sync_io::{SyncFileEngine, SyncIoError};
 use crate::devices::virtio::block::virtio::PendingRequest;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
@@ -31,6 +33,8 @@ pub enum BlockIoError {
     Sync(SyncIoError),
     /// Async error: {0}
     Async(AsyncIoError),
+    /// VMDK error: {0}
+    Vmdk(VmdkIoError),
 }
 
 impl BlockIoError {
@@ -54,6 +58,7 @@ pub enum FileEngine {
     #[allow(unused)]
     Async(AsyncFileEngine),
     Sync(SyncFileEngine),
+    Vmdk(VmdkFileEngine),
 }
 
 impl FileEngine {
@@ -70,6 +75,9 @@ impl FileEngine {
         match self {
             FileEngine::Async(engine) => engine.update_file(file).map_err(BlockIoError::Async)?,
             FileEngine::Sync(engine) => engine.update_file(file),
+            FileEngine::Vmdk(_) => {
+                return Err(BlockIoError::Vmdk(VmdkIoError::WriteNotSupported));
+            }
         };
 
         Ok(())
@@ -79,6 +87,9 @@ impl FileEngine {
         match self {
             FileEngine::Async(engine) => engine.file(),
             FileEngine::Sync(engine) => engine.file(),
+            FileEngine::Vmdk(_) => {
+                panic!("file() is not supported for VMDK engine")
+            }
         }
     }
 
@@ -103,6 +114,13 @@ impl FileEngine {
                 Err(err) => Err(RequestError {
                     req,
                     error: BlockIoError::Sync(err),
+                }),
+            },
+            FileEngine::Vmdk(engine) => match engine.read(offset, mem, addr, count) {
+                Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
+                Err(err) => Err(RequestError {
+                    req,
+                    error: BlockIoError::Vmdk(err),
                 }),
             },
         }
@@ -131,6 +149,13 @@ impl FileEngine {
                     error: BlockIoError::Sync(err),
                 }),
             },
+            FileEngine::Vmdk(engine) => match engine.write(offset, mem, addr, count) {
+                Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
+                Err(err) => Err(RequestError {
+                    req,
+                    error: BlockIoError::Vmdk(err),
+                }),
+            },
         }
     }
 
@@ -151,6 +176,13 @@ impl FileEngine {
                 Err(err) => Err(RequestError {
                     req,
                     error: BlockIoError::Sync(err),
+                }),
+            },
+            FileEngine::Vmdk(engine) => match engine.flush() {
+                Ok(_) => Ok(FileEngineOk::Executed(RequestOk { req, count: 0 })),
+                Err(err) => Err(RequestError {
+                    req,
+                    error: BlockIoError::Vmdk(err),
                 }),
             },
         }
@@ -176,6 +208,10 @@ impl FileEngine {
                     error: BlockIoError::Sync(err),
                 }),
             },
+            FileEngine::Vmdk(_) => Err(RequestError {
+                req,
+                error: BlockIoError::Vmdk(VmdkIoError::WriteNotSupported),
+            }),
         }
     }
 
@@ -183,6 +219,7 @@ impl FileEngine {
         match self {
             FileEngine::Async(engine) => engine.drain(discard).map_err(BlockIoError::Async),
             FileEngine::Sync(_engine) => Ok(()),
+            FileEngine::Vmdk(_engine) => Ok(()),
         }
     }
 
@@ -192,6 +229,7 @@ impl FileEngine {
                 engine.drain_and_flush(discard).map_err(BlockIoError::Async)
             }
             FileEngine::Sync(engine) => engine.flush().map_err(BlockIoError::Sync),
+            FileEngine::Vmdk(engine) => engine.flush().map_err(BlockIoError::Vmdk),
         }
     }
 }
@@ -206,6 +244,7 @@ pub mod tests {
 
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
+    use crate::devices::virtio::block::virtio::io::format::vmdk::tests::create_test_vmdk;
     use crate::utils::u64_to_usize;
     use crate::vmm_config::machine_config::HugePageConfig;
     use crate::vstate::memory;
@@ -413,5 +452,51 @@ pub mod tests {
 
         engine.drain(true).unwrap();
         engine.drain_and_flush(true).unwrap();
+    }
+
+    #[test]
+    fn test_vmdk() {
+        let (_dir, descriptor) = create_test_vmdk("extent");
+        let mut engine = FileEngine::Vmdk(VmdkFileEngine::from_path(&descriptor).unwrap());
+        let mem = create_mem();
+
+        assert_sync_execution!(
+            engine.read(0, &mem, GuestAddress(0), 512, PendingRequest::default()),
+            512
+        );
+        assert!(matches!(
+            engine
+                .read(
+                    0,
+                    &mem,
+                    GuestAddress(MEM_LEN as u64),
+                    512,
+                    PendingRequest::default()
+                )
+                .unwrap_err()
+                .error,
+            BlockIoError::Vmdk(VmdkIoError::GuestMemory(_))
+        ));
+        assert!(matches!(
+            engine
+                .write(0, &mem, GuestAddress(0), 512, PendingRequest::default())
+                .unwrap_err()
+                .error,
+            BlockIoError::Vmdk(VmdkIoError::WriteNotSupported)
+        ));
+        assert_sync_execution!(engine.flush(PendingRequest::default()), 0);
+        assert!(matches!(
+            engine
+                .discard((0, 512), PendingRequest::default())
+                .unwrap_err()
+                .error,
+            BlockIoError::Vmdk(VmdkIoError::WriteNotSupported)
+        ));
+        engine.drain(true).unwrap();
+        engine.drain_and_flush(true).unwrap();
+        assert!(matches!(
+            engine.update_file_path(File::open(descriptor).unwrap()),
+            Err(BlockIoError::Vmdk(VmdkIoError::WriteNotSupported))
+        ));
     }
 }
