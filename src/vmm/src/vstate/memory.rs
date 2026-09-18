@@ -1108,6 +1108,8 @@ where
 
     /// Dumps all contents of GuestMemoryMmap to a writer.
     fn dump<T: WriteVolatile + std::io::Seek>(&self, writer: &mut T) -> Result<(), MemoryError>;
+    /// Dumps all contents of GuestMemoryMmap to a non-seekable writer.
+    fn dump_non_seekable<T: WriteVolatile>(&self, writer: &mut T) -> Result<(), MemoryError>;
 
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
     fn dump_dirty<T: WriteVolatile + std::io::Seek>(
@@ -1203,6 +1205,27 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                 if !plugged {
                     let ilen = i64::try_from(mem_slot.slice.len()).unwrap();
                     writer.seek(SeekFrom::Current(ilen)).unwrap();
+                } else {
+                    writer.write_all_volatile(&mem_slot.slice)?;
+                }
+                Ok(())
+            })
+            .map_err(MemoryError::WriteMemory)
+    }
+
+    fn dump_non_seekable<T: WriteVolatile>(&self, writer: &mut T) -> Result<(), MemoryError> {
+        let zeroes = &mut [0u8; 4096];
+        self.iter()
+            .flat_map(|region| region.slots())
+            .try_for_each(|(mem_slot, plugged)| {
+                if !plugged {
+                    let mut remaining = mem_slot.slice.len();
+                    while remaining > 0 {
+                        let chunk_len = remaining.min(zeroes.len());
+                        writer
+                            .write_all_volatile(&VolatileSlice::from(&mut zeroes[..chunk_len]))?;
+                        remaining -= chunk_len;
+                    }
                 } else {
                     writer.write_all_volatile(&mem_slot.slice)?;
                 }
@@ -1753,6 +1776,60 @@ mod tests {
             .read(restored_region.as_mut_slice(), region_2_address)
             .unwrap();
         assert_eq!(second_region, restored_region);
+    }
+
+    #[test]
+    fn test_dump_non_seekable_matches_dump() {
+        // `Vec<u8>` implements `WriteVolatile` but not `Seek`, so it behaves
+        // like a FIFO: unplugged slots must be written as zeroes instead of
+        // skipped with `seek()`.
+        let slot_size = 0x1000usize;
+        let regions = anonymous(
+            vec![(GuestAddress(0x10_0000), slot_size * 4)].into_iter(),
+            true,
+            HugePageConfig::None,
+        )
+        .unwrap();
+        let state = GuestMemoryRegionState {
+            base_address: 0x10_0000,
+            size: slot_size * 4,
+            region_type: GuestRegionType::Hotpluggable,
+            plugged: vec![true, true, false, true],
+        };
+        let region =
+            GuestRegionMmapExt::from_state(regions.into_iter().next().unwrap(), &state, 0).unwrap();
+        let guest_memory = GuestMemoryMmap::from_regions(vec![region]).unwrap();
+
+        // Fill each plugged slot with a distinct pattern.
+        for (i, pattern) in [0x11u8, 0x22u8, 0x44u8].into_iter().enumerate() {
+            let slot = if i < 2 { i } else { i + 1 };
+            guest_memory
+                .write(
+                    &[pattern; 0x1000][..],
+                    GuestAddress(0x10_0000 + (slot * slot_size) as u64),
+                )
+                .unwrap();
+        }
+
+        // `Cursor<&mut [u8]>` is seekable (like a regular file); `Vec<u8>`
+        // is not (like a FIFO).
+        let mut seekable_buf = vec![0u8; slot_size * 4];
+        {
+            let mut seekable = std::io::Cursor::new(seekable_buf.as_mut_slice());
+            guest_memory.dump(&mut seekable).unwrap();
+        }
+        let mut non_seekable = Vec::new();
+        guest_memory.dump_non_seekable(&mut non_seekable).unwrap();
+
+        let seekable_bytes = seekable_buf;
+        assert_eq!(seekable_bytes.len(), slot_size * 4);
+        assert_eq!(seekable_bytes, non_seekable);
+        // The unplugged slot must read back as zeroes on the wire.
+        assert!(
+            seekable_bytes[slot_size * 2..slot_size * 3]
+                .iter()
+                .all(|b| *b == 0)
+        );
     }
 
     #[test]

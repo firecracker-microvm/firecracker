@@ -9,6 +9,7 @@ import os
 import platform
 import re
 import shutil
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -39,6 +40,41 @@ from framework.utils_vsock import (
 # Kernel emits this message when it resumes from a snapshot with VMGenID device
 # present
 DMESG_VMGENID_RESUME = "random: crng reseeded due to virtual machine fork"
+
+
+def test_full_snapshot_to_fifo(uvm_configured):
+    """A full snapshot can stream its memory image to a non-seekable FIFO."""
+    vm = uvm_configured
+    vm.start()
+    regular_snapshot = vm.snapshot_full()
+    expected_memory = regular_snapshot.mem.read_bytes()
+
+    fifo_path = Path(vm.chroot()) / "mem_fifo"
+    fifo_path.unlink(missing_ok=True)
+    os.mkfifo(fifo_path)
+    received = bytearray()
+    reader_error = []
+
+    def drain_fifo():
+        try:
+            with fifo_path.open("rb") as fifo:
+                while chunk := fifo.read(1024 * 1024):
+                    received.extend(chunk)
+        except BaseException as error:  # pragma: no cover - reported in the test thread
+            reader_error.append(error)
+
+    reader = threading.Thread(target=drain_fifo, daemon=True)
+    reader.start()
+    vm.api.snapshot_create.put(
+        mem_file_path="mem_fifo",
+        snapshot_path="vmstate_fifo",
+        snapshot_type=SnapshotType.FULL.api_type,
+    )
+    reader.join(timeout=10)
+
+    assert not reader.is_alive()
+    assert not reader_error
+    assert bytes(received) == expected_memory
 
 
 def check_vmgenid_update_count(vm, resume_count):
