@@ -568,3 +568,36 @@ def test_topology_advertised(uvm, io_engine):
         _read_queue_attr(vm.ssh, "vdb", "optimal_io_size")
         == expected["optimal_io_size"]
     )
+
+
+def test_multiqueue(uvm, microvm_factory, io_engine):
+    """
+    Test multiqueue block I/O before and after snapshot restore.
+    """
+    num_queues = 4
+    vm = uvm
+    vm.spawn()
+    vm.basic_config(vcpu_count=num_queues)
+    vm.add_net_iface()
+
+    fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch"), size=16)
+    vm.add_drive(
+        "scratch", fs.path, io_engine=io_engine, threaded=True, num_queues=num_queues
+    )
+    vm.start()
+
+    assert int(vm.ssh.check_output("ls /sys/block/vdb/mq | wc -l").stdout) == num_queues
+    vm.ssh.check_output("mount /dev/vdb /tmp")
+    vm.ssh.check_output("echo multiqueue > /tmp/test")
+    vm.ssh.check_output("umount /tmp")
+
+    snapshot = vm.snapshot_full()
+    restored = microvm_factory.build_from_snapshot(snapshot)
+
+    assert (
+        int(restored.ssh.check_output("ls /sys/block/vdb/mq | wc -l").stdout)
+        == num_queues
+    )
+    restored.ssh.check_output("mount /dev/vdb /tmp")
+    assert restored.ssh.check_output("cat /tmp/test").stdout.strip() == "multiqueue"
+    restored.ssh.check_output("umount /tmp")

@@ -39,15 +39,31 @@ pub fn default_block(file_engine_type: FileEngineType) -> VirtioBlock {
 
 #[cfg(test)]
 pub fn default_threaded_block(file_engine_type: FileEngineType) -> VirtioBlock {
-    let mut block = default_block(file_engine_type);
-    block.config.threaded = true;
+    default_mq_block(file_engine_type, 1)
+}
+
+/// Create a threaded Block instance with the given number of queues and parked workers.
+#[cfg(test)]
+pub fn default_mq_block(file_engine_type: FileEngineType, num_queues: u16) -> VirtioBlock {
+    let f = TempFile::new().unwrap();
+    f.as_file().set_len(0x1000).unwrap();
+
+    let mut config = default_config(f.as_path().to_str().unwrap().to_string(), file_engine_type);
+    config.threaded = true;
+    config.num_queues = num_queues;
+    let mut block = VirtioBlock::new(config).unwrap();
     block.spawn_worker(Arc::new(vec![])).unwrap();
     block
 }
 
 /// Create a default Block instance using file at the specified path to be used in tests.
 pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -> VirtioBlock {
-    let config = VirtioBlockConfig {
+    VirtioBlock::new(default_config(path, file_engine_type)).unwrap()
+}
+
+/// Create the default Block config, read-write and non-root, using file at the specified path.
+pub fn default_config(path: String, file_engine_type: FileEngineType) -> VirtioBlockConfig {
+    VirtioBlockConfig {
         drive_id: "test".to_string(),
         path_on_host: path,
         is_root_device: false,
@@ -55,6 +71,7 @@ pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -
         is_read_only: false,
         discard: false,
         threaded: false,
+        num_queues: 1,
         cache_type: CacheType::Unsafe,
         // Rate limiting is enabled but with a high operation rate (10 million ops/s).
         rate_limiter: Some(RateLimiterConfig {
@@ -72,15 +89,11 @@ pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -
         file_engine_type,
         blk_size: None,
         topology: None,
-    };
-
-    // The default block device is read-write and non-root.
-    VirtioBlock::new(config).unwrap()
+    }
 }
 
 pub fn set_queue(blk: &mut VirtioBlock, idx: usize, q: Queue) {
-    assert_eq!(idx, 0);
-    blk.resources_mut().queue = q;
+    blk.resources_mut()[idx].queue = q;
 }
 
 pub fn set_rate_limiter(blk: &mut VirtioBlock, rl: RateLimiter) {
@@ -106,7 +119,7 @@ pub fn simulate_queue_event(b: &mut VirtioBlock, maybe_expected_irq: Option<bool
 
 #[cfg(test)]
 pub fn simulate_async_completion_event(b: &mut VirtioBlock, expected_irq: bool) {
-    if let FileEngine::Async(ref mut engine) = b.resources_mut().disk.file_engine {
+    if let FileEngine::Async(engine) = &mut b.resources_mut()[0].disk.file_engine {
         // Wait for all the async operations to complete.
         engine.drain(false).unwrap();
         // Wait for the async completion event to be sent.
@@ -125,7 +138,7 @@ pub fn simulate_async_completion_event(b: &mut VirtioBlock, expected_irq: bool) 
 
 #[cfg(test)]
 pub fn simulate_queue_and_async_completion_events(b: &mut VirtioBlock, expected_irq: bool) {
-    match b.resources().disk.file_engine {
+    match &b.resources()[0].disk.file_engine {
         FileEngine::Async(_) => {
             simulate_queue_event(b, None);
             simulate_async_completion_event(b, expected_irq);

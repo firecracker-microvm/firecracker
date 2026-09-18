@@ -91,6 +91,42 @@ The `io_engine` field selects the host-side IO backend:
 
 See [block-io-engine.md](api_requests/block-io-engine.md) for more information.
 
+### Threaded Mode and Multiqueue
+
+By default, Firecracker processes block requests on the VMM thread and exposes
+one queue for each drive. Set `threaded` to `true` to process each queue on a
+dedicated host worker thread. Threaded mode supports both the `Sync` and `Async`
+IO engines. This moves block processing off the VMM thread. Multiple queues let
+Firecracker process requests from separate queues in parallel.
+
+The `num_queues` field sets the number of queues that Firecracker exposes to the
+guest. Its default value is `1`. A value greater than `1` enables virtio-blk
+multiqueue and requires `threaded` to be `true`. The queue count cannot exceed
+the configured vCPU count. Firecracker also rejects a machine configuration
+update that would reduce the vCPU count below an existing drive's queue count.
+
+Firecracker creates one worker thread for each configured queue, including
+queues that the guest does not use. All queues share the drive's rate limiter,
+so its limits apply to the total traffic for the drive.
+
+The following configuration creates a drive with 4 queues and 4 worker threads:
+
+```json
+{
+    "drive_id": "data",
+    "path_on_host": "./data.ext4",
+    "is_root_device": false,
+    "is_read_only": false,
+    "threaded": true,
+    "num_queues": 4
+}
+```
+
+The microVM must have at least 4 vCPUs before Firecracker accepts this drive. If
+a custom seccomp filter is used, it must include the `blk_worker` thread
+category described in the
+[seccompiler documentation](seccompiler.md#json-file-format).
+
 ### Read-only Devices
 
 Setting `is_read_only` to `true` causes Firecracker to open the backing file
