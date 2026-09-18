@@ -137,12 +137,14 @@ class VhostUserBlkBackend(ABC):
         return utils.set_cpu_affinity(self.proc.pid, [cpu_id])
 
     def kill(self):
-        """Kill the backend"""
-        if self.proc.poll() is None:
+        """Kill the backend, and return its exit code if it had already exited"""
+        rc = self.proc.poll()
+        if rc is None:
             self.proc.terminate()
             self.proc.wait()
-            os.remove(self.socket_path)
-        assert not os.path.exists(self.socket_path)
+        # A backend that exited on its own may have left its socket behind.
+        self.socket_path.unlink(missing_ok=True)
+        return rc
 
 
 class QemuVhostUserBlkBackend(VhostUserBlkBackend):
@@ -209,7 +211,8 @@ class CrosvmVhostUserBlkBackend(VhostUserBlkBackend):
         )
 
     def kill(self):
-        super().kill()
+        rc = super().kill()
         assert self.proc.poll() is not None
         os.remove(self.ctr_socket_path)
         assert not os.path.exists(self.ctr_socket_path)
+        return rc
