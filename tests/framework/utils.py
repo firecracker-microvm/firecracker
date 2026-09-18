@@ -47,6 +47,20 @@ def get_threads(pid: int) -> dict:
         return {}
 
 
+def thread_backtraces(pid: int) -> str:
+    """Return the kernel backtrace of every thread of a process."""
+    backtraces = []
+    for thread_name, thread_pids in get_threads(pid).items():
+        for tid in thread_pids:
+            try:
+                stack = Path(f"/proc/{tid}/stack").read_text("UTF-8")
+            except FileNotFoundError:
+                continue  # thread might've gone away between get_threads() and here
+
+            backtraces.append(f"{thread_name} (pid={tid}):\n{stack}")
+    return "\n".join(backtraces)
+
+
 def get_cpu_affinity(pid: int) -> list:
     """Get CPU affinity for a thread."""
     return psutil.Process(pid).cpu_affinity()

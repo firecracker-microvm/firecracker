@@ -1181,16 +1181,7 @@ class Microvm:
     @property
     def thread_backtraces(self):
         """Return backtraces of all threads"""
-        backtraces = []
-        for thread_name, thread_pids in utils.get_threads(self.firecracker_pid).items():
-            for pid in thread_pids:
-                try:
-                    stack = Path(f"/proc/{pid}/stack").read_text("UTF-8")
-                except FileNotFoundError:
-                    continue  # process might've gone away between get_threads() call and here
-
-                backtraces.append(f"{thread_name} ({pid=}):\n{stack}")
-        return "\n".join(backtraces)
+        return utils.thread_backtraces(self.firecracker_pid)
 
     def _dump_debug_information(self, what: str):
         """
