@@ -91,12 +91,12 @@ impl DiskProperties {
 
     /// Create a new file for the block device using a FileEngine
     pub fn new(
-        disk_image_path: String,
+        disk_image_path: &str,
         is_disk_read_only: bool,
         file_engine_type: FileEngineType,
     ) -> Result<Self, VirtioBlockError> {
-        let mut disk_image = Self::open_file(&disk_image_path, is_disk_read_only)?;
-        let disk_size = Self::file_size(&disk_image_path, &mut disk_image)?;
+        let mut disk_image = Self::open_file(disk_image_path, is_disk_read_only)?;
+        let disk_size = Self::file_size(disk_image_path, &mut disk_image)?;
         let image_id = Self::build_disk_image_id(&disk_image);
 
         Ok(Self {
@@ -433,7 +433,7 @@ impl VirtioBlock {
         }
 
         let disk_properties = DiskProperties::new(
-            config.path_on_host.clone(),
+            &config.path_on_host,
             config.is_read_only,
             config.file_engine_type,
         )?;
@@ -905,15 +905,14 @@ mod tests {
 
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let disk_properties =
-                DiskProperties::new(String::from(f.as_path().to_str().unwrap()), true, engine)
-                    .unwrap();
+                DiskProperties::new(f.as_path().to_str().unwrap(), true, engine).unwrap();
 
             assert_eq!(size, u64::from(SECTOR_SIZE) * num_sectors);
             assert_eq!(disk_properties.nsectors, num_sectors);
             // Testing `backing_file.virtio_block_disk_image_id()` implies
             // duplicating that logic in tests, so skipping it.
 
-            let res = DiskProperties::new("invalid-disk-path".to_string(), true, engine);
+            let res = DiskProperties::new("invalid-disk-path", true, engine);
             assert!(
                 matches!(res, Err(VirtioBlockError::BackingFile(_, _))),
                 "{:?}",
