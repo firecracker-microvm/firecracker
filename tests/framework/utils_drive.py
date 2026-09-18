@@ -3,6 +3,7 @@
 
 """Utilities for vhost-user-blk backend."""
 
+import logging
 import os
 import subprocess
 from abc import ABC, abstractmethod
@@ -14,6 +15,8 @@ import psutil
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 from framework import utils
+
+LOG = logging.getLogger("vhost_user_blk")
 
 MB = 1024 * 1024
 
@@ -131,10 +134,17 @@ class VhostUserBlkBackend(ABC):
 
     def kill(self):
         """Kill the backend"""
-        if self.proc.poll() is None:
+        rc = self.proc.poll()
+        if rc is None:
             self.proc.terminate()
             self.proc.wait()
-            os.remove(self.socket_path)
+        else:
+            LOG.error(
+                "vhost-user backend had already exited with %s. Its log:\n%s",
+                rc,
+                self.log_data,
+            )
+        self.socket_path.unlink(missing_ok=True)
         assert not os.path.exists(self.socket_path)
 
 
