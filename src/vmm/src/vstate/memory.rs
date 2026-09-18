@@ -987,16 +987,20 @@ impl GuestMemoryRegion for GuestRegionMmapExt {
     }
 }
 
-/// Creates a `Vec` of `GuestRegionMmap` with the given configuration
+/// Creates a `Vec` of `GuestRegionMmap` with the given configuration.
+///
+/// If `file` is given, regions are mapped in order starting at the given offset.
 pub fn create(
     regions: impl Iterator<Item = (GuestAddress, usize)>,
     mmap_flags: libc::c_int,
-    file: Option<File>,
+    file: Option<(Arc<File>, u64)>,
     track_dirty_pages: bool,
     madvise_flags: libc::c_int,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    let mut offset = 0;
-    let file = file.map(Arc::new);
+    let (file, mut offset) = match file {
+        Some((file, base_offset)) => (Some(file), base_offset),
+        None => (None, 0),
+    };
     regions
         .map(|(start, size)| {
             let guest_memory = GuestRegionMmap::allocate(
@@ -1029,25 +1033,59 @@ pub fn create(
         .collect::<Result<Vec<_>, _>>()
 }
 
-/// Creates a GuestMemoryMmap with `size` in MiB backed by a memfd.
-pub fn memfd_backed(
-    regions: &[(GuestAddress, usize)],
-    track_dirty_pages: bool,
-    huge_pages: HugePageConfig,
-) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    let size = regions
-        .iter()
-        .try_fold(0u64, |acc, &(_, size)| acc.checked_add(size as u64))
-        .ok_or(MemoryError::OffsetTooLarge)?;
-    let memfd_file = create_memfd(size, huge_pages.into())?.into_file();
+/// A single memfd backing all guest memory regions, laid out like a guest memory snapshot file.
+///
+/// Regions are allocated in order with [`MemfdBacking::allocate`]. The memfd is sized up front
+/// and sealed, so the total size of all regions must be known when creating it.
+#[derive(Debug)]
+pub struct MemfdBacking {
+    /// The memfd. In an [Arc], so it can be placed inside a [FileOffset].
+    pub file: Arc<File>,
+    allocated_size: u64,
+    total_size: u64,
+}
 
-    create(
-        regions.iter().copied(),
-        libc::MAP_SHARED | huge_pages.mmap_flags(),
-        Some(memfd_file),
-        track_dirty_pages,
-        huge_pages.madvise_flags(),
-    )
+impl MemfdBacking {
+    /// Creates a sealed memfd of `total_size` bytes.
+    pub fn new(total_size: u64, huge_pages: HugePageConfig) -> Result<Self, MemoryError> {
+        let memfd_file = create_memfd(total_size, huge_pages.into())?.into_file();
+        Ok(Self {
+            file: Arc::new(memfd_file),
+            allocated_size: 0,
+            total_size,
+        })
+    }
+
+    /// Maps `regions` `MAP_SHARED` from the memfd, one after the other starting at the current
+    /// offset. Fails if they do not fit in what is left of the memfd.
+    pub fn allocate(
+        &mut self,
+        regions: &[(GuestAddress, usize)],
+        track_dirty_pages: bool,
+        huge_pages: HugePageConfig,
+    ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+        let size = regions
+            .iter()
+            .try_fold(0u64, |acc, &(_, size)| acc.checked_add(size as u64))
+            .ok_or(MemoryError::OffsetTooLarge)?;
+        let end = self
+            .allocated_size
+            .checked_add(size)
+            .ok_or(MemoryError::OffsetTooLarge)?;
+        if end > self.total_size {
+            return Err(MemoryError::OffsetTooLarge);
+        }
+
+        let guest_memory = create(
+            regions.iter().copied(),
+            libc::MAP_SHARED | huge_pages.mmap_flags(),
+            Some((Arc::clone(&self.file), self.allocated_size)),
+            track_dirty_pages,
+            huge_pages.madvise_flags(),
+        )?;
+        self.allocated_size = end;
+        Ok(guest_memory)
+    }
 }
 
 /// Creates a GuestMemoryMmap from raw regions.
@@ -1089,7 +1127,7 @@ pub fn snapshot_file(
     create(
         regions.into_iter(),
         libc::MAP_PRIVATE,
-        Some(file),
+        Some((Arc::new(file), 0)),
         track_dirty_pages,
         huge_pages.madvise_flags(),
     )
@@ -1381,7 +1419,7 @@ mod tests {
 
     use std::collections::HashMap;
     use std::io::{Read, Seek, Write};
-    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::fs::{FileExt, MetadataExt};
 
     use vmm_sys_util::tempfile::TempFile;
 
@@ -1469,11 +1507,150 @@ mod tests {
     }
 
     #[test]
-    fn test_memfd_backed_size_overflow() {
+    fn test_memfd_backing_size_overflow() {
         let regions = [(GuestAddress(0), usize::MAX), (GuestAddress(0), 1)];
+        let mut backing = MemfdBacking::new(0x1000, HugePageConfig::None).unwrap();
 
         assert!(matches!(
-            memfd_backed(&regions, false, HugePageConfig::None),
+            backing.allocate(&regions, false, HugePageConfig::None),
+            Err(MemoryError::OffsetTooLarge)
+        ));
+    }
+
+    #[test]
+    fn test_memfd_backing_is_a_snapshot_file() {
+        let page_size = host_page_size();
+        // Two DRAM regions with a gap, then a hotplug region of two slots of which only the
+        // second one is plugged.
+        let dram = [
+            (GuestAddress(0), 2 * page_size),
+            (GuestAddress(0x1_0000), 3 * page_size),
+        ];
+        let slot_size = 2 * page_size;
+        let hotplug = (GuestAddress(0x10_0000), 2 * slot_size);
+        let total = (5 * page_size + 2 * slot_size) as u64;
+        let mut backing = MemfdBacking::new(total, HugePageConfig::None).unwrap();
+
+        let mut regions: Vec<_> = backing
+            .allocate(&dram, false, HugePageConfig::None)
+            .unwrap()
+            .into_iter()
+            .zip(0u32..)
+            .map(|(region, slot)| GuestRegionMmapExt::dram_from_mmap_region(region, slot))
+            .collect();
+        let hotplug_region = backing
+            .allocate(&[hotplug], false, HugePageConfig::None)
+            .unwrap()
+            .pop()
+            .unwrap();
+        let hotplug_region =
+            GuestRegionMmapExt::hotpluggable_from_mmap_region(hotplug_region, 2, slot_size);
+        hotplug_region.plugged.lock().unwrap().set(1, true);
+        regions.push(hotplug_region);
+        let guest_memory = GuestMemoryMmap::from_regions(regions).unwrap();
+
+        // Where a full snapshot puts each region is where the memfd has it.
+        let mut snapshot_offset = 0;
+        for region in guest_memory.iter() {
+            assert_eq!(region.file_offset().unwrap().start(), snapshot_offset);
+            snapshot_offset += region.len();
+        }
+        assert_eq!(snapshot_offset, total);
+
+        // Fill DRAM with 1s and 2s, the plugged slot with 3s.
+        guest_memory
+            .write(&vec![1u8; dram[0].1], dram[0].0)
+            .unwrap();
+        guest_memory
+            .write(&vec![2u8; dram[1].1], dram[1].0)
+            .unwrap();
+        let plugged_slot = hotplug.0.unchecked_add(slot_size as u64);
+        guest_memory
+            .write(&vec![3u8; slot_size], plugged_slot)
+            .unwrap();
+
+        // A full snapshot written by Firecracker is byte for byte the memfd.
+        let mut memory_file = TempFile::new().unwrap().into_file();
+        guest_memory.dump(&mut memory_file).unwrap();
+        let mut dumped = Vec::new();
+        memory_file.rewind().unwrap();
+        memory_file.read_to_end(&mut dumped).unwrap();
+        let mut memfd_contents = vec![0u8; u64_to_usize(total)];
+        backing.file.read_exact_at(&mut memfd_contents, 0).unwrap();
+        assert_eq!(dumped, memfd_contents);
+
+        // And the memfd restores like a snapshot file.
+        let memory_state = guest_memory.describe();
+        let restored = into_region_ext(
+            snapshot_file(
+                backing.file.try_clone().unwrap(),
+                memory_state.regions(),
+                false,
+                HugePageConfig::None,
+            )
+            .unwrap(),
+        );
+        let expected = [
+            (dram[0].0, dram[0].1, 1u8),
+            (dram[1].0, dram[1].1, 2),
+            (plugged_slot, slot_size, 3),
+            (hotplug.0, slot_size, 0),
+        ];
+        for (addr, len, value) in expected {
+            let mut buf = vec![0xffu8; len];
+            restored.read(&mut buf, addr).unwrap();
+            assert_eq!(buf, vec![value; len], "at {addr:?}");
+        }
+    }
+
+    #[test]
+    fn test_memfd_backing_layout() {
+        let page_size = host_page_size();
+        // Two DRAM regions with a gap between them, then a hotplug region: all from one memfd,
+        // each at the sum of the sizes of the regions before it.
+        let dram = [
+            (GuestAddress(0), 2 * page_size),
+            (GuestAddress(0x1_0000), 3 * page_size),
+        ];
+        let hotplug = [(GuestAddress(0x10_0000), 4 * page_size)];
+        let total = 9 * page_size as u64;
+        let mut backing = MemfdBacking::new(total, HugePageConfig::None).unwrap();
+
+        let dram_regions = backing
+            .allocate(&dram, false, HugePageConfig::None)
+            .unwrap();
+        let hotplug_regions = backing
+            .allocate(&hotplug, false, HugePageConfig::None)
+            .unwrap();
+
+        let memfd = backing.file.as_raw_fd();
+        let mut expected_offset = 0;
+        for (region, (_, size)) in dram_regions
+            .iter()
+            .chain(hotplug_regions.iter())
+            .zip(dram.iter().chain(hotplug.iter()))
+        {
+            let file_offset = region.file_offset().unwrap();
+            assert_eq!(file_offset.file().as_raw_fd(), memfd);
+            assert_eq!(file_offset.start(), expected_offset);
+            expected_offset += *size as u64;
+        }
+        assert_eq!(expected_offset, total);
+
+        // Writes through one region land at the right place in the memfd.
+        hotplug_regions[0]
+            .write_obj(0xdead_beef_u32, MemoryRegionAddress(0))
+            .unwrap();
+        let mut buf = [0u8; 4];
+        backing
+            .file
+            .read_exact_at(&mut buf, 5 * page_size as u64)
+            .unwrap();
+        assert_eq!(u32::from_le_bytes(buf), 0xdead_beef);
+
+        // The memfd is full now.
+        assert!(matches!(
+            backing.allocate(&[(GuestAddress(0), page_size)], false, HugePageConfig::None),
             Err(MemoryError::OffsetTooLarge)
         ));
     }
