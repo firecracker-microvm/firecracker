@@ -114,7 +114,7 @@ impl Persist<'_> for VirtioBlock {
         };
 
         let disk_properties = DiskProperties::new(
-            state.disk_path.clone(),
+            &state.disk_path,
             is_read_only,
             state.file_engine_type.into(),
         )?;
