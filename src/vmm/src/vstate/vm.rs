@@ -614,16 +614,17 @@ impl KvmVm {
             .truncate(false)
             .open(mem_file_path)
             .map_err(|err| MemoryBackingFile("open", err))?;
+        let file_metadata = file
+            .metadata()
+            .map_err(|e| MemoryBackingFile("get_metadata", e))?;
+        let is_regular_file = file_metadata.file_type().is_file();
 
         // Determine what size our total memory area is.
         let mem_size_mib = mem_size_mib(self.guest_memory());
         let expected_size = mem_size_mib * 1024 * 1024;
 
-        if file_existed {
-            let file_size = file
-                .metadata()
-                .map_err(|e| MemoryBackingFile("get_metadata", e))?
-                .len();
+        if is_regular_file && file_existed {
+            let file_size = file_metadata.len();
 
             // Here we only truncate the file if the size mismatches.
             // - For full snapshots, the entire file's contents will be overwritten anyway. We have
@@ -639,8 +640,10 @@ impl KvmVm {
         }
 
         // Set the length of the file to the full size of the memory area.
-        file.set_len(expected_size)
-            .map_err(|e| MemoryBackingFile("set_length", e))?;
+        if is_regular_file {
+            file.set_len(expected_size)
+                .map_err(|e| MemoryBackingFile("set_length", e))?;
+        }
 
         match snapshot_type {
             SnapshotType::Diff => {
@@ -648,7 +651,11 @@ impl KvmVm {
                 self.guest_memory().dump_dirty(&mut file, &dirty_bitmap)?;
             }
             SnapshotType::Full => {
-                self.guest_memory().dump(&mut file)?;
+                if is_regular_file {
+                    self.guest_memory().dump(&mut file)?;
+                } else {
+                    self.guest_memory().dump_non_seekable(&mut file)?;
+                }
                 self.reset_dirty_bitmap();
                 self.guest_memory().reset_dirty();
             }
@@ -656,7 +663,7 @@ impl KvmVm {
 
         file.flush()
             .map_err(|err| MemoryBackingFile("flush", err))?;
-        if sync_snapshot_files {
+        if sync_snapshot_files && is_regular_file {
             file.sync_all()
                 .map_err(|err| MemoryBackingFile("sync_all", err))?;
         }
