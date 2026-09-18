@@ -333,8 +333,14 @@ class Microvm:
         # We start with vhost-user backends,
         # because if we stop Firecracker first, the backend will want
         # to exit as well and this will cause a race condition.
-        for backend in self.disks_vhost_user.values():
-            backend.kill()
+        backend_errors = []
+        for drive_id, backend in self.disks_vhost_user.items():
+            rc = backend.kill()
+            if rc not in (None, 0):
+                backend_errors.append(
+                    f"vhost-user backend {drive_id} exited with {rc}. "
+                    f"Its log:\n{backend.log_data}"
+                )
         self.disks_vhost_user.clear()
 
         assert (
@@ -402,6 +408,9 @@ class Microvm:
         # Mark the microVM as not spawned, so we avoid trying to kill twice.
         self._spawned = False
         self._killed = True
+
+        # Firecracker is dead by now, so failing here cannot leak it.
+        assert might_be_dead or not backend_errors, "\n".join(backend_errors)
 
         if self.time_api_requests:
             self._validate_api_response_times()
