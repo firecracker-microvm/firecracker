@@ -1207,6 +1207,15 @@ class Microvm:
             LOG.error("Uffd logs:\n%s", self.uffd_handler.log_data)
         if not self._killed:
             LOG.error("Thread backtraces:\n%s", self.thread_backtraces)
+        # A vhost-user drive serves its queues from a separate process, so a
+        # request the guest is still waiting for is only visible there.
+        for drive_id, backend in self.disks_vhost_user.items():
+            LOG.error("vhost-user backend %s logs:\n%s", drive_id, backend.log_data)
+            LOG.error(
+                "vhost-user backend %s thread backtraces:\n%s",
+                drive_id,
+                backend.thread_backtraces,
+            )
         LOG.error("Guest blocked tasks:\n%s", self.guest_blocked_tasks())
 
     def guest_blocked_tasks(self):
