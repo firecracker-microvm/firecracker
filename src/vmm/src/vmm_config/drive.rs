@@ -54,6 +54,9 @@ pub struct BlockDeviceConfig {
     pub is_read_only: Option<bool>,
     /// If set to true, the drive advertises discard support to the guest.
     pub discard: Option<bool>,
+    /// If set to true, process requests on a dedicated worker thread.
+    #[serde(default)]
+    pub threaded: bool,
     /// Path of the drive.
     pub path_on_host: Option<String>,
     /// Rate Limiter for I/O operations.
@@ -216,6 +219,7 @@ mod tests {
                 is_root_device: self.is_root_device,
                 is_read_only: self.is_read_only,
                 discard: self.discard,
+                threaded: self.threaded,
                 cache_type: self.cache_type,
 
                 path_on_host: self.path_on_host.clone(),
@@ -248,6 +252,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
+            threaded: false,
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
@@ -285,6 +290,7 @@ mod tests {
 
             is_read_only: Some(true),
             discard: None,
+            threaded: false,
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
@@ -320,6 +326,7 @@ mod tests {
 
             is_read_only: Some(true),
             discard: None,
+            threaded: false,
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
@@ -352,6 +359,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
+            threaded: false,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
@@ -371,6 +379,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
+            threaded: false,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
@@ -401,6 +410,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
+            threaded: false,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
@@ -420,6 +430,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
+            threaded: false,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
@@ -439,6 +450,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
+            threaded: false,
             path_on_host: Some(dummy_path_3),
             rate_limiter: None,
             file_engine_type: None,
@@ -483,6 +495,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
+            threaded: false,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
@@ -502,6 +515,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
+            threaded: false,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
@@ -521,6 +535,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
+            threaded: false,
             path_on_host: Some(dummy_path_3),
             rate_limiter: None,
             file_engine_type: None,
@@ -566,6 +581,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
+            threaded: false,
             path_on_host: Some(dummy_path_1.clone()),
             rate_limiter: None,
             file_engine_type: None,
@@ -585,6 +601,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
+            threaded: false,
             path_on_host: Some(dummy_path_2.clone()),
             rate_limiter: None,
             file_engine_type: None,
@@ -660,6 +677,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
+            threaded: false,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
@@ -679,6 +697,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
+            threaded: false,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
@@ -708,6 +727,7 @@ mod tests {
 
             is_read_only: Some(true),
             discard: Some(false),
+            threaded: false,
             path_on_host: Some(dummy_file.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
@@ -746,6 +766,7 @@ mod tests {
 
             is_read_only: Some(true),
             discard: None,
+            threaded: false,
             path_on_host: Some(backing_file.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: None,
