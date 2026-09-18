@@ -157,14 +157,19 @@ unsafe extern "C" {
         arg_array: *const scmp_arg_cmp,
     ) -> c_int;
 
-    /// Generate seccomp Berkeley Packet Filter (BPF) code and export it to a file
-    ///
+    /// Generate seccomp Berkeley Packet Filter (BPF) code and export it to a buffer
     /// - `ctx`: the filter context
-    /// - `fd`: the destination fd
+    /// - `buf`: the destination buffer
+    /// - `len`: on input the length of the buffer, on output the number of bytes
+    ///   in the program
     ///
     /// This function generates seccomp Berkeley Packer Filter (BPF) code and writes
-    /// it to the given fd.  Returns zero on success, negative values on failure.
-    pub fn seccomp_export_bpf(ctx: const_scmp_filter_ctx, fd: c_int) -> c_int;
+    /// it to the given buffer.  Returns zero on success, negative values on failure.
+    pub fn seccomp_export_bpf_mem(
+        ctx: const_scmp_filter_ctx,
+        buf: *mut u8,
+        len: *mut usize,
+    ) -> c_int;
 }
 
 /// Negative pseudo syscall number returned by some functions in case of an error
