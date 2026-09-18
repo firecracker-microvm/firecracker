@@ -486,7 +486,7 @@ def test_negative_snapshot_create(uvm_configured):
     vm = uvm_configured
     vm.start()
 
-    with pytest.raises(RuntimeError, match="save/restore unavailable while running"):
+    with pytest.raises(RuntimeError, match="snapshot requires a paused microVM"):
         vm.api.snapshot_create.put(
             mem_file_path="memfile", snapshot_path="statefile", snapshot_type="Full"
         )
