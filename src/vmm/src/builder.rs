@@ -24,13 +24,14 @@ use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{GetCpuTemplate, GetCpuTemplateError, GuestConfigError};
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager;
+use crate::device_manager::pci_mngr::PciPlacement;
 use crate::device_manager::{
     AttachDeviceError, DeviceManager, DeviceManagerCreateError, DeviceManagerPersistError,
     DeviceRestoreArgs,
 };
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
-use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::mem::{VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB, VirtioMem};
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::pmem::device::Pmem;
@@ -236,26 +237,47 @@ pub fn build_microvm_for_boot(
         )?;
     }
 
+    // Attach the devices that sit on the primary bus first.
+    // Removable devices will be added later after we attach root ports.
     attach_block_devices(
         &mut device_manager,
         &vm,
         &mut boot_cmdline,
-        vm_resources.block.devices.iter(),
+        vm_resources.block.devices.iter().filter(|block| {
+            !vm_resources.is_removable(
+                VirtioDeviceType::Block,
+                block.lock().expect("Poisoned lock").id(),
+            )
+        }),
         event_manager,
+        PciPlacement::RootBus,
     )?;
     attach_net_devices(
         &mut device_manager,
         &vm,
         &mut boot_cmdline,
-        vm_resources.net_builder.iter(),
+        vm_resources.net_builder.iter().filter(|net| {
+            !vm_resources.is_removable(
+                VirtioDeviceType::Net,
+                net.lock().expect("Poisoned lock").id(),
+            )
+        }),
         event_manager,
+        PciPlacement::RootBus,
     )?;
     attach_pmem_devices(
         &mut device_manager,
         &vm,
         &mut boot_cmdline,
-        &vm_resources.pmem.configs,
+        &vm_resources
+            .pmem
+            .configs
+            .iter()
+            .filter(|config| !vm_resources.is_removable(VirtioDeviceType::Pmem, &config.id))
+            .cloned()
+            .collect::<Vec<_>>(),
         event_manager,
+        PciPlacement::RootBus,
     )?;
 
     if let Some(unix_vsock) = vm_resources.vsock.get() {
@@ -290,6 +312,51 @@ pub fn build_microvm_for_boot(
         )?;
     }
 
+    // The root ports will take the primary bus slots that follow.
+    // Removable devices are attached into them.
+    device_manager.attach_root_ports(&kvm_vm)?;
+
+    attach_block_devices(
+        &mut device_manager,
+        &vm,
+        &mut boot_cmdline,
+        vm_resources.block.devices.iter().filter(|block| {
+            vm_resources.is_removable(
+                VirtioDeviceType::Block,
+                block.lock().expect("Poisoned lock").id(),
+            )
+        }),
+        event_manager,
+        PciPlacement::RootPort,
+    )?;
+    attach_net_devices(
+        &mut device_manager,
+        &vm,
+        &mut boot_cmdline,
+        vm_resources.net_builder.iter().filter(|net| {
+            vm_resources.is_removable(
+                VirtioDeviceType::Net,
+                net.lock().expect("Poisoned lock").id(),
+            )
+        }),
+        event_manager,
+        PciPlacement::RootPort,
+    )?;
+    attach_pmem_devices(
+        &mut device_manager,
+        &vm,
+        &mut boot_cmdline,
+        &vm_resources
+            .pmem
+            .configs
+            .iter()
+            .filter(|config| vm_resources.is_removable(VirtioDeviceType::Pmem, &config.id))
+            .cloned()
+            .collect::<Vec<_>>(),
+        event_manager,
+        PciPlacement::RootPort,
+    )?;
+
     #[cfg(target_arch = "aarch64")]
     device_manager.attach_legacy_devices_aarch64(
         &kvm_vm,
@@ -298,8 +365,6 @@ pub fn build_microvm_for_boot(
         vm_resources.serial_out_path.as_ref(),
         vm_resources.serial_rate_limiter(),
     )?;
-
-    device_manager.attach_root_ports(&kvm_vm)?;
 
     device_manager.attach_vmgenid_device(&kvm_vm)?;
     device_manager.attach_vmclock_device(&kvm_vm)?;
@@ -605,6 +670,7 @@ fn attach_entropy_device(
         cmdline,
         event_manager,
         false,
+        PciPlacement::RootBus,
     )
 }
 
@@ -655,6 +721,7 @@ fn attach_virtio_mem_device(
         cmdline,
         event_manager,
         false,
+        PciPlacement::RootBus,
     )?;
     Ok(())
 }
@@ -665,6 +732,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
     cmdline: &mut LoaderKernelCmdline,
     blocks: I,
     event_manager: &mut EventManager,
+    placement: PciPlacement,
 ) -> Result<(), StartMicrovmError> {
     for block in blocks {
         let (id, is_vhost_user) = {
@@ -686,6 +754,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
             cmdline,
             event_manager,
             is_vhost_user,
+            placement,
         )?;
     }
     Ok(())
@@ -697,6 +766,7 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     cmdline: &mut LoaderKernelCmdline,
     net_devices: I,
     event_manager: &mut EventManager,
+    placement: PciPlacement,
 ) -> Result<(), StartMicrovmError> {
     for net_device in net_devices {
         let id = net_device.lock().expect("Poisoned lock").id().to_string();
@@ -708,6 +778,7 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
             cmdline,
             event_manager,
             false,
+            placement,
         )?;
     }
     Ok(())
@@ -719,6 +790,7 @@ fn attach_pmem_devices(
     cmdline: &mut LoaderKernelCmdline,
     configs: &[PmemConfig],
     event_manager: &mut EventManager,
+    placement: PciPlacement,
 ) -> Result<(), StartMicrovmError> {
     let kvm_vm = vm.as_kvm().ok_or(AttachDeviceError::NotSupported)?;
     for (i, config) in configs.iter().enumerate() {
@@ -733,7 +805,15 @@ fn attach_pmem_devices(
         let pmem = Pmem::new(kvm_vm.clone(), config.clone())?;
         let device = Arc::new(Mutex::new(pmem));
 
-        device_manager.attach_boot_virtio_device(vm, id, device, cmdline, event_manager, false)?;
+        device_manager.attach_boot_virtio_device(
+            vm,
+            id,
+            device,
+            cmdline,
+            event_manager,
+            false,
+            placement,
+        )?;
     }
     Ok(())
 }
@@ -754,6 +834,7 @@ fn attach_unixsock_vsock_device(
         cmdline,
         event_manager,
         false,
+        PciPlacement::RootBus,
     )
 }
 
@@ -767,7 +848,15 @@ fn attach_balloon_device(
     let _kvm_vm = vm.as_kvm().ok_or(AttachDeviceError::NotSupported)?;
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    device_manager.attach_boot_virtio_device(vm, id, balloon.clone(), cmdline, event_manager, false)
+    device_manager.attach_boot_virtio_device(
+        vm,
+        id,
+        balloon.clone(),
+        cmdline,
+        event_manager,
+        false,
+        PciPlacement::RootBus,
+    )
 }
 
 #[cfg(test)]
@@ -883,6 +972,16 @@ pub(crate) mod tests {
         }
     }
 
+    /// A PCI-enabled test VMM with `count` root ports, so that devices can be
+    /// hot-plugged into it.
+    pub(crate) fn default_vmm_with_hotplug_ports(count: u8) -> Vmm {
+        let mut vmm = default_vmm_with_pci_ports(count);
+        vmm.device_manager
+            .attach_root_ports(vmm.vm.as_kvm().unwrap())
+            .unwrap();
+        vmm
+    }
+
     pub(crate) fn insert_block_devices(
         vmm: &mut Vmm,
         cmdline: &mut Cmdline,
@@ -917,6 +1016,7 @@ pub(crate) mod tests {
                 topology: None,
 
                 socket: None,
+                removable: false,
             };
 
             block_dev_configs
@@ -930,6 +1030,7 @@ pub(crate) mod tests {
             cmdline,
             block_dev_configs.devices.iter(),
             event_manager,
+            PciPlacement::RootBus,
         )
         .unwrap();
         block_files
@@ -950,6 +1051,7 @@ pub(crate) mod tests {
             cmdline,
             net_builder.iter(),
             event_manager,
+            PciPlacement::RootBus,
         );
         res.unwrap();
     }
@@ -977,6 +1079,7 @@ pub(crate) mod tests {
             cmdline,
             net_builder.iter(),
             event_manager,
+            PciPlacement::RootBus,
         )
         .unwrap();
     }
@@ -1055,6 +1158,7 @@ pub(crate) mod tests {
             cmdline,
             &builder.configs,
             event_manager,
+            PciPlacement::RootBus,
         )
         .unwrap();
         files
@@ -1112,6 +1216,7 @@ pub(crate) mod tests {
             mtu: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
+            removable: false,
         };
 
         let mut cmdline = default_kernel_cmdline();

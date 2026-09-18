@@ -72,6 +72,11 @@ pub struct BlockDeviceConfig {
     // VhostUserBlock specific fields
     /// Path to the vhost-user socket.
     pub socket: Option<String>,
+    /// If set to true, the device is placed behind a PCIe root port, which is
+    /// what makes it possible to hot-unplug it later. It consumes one of the
+    /// ports set aside by `pcie_hotplug_ports`.
+    #[serde(default)]
+    pub removable: bool,
 }
 
 /// Only provided fields will be updated. I.e. if any optional fields
@@ -225,6 +230,7 @@ mod tests {
                 topology: self.topology,
 
                 socket: self.socket.clone(),
+                removable: false,
             }
         }
     }
@@ -255,6 +261,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -292,6 +299,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -327,6 +335,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -359,6 +368,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
@@ -378,6 +388,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -408,6 +419,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
@@ -427,6 +439,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
 
         let dummy_file_3 = TempFile::new().unwrap();
@@ -446,6 +459,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -490,6 +504,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
@@ -509,6 +524,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
 
         let dummy_file_3 = TempFile::new().unwrap();
@@ -528,6 +544,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -573,6 +590,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
@@ -592,6 +610,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -667,6 +686,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
         // Switch roots and add a PARTUUID for the new one.
         let mut root_block_device_old = root_block_device;
@@ -686,6 +706,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
 
         block_devs.insert(root_block_device_old, false).unwrap();
@@ -720,6 +741,7 @@ mod tests {
             }),
 
             socket: None,
+            removable: false,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -753,6 +775,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
 
         let block = Block::new(config).unwrap();

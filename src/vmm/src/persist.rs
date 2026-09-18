@@ -742,6 +742,7 @@ mod tests {
             mtu: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
+            removable: false,
         };
         insert_net_device(
             &mut vmm,

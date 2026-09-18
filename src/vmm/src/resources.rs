@@ -1,6 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashSet;
 use std::convert::From;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -9,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use vm_memory::GuestAddress;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
-use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceType};
 use crate::logger::{LoggerConfig, info};
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
@@ -138,6 +139,21 @@ pub struct VmResources {
     pub serial_out_path: Option<PathBuf>,
     /// Optional rate limiter config for serial output.
     pub serial_rate_limiter_cfg: Option<TokenBucketConfig>,
+
+    /// The devices the user asked to be `removable`.
+    ///
+    /// Unfortunately this is needed because for most devices we don't store
+    /// the their JSON config, we rather store the device objects. At the same
+    /// time GET /vm/config needs to return correct information. An alternative
+    /// is storing 'removable' in the backend objects, but this is unnecessary
+    /// adds redundant information to the snapshot. The topology information
+    /// (which bus the device sits on) is enough to answer whether the device
+    /// is removable or not, and we don't want to have to add extra checks on
+    /// snapshot restore to ensure the different snapshots states agree.
+    /// However, the topology information is not known pre-boot, so to make GET
+    /// /vm/config work at that point store the removable devices in the
+    /// HashSet below.
+    pub removable_devices: HashSet<VirtioDeviceId>,
 }
 
 impl VmResources {
@@ -334,6 +350,23 @@ impl VmResources {
         mmds_config
     }
 
+    /// Record whether a device was asked to be `removable`. Re-configuring a
+    /// device replaces the previous answer, so clearing the flag works too.
+    fn set_removable(&mut self, device_type: VirtioDeviceType, id: &str, removable: bool) {
+        let key = (device_type, id.to_string());
+        if removable {
+            self.removable_devices.insert(key);
+        } else {
+            self.removable_devices.remove(&key);
+        }
+    }
+
+    /// Return true if the device was configured as removable.
+    pub fn is_removable(&self, device_type: VirtioDeviceType, id: &str) -> bool {
+        self.removable_devices
+            .contains(&(device_type, id.to_string()))
+    }
+
     /// Sets a balloon device to be attached when the VM starts.
     pub fn set_balloon_device(
         &mut self,
@@ -369,6 +402,11 @@ impl VmResources {
         block_device_config: BlockDeviceConfig,
     ) -> Result<(), DriveError> {
         let has_pmem_root = self.pmem.has_root_device();
+        self.set_removable(
+            VirtioDeviceType::Block,
+            &block_device_config.drive_id,
+            block_device_config.removable,
+        );
         self.block.insert(block_device_config, has_pmem_root)
     }
 
@@ -377,6 +415,7 @@ impl VmResources {
         &mut self,
         body: NetworkInterfaceConfig,
     ) -> Result<(), NetworkInterfaceError> {
+        self.set_removable(VirtioDeviceType::Net, &body.iface_id, body.removable);
         let _ = self.net_builder.build(body)?;
         Ok(())
     }
@@ -397,6 +436,7 @@ impl VmResources {
     /// Builds a pmem device to be attached when the VM starts.
     pub fn build_pmem_device(&mut self, body: PmemConfig) -> Result<(), PmemConfigError> {
         let has_block_root = self.block.has_root_device();
+        self.set_removable(VirtioDeviceType::Pmem, &body.id, body.removable);
         self.pmem.build(body, has_block_root)
     }
 
@@ -543,16 +583,29 @@ impl VmResources {
 
 impl From<&VmResources> for VmmConfig {
     fn from(resources: &VmResources) -> Self {
+        // The builders rebuild their configs from the device objects they
+        // hold, which do not carry the removable flag, so put it back from the
+        // record kept here.
+        let mut drives = resources.block.configs();
+        for config in &mut drives {
+            config.removable = resources.is_removable(VirtioDeviceType::Block, &config.drive_id);
+        }
+
+        let mut network_interfaces = resources.net_builder.configs();
+        for config in &mut network_interfaces {
+            config.removable = resources.is_removable(VirtioDeviceType::Net, &config.iface_id);
+        }
+
         VmmConfig {
             balloon: resources.balloon.get_config().ok(),
-            drives: resources.block.configs(),
+            drives,
             boot_source: resources.boot_source.config.clone(),
             cpu_config: None,
             logger: None,
             machine_config: Some(resources.machine_config.clone()),
             metrics: None,
             mmds_config: resources.mmds_config(),
-            network_interfaces: resources.net_builder.configs(),
+            network_interfaces,
             vsock: resources.vsock.config(),
             entropy: resources.entropy.config(),
             pmem_devices: resources.pmem.configs.clone(),
@@ -608,6 +661,7 @@ mod tests {
             mtu: None,
             rx_rate_limiter: Some(RateLimiterConfig::default()),
             tx_rate_limiter: Some(RateLimiterConfig::default()),
+            removable: false,
         }
     }
 
@@ -636,6 +690,7 @@ mod tests {
                 topology: None,
 
                 socket: None,
+                removable: false,
             },
             tmp_file,
         )
@@ -662,6 +717,7 @@ mod tests {
 
     fn default_vm_resources() -> VmResources {
         VmResources {
+            removable_devices: HashSet::new(),
             machine_config: MachineConfig::default(),
             boot_source: default_boot_cfg(),
             block: default_blocks(),

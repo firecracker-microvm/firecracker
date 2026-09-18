@@ -84,12 +84,13 @@ class Resource:
 
         return res
 
-    def delete(self, resource_id):
-        """Make a DELETE request"""
+    def delete(self, resource_id, **kwargs):
+        """Make a DELETE request, with an optional JSON body"""
         path = self.resource + "/" + resource_id
         url = self._api.endpoint + path
+        kwargs = {key: val for key, val in kwargs.items() if val is not None}
         try:
-            res = self._api.session.delete(url)
+            res = self._api.session.delete(url, json=kwargs or None)
         except Exception as e:
             if self._api.error_callback:
                 self._api.error_callback("DELETE", path, str(e))
