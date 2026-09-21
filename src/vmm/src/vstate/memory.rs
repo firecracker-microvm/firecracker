@@ -987,16 +987,38 @@ impl GuestMemoryRegion for GuestRegionMmapExt {
     }
 }
 
-/// Creates a `Vec` of `GuestRegionMmap` with the given configuration
+/// Creates a `Vec` of anonymous `GuestRegionMmap` with the given configuration.
 pub fn memory_regions_from_ranges(
     regions: &[(GuestAddress, usize)],
     mmap_flags: libc::c_int,
-    file: Option<File>,
     track_dirty_pages: bool,
     madvise_flags: libc::c_int,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    let mut offset = 0;
-    let file = file.map(Arc::new);
+    regions
+        .iter()
+        .map(|&(start, size)| {
+            memory_region_from_range(
+                start,
+                size,
+                mmap_flags,
+                None,
+                track_dirty_pages,
+                madvise_flags,
+            )
+        })
+        .collect()
+}
+
+/// Creates a `Vec` of `GuestRegionMmap` mapped from a file: the first region at `file_offset`,
+/// each following one right after the previous.
+pub fn memory_regions_from_ranges_file_backed(
+    regions: &[(GuestAddress, usize)],
+    mmap_flags: libc::c_int,
+    file_offset: FileOffset,
+    track_dirty_pages: bool,
+    madvise_flags: libc::c_int,
+) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+    let mut offset = file_offset.start();
     regions
         .iter()
         .map(|&(start, size)| {
@@ -1004,8 +1026,7 @@ pub fn memory_regions_from_ranges(
                 start,
                 size,
                 mmap_flags,
-                file.as_ref()
-                    .map(|file| FileOffset::from_arc(Arc::clone(file), offset)),
+                Some(FileOffset::from_arc(Arc::clone(file_offset.arc()), offset)),
                 track_dirty_pages,
                 madvise_flags,
             )?;
@@ -1060,10 +1081,10 @@ pub fn memfd_backed(
         .ok_or(MemoryError::OffsetTooLarge)?;
     let memfd_file = create_memfd(size, huge_pages.into())?.into_file();
 
-    memory_regions_from_ranges(
+    memory_regions_from_ranges_file_backed(
         regions,
         libc::MAP_SHARED | huge_pages.mmap_flags(),
-        Some(memfd_file),
+        FileOffset::new(memfd_file, 0),
         track_dirty_pages,
         huge_pages.madvise_flags(),
     )
@@ -1078,7 +1099,6 @@ pub fn anonymous(
     memory_regions_from_ranges(
         regions,
         libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | huge_pages.mmap_flags(),
-        None,
         track_dirty_pages,
         huge_pages.madvise_flags(),
     )
@@ -1104,10 +1124,10 @@ pub fn snapshot_file(
         return Err(MemoryError::OffsetTooLarge);
     }
 
-    memory_regions_from_ranges(
+    memory_regions_from_ranges_file_backed(
         regions,
         libc::MAP_PRIVATE,
-        Some(file),
+        FileOffset::new(file, 0),
         track_dirty_pages,
         huge_pages.madvise_flags(),
     )

@@ -478,14 +478,14 @@ pub(crate) mod tests {
     use crate::devices::virtio::test_utils::default_interrupt;
     use crate::test_utils::create_tmp_socket;
     use crate::vstate::memory;
-    use crate::vstate::memory::{GuestAddress, GuestRegionMmapExt};
+    use crate::vstate::memory::{FileOffset, GuestAddress, GuestRegionMmapExt};
 
     pub(crate) fn create_mem(file: File, regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
         GuestMemoryMmap::from_regions(
-            memory::memory_regions_from_ranges(
+            memory::memory_regions_from_ranges_file_backed(
                 regions,
                 libc::MAP_PRIVATE,
-                Some(file),
+                FileOffset::new(file, 0),
                 false,
                 libc::MADV_NORMAL,
             )
