@@ -1000,34 +1000,52 @@ pub fn memory_regions_from_ranges(
     regions
         .iter()
         .map(|&(start, size)| {
-            let guest_memory = GuestRegionMmap::allocate(
+            let guest_memory = memory_region_from_range(
                 start,
                 size,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_NORESERVE | mmap_flags,
+                mmap_flags,
                 file.as_ref()
                     .map(|file| FileOffset::from_arc(Arc::clone(file), offset)),
                 track_dirty_pages,
+                madvise_flags,
             )?;
             offset = offset
                 .checked_add(size as u64)
                 .ok_or(MemoryError::OffsetTooLarge)?;
-            if madvise_flags != libc::MADV_NORMAL {
-                // SAFETY: The referenced memory was just mapped.
-                let ret = unsafe {
-                    libc::madvise(
-                        guest_memory.as_ptr().cast(),
-                        guest_memory.size(),
-                        madvise_flags,
-                    )
-                };
-                if ret != 0 {
-                    return Err(MemoryError::Madvise(io::Error::last_os_error()));
-                }
-            }
             Ok(guest_memory)
         })
-        .collect::<Result<Vec<_>, _>>()
+        .collect()
+}
+
+/// Creates a single `GuestRegionMmap`, mapped from `file_offset` if given.
+fn memory_region_from_range(
+    start: GuestAddress,
+    size: usize,
+    mmap_flags: libc::c_int,
+    file_offset: Option<FileOffset>,
+    track_dirty_pages: bool,
+    madvise_flags: libc::c_int,
+) -> Result<GuestRegionMmap, MemoryError> {
+    let guest_memory = GuestRegionMmap::allocate(
+        start,
+        size,
+        libc::PROT_READ | libc::PROT_WRITE,
+        libc::MAP_NORESERVE | mmap_flags,
+        file_offset,
+        track_dirty_pages,
+    )?;
+    // SAFETY: The referenced memory was just mapped.
+    let ret = unsafe {
+        libc::madvise(
+            guest_memory.as_ptr().cast(),
+            guest_memory.size(),
+            madvise_flags,
+        )
+    };
+    if ret != 0 {
+        return Err(MemoryError::Madvise(io::Error::last_os_error()));
+    }
+    Ok(guest_memory)
 }
 
 /// Creates a GuestMemoryMmap with `size` in MiB backed by a memfd.
