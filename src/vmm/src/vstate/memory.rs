@@ -1018,6 +1018,24 @@ pub fn memory_regions_from_ranges_file_backed(
     track_dirty_pages: bool,
     madvise_flags: libc::c_int,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+    let end = regions
+        .iter()
+        .try_fold(file_offset.start(), |acc, &(_, size)| {
+            acc.checked_add(size as u64)
+        })
+        .ok_or(MemoryError::OffsetTooLarge)?;
+    let file_size = file_offset
+        .file()
+        .metadata()
+        .map_err(MemoryError::FileMetadata)?
+        .len();
+
+    // Ensure we do not mmap beyond EOF. The kernel would allow that, but a SIGBUS is triggered
+    // on an attempted access to a page of the mapping that lies beyond the end of the file.
+    if end > file_size {
+        return Err(MemoryError::OffsetTooLarge);
+    }
+
     let mut offset = file_offset.start();
     regions
         .iter()
@@ -1030,9 +1048,7 @@ pub fn memory_regions_from_ranges_file_backed(
                 track_dirty_pages,
                 madvise_flags,
             )?;
-            offset = offset
-                .checked_add(size as u64)
-                .ok_or(MemoryError::OffsetTooLarge)?;
+            offset += size as u64;
             Ok(guest_memory)
         })
         .collect()
@@ -1112,18 +1128,6 @@ pub fn snapshot_file(
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    let memory_size = regions
-        .iter()
-        .try_fold(0u64, |acc, &(_, size)| acc.checked_add(size as u64))
-        .ok_or(MemoryError::OffsetTooLarge)?;
-    let file_size = file.metadata().map_err(MemoryError::FileMetadata)?.len();
-
-    // ensure we do not mmap beyond EOF. The kernel would allow that but a SIGBUS is triggered
-    // on an attempted access to a page of the buffer that lies beyond the end of the mapped file.
-    if memory_size > file_size {
-        return Err(MemoryError::OffsetTooLarge);
-    }
-
     memory_regions_from_ranges_file_backed(
         regions,
         libc::MAP_PRIVATE,
