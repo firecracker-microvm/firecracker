@@ -155,7 +155,7 @@ pub fn build_microvm_for_boot(
         .as_ref()
         .ok_or(StartMicrovmError::MissingKernelConfig)?;
 
-    let guest_memory = vm_resources
+    let (guest_memory, mut memfd_backing) = vm_resources
         .allocate_guest_memory()
         .map_err(StartMicrovmError::GuestMemory)?;
 
@@ -187,6 +187,7 @@ pub fn build_microvm_for_boot(
             .allocate_memory_region(
                 addr,
                 u64_to_usize(u32_mib_to_bytes(memory_hotplug.total_size_mib)),
+                memfd_backing.as_mut(),
             )
             .map_err(StartMicrovmError::GuestMemory)?;
         vm.register_hotpluggable_memory_region(
