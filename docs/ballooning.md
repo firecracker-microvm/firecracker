@@ -96,17 +96,21 @@ Please note that even in the case where the driver is not working properly, the
 balloon will never leak memory from one Firecracker process to another, nor can
 a guest within Firecracker access information in memory outside its own guest
 memory. In other words, memory cannot leak in or out of Firecracker if the
-driver becomes corrupted. This is guaranteed by the fact that the page frame
-numbers coming from the driver are checked to be inside the guest memory, then
-`madvise`d with the `MADV_DONTNEED` flag, which breaks the mappings between host
-physical memory (where the information is ultimately stored) and Firecracker
-virtual memory, which is what Firecracker uses to build the guest memory. On
-subsequent accesses on previously `madvise`d memory addresses, the memory is
-zeroed. Furthermore, the guest memory is `mmap`ped with the `MAP_PRIVATE` and
-`MAP_ANONYMOUS` flags, which ensure that even if a Firecracker yields some
-information through an inflate and that same physical page containing the
-information is mapped onto another Firecracker process, reads on that address
-space will see zeroes.
+driver becomes corrupted. The page frame numbers supplied by the driver are
+checked to be inside guest memory before Firecracker discards the ranges.
+Anonymous memory uses `madvise(MADV_DONTNEED)`. Shared memfd-backed memory, such
+as memory shared with vhost-user block devices, uses `madvise(MADV_REMOVE)` to
+release the backing pages while preserving userfaultfd removal notifications.
+Private snapshot-file mappings are replaced with anonymous mappings so later
+accesses cannot read the old snapshot contents. Successfully discarded ranges
+read as zero on subsequent access, until the guest writes new contents.
+
+For shared hugetlbfs-backed memory (`huge_pages: "2M"`), discard ranges must
+start and end on 2 MiB boundaries. Firecracker rejects partial hugepage ranges
+because hole punching can otherwise succeed without releasing a hugepage. Free
+page reporting with ranges aligned to the backing page size can reclaim this
+memory; traditional balloon inflation supplies 4 KiB page numbers and does not
+guarantee suitable ranges.
 
 ## Prerequisites
 
@@ -308,10 +312,11 @@ through a `polling_interval` value of zero post-boot.
 
 Free page reporting is a virtio balloon feature which allows the guest OS to
 report ranges of memory which are not being used. In Firecracker, the balloon
-device will `madvise` the range with the `MADV_DONTNEED` flag, reducing the RSS
-of the guest. Reporting can only be enabled pre-boot and will run continually
-with no option to stop it running. The feature also requires the guest to have
-the Linux kernel config option `PAGE_REPORTING` enabled.
+device discards these ranges to reclaim host memory and reduce the Firecracker
+process's resident set size (RSS). Hugetlbfs memory is accounted separately from
+RSS. Reporting can only be enabled pre-boot and will run continually with no
+option to stop it running. The feature also requires the guest to have the Linux
+kernel config option `PAGE_REPORTING` enabled.
 
 To enable free page reporting when creating the balloon device, the
 `free_page_reporting` attribute should be set in the JSON object.
@@ -351,10 +356,11 @@ size.
 Free page hinting is a
 [developer-preview](../docs/RELEASE_POLICY.md#developer-preview-features)
 feature, which allows the guest driver to report ranges of memory which are not
-being used. In Firecracker, the balloon device will `madvise` the range with the
-`MADV_DONTNEED` flag, reducing the RSS of the guest. Free page hinting differs
-from reporting as this is instead initiated from the host side, giving more
-flexibility on when to reclaim memory.
+being used. In Firecracker, the balloon device discards these ranges to reclaim
+host memory and reduce the Firecracker process's RSS. Hugetlbfs memory is
+accounted separately from RSS. Free page hinting differs from reporting as this
+is instead initiated from the host side, giving more flexibility on when to
+reclaim memory.
 
 To enable free page hinting when creating the balloon device, the
 `free_page_hinting` attribute should be set in the JSON object.
