@@ -4,10 +4,15 @@
 #![allow(clippy::cast_possible_truncation, clippy::tests_outside_test_module)]
 
 use std::io::{Seek, SeekFrom};
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::MetadataExt;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use userfaultfd::{Event, FeatureFlags, UffdBuilder};
+use vm_memory::GuestMemoryBackend;
+use vmm::arch::host_page_size;
 use vmm::builder::build_and_boot_microvm;
 use vmm::devices::virtio::block::CacheType;
 use vmm::persist::{
@@ -33,6 +38,10 @@ use vmm::vmm_config::snapshot::{
     SnapshotLoadHugePageConfig, SnapshotType,
 };
 use vmm::vmm_config::vsock::VsockDeviceConfig;
+use vmm::vstate::memory::test_utils::into_region_ext;
+use vmm::vstate::memory::{
+    Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryRegion, memfd_backed,
+};
 use vmm::{DumpCpuConfigError, EventManager, FcExitCode, Vmm};
 use vmm_sys_util::tempfile::TempFile;
 
@@ -169,6 +178,65 @@ fn test_dirty_bitmap_success() {
         assert!(num_dirty_pages > 0);
         vmm.lock().unwrap().stop(FcExitCode::Ok);
     }
+}
+
+#[test]
+fn test_discard_range_on_memfd_notifies_uffd() {
+    let page_size = host_page_size();
+    let mem = into_region_ext(
+        memfd_backed(
+            &[(GuestAddress(0), 2 * page_size)],
+            false,
+            HugePageConfig::None,
+        )
+        .unwrap(),
+    );
+    mem.write(&vec![1; 2 * page_size], GuestAddress(0)).unwrap();
+    let region = mem.iter().next().unwrap();
+    let host_addr = region.as_ptr() as usize;
+    let uffd = UffdBuilder::new()
+        .close_on_exec(true)
+        .non_blocking(true)
+        .require_features(FeatureFlags::EVENT_REMOVE | FeatureFlags::MISSING_SHMEM)
+        .create()
+        .unwrap();
+    uffd.register(region.as_ptr().cast(), 2 * page_size)
+        .unwrap();
+
+    // Discard waits for the REMOVE event to be read. The handler owns uffd so a panic
+    // closes it and unblocks discard.
+    thread::scope(|scope| {
+        let handler = scope.spawn(move || {
+            let mut pollfd = libc::pollfd {
+                fd: uffd.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            // SAFETY: pollfd is a valid array of one initialized pollfd.
+            assert_eq!(unsafe { libc::poll(&mut pollfd, 1, 5000) }, 1);
+            match uffd.read_event().unwrap().unwrap() {
+                Event::Remove { start, end } => {
+                    assert_eq!(start as usize, host_addr + page_size);
+                    assert_eq!(end as usize, host_addr + 2 * page_size);
+                }
+                event => panic!("unexpected UFFD event: {event:?}"),
+            }
+        });
+        mem.discard_range(GuestAddress(page_size as u64), page_size)
+            .unwrap();
+        handler.join().unwrap();
+    });
+    assert_eq!(
+        region
+            .file_offset()
+            .unwrap()
+            .file()
+            .metadata()
+            .unwrap()
+            .blocks()
+            * 512,
+        page_size as u64
+    );
 }
 
 #[test]

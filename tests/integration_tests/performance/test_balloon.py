@@ -3,10 +3,13 @@
 """Tests for guest-side operations on /balloon resources."""
 
 import concurrent
+import math
 import signal
 import time
+from pathlib import Path
 
 import pytest
+from tenacity import Retrying, stop_after_delay, wait_fixed
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.utils import (
@@ -249,3 +252,69 @@ def test_size_reduction(uvm, method, huge_pages):
 
     # There should be a reduction of at least 10MB.
     assert first_reading - second_reading >= 10000
+
+
+@pytest.mark.parametrize("method", ["traditional", "hinting", "reporting"])
+def test_size_reduction_on_memfd(uvm, rootfs, method, huge_pages):
+    """Verify that balloon discard releases shared guest-memory backing."""
+    if huge_pages == HugePagesConfig.HUGETLBFS_2MB and method == "traditional":
+        pytest.skip("Traditional balloon ranges need not align to huge pages")
+
+    vm = uvm
+    vm.spawn()
+    vm.basic_config(add_root_device=False, huge_pages=huge_pages)
+
+    # Vhost-user selects shared memfd backing independently of the hugepage setting.
+    vm.add_vhost_user_drive("rootfs", rootfs, is_root_device=True, is_read_only=True)
+
+    vm.add_net_iface()
+    vm.api.balloon.put(
+        amount_mib=0,
+        deflate_on_oom=False,
+        stats_polling_interval_s=0,
+        free_page_reporting=method == "reporting",
+        free_page_hinting=method == "hinting",
+    )
+    vm.start()
+
+    pid = start_fast_page_fault_helper(vm.ssh)
+    backing_files = [
+        fd
+        for fd in Path(f"/proc/{vm.firecracker_pid}/fd").iterdir()
+        if fd.resolve().name.startswith("memfd:guest_mem")
+    ]
+    assert len(backing_files) == 1
+    backing_file = backing_files[0]
+    allocated_before = backing_file.stat().st_blocks * 512
+    size_before = backing_file.stat().st_size
+    reclaim_bytes = 64 * 1024 * 1024
+
+    vm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
+
+    # The helper writes its output before exit releases its memory.
+    for attempt in Retrying(
+        stop=stop_after_delay(10), wait=wait_fixed(0.1), reraise=True
+    ):
+        with attempt:
+            exit_code, _, _ = vm.ssh.run(f"test ! -e /proc/{pid}")
+            assert exit_code == 0, "memory helper is still running"
+
+    if method == "traditional":
+        # Exceed the unbacked space so inflation must also reclaim allocated pages.
+        inflate_mib = math.ceil(
+            (size_before - allocated_before + reclaim_bytes) / (1024 * 1024)
+        )
+        vm.api.balloon.patch(amount_mib=inflate_mib)
+    elif method == "hinting":
+        vm.api.balloon_hinting_start.patch()
+
+    for attempt in Retrying(
+        stop=stop_after_delay(20), wait=wait_fixed(0.1), reraise=True
+    ):
+        with attempt:
+            metadata = backing_file.stat()
+            assert metadata.st_size == size_before
+            assert allocated_before - metadata.st_blocks * 512 >= reclaim_bytes
+
+    if method == "traditional":
+        vm.api.balloon.patch(amount_mib=0)
