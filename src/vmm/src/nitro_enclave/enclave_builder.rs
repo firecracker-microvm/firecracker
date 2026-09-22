@@ -6,8 +6,6 @@
 //! Loads a pre-built EIF image or builds one from kernel+initrd+boot_args,
 //! then boots a Nitro Enclave from `VmResources`.
 
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
 
 use event_manager::SubscriberOps;
@@ -43,18 +41,9 @@ pub enum EnclaveBuilderError {
     MemSizeNotAligned(usize),
     /// Failed to open /dev/nitro_enclaves: {0}
     OpenDevice(std::io::Error),
-    /// Failed to {op} EIF image {path}: {source}
-    ReadEif {
-        /// The operation that failed, "seek" or "read".
-        op: &'static str,
-        /// Path the EIF was read from.
-        path: String,
-        /// Underlying I/O error.
-        source: std::io::Error,
-    },
     /// Invalid kernel command line: {0}
     InvalidKernelCommandLine(String),
-    /// Failed to build EIF from kernel+initrd: {0}
+    /// Failed to prepare the EIF image: {0}
     EifBuild(#[from] eif::EifError),
     /// Enclave VM error: {0}
     EnclaveVm(#[from] crate::nitro_enclave::enclave_vm::EnclaveVmError),
@@ -115,27 +104,6 @@ pub enum EnclaveBuilderError {
     UnsupportedDevice(&'static str),
     /// A Nitro Enclave does not support {0}
     UnsupportedFeature(&'static str),
-}
-
-/// Read a pre-built EIF from the descriptor `is_eif` validated.
-///
-/// Reading the already-open descriptor rather than re-opening `path` keeps the
-/// bytes that were sniffed and the bytes that are loaded the same file, and
-/// makes a retried `InstanceStart` behave like the build-from-kernel branch.
-fn read_prebuilt_eif(mut file: &File, path: &str) -> Result<Vec<u8>, EnclaveBuilderError> {
-    // One variant for both steps -- they address the same descriptor -- but the
-    // operation is named, so a rewind failure does not report itself as a read.
-    let err = |op| {
-        move |source| EnclaveBuilderError::ReadEif {
-            op,
-            path: path.to_string(),
-            source,
-        }
-    };
-    file.seek(SeekFrom::Start(0)).map_err(err("seek"))?;
-    let mut data = Vec::new();
-    file.read_to_end(&mut data).map_err(err("read"))?;
-    Ok(data)
 }
 
 /// Resolve the kernel command line for the enclave.
@@ -324,10 +292,9 @@ pub fn build_and_boot_enclave(
     let pcie_flags =
         (required_matched & ne_ioctl::start_flags::NE_ENCLAVE_FLAG_MATCHED_MASK) as u16;
 
-    // TODO(enclave): write EIF directly into CMA memory instead of buffering in a Vec
-    let eif_data = if eif::is_eif(&boot_config.kernel_file) {
+    let image = if eif::is_eif(&boot_config.kernel_file) {
         info!("Loading pre-built EIF from {kernel_path}");
-        read_prebuilt_eif(&boot_config.kernel_file, kernel_path)?
+        eif::EifImage::prebuilt(&boot_config.kernel_file, kernel_path)?
     } else {
         let boot_args = resolve_enclave_cmdline(boot_config, enclave_config, vm_resources)?;
         debug!(
@@ -340,16 +307,27 @@ pub fn build_and_boot_enclave(
             "Building EIF from kernel={kernel_path} initrd={:?}",
             vm_resources.boot_source.config.initrd_path
         );
-        eif::build_eif(
+        let initrd = boot_config.initrd_file.as_ref().map(|file| {
+            // BootConfig::new opens an initrd only when this configuration supplies its path.
+            let path = vm_resources
+                .boot_source
+                .config
+                .initrd_path
+                .as_deref()
+                .expect("an opened initrd has a configured path");
+            (file, path)
+        });
+        eif::EifImage::new(
             &boot_config.kernel_file,
-            boot_config.initrd_file.as_ref(),
-            &boot_args,
+            kernel_path,
+            initrd,
+            boot_args,
             default_mem,
             default_cpus,
             pcie_flags,
         )?
     };
-    info!("EIF ready: {} bytes", eif_data.len());
+    info!("EIF image: {} bytes", image.size());
 
     let dev_fd = NitroEnclavesDevFd::open().map_err(EnclaveBuilderError::OpenDevice)?;
     let supported_flags = dev_fd
@@ -418,7 +396,7 @@ pub fn build_and_boot_enclave(
     enclave_vm.install_info_page()?;
     info!("Info page installed");
 
-    enclave_vm.load_and_add_memory(&eif_data, enclave_config.direct_mode, &numa_nodes)?;
+    enclave_vm.load_and_add_memory(&image, enclave_config.direct_mode, &numa_nodes)?;
     info!(
         "Allocated {} MiB, loaded EIF, and donated memory to enclave",
         vm_resources.machine_config.mem_size_mib
