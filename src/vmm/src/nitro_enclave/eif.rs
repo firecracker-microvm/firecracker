@@ -22,6 +22,8 @@ use crc32fast::Hasher as Crc32Hasher;
 use zerocopy::byteorder::big_endian;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
+use crate::utils::u64_to_usize;
+
 /// EIF magic number.
 const EIF_MAGIC: [u8; 4] = *b".eif";
 
@@ -70,27 +72,48 @@ struct EifHeader {
 }
 
 impl EifHeader {
+    /// Lay out the sections and return the header with the total image length.
     fn new(
-        flags: u16,
+        kernel_len: u64,
+        initrd_len: Option<u64>,
+        cmdline_len: u64,
         default_mem: u64,
         default_cpus: u64,
-        num_sections: u16,
-        offsets: [u64; MAX_NUM_SECTIONS],
-        sizes: [u64; MAX_NUM_SECTIONS],
-    ) -> Self {
-        Self {
+        pcie_flags: u16,
+    ) -> (Self, usize) {
+        let mut header = Self {
             magic: EIF_MAGIC,
             version: big_endian::U16::new(EIF_HDR_VERSION),
-            flags: big_endian::U16::new(flags),
+            flags: big_endian::U16::new(EIF_ARCH_FLAG | pcie_flags),
             default_mem: big_endian::U64::new(default_mem),
             default_cpus: big_endian::U64::new(default_cpus),
             reserved: big_endian::U16::ZERO,
-            num_sections: big_endian::U16::new(num_sections),
-            section_offsets: offsets.map(big_endian::U64::new),
-            section_sizes: sizes.map(big_endian::U64::new),
+            num_sections: big_endian::U16::ZERO,
+            section_offsets: [big_endian::U64::ZERO; MAX_NUM_SECTIONS],
+            section_sizes: [big_endian::U64::ZERO; MAX_NUM_SECTIONS],
             unused: big_endian::U32::ZERO,
             eif_crc32: big_endian::U32::ZERO,
+        };
+
+        // Each section follows the previous one: a section header, then its data.
+        let mut offset = size_of::<Self>() as u64;
+        // The hypervisor expects kernel, cmdline, optional ramdisk, then metadata.
+        let section_sizes = [
+            Some(kernel_len),
+            Some(cmdline_len),
+            initrd_len,
+            Some(EIF_METADATA.len() as u64),
+        ];
+        let mut num_sections: u16 = 0;
+        for size in section_sizes.into_iter().flatten() {
+            let index = usize::from(num_sections);
+            header.section_offsets[index] = big_endian::U64::new(offset);
+            header.section_sizes[index] = big_endian::U64::new(size);
+            offset += size_of::<EifSectionHeader>() as u64 + size;
+            num_sections += 1;
         }
+        header.num_sections = big_endian::U16::new(num_sections);
+        (header, u64_to_usize(offset))
     }
 }
 
@@ -183,73 +206,26 @@ pub fn build_eif(
         }
         None => None,
     };
-    let cmdline_data = cmdline.as_bytes();
-
-    // Build minimal metadata JSON required by the NE hypervisor.
-    let metadata = build_metadata();
-    let metadata_data = metadata.as_bytes();
-
-    // Section count: kernel + cmdline + metadata, plus ramdisk if initrd is provided.
-    let has_ramdisk = initrd_data.is_some();
-    let initrd_len = initrd_data.as_ref().map_or(0, Vec::len);
-    let num_sections: u16 = if has_ramdisk { 4 } else { 3 };
-
-    // Calculate total image size
-    let sections_size = (size_of::<EifSectionHeader>() * num_sections as usize)
-        + kernel_data.len()
-        + cmdline_data.len()
-        + metadata_data.len()
-        + initrd_len;
-    let total_size = size_of::<EifHeader>() + sections_size;
-
-    // Compute section offsets (order: KERNEL, CMDLINE, [RAMDISK], METADATA).
-    // Section order matches the NE hypervisor's expectations.
-    let mut offsets = [0u64; MAX_NUM_SECTIONS];
-    let mut sizes = [0u64; MAX_NUM_SECTIONS];
-
-    let kernel_offset = size_of::<EifHeader>() as u64;
-    offsets[0] = kernel_offset;
-    sizes[0] = kernel_data.len() as u64;
-
-    let cmdline_offset =
-        kernel_offset + size_of::<EifSectionHeader>() as u64 + kernel_data.len() as u64;
-    offsets[1] = cmdline_offset;
-    sizes[1] = cmdline_data.len() as u64;
-
-    let mut next_offset =
-        cmdline_offset + size_of::<EifSectionHeader>() as u64 + cmdline_data.len() as u64;
-    let mut idx = 2;
-
-    if has_ramdisk {
-        offsets[idx] = next_offset;
-        sizes[idx] = initrd_len as u64;
-        next_offset += size_of::<EifSectionHeader>() as u64 + initrd_len as u64;
-        idx += 1;
-    }
-
-    offsets[idx] = next_offset;
-    sizes[idx] = metadata_data.len() as u64;
-
-    let header = EifHeader::new(
-        EIF_ARCH_FLAG | pcie_flags,
+    let (header, total_size) = EifHeader::new(
+        kernel_data.len() as u64,
+        initrd_data.as_ref().map(|data| data.len() as u64),
+        cmdline.len() as u64,
         default_mem,
         default_cpus,
-        num_sections,
-        offsets,
-        sizes,
+        pcie_flags,
     );
 
     let mut eif = Vec::with_capacity(total_size);
     eif.extend_from_slice(header.as_bytes());
-    debug_assert_eq!(eif.len(), size_of::<EifHeader>());
 
     // --- Sections (order: KERNEL, CMDLINE, [RAMDISK], METADATA) ---
     write_section(&mut eif, EIF_SECTION_KERNEL, &kernel_data);
-    write_section(&mut eif, EIF_SECTION_CMDLINE, cmdline_data);
+    write_section(&mut eif, EIF_SECTION_CMDLINE, cmdline.as_bytes());
     if let Some(ref initrd) = initrd_data {
         write_section(&mut eif, EIF_SECTION_RAMDISK, initrd);
     }
-    write_section(&mut eif, EIF_SECTION_METADATA, metadata_data);
+    write_section(&mut eif, EIF_SECTION_METADATA, EIF_METADATA.as_bytes());
+    debug_assert_eq!(eif.len(), total_size);
 
     // Compute EIF CRC32 over the entire image, excluding the 4-byte CRC field itself.
     let mut hasher = Crc32Hasher::new();
@@ -261,11 +237,9 @@ pub fn build_eif(
     Ok(eif)
 }
 
-/// Build a minimal metadata JSON string required by the NE hypervisor.
+/// Minimal metadata JSON required by the NE hypervisor.
 // TODO(enclave): understand if we need to fill this information
-fn build_metadata() -> String {
-    r#"{"ImageName":"firecracker-enclave","ImageVersion":"","BuildMetadata":{"BuildTime":"","BuildTool":"firecracker","BuildToolVersion":"","OperatingSystem":"Linux","KernelVersion":""},"DockerInfo":{},"CustomMetadata":null}"#.to_string()
-}
+const EIF_METADATA: &str = r#"{"ImageName":"firecracker-enclave","ImageVersion":"","BuildMetadata":{"BuildTime":"","BuildTool":"firecracker","BuildToolVersion":"","OperatingSystem":"Linux","KernelVersion":""},"DockerInfo":{},"CustomMetadata":null}"#;
 
 /// Write a section (header + data) to the EIF buffer.
 fn write_section(eif: &mut Vec<u8>, section_type: u16, data: &[u8]) {
