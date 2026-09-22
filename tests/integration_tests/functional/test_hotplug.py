@@ -3,12 +3,18 @@
 """Tests for PCI device hotplug"""
 
 import os
+from http import HTTPStatus
 
 import pytest
 
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
-from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_pci
+from framework.artifacts import (
+    ACPI_GUEST_KERNELS,
+    GUEST_KERNEL_DEFAULT,
+    pin_guest_kernel,
+    pin_pci,
+)
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
 
 VIRTIO_PCI_VENDOR_ID = 0x1AF4
@@ -533,3 +539,70 @@ def test_hotplug_max_devices(uvm_any):
     vm.ssh.check_output("echo 1 > /sys/bus/pci/rescan")
     _, lspci, _ = vm.ssh.check_output("lspci -n")
     assert len(lspci.strip().splitlines()) == pci_max_slots
+
+
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_pci(True)
+def test_hotplug_vhost_user(microvm_factory, guest_kernel, rootfs, pci_enabled):
+    """A vhost-user block device can be hotplugged to a VM booted with one.
+
+    Booting with a vhost-user drive makes guest memory memfd-backed, which is
+    what the backend of the hotplugged drive maps. The new drive must appear in
+    the guest and hold data through the backend.
+    """
+    vm = microvm_factory.build(
+        guest_kernel, None, pci=pci_enabled, monitor_memory=False
+    )
+    vm.ssh_key = rootfs.with_suffix(".id_rsa")
+    vm.spawn()
+    vm.basic_config(add_root_device=False)
+    vm.add_vhost_user_drive("rootfs", rootfs, is_root_device=True, is_read_only=True)
+    vm.add_net_iface()
+    vm.start()
+
+    _, before, _ = vm.ssh.check_output("ls /sys/block")
+    fs = drive_tools.FilesystemFile(size=16)
+    vm.add_vhost_user_drive("scratch", fs.path)
+
+    # No hotplug notification yet, so the guest rescans the bus itself.
+    vm.ssh.check_output("echo 1 > /sys/bus/pci/rescan")
+    _, after, _ = vm.ssh.check_output("ls /sys/block")
+    new = set(after.split()) - set(before.split())
+    assert len(new) == 1, new
+    dev = f"/dev/{new.pop()}"
+
+    # The rootfs is read-only; /tmp is writable. Remount before reading back so
+    # the data comes from the backend rather than the guest page cache.
+    vm.ssh.check_output(f"mkfs.ext4 {dev}")
+    vm.ssh.check_output(f"mkdir -p /tmp/scratch && mount {dev} /tmp/scratch")
+    vm.ssh.check_output("echo vhost_user_hotplug > /tmp/scratch/probe")
+    vm.ssh.check_output(f"umount /tmp/scratch && mount {dev} /tmp/scratch")
+    assert (
+        vm.ssh.check_output("cat /tmp/scratch/probe").stdout.strip()
+        == "vhost_user_hotplug"
+    )
+    vm.ssh.check_output("umount /tmp/scratch")
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_pci(True)
+def test_hotplug_vhost_user_rejected(uvm_any):
+    """Hotplugging a vhost-user block device is rejected when the backend could
+    not map guest memory.
+
+    Guest memory is memfd-backed only when a vhost-user device is configured
+    before boot. A VM booted without one has anonymous memory, and a VM
+    restored from a snapshot file has a private mapping of a read-only
+    descriptor. The request used to succeed and the device then failed to
+    activate.
+    """
+    vm = uvm_any
+
+    with pytest.raises(RuntimeError) as exc:
+        vm.api.drive.put(
+            drive_id="vub0",
+            socket="/tmp/nonexistent-vhost-user.sock",
+            is_root_device=False,
+        )
+    assert exc.value.args[2].status_code == HTTPStatus.BAD_REQUEST
+    assert "guest memory that a backend can map shared" in str(exc.value)
