@@ -9,12 +9,13 @@ use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
 
 use vm_memory::{
-    Bytes, GuestAddress, GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion,
+    GuestAddress, GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion,
     GuestRegionCollectionError,
 };
 
 use crate::logger::info;
 use crate::nitro_enclave::cpu_accounting::AccountingThreads;
+use crate::nitro_enclave::eif::{EifError, EifImage};
 use crate::nitro_enclave::info_page::InfoPage;
 use crate::nitro_enclave::ne_ioctl::{EnclaveFd, NitroEnclavesDevFd};
 use crate::nitro_enclave::serial_console::ConsoleReader;
@@ -70,8 +71,10 @@ pub enum EnclaveVmError {
     InfoPageRegister(crate::nitro_enclave::info_page::InfoPageError),
     /// Failed to allocate CMA memory: {0}
     CmaAlloc(MemoryError),
-    /// Failed to write the EIF image into guest memory: {0}
+    /// Failed to access the EIF destination in guest memory: {0}
     WriteImage(GuestMemoryError),
+    /// Failed to load the EIF image: {0}
+    LoadImage(EifError),
     /// Failed to build guest memory mapping: {0}
     BuildGuestMemory(GuestRegionCollectionError),
 }
@@ -282,7 +285,7 @@ impl EnclaveVm {
         Ok(())
     }
 
-    /// Allocate CMA memory, copy the EIF image into it, then donate the
+    /// Allocate CMA memory, write the EIF image into it, then donate the
     /// memory to the NE driver.
     ///
     /// The EIF must be written before donation: `NE_SET_USER_MEMORY_REGION`
@@ -292,7 +295,7 @@ impl EnclaveVm {
     /// mode keeps it PROT_NONE.
     pub fn load_and_add_memory(
         &mut self,
-        eif_data: &[u8],
+        image: &EifImage,
         direct_mode: bool,
         numa_nodes: &[EnclaveNumaNode],
     ) -> Result<(), EnclaveVmError> {
@@ -307,10 +310,13 @@ impl EnclaveVm {
             .map_err(EnclaveVmError::GetImageLoadInfo)?;
         let offset = u64_to_usize(load_info.memory_offset);
         let first_region_size = ram_regions[0].1;
-        if offset + eif_data.len() > first_region_size {
+        if offset
+            .checked_add(image.size())
+            .is_none_or(|end| end > first_region_size)
+        {
             return Err(EnclaveVmError::ImageTooLarge {
                 offset: offset as u64,
-                image_size: eif_data.len() as u64,
+                image_size: image.size() as u64,
                 mem_size: first_region_size as u64,
             });
         }
@@ -348,10 +354,40 @@ impl EnclaveVm {
         let guest_mem =
             GuestMemoryMmap::from_regions(regions).map_err(EnclaveVmError::BuildGuestMemory)?;
 
-        let dest = GuestAddress(Self::ENCLAVE_RAM_BASE + offset as u64);
-        guest_mem
-            .write_slice(eif_data, dest)
-            .map_err(EnclaveVmError::WriteImage)?;
+        // The slice exists only inside this block, so no reference to the memory is live when
+        // `set_user_memory_region` donates it below.
+        {
+            let dest_addr = GuestAddress(Self::ENCLAVE_RAM_BASE + offset as u64);
+            // `get_slice` fails unless `[dest_addr, dest_addr + size)` lies within one region.
+            let guard = guest_mem
+                .get_slice(dest_addr, image.size())
+                .map_err(EnclaveVmError::WriteImage)?
+                .ptr_guard_mut();
+            // SAFETY: `slice::from_raw_parts_mut` requires the following, and each holds here:
+            // * The pointer is non-null and valid for reads and writes of `guard.len()` bytes.
+            //   `get_slice` checked that the range lies within one mapped region, and
+            //   `guest_mem`, which owns that mapping, outlives this block.
+            // * The pointer is aligned, because `u8` has an alignment of 1.
+            // * All bytes are initialized. The NE driver zeroes every CMA chunk it maps
+            //   (`ne_alloc_contig`, called from `ne_mmap`).
+            // * Nothing else accesses the memory while the slice exists:
+            //   * No other thread or device can reach it. `guest_mem` is a local built above from
+            //     the CMA regions allocated in this function, and it is stored in
+            //     `self.enclave_ram` only after those regions are donated below.
+            //   * The enclave cannot reach it. The regions become enclave memory only when
+            //     `set_user_memory_region` donates them below, and the enclave has not started:
+            //     `build_and_boot_enclave` calls `start` only after this function returns.
+            // * `guard.len()` is at most `isize::MAX`. It is one contiguous range of the
+            //   Linux user address space, which is far smaller than `isize::MAX`.
+            //
+            // Writes through the slice bypass vm-memory's dirty bitmap. These regions have none:
+            // `allocate_cma_region` does not track dirty pages.
+            let destination =
+                unsafe { std::slice::from_raw_parts_mut(guard.as_ptr(), guard.len()) };
+            image
+                .write(destination)
+                .map_err(EnclaveVmError::LoadImage)?;
+        }
 
         for region in guest_mem.iter() {
             self.enclave_fd
