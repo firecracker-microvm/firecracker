@@ -282,6 +282,30 @@ mod tests {
 
     use super::*;
 
+    /// Split an image into its header and sections, checking that each
+    /// section starts where the header's offset table says, that the
+    /// sections fill the image, and that the CRC matches.
+    fn decode_eif(eif: &[u8]) -> (EifHeader, Vec<(u16, &[u8])>) {
+        let (header, _) = EifHeader::read_from_prefix(eif).unwrap();
+        let mut sections = Vec::new();
+        let mut offset = size_of::<EifHeader>();
+        for index in 0..usize::from(header.num_sections.get()) {
+            assert_eq!(header.section_offsets[index].get(), offset as u64);
+            let (section, rest) = EifSectionHeader::read_from_prefix(&eif[offset..]).unwrap();
+            assert_eq!(header.section_sizes[index].get(), section.size.get());
+            let size = usize::try_from(section.size.get()).unwrap();
+            sections.push((section.section_type.get(), &rest[..size]));
+            offset += size_of::<EifSectionHeader>() + size;
+        }
+        assert_eq!(offset, eif.len());
+
+        let mut hasher = Crc32Hasher::new();
+        hasher.update(&eif[..EIF_CRC32_OFFSET]);
+        hasher.update(&eif[EIF_CRC32_OFFSET + 4..]);
+        assert_eq!(hasher.finalize(), header.eif_crc32.get());
+        (header, sections)
+    }
+
     #[test]
     fn test_eif_builder_reuses_descriptors() {
         let dir = TempDir::new().unwrap();
@@ -341,34 +365,29 @@ mod tests {
         )
         .unwrap();
 
-        // Verify magic
-        assert_eq!(&eif[0..4], &EIF_MAGIC);
-        // Verify version (big-endian)
-        assert_eq!(u16::from_be_bytes([eif[4], eif[5]]), EIF_HDR_VERSION);
-        // Verify default_mem (big-endian u64 at offset 8)
-        assert_eq!(u64::from_be_bytes(eif[8..16].try_into().unwrap()), mem);
-        // Verify default_cpus (big-endian u64 at offset 16)
-        assert_eq!(u64::from_be_bytes(eif[16..24].try_into().unwrap()), cpus);
-        // Verify reserved(u16) + num_sections(u16) at offset 24
-        assert_eq!(u16::from_be_bytes([eif[24], eif[25]]), 0); // reserved
-        assert_eq!(u16::from_be_bytes([eif[26], eif[27]]), 4); // num_sections
-        // Verify total size is reasonable
-        assert!(eif.len() > size_of::<EifHeader>());
-        // Verify first section type is KERNEL (big-endian u16 at offset 548)
+        let (header, sections) = decode_eif(&eif);
+        assert_eq!(header.magic, EIF_MAGIC);
+        assert_eq!(header.version.get(), EIF_HDR_VERSION);
+        assert_eq!(header.default_mem.get(), mem);
+        assert_eq!(header.default_cpus.get(), cpus);
+        assert_eq!(header.reserved.get(), 0);
+        // Kernel, cmdline, ramdisk, then metadata, as the NE hypervisor expects.
+        let types: Vec<u16> = sections
+            .iter()
+            .map(|&(section_type, _)| section_type)
+            .collect();
         assert_eq!(
-            u16::from_be_bytes([eif[size_of::<EifHeader>()], eif[size_of::<EifHeader>() + 1]]),
-            EIF_SECTION_KERNEL
+            types,
+            [
+                EIF_SECTION_KERNEL,
+                EIF_SECTION_CMDLINE,
+                EIF_SECTION_RAMDISK,
+                EIF_SECTION_METADATA
+            ]
         );
-        // Verify CRC32 is valid (recompute excluding CRC field)
-        let stored_crc = u32::from_be_bytes(
-            eif[EIF_CRC32_OFFSET..EIF_CRC32_OFFSET + 4]
-                .try_into()
-                .unwrap(),
-        );
-        let mut hasher = Crc32Hasher::new();
-        hasher.update(&eif[..EIF_CRC32_OFFSET]);
-        hasher.update(&eif[EIF_CRC32_OFFSET + 4..]);
-        assert_eq!(hasher.finalize(), stored_crc);
+        assert_eq!(sections[0].1, b"FAKE_KERNEL_DATA_1234");
+        assert_eq!(sections[1].1, b"console=ttyS0");
+        assert_eq!(sections[2].1, b"FAKE_INITRD_DATA_5678");
     }
 
     #[test]
@@ -427,6 +446,31 @@ mod tests {
         assert_eq!(&eif[0..4], &EIF_MAGIC);
         // Without initrd: kernel + cmdline + metadata = 3 sections.
         assert_eq!(u16::from_be_bytes([eif[26], eif[27]]), 3);
+    }
+
+    #[test]
+    fn test_eif_empty_initrd() {
+        let dir = TempDir::new().unwrap();
+        let kernel_path = dir.as_path().join("kernel");
+        let initrd_path = dir.as_path().join("initrd");
+        fs::write(&kernel_path, b"FAKE_KERNEL").unwrap();
+        fs::write(&initrd_path, b"").unwrap();
+        let kernel_file = File::open(&kernel_path).unwrap();
+        let initrd_file = File::open(&initrd_path).unwrap();
+
+        let eif = build_eif(
+            &kernel_file,
+            Some(&initrd_file),
+            "",
+            256 * 1024 * 1024,
+            2,
+            0,
+        )
+        .unwrap();
+        // A present but empty initrd keeps its ramdisk section.
+        let (_, sections) = decode_eif(&eif);
+        assert_eq!(sections.len(), 4);
+        assert_eq!(sections[2], (EIF_SECTION_RAMDISK, &b""[..]));
     }
 
     #[test]
