@@ -16,7 +16,7 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_f
 import host_tools.drive as drive_tools
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.defs import ARTIFACT_DIR
-from framework.enclave import DEFAULT_DMB_SIZE_MIB
+from framework.enclave import DEFAULT_DMB_SIZE_MIB, write_eif
 from framework.guest_stats import MeminfoGuest
 from framework.utils import (
     CpuMap,
@@ -126,26 +126,37 @@ def test_enclave_config_api(microvm_factory, guest_kernel):
     assert vm.api.vm_config.get().json()["enclave"] == config
 
 
-def test_enclave_boot(uvm):
+@pytest.mark.parametrize("prebuilt", [False, True], ids=["generated", "prebuilt"])
+def test_enclave_boot(uvm, prebuilt):
     """Boot an enclave and verify via serial console output.
 
     Configures serial_out_path to capture enclave serial output to a file,
     then checks for the Linux kernel boot marker in the serial output.
 
     The enclave boots with just CPU, memory, and EIF — no virtio devices, so
-    no DMBs are allocated even in confidential mode.
+    no DMBs are allocated even in confidential mode. With `prebuilt`, the same
+    kernel, initrd, and command line are packed into an EIF up front, so
+    Firecracker copies the image instead of assembling it.
     """
     vm = uvm
     vm.initrd_file = ARTIFACT_DIR / "initramfs.cpio"
+    boot_args = "console=ttyS0 earlyprintk=serial"
+    vcpu_count, mem_size_mib = 2, 256
 
     vm.spawn()
     vm.basic_config(
-        vcpu_count=2,
-        mem_size_mib=256,
+        vcpu_count=vcpu_count,
+        mem_size_mib=mem_size_mib,
         add_root_device=False,
-        boot_args="console=ttyS0 earlyprintk=serial",
+        boot_args=boot_args,
         use_initrd=True,
     )
+    if prebuilt:
+        image = Path(vm.path) / "boot.eif"
+        write_eif(
+            image, vm.kernel_file, vm.initrd_file, boot_args, vcpu_count, mem_size_mib
+        )
+        vm.api.boot.put(kernel_image_path=vm.create_jailed_resource(image))
     vm.start(debug_mode=True)
 
     for attempt in Retrying(

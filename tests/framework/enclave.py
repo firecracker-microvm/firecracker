@@ -7,6 +7,8 @@ import fcntl
 import functools
 import os
 import platform
+import struct
+import zlib
 from pathlib import Path
 
 import pytest
@@ -29,8 +31,11 @@ NE_POOLS = {"mem_pool": 2**20, "cpu_pool": 1}
 DEFAULT_DMB_SIZE_MIB = 16
 NE_FLAT_COUNTERS = ("pcie_slots", "pcie_slots_total", "pcie_slots_in_use")
 
+# Matched enclave start flags; mirror ne_ioctl::start_flags in the VMM. The
+# EIF header must carry exactly the matched flags passed to NE_START_ENCLAVE.
 NE_ENCLAVE_PCIE_MODE = 1 << 6
 NE_ENCLAVE_PCIE_VIRTIO_MODE = 1 << 9
+NE_ENCLAVE_CPU_OVERCOMMIT_MODE = 1 << 11
 NE_REQUIRED_FLAGS = NE_ENCLAVE_PCIE_MODE | NE_ENCLAVE_PCIE_VIRTIO_MODE
 
 # From include/uapi/linux/nitro_enclaves.h:
@@ -402,3 +407,87 @@ def enclave_prepare_start(
         hotplug_mode=hotplug_mode,
         **other_kwargs,
     )
+
+
+# EIF v4 wire format, mirroring EifHeader and EifSectionHeader in
+# src/vmm/src/nitro_enclave/eif.rs. Everything is big-endian (">").
+# struct codes: s = raw bytes, H = u16, I = u32, Q = u64.
+EIF_HEADER = struct.Struct(
+    ">"
+    "4s"  # magic, b".eif"
+    "H"  # version
+    "H"  # flags
+    "Q"  # default_mem (bytes)
+    "Q"  # default_cpus
+    "H"  # reserved
+    "H"  # num_sections
+    "32Q"  # section_offsets
+    "32Q"  # section_sizes
+    "I"  # unused
+    "I"  # crc32 over the rest of the image
+)
+EIF_SECTION_HEADER = struct.Struct(
+    ">"
+    "H"  # section type
+    "H"  # flags
+    "Q"  # size of the data that follows immediately
+)
+EIF_SECTION_KERNEL = 1
+EIF_SECTION_CMDLINE = 2
+EIF_SECTION_RAMDISK = 3
+EIF_SECTION_METADATA = 5
+EIF_METADATA = (
+    b'{"ImageName":"firecracker-enclave","ImageVersion":"",'
+    b'"BuildMetadata":{"BuildTime":"","BuildTool":"firecracker",'
+    b'"BuildToolVersion":"","OperatingSystem":"Linux","KernelVersion":""},'
+    b'"DockerInfo":{},"CustomMetadata":null}'
+)
+
+
+def write_eif(path, kernel_file, initrd_file, boot_args, vcpu_count, mem_size_mib):
+    """Pack kernel, boot args, initrd, and metadata into a v4 EIF at `path`.
+
+    The image boots only under the `enclave_prepare_start` defaults: its header
+    carries the matched start flags for that configuration, and a mismatch
+    fails NE_START_ENCLAVE.
+    """
+    sections = [
+        (EIF_SECTION_KERNEL, kernel_file.read_bytes()),
+        (EIF_SECTION_CMDLINE, boot_args.encode("utf-8")),
+        (EIF_SECTION_RAMDISK, initrd_file.read_bytes()),
+        (EIF_SECTION_METADATA, EIF_METADATA),
+    ]
+
+    # Sections follow the header back to back. Record where each one starts.
+    body = bytearray()
+    offsets = []
+    sizes = []
+    for section_type, data in sections:
+        offsets.append(EIF_HEADER.size + len(body))
+        sizes.append(len(data))
+        body += EIF_SECTION_HEADER.pack(section_type, 0, len(data)) + data
+    unused_slots = [0] * (32 - len(sections))
+
+    # Firecracker always requests NE_REQUIRED_FLAGS; `enclave_prepare_start`
+    # enables CPU overcommit by default and nothing else that is matched.
+    arch_flag = int(platform.machine() == "aarch64")
+    flags = arch_flag | NE_REQUIRED_FLAGS | NE_ENCLAVE_CPU_OVERCOMMIT_MODE
+    header = EIF_HEADER.pack(
+        b".eif",
+        4,  # version
+        flags,
+        mem_size_mib << 20,  # default_mem
+        vcpu_count,  # default_cpus
+        0,  # reserved
+        len(sections),
+        *offsets,
+        *unused_slots,
+        *sizes,
+        *unused_slots,
+        0,  # unused
+        0,  # crc32 placeholder, replaced below
+    )
+
+    # The CRC covers the whole image except the CRC field, the header's last 4 bytes.
+    crc = zlib.crc32(header[:-4] + body)
+    path.write_bytes(header[:-4] + struct.pack(">I", crc) + body)
