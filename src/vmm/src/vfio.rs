@@ -90,22 +90,40 @@ pub struct VfioBarEmulatedArea {
     size: u64,
 }
 
-// TODO with addition of BAR relocation to `Bars` type, guest now can change the gpa addresses of
-// BARs, which will cause the `vfio_deallocate_memory_ranges_for_bars` to panic when it will try to
-// give the ranges back to the memory allocator. This will be addressed when BAR relocation will be
-// implemented for VFIO devices.
-/// Wrapper around `Bars` type to automate dropping
+/// Wrapper around `Bars` types to automate dropping
 #[derive(Debug)]
 struct VfioBars {
-    bars: Bars,
+    /// BARs as the guest sees them: the original sizes reported by the kernel.
+    guest_bars: Bars,
+    /// BARs as the VMM uses them: sizes expanded to the host page size. These are the ranges
+    /// handed out by the resource allocator, so they are the ones to give back on drop.
+    vmm_bars: Bars,
     vm: Arc<KvmVm>,
+}
+
+impl VfioBars {
+    fn new(
+        vm: Arc<KvmVm>,
+        bar_region_infos: &[VfioRegionInfo; NUM_BAR_REGS as usize],
+    ) -> Result<Self, VfioError> {
+        let (guest_bars, vmm_bars) = {
+            let mut resource_allocator_lock = vm.resource_allocator();
+            let resource_allocator = resource_allocator_lock.deref_mut();
+            vfio_allocate_memory_ranges_for_bars(resource_allocator, bar_region_infos)?
+        };
+        Ok(Self {
+            guest_bars,
+            vmm_bars,
+            vm,
+        })
+    }
 }
 
 impl Drop for VfioBars {
     fn drop(&mut self) {
         let mut resource_allocator_lock = self.vm.resource_allocator();
         let resource_allocator = resource_allocator_lock.deref_mut();
-        vfio_deallocate_memory_ranges_for_bars(resource_allocator, &self.bars);
+        vfio_deallocate_memory_ranges_for_bars(resource_allocator, &self.vmm_bars);
     }
 }
 
@@ -327,7 +345,7 @@ impl PciDevice for VfioDevice {
             #[allow(clippy::cast_possible_truncation)]
             let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
             // offset is within a 4-byte PCI config register (0..3).
-            self.bars.bars.write(bar_idx, offset, data);
+            self.bars.guest_bars.write(bar_idx, offset, data);
             // write is passed through to the kernel in case it needs to know
             // about them.
         } else if reg_idx == ROM_BAR_REG {
@@ -361,7 +379,7 @@ impl PciDevice for VfioDevice {
             // reg_idx is in [BAR0_REG, BAR0_REG+NUM_BAR_REGS), so the difference is 0..5.
             #[allow(clippy::cast_possible_truncation)]
             let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
-            self.bars.bars.read(bar_idx, 0, result.as_mut_bytes());
+            self.bars.guest_bars.read(bar_idx, 0, result.as_mut_bytes());
         } else if reg_idx == ROM_BAR_REG {
             // We don't support ROM BAR
             warn!(
@@ -1173,19 +1191,10 @@ fn vfio_init_device(
         }
     });
 
-    let (guest_bars, vmm_bars) = {
-        let mut resource_allocator_lock = vm.resource_allocator();
-        let resource_allocator = resource_allocator_lock.deref_mut();
-        vfio_allocate_memory_ranges_for_bars(resource_allocator, &bar_region_infos)?
-    };
-
-    let bars = VfioBars {
-        bars: guest_bars,
-        vm: vm.clone(),
-    };
+    let bars = VfioBars::new(vm.clone(), &bar_region_infos)?;
 
     let (areas, msix_table_area) =
-        vfio_calculate_bar_areas(&vmm_bars, &bar_region_infos, &msix_cap)?;
+        vfio_calculate_bar_areas(&bars.vmm_bars, &bar_region_infos, &msix_cap)?;
     let Some(msix_table_area) = msix_table_area else {
         return Err(VfioError::NoMsixIrq);
     };
@@ -1731,11 +1740,11 @@ mod tests {
             std::array::from_fn(|_| dummy_bar_region_info(0, 64 << 20));
 
         let mut resource_allocator = ResourceAllocator::new();
-        let (bars, _) =
+        let (_, vmm_bars) =
             vfio_allocate_memory_ranges_for_bars(&mut resource_allocator, &bar_infos).unwrap();
-        let first_bar_addr = bars.get_bar_addr_32(0);
+        let first_bar_addr = vmm_bars.get_bar_addr_32(0);
 
-        vfio_deallocate_memory_ranges_for_bars(&mut resource_allocator, &bars);
+        vfio_deallocate_memory_ranges_for_bars(&mut resource_allocator, &vmm_bars);
 
         let (bars2, _) =
             vfio_allocate_memory_ranges_for_bars(&mut resource_allocator, &bar_infos).unwrap();
@@ -1752,11 +1761,11 @@ mod tests {
             dummy_region_infos([dummy_bar_region_info(PCI_CONFIG_MEMORY_BAR_64BIT, 0x10000)]);
 
         let mut resource_allocator = ResourceAllocator::new();
-        let (bars, _) =
+        let (_, vmm_bars) =
             vfio_allocate_memory_ranges_for_bars(&mut resource_allocator, &bar_infos).unwrap();
-        let first_bar_addr = bars.get_bar_addr_64(0);
+        let first_bar_addr = vmm_bars.get_bar_addr_64(0);
 
-        vfio_deallocate_memory_ranges_for_bars(&mut resource_allocator, &bars);
+        vfio_deallocate_memory_ranges_for_bars(&mut resource_allocator, &vmm_bars);
 
         let (bars2, _) =
             vfio_allocate_memory_ranges_for_bars(&mut resource_allocator, &bar_infos).unwrap();
