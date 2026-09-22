@@ -83,8 +83,9 @@ the connection to an AF_UNIX socket listening on the host, at
 `/path/to/v.sock_PORT` (or whatever path was configured via the `uds_path`
 property of the vsock device), where `PORT` is the destination port (in
 decimal), as specified in the connection request packet. If no such socket
-exists, or no one is listening on it, a connection cannot be established, and a
-VIRTIO_VSOCK_OP_RST packet will be sent back to the guest.
+exists, no one is listening on it, or its accept backlog is full, a connection
+cannot be established, and a VIRTIO_VSOCK_OP_RST packet will be sent back to the
+guest.
 
 Client B initiates connection to Server B in [figure below](#vsock-connections):
 
