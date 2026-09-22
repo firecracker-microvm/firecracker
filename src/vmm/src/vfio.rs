@@ -69,8 +69,6 @@ pub enum VfioError {
     MsixConfig(#[from] InterruptError),
     /// Device does not provide MSIx irq
     NoMsixIrq,
-    /// BAR{0} size is {1} smaller than host page {2}
-    BARSmallerThanHostPage(u8, u64, u64),
     /// KVM failed to create KVM_DEV_TYPE_VFIO device: {0}
     KvmCreateVfioDevice(kvm_ioctls::Error),
     /// BAR{0} MSI-X table at offset {1:#x} size {2:#x} does not fit in region of size {3:#x}
@@ -82,7 +80,7 @@ pub enum VfioError {
 }
 
 /// There can be at most one emulated area per BAR: either the MSIx table inside a mmappable BAR,
-/// or the whole of a BAR which cannot be mmapped.
+/// or the whole of a BAR which cannot be mmapped or is smaller than the host page.
 pub type VfioBarEmulatedAreas = ArrayVec<VfioBarEmulatedArea, { NUM_BAR_REGS as usize }>;
 
 /// Description of the area within some BAR where all reads/writes are emulated.
@@ -659,14 +657,6 @@ fn vfio_allocate_memory_ranges_for_bars(
                 continue;
             }
 
-            if size < host_page_size {
-                return Err(VfioError::BARSmallerThanHostPage(
-                    bar_idx,
-                    size,
-                    host_page_size,
-                ));
-            }
-
             if is_64_bits {
                 match resource_allocator.mmio64_memory.allocate(
                     size,
@@ -798,6 +788,8 @@ fn vfio_calculate_bar_areas(
     let mut mmappable_areas = Vec::with_capacity(7);
     let mut emulated_areas = VfioBarEmulatedAreas::new();
     let mut bar_idx: u8 = 0;
+
+    let host_page_size = usize_to_u64(host_page_size());
     while bar_idx < NUM_BAR_REGS {
         if vmm_bars.bars[bar_idx as usize].used() {
             let bar_gpa = vmm_bars.get_bar_addr(bar_idx);
@@ -826,10 +818,7 @@ fn vfio_calculate_bar_areas(
 
                 if bar_size < offset + size {
                     return Err(VfioError::MsixTableOutOfRange(
-                        bar_idx,
-                        offset,
-                        size,
-                        bar_size,
+                        bar_idx, offset, size, bar_size,
                     ));
                 }
 
@@ -838,10 +827,10 @@ fn vfio_calculate_bar_areas(
                 msix_table_size = align_up_host_page(offset_in_area + size);
             }
 
-            if !can_mmap && sparse_mmap_cap.is_none() {
-                // The kernel cannot mmap this BAR, so emulate all of it.
-                debug!(
-                    "BAR{bar_idx} is not mmappable. Emulated area: [{bar_gpa:#x}..{:#x}]",
+            if region_info.size < host_page_size || (!can_mmap && sparse_mmap_cap.is_none()) {
+                // This BAR cannot be mapped to the guest, so emulate all of it.
+                warn!(
+                    "BAR{bar_idx} is not mmappable or smaller than hast page size. Adding emulated area: [{bar_gpa:#x}..{:#x}]",
                     bar_gpa + bar_size
                 );
                 emulated_areas.push(VfioBarEmulatedArea {
@@ -885,12 +874,6 @@ fn vfio_calculate_bar_areas(
                         prot |= libc::PROT_WRITE;
                     }
 
-                    // TODO: currently if host page size is bigger than the BAR size, we would fail
-                    // at the stage where we set KVM memory region since the region will be
-                    // smaller than the host page size and KVM checks for this.
-                    // In the future we need to update this code to widen areas to page
-                    // boundaries if possible. It should be done here and not in the mapping
-                    // function since it is more suited for this.
                     if let Some(cap) = sparse_mmap_cap {
                         for area in cap.areas.iter() {
                             // Even though these are kernel provided values, do additional
@@ -1306,6 +1289,13 @@ mod tests {
         }
     }
 
+    fn dummy_mmappable_bar_region_info(value: u32, size: u64) -> VfioRegionInfo {
+        VfioRegionInfo {
+            flags: VFIO_REGION_INFO_FLAG_MMAP,
+            ..dummy_bar_region_info(value, size)
+        }
+    }
+
     fn dummy_non_mmappable_region_info(size: u64) -> VfioRegionInfo {
         VfioRegionInfo {
             flags: VFIO_REGION_INFO_FLAG_READ | VFIO_REGION_INFO_FLAG_WRITE,
@@ -1547,20 +1537,6 @@ mod tests {
     }
 
     #[test]
-    fn test_vfio_allocate_memory_ranges_for_bars_bar_smaller_than_host_page() {
-        let bar_infos: [VfioRegionInfo; NUM_BAR_REGS as usize] =
-            std::array::from_fn(|_| dummy_bar_region_info(0, 0x100));
-
-        let mut resource_allocator = ResourceAllocator::new();
-        let err =
-            vfio_allocate_memory_ranges_for_bars(&mut resource_allocator, &bar_infos).unwrap_err();
-        assert!(matches!(
-            err,
-            VfioError::BARSmallerThanHostPage(0, 0x100, 0x1000)
-        ));
-    }
-
-    #[test]
     fn test_vfio_allocate_memory_ranges_for_bars_valid_64bit_bars() {
         let mut bar_infos: [VfioRegionInfo; NUM_BAR_REGS as usize] =
             std::array::from_fn(|_| dummy_bar_region_info(0, 0));
@@ -1664,6 +1640,31 @@ mod tests {
         assert_eq!(
             resource_allocator.mmio64_memory,
             ResourceAllocator::new().mmio64_memory
+        );
+    }
+
+    #[test]
+    fn test_vfio_allocate_memory_ranges_for_bars_sub_page_bars_not_expanded() {
+        let host_page_size = usize_to_u64(host_page_size());
+        let sub_page_size = host_page_size / 16;
+        // BARs smaller than the host page are fully emulated, so even mmappable ones keep their
+        // real size
+        let bar_infos = dummy_region_infos([
+            dummy_mmappable_bar_region_info(0, sub_page_size),
+            dummy_bar_region_info(0, sub_page_size),
+        ]);
+
+        let mut resource_allocator = ResourceAllocator::new();
+        let bars =
+            vfio_allocate_memory_ranges_for_bars(&mut resource_allocator, &bar_infos).unwrap();
+        for i in 0..2 {
+            assert_eq!(bars.get_bar_size_32(i), sub_page_size);
+        }
+
+        vfio_deallocate_memory_ranges_for_bars(&mut resource_allocator, &bars);
+        assert_eq!(
+            resource_allocator.mmio32_memory,
+            ResourceAllocator::new().mmio32_memory
         );
     }
 
@@ -1804,6 +1805,26 @@ mod tests {
         assert_eq!(areas[1].vfio_fd_offset, 0);
 
         assert!(emulated_areas.is_empty());
+    }
+
+    #[test]
+    fn test_vfio_calculate_bar_areas_sub_page_bar_fully_emulated() {
+        let host_page_size = usize_to_u64(host_page_size());
+        let mut vmm_bars = Bars::default();
+        vmm_bars.set_bar_64(0, host_page_size, host_page_size / 16, BarPrefetchable::No);
+        let region_infos = dummy_region_infos([dummy_region_info(host_page_size / 16, vec![])]);
+        // Set BIR to an unused BAR
+        let msix_cap = MsixCap::new(3, 0, 0, 3, 0);
+
+        let (areas, emulated_areas) =
+            vfio_calculate_bar_areas(&vmm_bars, &region_infos, &msix_cap).unwrap();
+
+        // The kernel can mmap the BAR, but it is smaller than the host page, so it is not mapped
+        assert!(areas.is_empty());
+        assert_eq!(emulated_areas.len(), 1);
+        assert_eq!(emulated_areas[0].in_bar_offset, 0);
+        assert_eq!(emulated_areas[0].gpa, host_page_size);
+        assert_eq!(emulated_areas[0].size, host_page_size / 16);
     }
 
     #[test]
