@@ -41,6 +41,13 @@ and this project adheres to
   it restores IER, so input that arrived meanwhile stayed in the FIFO and was
   never delivered to the guest.
 
+- [#6204](https://github.com/firecracker-microvm/firecracker/pull/6204):
+  Hotplugging a vhost-user block device (`PUT /drives/{id}` with `socket`) to a
+  microVM booted without any vhost-user device, or restored from a snapshot
+  memory file, now fails with 400. The vhost-user backend cannot map such guest
+  memory, so the request used to return 204 and the device then failed to
+  activate.
+
 - [#6211](https://github.com/firecracker-microvm/firecracker/pull/6211): Fixed
   the rate limiter permanently throttling a device when a single request
   exceeded the bucket size by less than one millisecond's worth of tokens. The
