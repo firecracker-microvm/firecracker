@@ -51,8 +51,8 @@ pub enum VhostUserError {
     VhostUserSetVringKick(VhostError),
     /// Set vring enable failed: {0}
     VhostUserSetVringEnable(VhostError),
-    /// Failed to read vhost eventfd: No memory region found
-    VhostUserNoMemoryRegion,
+    /// Guest memory is not a shared file mapping, so the backend cannot map it
+    VhostUserMemoryNotShareable,
     /// Invalid used address
     UsedAddress(GuestMemoryError),
 }
@@ -368,12 +368,11 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
         let mut regions: Vec<VhostUserMemoryRegionInfo> = Vec::new();
 
         for region in mem.iter() {
-            let (mmap_handle, mmap_offset) = match region.file_offset() {
-                Some(_file_offset) => (_file_offset.file().as_raw_fd(), _file_offset.start()),
-                None => {
-                    return Err(VhostUserError::VhostUserNoMemoryRegion);
-                }
-            };
+            let file_offset = region
+                .file_offset()
+                .filter(|_| region.is_shared())
+                .ok_or(VhostUserError::VhostUserMemoryNotShareable)?;
+            let (mmap_handle, mmap_offset) = (file_offset.file().as_raw_fd(), file_offset.start());
 
             let vhost_user_net_reg = VhostUserMemoryRegionInfo {
                 guest_phys_addr: region.start_addr().raw_value(),
@@ -480,11 +479,15 @@ pub(crate) mod tests {
     use crate::vstate::memory;
     use crate::vstate::memory::{GuestAddress, GuestRegionMmapExt};
 
-    pub(crate) fn create_mem(file: File, regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
+    pub(crate) fn create_mem(
+        file: File,
+        regions: &[(GuestAddress, usize)],
+        flags: i32,
+    ) -> GuestMemoryMmap {
         GuestMemoryMmap::from_regions(
             memory::create(
                 regions.iter().copied(),
-                libc::MAP_PRIVATE,
+                flags,
                 Some(file),
                 false,
                 libc::MADV_NORMAL,
@@ -761,6 +764,35 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_update_mem_table_rejects_unshareable_memory() {
+        struct NoBackend;
+        impl VhostUserHandleBackend for NoBackend {}
+
+        let vuh = VhostUserHandleImpl {
+            vu: NoBackend,
+            socket_path: "".to_string(),
+        };
+        let region_size = 0x10000;
+        let regions = [(GuestAddress(0), region_size)];
+
+        // Anonymous memory has no file to hand over.
+        let anon = crate::test_utils::single_region_mem(region_size);
+        assert!(matches!(
+            vuh.update_mem_table(&anon),
+            Err(VhostUserError::VhostUserMemoryNotShareable)
+        ));
+
+        // A private file mapping has one, but is not shareable.
+        let file = TempFile::new().unwrap().into_file();
+        file.set_len(region_size as u64).unwrap();
+        let private = create_mem(file, &regions, libc::MAP_PRIVATE);
+        assert!(matches!(
+            vuh.update_mem_table(&private),
+            Err(VhostUserError::VhostUserMemoryNotShareable)
+        ));
+    }
+
+    #[test]
     fn test_update_mem_table() {
         struct MockFrontend {
             regions: std::cell::UnsafeCell<Vec<VhostUserMemoryRegionInfo>>,
@@ -792,7 +824,7 @@ pub(crate) mod tests {
             (GuestAddress(0x10000), region_size),
         ];
 
-        let guest_memory = create_mem(file, &regions);
+        let guest_memory = create_mem(file, &regions, libc::MAP_SHARED);
 
         vuh.update_mem_table(&guest_memory).unwrap();
 
@@ -906,7 +938,7 @@ pub(crate) mod tests {
         file.set_len(region_size as u64).unwrap();
         let regions = vec![(GuestAddress(0x0), region_size)];
 
-        let guest_memory = create_mem(file, &regions);
+        let guest_memory = create_mem(file, &regions, libc::MAP_SHARED);
 
         let mut queue = Queue::new(128);
         queue.ready = true;

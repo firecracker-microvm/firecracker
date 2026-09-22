@@ -841,7 +841,7 @@ mod tests {
         let file = TempFile::new().unwrap().into_file();
         file.set_len(region_size as u64).unwrap();
         let regions = vec![(GuestAddress(0x0), region_size)];
-        let guest_memory = create_mem(file, &regions);
+        let guest_memory = create_mem(file, &regions, libc::MAP_SHARED);
         let q = VirtQueue::new(GuestAddress(0), &guest_memory, 16);
         vhost_block.queues[0] = q.create_queue();
         let interrupt = default_interrupt();
