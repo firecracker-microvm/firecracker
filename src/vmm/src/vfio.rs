@@ -90,28 +90,32 @@ struct VfioBarEmulatedArea {
     size: u64,
 }
 
-// TODO with addition of BAR relocation to `Bars` type, guest now can change the gpa addresses of
-// BARs, which will cause the `vfio_deallocate_memory_ranges_for_bars` to panic when it will try to
-// give the ranges back to the memory allocator. This will be addressed when BAR relocation will be
-// implemented for VFIO devices.
-/// Wrapper around `Bars` type to automate dropping
+/// Wrapper around `Bars` types to automate dropping
 #[derive(Debug)]
 struct VfioBars {
-    bars: Bars,
+    /// BARs as the guest sees them, with the addresses the guest wrote to their registers.
+    guest_bars: Bars,
+    /// BARs as the VMM uses them: the ranges handed out by the resource allocator, so they are the
+    /// ones to give back on drop.
+    vmm_bars: Bars,
     vm: Arc<KvmVm>,
 }
 
 impl VfioBars {
     fn new(
         vm: Arc<KvmVm>,
-        bar_infos: &[VfioRegionInfo; NUM_BAR_REGS as usize],
+        bar_region_infos: &[VfioRegionInfo; NUM_BAR_REGS as usize],
     ) -> Result<Self, VfioError> {
         let bars = {
             let mut resource_allocator_lock = vm.resource_allocator();
             let resource_allocator = resource_allocator_lock.deref_mut();
-            vfio_allocate_memory_ranges_for_bars(resource_allocator, bar_infos)?
+            vfio_allocate_memory_ranges_for_bars(resource_allocator, bar_region_infos)?
         };
-        Ok(Self { bars, vm })
+        Ok(Self {
+            guest_bars: bars,
+            vmm_bars: bars,
+            vm,
+        })
     }
 }
 
@@ -119,7 +123,7 @@ impl Drop for VfioBars {
     fn drop(&mut self) {
         let mut resource_allocator_lock = self.vm.resource_allocator();
         let resource_allocator = resource_allocator_lock.deref_mut();
-        vfio_deallocate_memory_ranges_for_bars(resource_allocator, &self.bars);
+        vfio_deallocate_memory_ranges_for_bars(resource_allocator, &self.vmm_bars);
     }
 }
 
@@ -335,7 +339,7 @@ impl PciDevice for VfioDevice {
             #[allow(clippy::cast_possible_truncation)]
             let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
             // offset is within a 4-byte PCI config register (0..3).
-            self.bars.bars.write(bar_idx, offset, data);
+            self.bars.guest_bars.write(bar_idx, offset, data);
             // write is passed through to the kernel in case it needs to know
             // about them.
         } else if reg_idx == ROM_BAR_REG {
@@ -369,7 +373,7 @@ impl PciDevice for VfioDevice {
             // reg_idx is in [BAR0_REG, BAR0_REG+NUM_BAR_REGS), so the difference is 0..5.
             #[allow(clippy::cast_possible_truncation)]
             let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
-            self.bars.bars.read(bar_idx, 0, result.as_mut_bytes());
+            self.bars.guest_bars.read(bar_idx, 0, result.as_mut_bytes());
         } else if reg_idx == ROM_BAR_REG {
             // We don't support ROM BAR
             warn!(
@@ -747,7 +751,7 @@ fn vfio_ranges_overlap(start_a: u64, size_a: u64, start_b: u64, size_b: u64) -> 
 ///
 /// where each `area` is host page aligned.
 fn vfio_calculate_bar_areas(
-    bars: &Bars,
+    vmm_bars: &Bars,
     region_infos: &[VfioRegionInfo; NUM_BAR_REGS as usize],
     msix_cap: &MsixCap,
 ) -> Result<(Vec<VfioBarMappableArea>, Option<VfioBarEmulatedArea>), VfioError> {
@@ -760,8 +764,8 @@ fn vfio_calculate_bar_areas(
     let mut msix_table_area = None;
     let mut bar_idx: u8 = 0;
     while bar_idx < NUM_BAR_REGS {
-        if bars.bars[bar_idx as usize].used() {
-            let bar_gpa = bars.get_bar_addr(bar_idx);
+        if vmm_bars.bars[bar_idx as usize].used() {
+            let bar_gpa = vmm_bars.get_bar_addr(bar_idx);
             let region_info = &region_infos[bar_idx as usize];
             let mut has_msix_mappable = false;
             let mut sparse_mmap_cap = None;
@@ -919,7 +923,7 @@ fn vfio_calculate_bar_areas(
                 }
             }
         }
-        if bars.bars[bar_idx as usize].is_64bit() {
+        if vmm_bars.bars[bar_idx as usize].is_64bit() {
             bar_idx += 1;
         }
         bar_idx += 1;
@@ -1136,7 +1140,7 @@ fn vfio_init_device(
     let bars = VfioBars::new(vm.clone(), &bar_region_infos)?;
 
     let (areas, msix_table_area) =
-        vfio_calculate_bar_areas(&bars.bars, &bar_region_infos, &msix_cap)?;
+        vfio_calculate_bar_areas(&bars.vmm_bars, &bar_region_infos, &msix_cap)?;
     let Some(msix_table_area) = msix_table_area else {
         return Err(VfioError::NoMsixIrq);
     };
@@ -1666,21 +1670,21 @@ mod tests {
 
     #[test]
     fn test_vfio_calculate_bar_areas_no_bars_or_region_infos() {
-        let bars = Bars::default();
+        let vmm_bars = Bars::default();
         let region_infos = dummy_region_infos([]);
         let msix_cap = MsixCap::new(0, 0, 0, 0, 0);
 
         let (areas, msix_table_area) =
-            vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap();
+            vfio_calculate_bar_areas(&vmm_bars, &region_infos, &msix_cap).unwrap();
         assert!(areas.is_empty());
         assert!(msix_table_area.is_none());
     }
 
     #[test]
     fn test_vfio_calculate_bar_areas_no_emulated_areas() {
-        let mut bars = Bars::default();
-        bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
-        bars.set_bar_64(2, 0x2000, 0x1000, BarPrefetchable::No);
+        let mut vmm_bars = Bars::default();
+        vmm_bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
+        vmm_bars.set_bar_64(2, 0x2000, 0x1000, BarPrefetchable::No);
         let region_infos = dummy_region_infos([
             // BAR 0
             dummy_region_info(0x1000, vec![]),
@@ -1692,7 +1696,7 @@ mod tests {
         let msix_cap = MsixCap::new(3, 0, 0, 3, 0);
 
         let (areas, msix_table_area) =
-            vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap();
+            vfio_calculate_bar_areas(&vmm_bars, &region_infos, &msix_cap).unwrap();
 
         assert_eq!(areas.len(), 2);
         assert_eq!(areas[0].gpa, 0x1000);
@@ -1709,9 +1713,9 @@ mod tests {
     fn test_vfio_calculate_bar_areas_msix_table_and_multiple_bars() {
         // BARs are just one page long, so the emulated area takes the whole table BAR
         {
-            let mut bars = Bars::default();
-            bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
-            bars.set_bar_64(2, 0x2000, 0x1000, BarPrefetchable::No);
+            let mut vmm_bars = Bars::default();
+            vmm_bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
+            vmm_bars.set_bar_64(2, 0x2000, 0x1000, BarPrefetchable::No);
 
             let region_infos = dummy_region_infos([
                 // BAR 0
@@ -1724,7 +1728,7 @@ mod tests {
             let msix_cap = MsixCap::new(0, 32, 0, 2, 0);
 
             let (areas, msix_table_area) =
-                vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap();
+                vfio_calculate_bar_areas(&vmm_bars, &region_infos, &msix_cap).unwrap();
 
             assert_eq!(areas.len(), 1);
             assert_eq!(areas[0].gpa, 0x2000);
@@ -1739,9 +1743,9 @@ mod tests {
 
         // BARs are multiple pages, so the emulated area leaves some space
         {
-            let mut bars = Bars::default();
-            bars.set_bar_64(0, 0x1000, 0x2000, BarPrefetchable::No);
-            bars.set_bar_64(2, 0x3000, 0x2000, BarPrefetchable::No);
+            let mut vmm_bars = Bars::default();
+            vmm_bars.set_bar_64(0, 0x1000, 0x2000, BarPrefetchable::No);
+            vmm_bars.set_bar_64(2, 0x3000, 0x2000, BarPrefetchable::No);
 
             let region_infos = dummy_region_infos([
                 // BAR 0
@@ -1754,7 +1758,7 @@ mod tests {
             let msix_cap = MsixCap::new(0, 32, 0, 2, 0);
 
             let (areas, msix_table_area) =
-                vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap();
+                vfio_calculate_bar_areas(&vmm_bars, &region_infos, &msix_cap).unwrap();
 
             assert_eq!(areas.len(), 2);
             assert_eq!(areas[0].gpa, 0x2000);
@@ -1775,8 +1779,8 @@ mod tests {
     fn test_vfio_calculate_bar_areas_sparse_mmap() {
         // All good sparse areas
         {
-            let mut bars = Bars::default();
-            bars.set_bar_64(0, 0x1000, 0x4000, BarPrefetchable::No);
+            let mut vmm_bars = Bars::default();
+            vmm_bars.set_bar_64(0, 0x1000, 0x4000, BarPrefetchable::No);
 
             let sparse_areas = vec![
                 VfioRegionSparseMmapArea {
@@ -1798,7 +1802,7 @@ mod tests {
             let msix_cap = MsixCap::new(3, 0, 0, 3, 0);
 
             let (areas, msix_table_area) =
-                vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap();
+                vfio_calculate_bar_areas(&vmm_bars, &region_infos, &msix_cap).unwrap();
 
             assert_eq!(areas.len(), 2);
             assert_eq!(areas[0].gpa, 0x1000);
@@ -1813,8 +1817,8 @@ mod tests {
 
         // Overflow
         {
-            let mut bars = Bars::default();
-            bars.set_bar_64(0, 0x1000, 0x4000, BarPrefetchable::No);
+            let mut vmm_bars = Bars::default();
+            vmm_bars.set_bar_64(0, 0x1000, 0x4000, BarPrefetchable::No);
 
             let sparse_areas = vec![
                 VfioRegionSparseMmapArea {
@@ -1836,13 +1840,13 @@ mod tests {
             // Set BIR to an unused BAR
             let msix_cap = MsixCap::new(3, 0, 0, 3, 0);
 
-            vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap_err();
+            vfio_calculate_bar_areas(&vmm_bars, &region_infos, &msix_cap).unwrap_err();
         }
 
         // Unaligned
         {
-            let mut bars = Bars::default();
-            bars.set_bar_64(0, 0x1000, 0x4000, BarPrefetchable::No);
+            let mut vmm_bars = Bars::default();
+            vmm_bars.set_bar_64(0, 0x1000, 0x4000, BarPrefetchable::No);
 
             let sparse_areas = vec![
                 VfioRegionSparseMmapArea {
@@ -1864,7 +1868,7 @@ mod tests {
             // Set BIR to an unused BAR
             let msix_cap = MsixCap::new(3, 0, 0, 3, 0);
 
-            vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap_err();
+            vfio_calculate_bar_areas(&vmm_bars, &region_infos, &msix_cap).unwrap_err();
         }
     }
 
@@ -1892,8 +1896,8 @@ mod tests {
     fn test_vfio_calculate_bar_areas_sparse_mmap_overlaps_msix() {
         // Sparse area exactly covers the MSI-X table emulated area
         {
-            let mut bars = Bars::default();
-            bars.set_bar_64(0, 0x1000, 0x4000, BarPrefetchable::No);
+            let mut vmm_bars = Bars::default();
+            vmm_bars.set_bar_64(0, 0x1000, 0x4000, BarPrefetchable::No);
 
             // Table in BAR0 at offset 0 -> emulated area [0x0, 0x1000) -> gpa [0x1000, 0x2000)
             // PBA is in BAR1, which is never visited.
@@ -1910,7 +1914,7 @@ mod tests {
                 })],
             )]);
 
-            let err = vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap_err();
+            let err = vfio_calculate_bar_areas(&vmm_bars, &region_infos, &msix_cap).unwrap_err();
             assert!(
                 matches!(
                     err,
@@ -1924,8 +1928,8 @@ mod tests {
 
         // Sparse areas correctly exclude the MSI-X table emulated area
         {
-            let mut bars = Bars::default();
-            bars.set_bar_64(0, 0x1000, 0x4000, BarPrefetchable::No);
+            let mut vmm_bars = Bars::default();
+            vmm_bars.set_bar_64(0, 0x1000, 0x4000, BarPrefetchable::No);
 
             // Table at offset 0x1000 -> emulated area [0x1000, 0x2000) -> gpa [0x2000, 0x3000)
             let msix_cap = MsixCap::new(0, 32, 0x1000, 0, 0x2000);
@@ -1948,7 +1952,7 @@ mod tests {
             )]);
 
             let (areas, msix_table_area) =
-                vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap();
+                vfio_calculate_bar_areas(&vmm_bars, &region_infos, &msix_cap).unwrap();
 
             assert_eq!(areas.len(), 2);
             assert_eq!(areas[0].gpa, 0x1000);
@@ -1966,8 +1970,8 @@ mod tests {
 
     #[test]
     fn test_vfio_calculate_bar_areas_msix_table_past_region_end() {
-        let mut bars = Bars::default();
-        bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
+        let mut vmm_bars = Bars::default();
+        vmm_bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
 
         let region_infos = dummy_region_infos([dummy_region_info(
             0x1000,
@@ -1977,7 +1981,7 @@ mod tests {
         // end of the table at offset 0xff8 with size of 16 will land outside 0x1000 region
         let msix_cap = MsixCap::new(0, 1, 0xff8, 0, 0);
 
-        let err = vfio_calculate_bar_areas(&bars, &region_infos, &msix_cap).unwrap_err();
+        let err = vfio_calculate_bar_areas(&vmm_bars, &region_infos, &msix_cap).unwrap_err();
         assert!(matches!(
             err,
             VfioError::MsixTableOutOfRange(0, 0xff8, 16, 0x1000)
