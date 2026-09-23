@@ -483,7 +483,7 @@ pub(crate) mod tests {
     pub(crate) fn create_mem(file: File, regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
         GuestMemoryMmap::from_regions(
             memory::create(
-                regions.iter().copied(),
+                regions,
                 libc::MAP_PRIVATE,
                 Some(file),
                 false,
