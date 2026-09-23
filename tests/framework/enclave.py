@@ -364,14 +364,7 @@ def enclave_basic_config(
         vm.enable_entropy_device()
 
     if vm.memory_monitor:
-        # TODO: re-enable memory monitor when EIF is loaded directly to CMA
-        #
-        # Context: Memory usage currently spikes at boot, due to the EIF being
-        # buffered into a vector before loading into CMA memory. We should
-        # instead load directly into CMA to remove this overhead.
-        #
-        # See vmm/src/nitro_enclave/enclave_builder.rs::build_and_boot_enclave.
-        pass
+        vm.memory_monitor.start()
 
     return vm
 
