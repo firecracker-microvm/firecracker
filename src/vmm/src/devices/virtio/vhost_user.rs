@@ -482,7 +482,7 @@ pub(crate) mod tests {
 
     pub(crate) fn create_mem(file: File, regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
         GuestMemoryMmap::from_regions(
-            memory::create(
+            memory::memory_regions_from_ranges(
                 regions,
                 libc::MAP_PRIVATE,
                 Some(file),

@@ -988,7 +988,7 @@ impl GuestMemoryRegion for GuestRegionMmapExt {
 }
 
 /// Creates a `Vec` of `GuestRegionMmap` with the given configuration
-pub fn create(
+pub fn memory_regions_from_ranges(
     regions: &[(GuestAddress, usize)],
     mmap_flags: libc::c_int,
     file: Option<File>,
@@ -1042,7 +1042,7 @@ pub fn memfd_backed(
         .ok_or(MemoryError::OffsetTooLarge)?;
     let memfd_file = create_memfd(size, huge_pages.into())?.into_file();
 
-    create(
+    memory_regions_from_ranges(
         regions,
         libc::MAP_SHARED | huge_pages.mmap_flags(),
         Some(memfd_file),
@@ -1057,7 +1057,7 @@ pub fn anonymous(
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    create(
+    memory_regions_from_ranges(
         regions,
         libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | huge_pages.mmap_flags(),
         None,
@@ -1086,7 +1086,7 @@ pub fn snapshot_file(
         return Err(MemoryError::OffsetTooLarge);
     }
 
-    create(
+    memory_regions_from_ranges(
         regions,
         libc::MAP_PRIVATE,
         Some(file),
