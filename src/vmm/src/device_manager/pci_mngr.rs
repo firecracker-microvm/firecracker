@@ -272,7 +272,7 @@ impl PciDevices {
         };
 
         // Obtain this to avoid needing to lock device mutex below
-        let (mmio_area_gpa, mmio_area_size) = device.mmio_area();
+        let emulated_areas = device.emulated_areas.clone();
 
         let device = Arc::new(Mutex::new(device));
 
@@ -285,11 +285,13 @@ impl PciDevices {
             .add_device(pci_device_bdf.device(), device.clone())
             .unwrap();
 
-        vm.common
-            .mmio_bus
-            // SAFETY: area must be valid
-            .insert(device.clone(), mmio_area_gpa, mmio_area_size)
-            .unwrap();
+        for area in emulated_areas {
+            vm.common
+                .mmio_bus
+                // SAFETY: areas are calculated by us and cannot overlap
+                .insert(device.clone(), area.gpa, area.size)
+                .unwrap();
+        }
 
         self.vfio_devices.push(device);
 
