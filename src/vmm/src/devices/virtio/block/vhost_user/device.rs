@@ -180,7 +180,7 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
 
         let mut vu_handle = VhostUserHandleImpl::<T>::new(&config.socket, NUM_QUEUES)
             .map_err(VhostUserBlockError::VhostUser)?;
-        let (acked_features, acked_protocol_features) = vu_handle
+        let (backend_acked_features, acked_protocol_features) = vu_handle
             .negotiate_features(requested_features, requested_protocol_features)
             .map_err(VhostUserBlockError::VhostUser)?;
 
@@ -211,11 +211,15 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
             u64_to_usize(NUM_QUEUES)];
         let device_state = DeviceState::Inactive;
 
-        // We negotiated features with backend. Now these acked_features
-        // are available for guest driver to choose from.
-        let avail_features = acked_features;
-        let acked_features = acked_features & VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits();
-        let read_only = acked_features & (1 << VIRTIO_BLK_F_RO) != 0;
+        let read_only = backend_acked_features & (1 << VIRTIO_BLK_F_RO) != 0;
+
+        // Whatever the backend acked is what the guest driver is offered.
+        let avail_features = backend_acked_features;
+        // The guest has acked nothing yet. The vhost-user protocol bit is
+        // pre-seeded because the guest never negotiates it but the backend
+        // expects it kept.
+        let acked_features =
+            backend_acked_features & VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits();
         let vhost_user_block_metrics_name = format!("block_{}", config.drive_id);
 
         let metrics = VhostUserMetricsPerDevice::alloc(vhost_user_block_metrics_name);
@@ -672,7 +676,7 @@ mod tests {
             VhostUserHeaderFlag::empty().bits()
         );
         assert!(!vhost_block.root_device);
-        assert!(!vhost_block.read_only);
+        assert!(vhost_block.read_only);
         assert_eq!(vhost_block.config_space, vec![0x69, 0x69, 0x69]);
 
         // Test some `VirtioDevice` methods

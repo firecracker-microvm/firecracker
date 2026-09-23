@@ -9,7 +9,7 @@ import time
 import pytest
 
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_rootfs_mode
-from framework.microvm import HugePagesConfig
+from framework.utils_hugepages import HugePagesConfig
 
 # Regex for obtaining boot time from some string.
 

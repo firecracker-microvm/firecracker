@@ -177,11 +177,6 @@ cp -v -t "$RELEASE_DIR" LICENSE NOTICE THIRD-PARTY
 check_swagger_artifact src/firecracker/swagger/firecracker.yaml "$VERSION"
 cp -v src/firecracker/swagger/firecracker.yaml "$RELEASE_DIR/firecracker_spec-$VERSION.yaml"
 
-CPU_TEMPLATES=(C3 T2 T2S T2CL T2A V1N1)
-for template in "${CPU_TEMPLATES[@]}"; do
-    cp -v tests/data/custom_cpu_templates/$template.json $RELEASE_DIR/$template-$VERSION.json
-done
-
 (
     cd "$RELEASE_DIR"
     find . -type f -not -name "SHA256SUMS" |sort |xargs sha256sum >SHA256SUMS

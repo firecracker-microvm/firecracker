@@ -172,7 +172,9 @@ def test_config_start_no_api_exit(uvm, vm_config_file):
     test_microvm.spawn(serial_out_path=None)  # Start Firecracker and MicroVM
     test_microvm.ssh.run("reboot")  # Exit
 
-    test_microvm.mark_killed()  # waits for process to terminate
+    # systemd may spend up to DefaultTimeoutStopSec (90s) on a unit stuck on
+    # stop before the kernel reboots and Firecracker exits; see test_reboot.
+    test_microvm.mark_killed(timeout=120)  # waits for process to terminate
 
     # Check error log and exit code
     test_microvm.check_log_message("Firecracker exiting successfully")
@@ -343,7 +345,7 @@ def test_start_with_metadata_limit(uvm):
     metadata_file = DIR / "metadata.json"
     _add_metadata_file(test_microvm, metadata_file)
 
-    test_microvm.spawn(serial_out_path=None)
+    test_microvm.spawn(serial_out_path=None, expect_failure=True)
 
     test_microvm.check_log_message(
         "Populating MMDS from file failed: The MMDS patch request doesn't fit."
@@ -364,7 +366,7 @@ def test_start_with_metadata_default_limit(uvm):
 
     _add_metadata_file(test_microvm, metadata_file)
 
-    test_microvm.spawn(serial_out_path=None)
+    test_microvm.spawn(serial_out_path=None, expect_failure=True)
 
     test_microvm.check_log_message(
         "Populating MMDS from file failed: The MMDS patch request doesn't fit."

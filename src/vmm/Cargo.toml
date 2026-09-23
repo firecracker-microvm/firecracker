@@ -41,7 +41,6 @@ log = { version = "0.4.31", features = ["std", "serde"] }
 log-instrument = { path = "../log-instrument", optional = true }
 memfd = "0.6.5"
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
-semver = { version = "1.0.28", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = "1.0.150"
 slab = "0.4.12"
@@ -55,7 +54,7 @@ vm-memory = { version = "0.18.0", features = [
   "backend-mmap",
   "backend-bitmap",
 ] }
-vm-superio = "0.8.1"
+vm-superio = "0.8.2"
 vmm-sys-util = { version = "0.15.0", features = ["with-serde"] }
 zerocopy = { version = "0.8.50" }
 
@@ -67,6 +66,7 @@ criterion = { version = "0.8.2", default-features = false }
 device_tree = "1.1.0"
 itertools = "0.15.0"
 proptest = { version = "1.11.0", default-features = false, features = ["std"] }
+utils = { path = "../utils", features = ["test-utils"] }
 
 [[bench]]
 name = "cpu_templates"

@@ -397,9 +397,21 @@ of Firecracker processes. There are two layers:
   - `rootfs` — the rootfs disk path, composed from `guest_kernel` +
     `rootfs_mode` (Ubuntu 24.04 for 5.10, Amazon Linux 2023 otherwise).
   - `pci_enabled` — auto-parametrized over `True`/`False`.
+  - `vm_backend` — auto-parametrized over `"kvm"`.
   - `cpu_template` — `None` by default.
   - `huge_pages` — `HugePagesConfig.NONE` by default. See note below.
   - `vcpu_count`, `mem_size_mib` — `2` and `256` by default.
+
+`guest_kernel` describes the logical kernel; `uvm.kernel_file` is the read-only
+image selected by the backend. Tests that exercise another image format can set
+`uvm.boot_image` before calling `basic_config()`. For x86 bzImage direct boot,
+assert that `uvm.guest_kernel.bzimage` exists and select it as the override.
+This also covers no-ACPI kernels and keeps debug images paired with debug
+kernels; bzImage direct boot does not imply EFI boot. Changing the override
+after `basic_config()` does not update Firecracker's boot-source configuration.
+
+Snapshot metadata preserves the logical `vmlinux` identity, not the boot-image
+override: restoring a snapshot resumes guest state without loading a kernel.
 
 To restrict a dimension to a specific value or subset, use the helpers from
 `framework.artifacts` and `framework.utils_cpu_templates`:

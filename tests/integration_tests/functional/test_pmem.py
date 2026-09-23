@@ -12,7 +12,7 @@ from tenacity import Retrying, stop_after_delay, wait_fixed
 import host_tools.drive as drive_tools
 from framework import utils
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_rootfs_mode
-from framework.microvm import HugePagesConfig
+from framework.utils_hugepages import HugePagesConfig
 
 pytestmark = pytest.mark.parametrize(
     "huge_pages", [HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT]

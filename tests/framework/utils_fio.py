@@ -69,12 +69,10 @@ def build_cmd(
 
     cmd = cmd.with_arg(f"--bs={block_size}")
 
-    if runtime and warmup_time:
-        cmd = (
-            cmd.with_arg("--time_based=1")
-            .with_arg(f"--runtime={runtime}")
-            .with_arg(f"--ramp_time={warmup_time}")
-        )
+    if runtime:
+        cmd = cmd.with_arg("--time_based=1").with_arg(f"--runtime={runtime}")
+    if warmup_time:
+        cmd = cmd.with_arg(f"--ramp_time={warmup_time}")
 
     cmd = (
         cmd.with_arg(f"--rw={mode.value}")

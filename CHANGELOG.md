@@ -12,11 +12,42 @@ and this project adheres to
 
 ### Changed
 
+- [#6201](https://github.com/firecracker-microvm/firecracker/pull/6201):
+  Bounds-check every virtio queue access against the ranges validated at
+  activation, adding defense in depth against out-of-bounds accesses caused by
+  changes to an active queue's configuration. The MMIO and PCI transports
+  already reject queue configuration writes after `DRIVER_OK`, so a guest cannot
+  reach this condition.
+
 ### Deprecated
 
 ### Removed
 
+- [#6223](https://github.com/firecracker-microvm/firecracker/pull/6223): Custom
+  CPU template JSON files are no longer included in release artifacts. The
+  template definitions remain available in `tests/data/custom_cpu_templates`.
+
 ### Fixed
+
+- [#6208](https://github.com/firecracker-microvm/firecracker/pull/6208): Fixed
+  the vsock device stalling the VMM thread when the guest connects to a
+  host-side Unix socket whose accept backlog is full. Such connection requests
+  are now refused instead.
+
+- [#6218](https://github.com/firecracker-microvm/firecracker/pull/6218): Bumped
+  `vm-superio` to 0.8.2, fixing serial console input being dropped while the
+  guest has the UART interrupts masked. The Linux 8250 console masks IER for the
+  duration of every `printk` and expects the RX interrupt to be re-asserted once
+  it restores IER, so input that arrived meanwhile stayed in the FIFO and was
+  never delivered to the guest.
+
+- [#6211](https://github.com/firecracker-microvm/firecracker/pull/6211): Fixed
+  the rate limiter permanently throttling a device when a single request
+  exceeded the bucket size by less than one millisecond's worth of tokens. The
+  overconsumption debt was truncated to `0ms`, which disarmed the underlying
+  timerfd while the limiter stayed marked as blocked, so the timer never fired
+  and the device I/O hung until the microVM was restarted. The debt is now
+  computed in nanoseconds and rounded up.
 
 ## [1.17.0]
 
@@ -140,6 +171,11 @@ and this project adheres to
   Terminating a connection now also discards its TX buffer, so the device stops
   advertising `EPOLLOUT` for a host stream it will never write to again, which
   could otherwise busy-spin the event thread indefinitely.
+- [#6083](https://github.com/firecracker-microvm/firecracker/pull/6083): Fixed a
+  vhost-user-block device backed by a readonly backend not being treated as
+  readonly. The `VIRTIO_BLK_F_RO` check read the acked feature set after it had
+  been narrowed to the vhost-user protocol bit, so it never matched, and a
+  readonly vhost-user root device was given `rw` on the guest kernel cmdline.
 - [#6086](https://github.com/firecracker-microvm/firecracker/pull/6086),
   [#6143](https://github.com/firecracker-microvm/firecracker/pull/6143): Fixed a
   deadlock in the logger: a signal handler that logs while the interrupted

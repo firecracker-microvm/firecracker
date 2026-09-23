@@ -9,9 +9,9 @@ import pytest
 
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
-from framework.microvm import HugePagesConfig
 from framework.properties import global_props
 from framework.utils_ftrace import ftrace_events
+from framework.utils_hugepages import HugePagesConfig
 
 pytestmark = pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 
@@ -180,15 +180,9 @@ def test_ept_violation_count(
     )
 
     # Wait for microvm to boot. Then spawn fast_page_fault_helper to setup an environment where we can trigger
-    # a lot of fast_page_faults after restoring the snapshot.
-    vm.ssh.check_output(
-        "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
-    )
-
-    _, pid, _ = vm.ssh.check_output("pidof fast_page_fault_helper")
-
-    # Give the helper time to initialize
-    time.sleep(5)
+    # a lot of fast_page_faults after restoring the snapshot. This blocks until the helper has touched its
+    # memory and is waiting in sigwait.
+    pid = utils.start_fast_page_fault_helper(vm.ssh)
 
     snapshot = vm.snapshot_full()
 
