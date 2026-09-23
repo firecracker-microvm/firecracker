@@ -9,7 +9,7 @@ use std::fmt::Debug;
 use std::fs::File;
 
 pub use self::async_io::{AsyncFileEngine, AsyncIoError};
-pub use self::format::{DiskImageFormat, VmdkFileEngine, VmdkIoError, detect_disk_format};
+pub use self::format::{DiskImageFormat, VmdkFileEngine, VmdkIoError};
 pub use self::sync_io::{SyncFileEngine, SyncIoError};
 use crate::devices::virtio::block::virtio::PendingRequest;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
@@ -59,6 +59,15 @@ pub enum FileEngine {
     Async(AsyncFileEngine),
     Sync(SyncFileEngine),
     Vmdk(VmdkFileEngine),
+}
+
+impl From<&FileEngine> for DiskImageFormat {
+    fn from(engine: &FileEngine) -> Self {
+        match engine {
+            FileEngine::Vmdk(_) => DiskImageFormat::Vmdk,
+            FileEngine::Async(_) | FileEngine::Sync(_) => DiskImageFormat::Raw,
+        }
+    }
 }
 
 impl FileEngine {
