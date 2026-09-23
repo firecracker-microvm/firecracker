@@ -510,7 +510,7 @@ impl VmResources {
             )
         } else {
             memory::anonymous(
-                regions.iter().copied(),
+                regions,
                 self.machine_config.track_dirty_pages,
                 self.machine_config.huge_pages,
             )

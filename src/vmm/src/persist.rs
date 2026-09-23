@@ -548,8 +548,12 @@ fn guest_memory_from_file(
     huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, GuestMemoryFromFileError> {
     let mem_file = File::open(mem_file_path)?;
-    let guest_mem =
-        memory::snapshot_file(mem_file, mem_state.regions(), track_dirty_pages, huge_pages)?;
+    let guest_mem = memory::snapshot_file(
+        mem_file,
+        &mem_state.regions(),
+        track_dirty_pages,
+        huge_pages,
+    )?;
     Ok(guest_mem)
 }
 
@@ -607,7 +611,7 @@ fn create_guest_memory(
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<(Vec<GuestRegionMmap>, Vec<GuestRegionUffdMapping>), GuestMemoryFromUffdError> {
-    let guest_memory = memory::anonymous(mem_state.regions(), track_dirty_pages, huge_pages)?;
+    let guest_memory = memory::anonymous(&mem_state.regions(), track_dirty_pages, huge_pages)?;
     let mut backend_mappings = Vec::with_capacity(guest_memory.len());
     let mut offset = 0;
     for mem_region in guest_memory.iter() {

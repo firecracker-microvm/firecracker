@@ -989,7 +989,7 @@ impl GuestMemoryRegion for GuestRegionMmapExt {
 
 /// Creates a `Vec` of `GuestRegionMmap` with the given configuration
 pub fn create(
-    regions: impl Iterator<Item = (GuestAddress, usize)>,
+    regions: &[(GuestAddress, usize)],
     mmap_flags: libc::c_int,
     file: Option<File>,
     track_dirty_pages: bool,
@@ -998,7 +998,8 @@ pub fn create(
     let mut offset = 0;
     let file = file.map(Arc::new);
     regions
-        .map(|(start, size)| {
+        .iter()
+        .map(|&(start, size)| {
             let guest_memory = GuestRegionMmap::allocate(
                 start,
                 size,
@@ -1042,7 +1043,7 @@ pub fn memfd_backed(
     let memfd_file = create_memfd(size, huge_pages.into())?.into_file();
 
     create(
-        regions.iter().copied(),
+        regions,
         libc::MAP_SHARED | huge_pages.mmap_flags(),
         Some(memfd_file),
         track_dirty_pages,
@@ -1052,7 +1053,7 @@ pub fn memfd_backed(
 
 /// Creates a GuestMemoryMmap from raw regions.
 pub fn anonymous(
-    regions: impl Iterator<Item = (GuestAddress, usize)>,
+    regions: &[(GuestAddress, usize)],
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
@@ -1069,14 +1070,13 @@ pub fn anonymous(
 /// and a `state` containing mapping information.
 pub fn snapshot_file(
     file: File,
-    regions: impl Iterator<Item = (GuestAddress, usize)>,
+    regions: &[(GuestAddress, usize)],
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    let regions: Vec<_> = regions.collect();
     let memory_size = regions
         .iter()
-        .try_fold(0u64, |acc, (_, size)| acc.checked_add(*size as u64))
+        .try_fold(0u64, |acc, &(_, size)| acc.checked_add(size as u64))
         .ok_or(MemoryError::OffsetTooLarge)?;
     let file_size = file.metadata().map_err(MemoryError::FileMetadata)?.len();
 
@@ -1087,7 +1087,7 @@ pub fn snapshot_file(
     }
 
     create(
-        regions.into_iter(),
+        regions,
         libc::MAP_PRIVATE,
         Some(file),
         track_dirty_pages,
@@ -1165,10 +1165,11 @@ pub struct GuestMemoryState {
 impl GuestMemoryState {
     /// Turns this [`GuestMemoryState`] into a description of guest memory regions as understood
     /// by the creation functions of [`GuestMemoryExtensions`]
-    pub fn regions(&self) -> impl Iterator<Item = (GuestAddress, usize)> + '_ {
+    pub fn regions(&self) -> Vec<(GuestAddress, usize)> {
         self.regions
             .iter()
             .map(|region| (GuestAddress(region.base_address), region.size))
+            .collect()
     }
 }
 
@@ -1403,12 +1404,8 @@ mod tests {
                 (GuestAddress(0x30000), region_size),
             ];
 
-            let guest_memory = anonymous(
-                regions.into_iter(),
-                dirty_page_tracking,
-                HugePageConfig::None,
-            )
-            .unwrap();
+            let guest_memory =
+                anonymous(&regions, dirty_page_tracking, HugePageConfig::None).unwrap();
             guest_memory.iter().for_each(|region| {
                 assert_eq!(region.bitmap().is_some(), dirty_page_tracking);
             });
@@ -1424,13 +1421,8 @@ mod tests {
             file.write_all(&vec![0x42u8; page_size]).unwrap();
 
             let regions = vec![(GuestAddress(0), page_size)];
-            let guest_regions = snapshot_file(
-                file,
-                regions.into_iter(),
-                dirty_page_tracking,
-                HugePageConfig::None,
-            )
-            .unwrap();
+            let guest_regions =
+                snapshot_file(file, &regions, dirty_page_tracking, HugePageConfig::None).unwrap();
             assert_eq!(guest_regions.len(), 1);
             guest_regions.iter().for_each(|region| {
                 assert_eq!(region.bitmap().is_some(), dirty_page_tracking);
@@ -1451,8 +1443,7 @@ mod tests {
             (GuestAddress(0x10000), page_size),
             (GuestAddress(0x20000), page_size),
         ];
-        let guest_regions =
-            snapshot_file(file, regions.into_iter(), false, HugePageConfig::None).unwrap();
+        let guest_regions = snapshot_file(file, &regions, false, HugePageConfig::None).unwrap();
         assert_eq!(guest_regions.len(), 3);
     }
 
@@ -1464,7 +1455,7 @@ mod tests {
         file.write_all(&vec![0x42u8; page_size]).unwrap();
 
         let regions = vec![(GuestAddress(0), 2 * page_size)];
-        let result = snapshot_file(file, regions.into_iter(), false, HugePageConfig::None);
+        let result = snapshot_file(file, &regions, false, HugePageConfig::None);
         assert!(matches!(result.unwrap_err(), MemoryError::OffsetTooLarge));
     }
 
@@ -1526,7 +1517,7 @@ mod tests {
         let page_size = host_page_size();
         let mem = into_region_ext(
             anonymous(
-                vec![(GuestAddress(0), page_size * 3)].into_iter(),
+                &[(GuestAddress(0), page_size * 3)],
                 true,
                 HugePageConfig::None,
             )
@@ -1557,7 +1548,7 @@ mod tests {
             (GuestAddress(region_size as u64 * 2), region_size), // pages 6-8
         ];
         let guest_memory =
-            into_region_ext(anonymous(regions.into_iter(), true, HugePageConfig::None).unwrap());
+            into_region_ext(anonymous(&regions, true, HugePageConfig::None).unwrap());
 
         let dirty_map = [
             // page 0: not dirty
@@ -1614,7 +1605,7 @@ mod tests {
         // Test with a single region
         let guest_memory = into_region_ext(
             anonymous(
-                [(GuestAddress(0), region_size)].into_iter(),
+                &[(GuestAddress(0), region_size)],
                 false,
                 HugePageConfig::None,
             )
@@ -1629,7 +1620,7 @@ mod tests {
             (GuestAddress(region_size as u64 * 2), region_size), // pages 6-8
         ];
         let guest_memory =
-            into_region_ext(anonymous(regions.into_iter(), true, HugePageConfig::None).unwrap());
+            into_region_ext(anonymous(&regions, true, HugePageConfig::None).unwrap());
         check_serde(&guest_memory);
     }
 
@@ -1642,9 +1633,8 @@ mod tests {
             (GuestAddress(0), page_size),
             (GuestAddress(page_size as u64 * 2), page_size),
         ];
-        let guest_memory = into_region_ext(
-            anonymous(mem_regions.into_iter(), true, HugePageConfig::None).unwrap(),
-        );
+        let guest_memory =
+            into_region_ext(anonymous(&mem_regions, true, HugePageConfig::None).unwrap());
 
         let expected_memory_state = GuestMemoryState {
             regions: vec![
@@ -1671,9 +1661,8 @@ mod tests {
             (GuestAddress(0), page_size * 3),
             (GuestAddress(page_size as u64 * 4), page_size * 3),
         ];
-        let guest_memory = into_region_ext(
-            anonymous(mem_regions.into_iter(), true, HugePageConfig::None).unwrap(),
-        );
+        let guest_memory =
+            into_region_ext(anonymous(&mem_regions, true, HugePageConfig::None).unwrap());
 
         let expected_memory_state = GuestMemoryState {
             regions: vec![
@@ -1708,9 +1697,8 @@ mod tests {
             (region_1_address, region_size),
             (region_2_address, region_size),
         ];
-        let guest_memory = into_region_ext(
-            anonymous(mem_regions.into_iter(), true, HugePageConfig::None).unwrap(),
-        );
+        let guest_memory =
+            into_region_ext(anonymous(&mem_regions, true, HugePageConfig::None).unwrap());
         // Check that Firecracker bitmap is clean.
         guest_memory.iter().for_each(|r| {
             assert!(!r.bitmap().dirty_at(0));
@@ -1735,7 +1723,7 @@ mod tests {
         let restored_guest_memory = into_region_ext(
             snapshot_file(
                 memory_file,
-                memory_state.regions(),
+                &memory_state.regions(),
                 false,
                 HugePageConfig::None,
             )
@@ -1767,9 +1755,8 @@ mod tests {
             (region_1_address, region_size),
             (region_2_address, region_size),
         ];
-        let guest_memory = into_region_ext(
-            anonymous(mem_regions.into_iter(), true, HugePageConfig::None).unwrap(),
-        );
+        let guest_memory =
+            into_region_ext(anonymous(&mem_regions, true, HugePageConfig::None).unwrap());
         // Check that Firecracker bitmap is clean.
         guest_memory.iter().for_each(|r| {
             assert!(!r.bitmap().dirty_at(0));
@@ -1805,7 +1792,7 @@ mod tests {
 
         // We can restore from this because this is the first dirty dump.
         let restored_guest_memory = into_region_ext(
-            snapshot_file(file, memory_state.regions(), false, HugePageConfig::None).unwrap(),
+            snapshot_file(file, &memory_state.regions(), false, HugePageConfig::None).unwrap(),
         );
 
         // Check that the region contents are the same.
@@ -1933,9 +1920,8 @@ mod tests {
             (region_1_address, region_size),
             (region_2_address, region_size),
         ];
-        let guest_memory = into_region_ext(
-            anonymous(mem_regions.into_iter(), true, HugePageConfig::None).unwrap(),
-        );
+        let guest_memory =
+            into_region_ext(anonymous(&mem_regions, true, HugePageConfig::None).unwrap());
 
         // Check that Firecracker bitmap is clean.
         guest_memory.iter().for_each(|r| {
@@ -2028,7 +2014,7 @@ mod tests {
         let mem = into_region_ext(
             snapshot_file(
                 memory_file,
-                std::iter::once((GuestAddress(0), 2 * page_size)),
+                &[(GuestAddress(0), 2 * page_size)],
                 false,
                 HugePageConfig::None,
             )
@@ -2082,15 +2068,11 @@ mod tests {
         let base = GuestAddress(0);
         let slot1_base = base.unchecked_add(slot_size as u64);
 
-        let mmap_region = anonymous(
-            std::iter::once((base, region_size)),
-            false,
-            HugePageConfig::None,
-        )
-        .unwrap()
-        .into_iter()
-        .next()
-        .unwrap();
+        let mmap_region = anonymous(&[(base, region_size)], false, HugePageConfig::None)
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
 
         let region = GuestRegionMmapExt::hotpluggable_from_mmap_region(mmap_region, 0, slot_size);
         assert_eq!(region.slot_cnt(), 2);
@@ -2268,7 +2250,7 @@ mod tests {
                 let region_size = num_slots * spec.pages_per_slot * page_size;
 
                 let mmap_regions = anonymous(
-                    [(GuestAddress(next_addr), region_size)].into_iter(),
+                    &[(GuestAddress(next_addr), region_size)],
                     true,
                     HugePageConfig::None,
                 )
@@ -2414,7 +2396,7 @@ mod tests {
     fn test_check_range_plugged() {
         let region_size = 0x4000usize; // 4 slots of 0x1000
         let regions = anonymous(
-            vec![(GuestAddress(0x10_0000), region_size)].into_iter(),
+            &[(GuestAddress(0x10_0000), region_size)],
             false,
             HugePageConfig::None,
         )
