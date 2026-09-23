@@ -366,7 +366,6 @@ fn write_generated(
 }
 
 /// Minimal metadata JSON required by the NE hypervisor.
-// TODO(enclave): understand if we need to fill this information
 const EIF_METADATA: &str = r#"{"ImageName":"firecracker-enclave","ImageVersion":"","BuildMetadata":{"BuildTime":"","BuildTool":"firecracker","BuildToolVersion":"","OperatingSystem":"Linux","KernelVersion":""},"DockerInfo":{},"CustomMetadata":null}"#;
 
 /// Write a section header at its recorded offset and return its payload destination.
