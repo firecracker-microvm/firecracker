@@ -26,6 +26,10 @@ pub enum DirtyBitmapError {
     OutOfBounds { index: u64, total_blocks: u64 },
     /// Disk size overflow: disk_size_bytes={disk_size_bytes}, block_size={block_size}
     DiskSizeOverflow { disk_size_bytes: u64, block_size: u32 },
+    /// Scanning the overlay's extents failed: {0}
+    Scan(std::io::Error),
+    /// Overlay filesystem allocation unit {blksize} exceeds the block size {block_size}; extents cannot be trusted at block granularity
+    AllocationUnit { blksize: u64, block_size: u32 },
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +64,37 @@ impl DirtyBitmap {
             block_size,
             total_blocks,
         })
+    }
+
+    /// Derive the bitmap from the overlay file itself: every allocated extent
+    /// is a block the guest wrote, every hole falls through to the base. That
+    /// holds for an overlay this engine wrote and for one restored from a
+    /// backup of it, and it is refused on a filesystem whose allocation unit
+    /// is coarser than a block, where a hole beside data would read as data.
+    pub fn from_overlay_extents(
+        overlay: &std::fs::File,
+        disk_size_bytes: u64,
+        block_size: u32,
+    ) -> Result<Self, DirtyBitmapError> {
+        use std::os::unix::fs::MetadataExt;
+        let mut bitmap = Self::new(disk_size_bytes, block_size)?;
+        let blksize = overlay.metadata().map_err(DirtyBitmapError::Scan)?.blksize();
+        if blksize > u64::from(block_size) {
+            return Err(DirtyBitmapError::AllocationUnit {
+                blksize,
+                block_size,
+            });
+        }
+        crate::utils::sparse::for_each_data_extent(overlay, disk_size_bytes, |start, end| {
+            let mut at = start;
+            while at < end {
+                let len = (end - at).min(u64::from(u32::MAX));
+                bitmap.set(at, len as u32);
+                at += len;
+            }
+        })
+        .map_err(DirtyBitmapError::Scan)?;
+        Ok(bitmap)
     }
 
     /// Mark all blocks covering the byte range `[offset, offset + len)` as dirty.

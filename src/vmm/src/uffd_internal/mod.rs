@@ -510,34 +510,13 @@ pub(crate) fn scan_present_pages(path: &Path, page_size: usize) -> std::io::Resu
     let size = file.metadata()?.len();
     let npages = (size as usize).div_ceil(page_size);
     let mut pm = PresenceBitmap::with_pages(npages);
-    let fd = file.as_raw_fd();
-    let mut off: libc::off_t = 0;
-    while (off as u64) < size {
-        // SAFETY: fd is a valid open file; SEEK_DATA returns the next data offset
-        // at or after `off`, or -1/ENXIO once no data remains.
-        let data = unsafe { libc::lseek(fd, off, libc::SEEK_DATA) };
-        if data < 0 {
-            let err = std::io::Error::last_os_error();
-            // ENXIO is the documented "no more data" signal; any other errno is a real
-            // failure that must not be mistaken for a fully-scanned (sparse) overlay.
-            if err.raw_os_error() == Some(libc::ENXIO) {
-                break;
-            }
-            return Err(err);
-        }
-        // SAFETY: same fd; SEEK_HOLE returns the next hole at or after `data`,
-        // or EOF if the extent runs to the end of the file.
-        let mut hole = unsafe { libc::lseek(fd, data, libc::SEEK_HOLE) };
-        if hole < 0 {
-            hole = size as libc::off_t;
-        }
-        let start_pg = data as usize / page_size;
-        let end_pg = (hole as usize).div_ceil(page_size).min(npages);
+    crate::utils::sparse::for_each_data_extent(&file, size, |start, end| {
+        let start_pg = start as usize / page_size;
+        let end_pg = (end as usize).div_ceil(page_size).min(npages);
         for p in start_pg..end_pg {
             pm.set(p);
         }
-        off = hole;
-    }
+    })?;
     Ok(pm)
 }
 

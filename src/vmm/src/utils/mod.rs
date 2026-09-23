@@ -7,6 +7,8 @@ pub mod byte_order;
 pub mod net;
 /// Module with external libc functions
 pub mod signal;
+/// Sparse-file extent walking.
+pub mod sparse;
 /// Module with state machine
 pub mod sm;
 
