@@ -104,6 +104,7 @@ impl From<VhostUserBlockConfig> for BlockDeviceConfig {
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -427,6 +428,7 @@ mod tests {
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -445,6 +447,7 @@ mod tests {
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -463,6 +466,7 @@ mod tests {
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
+            image_format: None,
             blk_size: None,
             topology: None,
 

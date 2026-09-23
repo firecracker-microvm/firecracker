@@ -54,7 +54,9 @@ def test_vmdk_readonly_read(uvm):
     # Both the descriptor and the flat extent must be reachable inside the
     # jail, otherwise the VMDK backend cannot open the extent.
     test_microvm.create_jailed_resource(vmdk.extent_path)
-    test_microvm.add_drive("vmdk", vmdk.descriptor_path, is_read_only=True)
+    test_microvm.add_drive(
+        "vmdk", vmdk.descriptor_path, is_read_only=True, image_format="Vmdk"
+    )
 
     test_microvm.start()
 
@@ -86,4 +88,5 @@ def test_vmdk_requires_read_only(uvm):
             is_read_only=False,
             is_root_device=False,
             io_engine="Sync",
+            image_format="Vmdk",
         )
