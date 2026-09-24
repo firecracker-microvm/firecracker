@@ -1,15 +1,25 @@
-From 988f255b71288b9073cde95b17dd47f8f556516e Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 24 Nov 2025 12:25:09 +0000
 Subject: [PATCH 62/94] fixup for write and direct map removal
 
-Make sure the two work together.
+Keep the integration between guest_memfd writes and direct-map removal
+in this patch so the two features can be merged independently.
+
+Reject writes to folios whose direct map has already been removed. For
+files requesting no direct map, remove it after initializing the folio,
+independently of uptodate. If removal fails, zero the entire folio while
+locked and return the helper's error after releasing the folio. There is no
+data from a prior successful write or fault to preserve: such operations
+remove the direct map, and write_begin() rejects those folios.
+
+Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
 ---
- virt/kvm/guest_memfd.c | 7 +++++++
- 1 file changed, 7 insertions(+)
+ virt/kvm/guest_memfd.c | 26 +++++++++++++++++++++++++-
+ 1 file changed, 25 insertions(+), 1 deletion(-)
 
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index d60be4b52555..b5732e2299cd 100644
+index d60be4b52555..5a325aa46c71 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -667,6 +667,12 @@ static int kvm_gmem_write_begin(const struct kiocb *kiocb,
@@ -25,14 +35,38 @@ index d60be4b52555..b5732e2299cd 100644
  	return 0;
  }
  
-@@ -678,6 +684,7 @@ static int kvm_gmem_write_end(const struct kiocb *kiocb,
+@@ -676,15 +682,33 @@ static int kvm_gmem_write_end(const struct kiocb *kiocb,
+ 			      unsigned int copied,
+ 			      struct folio *folio, void *fsdata)
  {
++	int ret;
++
  	if (!folio_test_uptodate(folio)) {
  		folio_zero_range(folio, copied, len - copied);
-+		kvm_gmem_folio_zap_direct_map(folio);
  		folio_mark_uptodate(folio);
  	}
  
--- 
-2.50.1
-
++	if (kvm_gmem_no_direct_map(folio_inode(folio))) {
++		ret = kvm_gmem_folio_zap_direct_map(folio);
++		if (ret) {
++			/*
++			 * Wipe the entire folio on failure. There can be no data from a
++			 * prior successful write or fault to preserve. Such operations remove
++			 * the direct map, and write_begin() rejects those folios, so they
++			 * cannot reach this path.
++			 */
++			folio_zero_range(folio, 0, folio_size(folio));
++			goto out;
++		}
++	}
++
++	ret = copied;
++out:
+ 	folio_unlock(folio);
+ 	folio_put(folio);
+ 
+-	return copied;
++	return ret;
+ }
+ 
+ static const struct address_space_operations kvm_gmem_aops = {
