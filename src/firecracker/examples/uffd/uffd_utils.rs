@@ -629,6 +629,12 @@ impl UffdHandler {
         self.total_size
     }
 
+    /// Populate `len` bytes of guest memory starting at `offset` from the backing buffer.
+    ///
+    /// After a partial write, retry from the first unwritten byte.
+    /// Skip pages only on `EEXIST`.
+    /// Return the number of bytes written, excluding skipped pages.
+    /// Panic if a write makes no progress or fails with an error other than `EEXIST`.
     pub fn populate_via_write(&mut self, offset: usize, len: usize) -> usize {
         // man 2 write:
         //
@@ -674,27 +680,19 @@ impl UffdHandler {
                     userfault_bitmap.reset_addr_range(write_offset, skip_len);
                     pos += skip_len;
                 }
-                written @ 0.. => {
+                0 => panic!(
+                    "guest_memfd pwrite64 made no progress at offset {write_offset:#x} \
+                     for a nonzero request of {len_to_write} bytes"
+                ),
+                written @ 1.. => {
                     let bytes_written = written as usize;
                     assert!(bytes_written <= len_to_write);
 
-                    if bytes_written > 0 {
-                        userfault_bitmap.reset_addr_range(write_offset, bytes_written);
-                        total_written += bytes_written;
-                        pos += bytes_written;
-                    }
-
-                    if bytes_written < len_to_write {
-                        // write() syscall wrote less bytes than we requested when the direct map
-                        // PTE for the page has already been removed,
-                        // indicating a page has been populated. Reset the
-                        // corresponding bit in the userfault bitmap to
-                        // suppress further KVM userfaults for that page and
-                        // skip the page.
-                        let skip_len = self.page_size.min(len - pos);
-                        userfault_bitmap.reset_addr_range(offset + pos, skip_len);
-                        pos += skip_len;
-                    }
+                    // A partial write does not establish that the next page is populated.
+                    // Clear only the written range and continue at the first unwritten byte.
+                    userfault_bitmap.reset_addr_range(write_offset, bytes_written);
+                    total_written += bytes_written;
+                    pos += bytes_written;
                 }
                 _ => panic!("{:?}", std::io::Error::last_os_error()),
             }
