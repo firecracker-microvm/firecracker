@@ -119,6 +119,9 @@ The **API endpoint** can be used to:
 - Configure and manage [memory hotplugging](docs/memory-hotplug.md).
 - `[Developer Preview]` [Hot-plug and hot-unplug](docs/device-hotplug.md) virtio
   PCI devices while the VM is running.
+- Run the guest as a [Nitro Sandbox](docs/nitro-sandboxes/README.md) on an EC2
+  instance, isolated by the AWS Nitro System rather than by KVM, with optional
+  attestation.
 - Start the microVM using a given kernel image, root file system, and boot
   arguments.
 - [x86_64 only] Stop the microVM.

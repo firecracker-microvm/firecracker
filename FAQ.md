@@ -65,6 +65,16 @@ memory footprint. The Firecracker process also provides a RESTful control API,
 handles resource rate limiting for microVMs, and provides a microVM metadata
 service to enable the sharing of configuration data between the host and guest.
 
+### Can Firecracker run a guest without KVM?
+
+Yes. On an Amazon EC2 instance with AWS Nitro Enclaves enabled, Firecracker can
+launch a guest as a **Nitro Sandbox**, a virtual machine isolated from its
+parent instance by the AWS Nitro System rather than by KVM. A sandbox uses the
+same Firecracker API and the same virtio devices, needs no `/dev/kvm` access,
+keeps its memory unreadable by the parent by default, and can attest what it is
+running. For more about sandboxes, see the
+[Nitro Sandboxes documentation](docs/nitro-sandboxes/README.md).
+
 ### What operating systems are supported by Firecracker?
 
 Firecracker supports Linux host and guest operating systems as well as
