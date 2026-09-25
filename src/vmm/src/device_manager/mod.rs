@@ -472,6 +472,14 @@ impl DeviceManager {
             VirtioDevices::Mmio(_) => return Err(VmmActionError::PciNotEnabled),
         }
 
+        if config.is_vhost_user() && !vm.vhost_user_memory_shareable() {
+            return Err(VmmActionError::NotSupported(
+                "vhost-user hotplug requires guest memory that a backend can map shared, for \
+                 example a microVM booted with a vhost-user device"
+                    .to_string(),
+            ));
+        }
+
         let device = match config {
             HotplugDeviceConfig::Block(cfg) => Self::hotplug_make_block(cfg)?,
             HotplugDeviceConfig::Pmem(cfg) => Self::hotplug_make_pmem(vm.clone(), cfg)?,
@@ -1011,6 +1019,23 @@ pub(crate) mod tests {
         assert!(matches!(
             vmm.hotplug_device(cfg, &mut evt_manager),
             Err(VmmActionError::PciNotEnabled)
+        ));
+    }
+
+    #[test]
+    fn test_hotplug_vhost_user_rejected_without_shared_memory() {
+        // default_vmm_with_pci has anonymous guest memory, which no backend can map.
+        let mut vmm = default_vmm_with_pci();
+        let mut evt_manager = EventManager::new().unwrap();
+
+        let cfg = HotplugDeviceConfig::Block(BlockDeviceConfig {
+            drive_id: "vub0".to_string(),
+            socket: Some("/tmp/nonexistent-vhost-user.sock".to_string()),
+            ..Default::default()
+        });
+        assert!(matches!(
+            vmm.hotplug_device(cfg, &mut evt_manager),
+            Err(VmmActionError::NotSupported(_))
         ));
     }
 

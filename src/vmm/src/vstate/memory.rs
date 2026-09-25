@@ -647,6 +647,12 @@ impl<'a> GuestMemorySlot<'a> {
 }
 
 impl GuestRegionMmapExt {
+    /// Whether the mapping is `MAP_SHARED`, so another mapping of the same
+    /// file sees the same pages.
+    pub fn is_shared(&self) -> bool {
+        self.inner.flags() & libc::MAP_SHARED != 0
+    }
+
     /// Adds a DRAM region which only contains a single plugged slot
     pub(crate) fn dram_from_mmap_region(region: GuestRegionMmap, slot: u32) -> Self {
         let slot_size = u64_to_usize(region.len());
