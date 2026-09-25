@@ -1,5 +1,11 @@
 # Backing Guest Memory by Huge Pages
 
+> [!NOTE]
+>
+> Huge pages do not apply to a [Nitro Sandbox](nitro-sandboxes/README.md): its
+> guest memory is donated by the Nitro Enclaves driver, so `huge_pages` is
+> rejected at `InstanceStart`.
+
 Firecracker supports three modes for the `huge_pages` field of `PUT` or `PATCH`
 requests to the `/machine-config` endpoint:
 

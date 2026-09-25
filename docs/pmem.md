@@ -1,5 +1,11 @@
 # Using the Firecracker `virtio-pmem` device
 
+> [!NOTE]
+>
+> Pmem devices are not available in a
+> [Nitro Sandbox](nitro-sandboxes/README.md). Configuring one is rejected at
+> `InstanceStart`.
+
 ## What is a persistent memory device
 
 Persistent memory is a type of non-volatile, CPU accessible (with usual
