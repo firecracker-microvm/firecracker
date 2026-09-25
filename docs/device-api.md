@@ -12,6 +12,12 @@ API call to succeed. If the device (column) is omitted from a uVM definition, a
 call to one of the [API Endpoints](#api-endpoints) will fail with a 400 -
 BadRequest - HTTP response.
 
+The matrix covers device requirements only. A
+[Nitro Sandbox](nitro-sandboxes/README.md) also rejects some endpoints and
+fields whatever devices it has, for example hot-unplug (a `DELETE` with
+`UnplugParams`) and `pcie_hotplug_ports`. For what a sandbox supports, see
+[Feature support](nitro-sandboxes/comparison-with-kvm.md#feature-support).
+
 ## API Endpoints
 
 | Endpoint                  | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock | virtio-rng | virtio-pmem | virtio-mem | virtio-balloon |
@@ -25,6 +31,7 @@ BadRequest - HTTP response.
 | `boot-source`             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 | `cpu-config`              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 | `drives/{id}`             |    O     |       O        |    **R**     |      **R**       |     O      |      O       |     O      |      O      |     O      |       O        |
+| `enclave`                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 | `hotplug/memory`          |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |       O        |
 | `logger`                  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 | `machine-config`          |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
@@ -89,6 +96,17 @@ specification:
 |                           | image_format             |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | blk_size                 |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | topology                 |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | dmb_size_mib \*\*\*      |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `EnclaveConfig` \*\*\*\*  | cpu_accounting           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | cpu_ids                  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | cpu_overcommit           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | debug_mode               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | direct_mode              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | hotplug_mode             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | numa_nodes               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `EnclaveNumaNode`         | mem_size_mib             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | parent_numa              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | vcpu_count               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 | `InstanceActionInfo`      | action_type              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 | `SnapshotLoadParams`      | track_dirty_pages        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | mem_file_path            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
@@ -128,6 +146,7 @@ specification:
 |                           | mtu                      |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
 |                           | rx_rate_limiter          |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
 |                           | tx_rate_limiter          |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+|                           | dmb_size_mib \*\*\*      |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
 | `NetworkOverride`         | iface_id                 |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
 |                           | host_dev_name            |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
 | `PartialDrive`            | drive_id                 |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
@@ -149,6 +168,7 @@ specification:
 | `Vsock`                   | guest_cid                |    O     |       O        |      O       |        O         |     O      |    **R**     |     O      |      O      |     O      |       O        |
 |                           | uds_path                 |    O     |       O        |      O       |        O         |     O      |    **R**     |     O      |      O      |     O      |       O        |
 |                           | vsock_id                 |    O     |       O        |      O       |        O         |     O      |    **R**     |     O      |      O      |     O      |       O        |
+|                           | dmb_size_mib \*\*\*      |    O     |       O        |      O       |        O         |     O      |    **R**     |     O      |      O      |     O      |       O        |
 | `VsockOverride`           | uds_path                 |    O     |       O        |      O       |        O         |     O      |    **R**     |     O      |      O      |     O      |       O        |
 | `EntropyDevice`           | rate_limiter             |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |      O      |     O      |       O        |
 | `Pmem`                    | id                       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
@@ -173,6 +193,14 @@ device; its `force` needs only the device being removed.
 
 \*\* The `TokenBucket` can be configured with any combination of virtio-net,
 virtio-block, virtio-pmem, virtio-rng and serial devices.
+
+\*\*\* `dmb_size_mib` applies only to a device of a
+[Nitro Sandbox](nitro-sandboxes/README.md) in confidential mode; see
+[DMB size](nitro-sandboxes/features.md#dmb-size). A KVM microVM, a direct-mode
+sandbox and a vhost-user block device reject it.
+
+\*\*\*\* `EnclaveConfig` configures a [Nitro Sandbox](nitro-sandboxes/README.md)
+and needs no device.
 
 ## Output Schema
 
@@ -210,6 +238,16 @@ specification:
 |                        | async_reclaim            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
 |                        | direct_reclaim           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
 | `Error`                | fault_message            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `EnclaveConfig`        | cpu_accounting           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | cpu_ids                  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | cpu_overcommit           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | debug_mode               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | direct_mode              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | hotplug_mode             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | numa_nodes               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `EnclaveNumaNode`      | mem_size_mib             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | parent_numa              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | vcpu_count               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 | `FirecrackerVersion`   | firecracker_version      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 | `FullVmConfiguration`  | balloon                  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                        | boot-source              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
@@ -224,6 +262,7 @@ specification:
 |                        | network-interfaces       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                        | pmem                     |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                        | vsock                    |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | enclave                  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 | `InstanceInfo`         | app_name                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                        | id                       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                        | state                    |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
