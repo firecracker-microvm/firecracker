@@ -3,14 +3,22 @@
 
 //! Emulation of a PCI Express root port with native hot-plug support.
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 
+use serde::{Deserialize, Serialize};
 use vm_allocator::RangeInclusive;
+use vmm_sys_util::eventfd::EventFd;
+
 use zerocopy::IntoBytes;
 
 use crate::logger::error;
-use crate::pci::configuration::{BAR0_REG_IDX, BarPrefetchable, Bars, PciConfiguration};
-use crate::pci::msix::{MsixCap, MsixConfig};
+use crate::pci::bus::MAX_PCI_BUSES;
+use crate::pci::configuration::{
+    BAR0_REG_IDX, BarPrefetchable, Bars, PciConfiguration, PciConfigurationError,
+    PciConfigurationState,
+};
+use crate::pci::msix::{MsixCap, MsixConfig, MsixConfigState};
 use crate::pci::pcie_cap::{
     PCI_EXP_LNKSTA, PCI_EXP_LNKSTA_CLS_2_5GB, PCI_EXP_LNKSTA_DLLLA, PCI_EXP_LNKSTA_NLW_X1,
     PCI_EXP_SLTCTL, PCI_EXP_SLTCTL_ABPE, PCI_EXP_SLTCTL_DLLSCE, PCI_EXP_SLTCTL_HPIE,
@@ -20,12 +28,13 @@ use crate::pci::pcie_cap::{
 };
 use crate::pci::{PciBridgeSubclass, PciClassCode, PciDevice, PciSBDF};
 use crate::vstate::bus::BusDevice;
-use crate::vstate::interrupts::MsixVectorGroup;
+use crate::vstate::interrupts::{InterruptError, MsixVectorGroup};
+use crate::vstate::vm::KvmVm;
 
 const VENDOR_ID_AMAZON: u16 = 0x1d0f;
 const DEVICE_ID_AMAZON_RP: u16 = 0x0200;
 
-const ROOT_PORT_MSIX_BAR: u8 = 0;
+pub const ROOT_PORT_MSIX_BAR: u8 = 0;
 /// Size of the MSI-X BAR
 pub const ROOT_PORT_MSIX_BAR_SIZE: u64 = 0x1000;
 const ROOT_PORT_MSIX_TABLE_OFFSET: u32 = 0x0;
@@ -39,9 +48,35 @@ const MSIX_TABLE_ENTRY_SIZE: u64 = 16;
 
 const LINK_STATUS_UP: u16 = PCI_EXP_LNKSTA_DLLLA | PCI_EXP_LNKSTA_CLS_2_5GB | PCI_EXP_LNKSTA_NLW_X1;
 
+/// Shared channel by which root ports report that a guest has acknowledged a
+/// graceful hot-unplug and the device can be removed. The acknowledgement
+/// arrives at a vCPU thread, but the device removal must be done in the main
+/// thread. The eventfd is used to notify the main thread.
+#[derive(Debug)]
+pub struct HotplugCompletion {
+    /// Signalled when the guest acks a removal.
+    pub evt: EventFd,
+    /// Secondary buses whose endpoints are ready to be torn down, bit `n`
+    /// standing for bus `n`.
+    pub acked_buses: AtomicU32,
+}
+
+const _: () = assert!(MAX_PCI_BUSES as u32 <= u32::BITS);
+
+impl HotplugCompletion {
+    /// Create a new completion channel.
+    pub fn new() -> std::io::Result<Self> {
+        Ok(HotplugCompletion {
+            evt: EventFd::new(libc::EFD_NONBLOCK)?,
+            acked_buses: AtomicU32::new(0),
+        })
+    }
+}
+
 /// A PCI Express root port with a hot-plug capable slot.
 #[derive(Debug)]
 pub struct PciRootPort {
+    sbdf: PciSBDF,
     configuration: PciConfiguration,
     bars: Bars,
     pcie_cap_offset: u16,
@@ -51,6 +86,32 @@ pub struct PciRootPort {
     slot_status: u16,
     link_status: u16,
     secondary_bus: u8,
+    removal_requested: bool,
+    completion: Arc<HotplugCompletion>,
+}
+
+/// Snapshot state of a root port.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RootPortState {
+    pub(crate) sbdf: PciSBDF,
+    pub(crate) configuration_state: PciConfigurationState,
+    pub(crate) bars: Bars,
+    pub(crate) pcie_cap_offset: u16,
+    pub(crate) msix_cap_offset: u16,
+    pub(crate) msix_state: MsixConfigState,
+    pub(crate) slot_control: u16,
+    pub(crate) slot_status: u16,
+    pub(crate) link_status: u16,
+    pub(crate) secondary_bus: u8,
+    pub(crate) removal_requested: bool,
+}
+
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum RootPortRestoreError {
+    /// Invalid configuration space: {0}
+    Configuration(#[from] PciConfigurationError),
+    /// Could not restore MSI-X state: {0}
+    Msix(#[from] InterruptError),
 }
 
 impl PciRootPort {
@@ -61,11 +122,13 @@ impl PciRootPort {
     ///   advertises to the guest as its physical slot number
     /// * `msix_vectors` - a single-vector MSI-X group
     /// * `msix_bar_addr` - guest-physical base address of the MSI-X BAR
+    /// * `completion` - channel for reporting acknowledged graceful removals
     pub fn new(
         sbdf: PciSBDF,
         secondary_bus: u8,
         msix_vectors: Arc<MsixVectorGroup>,
         msix_bar_addr: u64,
+        completion: Arc<HotplugCompletion>,
     ) -> Self {
         assert_eq!(msix_vectors.num_vectors(), ROOT_PORT_MSIX_VECTORS);
 
@@ -109,6 +172,7 @@ impl PciRootPort {
         );
 
         PciRootPort {
+            sbdf,
             configuration,
             bars,
             pcie_cap_offset,
@@ -118,7 +182,59 @@ impl PciRootPort {
             slot_status: 0,
             link_status: 0,
             secondary_bus,
+            removal_requested: false,
+            completion,
         }
+    }
+
+    /// Rebuild a root port from a snapshot.
+    pub fn from_state(
+        state: &RootPortState,
+        vm: Arc<KvmVm>,
+        completion: Arc<HotplugCompletion>,
+    ) -> Result<Self, RootPortRestoreError> {
+        let msix_config = MsixConfig::from_state(state.msix_state.clone(), vm, state.sbdf)?;
+
+        Ok(PciRootPort {
+            sbdf: state.sbdf,
+            configuration: PciConfiguration::from_state(state.configuration_state.clone())?,
+            bars: state.bars,
+            pcie_cap_offset: state.pcie_cap_offset,
+            msix_cap_offset: state.msix_cap_offset,
+            msix_config: Arc::new(Mutex::new(msix_config)),
+            slot_control: state.slot_control,
+            slot_status: state.slot_status,
+            link_status: state.link_status,
+            secondary_bus: state.secondary_bus,
+            removal_requested: state.removal_requested,
+            completion,
+        })
+    }
+
+    /// Return the root port's snapshot state.
+    pub fn state(&self) -> RootPortState {
+        RootPortState {
+            sbdf: self.sbdf,
+            configuration_state: self.configuration.state(),
+            bars: self.bars,
+            pcie_cap_offset: self.pcie_cap_offset,
+            msix_cap_offset: self.msix_cap_offset,
+            msix_state: self.msix_config.lock().expect("Poisoned lock").state(),
+            slot_control: self.slot_control,
+            slot_status: self.slot_status,
+            link_status: self.link_status,
+            secondary_bus: self.secondary_bus,
+            removal_requested: self.removal_requested,
+        }
+    }
+
+    /// Enable the port's unmasked MSI-X vector after a restore. Must run after
+    /// the GSI routes have been set up.
+    pub fn enable_unmasked_vectors(&self) -> Result<(), InterruptError> {
+        self.msix_config
+            .lock()
+            .expect("Poisoned lock")
+            .enable_unmasked_vectors()
     }
 
     pub fn secondary_bus(&self) -> u8 {
@@ -197,6 +313,7 @@ impl PciRootPort {
     /// The device remains present until eject() is called (either after the
     /// guest acknowledges the removal or due to a force detach).
     pub fn request_unplug(&mut self) {
+        self.removal_requested = true;
         self.slot_status |= PCI_EXP_SLTSTA_ABP;
         if self.must_inject_irq(PCI_EXP_SLTSTA_ABP) {
             self.inject_irq();
@@ -205,6 +322,7 @@ impl PciRootPort {
 
     /// Signal to the guest that slot is now empty.
     pub fn eject(&mut self) {
+        self.removal_requested = false;
         self.link_status &= !LINK_STATUS_UP;
         self.slot_status &= !PCI_EXP_SLTSTA_PDS;
         self.slot_status |= PCI_EXP_SLTSTA_PDC | PCI_EXP_SLTSTA_DLLSC;
@@ -270,7 +388,16 @@ impl PciDevice for PciRootPort {
             self.configuration
                 .write_config_register(reg_idx, offset, data);
         } else if reg_idx == self.slot_reg_idx() {
-            self.write_slot_dword(offset, data);
+            let removal_acked = self.write_slot_dword(offset, data);
+            if self.removal_requested && removal_acked {
+                self.removal_requested = false;
+                self.completion
+                    .acked_buses
+                    .fetch_or(1 << self.secondary_bus, Ordering::Release);
+                if let Err(err) = self.completion.evt.write(1) {
+                    error!("root_port: Failed to signal hot-unplug completion: {err}");
+                }
+            }
         } else {
             self.configuration
                 .write_config_register(reg_idx, offset, data);
@@ -351,13 +478,22 @@ mod tests {
     };
     use crate::vstate::vm::KvmVm;
 
-    fn new_root_port() -> PciRootPort {
+    fn new_msix_vectors() -> Arc<MsixVectorGroup> {
         let vmm = default_vmm();
-        let vectors = Arc::new(
+        Arc::new(
             KvmVm::create_msix_group(vmm.vm.as_kvm().unwrap().clone(), ROOT_PORT_MSIX_VECTORS)
                 .unwrap(),
-        );
-        PciRootPort::new(PciSBDF::new(0, 0, 1, 0), 1, vectors, 0x1_0000_0000)
+        )
+    }
+
+    fn new_root_port() -> PciRootPort {
+        PciRootPort::new(
+            PciSBDF::new(0, 0, 1, 0),
+            1,
+            new_msix_vectors(),
+            0x1_0000_0000,
+            Arc::new(HotplugCompletion::new().unwrap()),
+        )
     }
 
     #[test]
@@ -430,6 +566,58 @@ mod tests {
         assert!(rp.write_slot_dword(0, &PCI_EXP_SLTCTL_PWR_IND_OFF.to_le_bytes()));
         // Staying off is not a new transition.
         assert!(!rp.write_slot_dword(0, &PCI_EXP_SLTCTL_PWR_IND_OFF.to_le_bytes()));
+    }
+
+    #[test]
+    fn test_graceful_removal_reports_the_guest_ack() {
+        let completion = Arc::new(HotplugCompletion::new().unwrap());
+        let mut rp = PciRootPort::new(
+            PciSBDF::new(0, 0, 1, 0),
+            7,
+            new_msix_vectors(),
+            0x1_0000_0000,
+            completion.clone(),
+        );
+        let reg = rp.slot_reg_idx();
+        rp.plug(true);
+
+        // A power-off with no removal pending is the guest's business, not an
+        // acknowledgement of anything.
+        rp.write_config_register(reg, 0, &PCI_EXP_SLTCTL_PWR_IND_OFF.to_le_bytes());
+        assert_eq!(completion.acked_buses.load(Ordering::Relaxed), 0);
+
+        // Once asked, the same write means the device can go, and names the
+        // secondary bus so the VMM can find it.
+        rp.request_unplug();
+        rp.write_config_register(reg, 0, &0u16.to_le_bytes());
+        rp.write_config_register(reg, 0, &PCI_EXP_SLTCTL_PWR_IND_OFF.to_le_bytes());
+        assert_eq!(completion.acked_buses.load(Ordering::Relaxed), 1 << 7);
+        assert_eq!(completion.evt.read().unwrap(), 1);
+
+        // The request is one-shot: a later power-off does not report again.
+        rp.write_config_register(reg, 0, &0u16.to_le_bytes());
+        rp.write_config_register(reg, 0, &PCI_EXP_SLTCTL_PWR_IND_OFF.to_le_bytes());
+        assert_eq!(completion.acked_buses.load(Ordering::Relaxed), 1 << 7);
+    }
+
+    #[test]
+    fn test_forced_removal_expects_no_ack() {
+        let completion = Arc::new(HotplugCompletion::new().unwrap());
+        let mut rp = PciRootPort::new(
+            PciSBDF::new(0, 0, 1, 0),
+            7,
+            new_msix_vectors(),
+            0x1_0000_0000,
+            completion.clone(),
+        );
+        let reg = rp.slot_reg_idx();
+        rp.plug(true);
+        rp.eject();
+
+        // The device is already gone, so a late power-off from the guest must
+        // not ask the VMM to tear it down a second time.
+        rp.write_config_register(reg, 0, &PCI_EXP_SLTCTL_PWR_IND_OFF.to_le_bytes());
+        assert_eq!(completion.acked_buses.load(Ordering::Relaxed), 0);
     }
 
     #[test]

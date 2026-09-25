@@ -19,7 +19,9 @@ use vm_allocator::AllocPolicy;
 
 use crate::arch::PCI_MMCONFIG_START;
 use crate::device_manager::pci_mngr::PciManagerError;
-use crate::devices::pci::root_port::{PciRootPort, ROOT_PORT_MSIX_BAR_SIZE};
+use crate::devices::pci::root_port::{
+    HotplugCompletion, PciRootPort, ROOT_PORT_MSIX_BAR, ROOT_PORT_MSIX_BAR_SIZE, RootPortState,
+};
 use crate::logger::info;
 use crate::pci::PciSBDF;
 #[cfg(target_arch = "x86_64")]
@@ -27,7 +29,6 @@ use crate::pci::bus::{PCI_CONFIG_IO_PORT, PCI_CONFIG_IO_PORT_SIZE, PciConfigIo};
 use crate::pci::bus::{
     PCI_MMIO_CONFIG_SIZE_PER_SEGMENT, PciBusError, PciBuses, PciConfigMmio, PciHostBridge,
 };
-use crate::vstate::bus::BusError;
 use crate::vstate::vm::KvmVm;
 
 pub struct PciSegment {
@@ -55,6 +56,8 @@ pub struct PciSegment {
     // Hot-plug capable root ports on the primary bus.
     // Root port `i` starts secondary bus `i + 1`.
     pub(crate) root_ports: Vec<Arc<Mutex<PciRootPort>>>,
+    /// Channel by which the root ports report acknowledged device removals
+    pub(crate) hotplug_completion: Arc<HotplugCompletion>,
 }
 
 impl std::fmt::Debug for PciSegment {
@@ -79,7 +82,7 @@ impl PciSegment {
         vm: &Arc<KvmVm>,
         pci_irq_slots: &[u8; 32],
         num_root_ports: u8,
-    ) -> Result<PciSegment, BusError> {
+    ) -> Result<PciSegment, PciManagerError> {
         let pci_buses = Arc::new(PciBuses::new(num_root_ports));
         pci_buses
             .root_bus()
@@ -119,6 +122,9 @@ impl PciSegment {
             end_of_mem64_area,
             pci_irq_slots: *pci_irq_slots,
             root_ports: Vec::new(),
+            hotplug_completion: Arc::new(
+                HotplugCompletion::new().map_err(PciManagerError::HotplugCompletion)?,
+            ),
         };
 
         Ok(segment)
@@ -130,7 +136,7 @@ impl PciSegment {
         vm: &Arc<KvmVm>,
         pci_irq_slots: &[u8; 32],
         num_root_ports: u8,
-    ) -> Result<PciSegment, BusError> {
+    ) -> Result<PciSegment, PciManagerError> {
         let mut segment = Self::build(id, vm, pci_irq_slots, num_root_ports)?;
         let pci_config_io = Arc::new(Mutex::new(PciConfigIo::new(segment.pci_buses.clone())));
 
@@ -163,7 +169,7 @@ impl PciSegment {
         vm: &Arc<KvmVm>,
         pci_irq_slots: &[u8; 32],
         num_root_ports: u8,
-    ) -> Result<PciSegment, BusError> {
+    ) -> Result<PciSegment, PciManagerError> {
         let segment = Self::build(id, vm, pci_irq_slots, num_root_ports)?;
         info!(
             "pci: adding PCI segment: id={:#x}, PCI MMIO config address: {:#x}, mem32 area: \
@@ -201,9 +207,30 @@ impl PciSegment {
                 secondary_bus,
                 msix_vectors,
                 msix_bar_addr,
+                self.hotplug_completion.clone(),
             )));
 
             self.attach_root_port(vm, sbdf, root_port, msix_bar_addr)?;
+        }
+
+        Ok(())
+    }
+
+    /// Re-create the root ports of a snapshot.
+    pub(crate) fn restore_root_ports(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        states: &[RootPortState],
+    ) -> Result<(), PciManagerError> {
+        for state in states {
+            let root_port = Arc::new(Mutex::new(PciRootPort::from_state(
+                state,
+                vm.clone(),
+                self.hotplug_completion.clone(),
+            )?));
+
+            let msix_bar_addr = state.bars.get_bar_addr(ROOT_PORT_MSIX_BAR);
+            self.attach_root_port(vm, state.sbdf, root_port, msix_bar_addr)?;
         }
 
         Ok(())
@@ -236,6 +263,39 @@ impl PciSegment {
 
         self.root_ports.push(root_port);
         Ok(())
+    }
+
+    /// Enable the root ports' MSI-X vectors after a restore. Must run after the
+    /// GSI routes have been set up.
+    pub(crate) fn enable_unmasked_vectors(&self) -> Result<(), PciManagerError> {
+        for port in &self.root_ports {
+            port.lock()
+                .expect("Poisoned lock")
+                .enable_unmasked_vectors()?;
+        }
+        Ok(())
+    }
+
+    /// Find a root port whose slot is empty.
+    pub(crate) fn allocate_root_port(&self) -> Result<Arc<Mutex<PciRootPort>>, PciManagerError> {
+        for port in &self.root_ports {
+            let secondary_bus = port.lock().expect("Poisoned lock").secondary_bus();
+            let bus = self
+                .pci_buses
+                .get(secondary_bus)
+                .expect("A root port references a bus that doesn't exist");
+            if bus.lock().expect("Poisoned lock").get_device(0).is_none() {
+                return Ok(port.clone());
+            }
+        }
+
+        Err(PciManagerError::NoFreeRootPort)
+    }
+
+    /// Return the root port that starts the given bus, if any.
+    pub(crate) fn root_port_for_bus(&self, bus: u8) -> Option<Arc<Mutex<PciRootPort>>> {
+        let index = usize::from(bus.checked_sub(1)?);
+        self.root_ports.get(index).cloned()
     }
 
     pub(crate) fn next_device_sbdf(&self) -> Result<PciSBDF, PciBusError> {

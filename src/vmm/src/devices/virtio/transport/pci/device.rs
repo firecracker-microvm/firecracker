@@ -224,6 +224,9 @@ const MSIX_PBA_SIZE: u32 = 0x800;
 /// The BAR size must be a power of 2.
 pub const CAPABILITY_BAR_SIZE: u64 = 0x80000;
 
+/// The default PCI bridge window size that Linux uses
+const BRIDGE_WINDOW_SIZE: u64 = 0x10_0000;
+
 /// PCI configuration register index of the Command/Status DWORD.
 const COMMAND_REG: u16 = 1;
 /// Command register "Memory Space Enable" bit
@@ -260,6 +263,8 @@ pub enum VirtioPciDeviceError {
     UnexpectedMsixVectorCount(usize, usize),
     /// Could not activate restored device: {0}
     Activate(#[from] ActivateError),
+    /// Could not allocate the virtio-pci BAR: {0}
+    BarAllocation(#[from] vm_allocator::Error),
 }
 
 pub struct VirtioPciDevice {
@@ -346,22 +351,48 @@ impl VirtioPciDevice {
         )
     }
 
+    /// Allocate the guest address for the virtio-pci capability BAR.
+    /// When `hint` is Some() the BAR goes to that address if the range
+    /// is large enough and available.
+    fn allocate_bar_address(
+        allocator: &mut AddressAllocator,
+        hint: Option<RangeInclusive>,
+    ) -> Result<u64, VirtioPciDeviceError> {
+        if let Some(hint) = hint
+            && hint.len() >= CAPABILITY_BAR_SIZE
+            && let Ok(range) = allocator.allocate(
+                CAPABILITY_BAR_SIZE,
+                CAPABILITY_BAR_SIZE,
+                AllocPolicy::ExactMatch(hint.start()),
+            )
+        {
+            Ok(range.start())
+        } else {
+            let range = allocator.allocate(
+                CAPABILITY_BAR_SIZE,
+                BRIDGE_WINDOW_SIZE,
+                AllocPolicy::FirstMatch,
+            )?;
+
+            Ok(range.start())
+        }
+    }
+
     /// Allocate the PCI BAR for the VirtIO device and its associated capabilities.
+    /// When `hint` is Some() the BAR goes to that address if the range is large
+    /// enough and available.
     ///
     /// This must happen only during the creation of a brand new VM. When a VM is restored from a
     /// known state, the BARs are already created with the right content, therefore we don't need
     /// to go through this codepath.
-    pub fn allocate_bars(&mut self, allocator: &mut AddressAllocator) {
+    pub fn allocate_bars(
+        &mut self,
+        allocator: &mut AddressAllocator,
+        hint: Option<RangeInclusive>,
+    ) -> Result<(), VirtioPciDeviceError> {
         // Allocate the virtio-pci capability BAR.
         // See http://docs.oasis-open.org/virtio/virtio/v1.0/cs04/virtio-v1.0-cs04.html#x1-740004
-        self.bar_address = allocator
-            .allocate(
-                CAPABILITY_BAR_SIZE,
-                CAPABILITY_BAR_SIZE,
-                AllocPolicy::FirstMatch,
-            )
-            .unwrap()
-            .start();
+        self.bar_address = Self::allocate_bar_address(allocator, hint)?;
         self.bars.set_bar_64(
             VIRTIO_BAR_INDEX,
             self.bar_address,
@@ -369,6 +400,8 @@ impl VirtioPciDevice {
             BarPrefetchable::No,
         );
         self.add_pci_capabilities();
+
+        Ok(())
     }
 
     /// Free the PCI BAR of the VirtIO device.
@@ -454,7 +487,7 @@ impl VirtioPciDevice {
 
         let msix_config = Arc::new(Mutex::new(msix_config));
 
-        let pci_config = PciConfiguration::type0_from_state(state.pci_configuration_state)?;
+        let pci_config = PciConfiguration::from_state(state.pci_configuration_state)?;
         let virtio_common_config = VirtioPciCommonConfig::new(state.pci_dev_state);
 
         if state.device_activated {
@@ -1228,10 +1261,13 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use linux_loader::loader::Cmdline;
-    use vm_allocator::{AllocPolicy, RangeInclusive};
+    use vm_allocator::{AddressAllocator, AllocPolicy, RangeInclusive};
     use vm_memory::{ByteValued, Le32};
 
-    use super::{EventFd, IoEventAddress, KvmVm, NoDatamatch, PciCapabilityType, VirtioPciDevice};
+    use super::{
+        BRIDGE_WINDOW_SIZE, EventFd, IoEventAddress, KvmVm, NoDatamatch, PciCapabilityType,
+        VirtioPciDevice,
+    };
     use crate::Vmm;
     use crate::arch::{MEM_32BIT_DEVICES_SIZE, MEM_32BIT_DEVICES_START};
     use crate::builder::tests::default_vmm_with_pci;
@@ -1257,7 +1293,7 @@ mod tests {
     /// The address the single virtio-pci BAR of a freshly booted VM ends up
     /// at: the first CAPABILITY_BAR_SIZE-aligned address of the 32-bit MMIO
     /// window.
-    const FIRST_BAR_BASE: u64 = MEM_32BIT_DEVICES_START.next_multiple_of(CAPABILITY_BAR_SIZE);
+    const FIRST_BAR_BASE: u64 = MEM_32BIT_DEVICES_START.next_multiple_of(BRIDGE_WINDOW_SIZE);
 
     fn create_vmm_with_virtio_pci_device() -> Vmm {
         let mut vmm = default_vmm_with_pci();
@@ -1271,6 +1307,7 @@ mod tests {
                 &mut Cmdline::new(1024).unwrap(),
                 &mut event_manager,
                 false,
+                crate::device_manager::pci_mngr::PciPlacement::RootBus,
             )
             .unwrap();
         vmm
@@ -1436,6 +1473,41 @@ mod tests {
 
         // We create a capabilities BAR region of 0x80000 bytes
         assert_eq!(bar_size, 0x80000);
+    }
+
+    #[test]
+    fn test_bar_address_prefers_the_hint() {
+        let mut allocator = AddressAllocator::new(0xc000_0000, 0x1000_0000).unwrap();
+        let hint = Some(RangeInclusive::new(0xc020_0000, 0xc03f_ffff).unwrap());
+
+        // With no hint we take the bottom of the pool.
+        assert_eq!(
+            VirtioPciDevice::allocate_bar_address(&mut allocator, None).unwrap(),
+            0xc000_0000
+        );
+
+        // A hint is honoured, so the BAR lands at its base.
+        assert_eq!(
+            VirtioPciDevice::allocate_bar_address(&mut allocator, hint).unwrap(),
+            0xc020_0000
+        );
+
+        // That base is now taken, so a second device hinting at the same range
+        // falls back to the pool rather than failing.
+        assert_ne!(
+            VirtioPciDevice::allocate_bar_address(&mut allocator, hint).unwrap(),
+            0xc020_0000
+        );
+
+        // A hint too small to hold the BAR is ignored.
+        assert_ne!(
+            VirtioPciDevice::allocate_bar_address(
+                &mut allocator,
+                Some(RangeInclusive::new(0xc100_0000, 0xc100_ffff).unwrap())
+            )
+            .unwrap(),
+            0xc100_0000
+        );
     }
 
     fn kvm_vm(vmm: &Vmm) -> &Arc<KvmVm> {
