@@ -14,25 +14,30 @@ BadRequest - HTTP response.
 
 ## API Endpoints
 
-| Endpoint                  | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock | virtio-rng | virtio-pmem | virtio-mem |
-| ------------------------- | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: | :--------: | :---------: | :--------: |
-| `boot-source`             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `cpu-config`              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `drives/{id}`             |    O     |       O        |    **R**     |      **R**       |     O      |      O       |     O      |      O      |     O      |
-| `hotplug/memory`          |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
-| `logger`                  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `machine-config`          |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `metrics`                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `mmds`                    |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-| `mmds/config`             |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-| `network-interfaces/{id}` |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-| `snapshot/create`         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `snapshot/load`           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `vm`                      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `vsock`                   |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `entropy`                 |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |      O      |     O      |
-| `pmem/{id}`               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
-| `serial`                  |    O     |     **R**      |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+| Endpoint                  | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock | virtio-rng | virtio-pmem | virtio-mem | virtio-balloon |
+| ------------------------- | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: | :--------: | :---------: | :--------: | :------------: |
+| `balloon`                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+| `balloon/hinting/start`   |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+| `balloon/hinting/status`  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+| `balloon/hinting/stop`    |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+| `balloon/statistics`      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+| `boot-source`             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `cpu-config`              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `drives/{id}`             |    O     |       O        |    **R**     |      **R**       |     O      |      O       |     O      |      O      |     O      |       O        |
+| `hotplug/memory`          |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |       O        |
+| `logger`                  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `machine-config`          |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `metrics`                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `mmds`                    |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+| `mmds/config`             |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+| `network-interfaces/{id}` |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+| `snapshot/create`         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `snapshot/load`           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `vm`                      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `vsock`                   |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `entropy`                 |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |      O      |     O      |       O        |
+| `pmem/{id}`               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
+| `serial`                  |    O     |     **R**      |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 
 ## Input Schema
 
@@ -40,83 +45,91 @@ All input schema fields can be found in the [Swagger](https://swagger.io)
 specification:
 [firecracker.yaml](./../src/firecracker/swagger/firecracker.yaml).
 
-| Schema                    | Property            | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock | virtio-rng | virtio-pmem | virtio-mem |
-| ------------------------- | ------------------- | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: | :--------: | :---------: | :--------: |
-| `BootSource`              | boot_args           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | initrd_path         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | kernel_image_path   |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `CpuConfig`               | cpuid_modifiers     |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | msr_modifiers       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | reg_modifiers       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `CpuTemplate`             | enum                |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `SnapshotCreateParams`    | mem_file_path       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | snapshot_path       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | snapshot_type       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | sync_snapshot_files |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `Drive`                   | drive_id \*         |    O     |       O        |    **R**     |      **R**       |     O      |      O       |     O      |      O      |     O      |
-|                           | is_read_only        |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | is_root_device \*   |    O     |       O        |    **R**     |      **R**       |     O      |      O       |     O      |      O      |     O      |
-|                           | partuuid \*         |    O     |       O        |    **R**     |      **R**       |     O      |      O       |     O      |      O      |     O      |
-|                           | path_on_host        |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | rate_limiter        |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | socket              |    O     |       O        |      O       |      **R**       |     O      |      O       |     O      |      O      |     O      |
-| `InstanceActionInfo`      | action_type         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `SnapshotLoadParams`      | track_dirty_pages   |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | mem_file_path       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | mem_backend         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | snapshot_path       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | resume_vm           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `Logger`                  | level               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | log_path            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | show_level          |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | show_log_origin     |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `MachineConfiguration`    | cpu_template        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | smt                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | mem_size_mib        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | track_dirty_pages   |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | vcpu_count          |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `Metrics`                 | metrics_path        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `MmdsConfig`              | network_interfaces  |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-|                           | version             |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-|                           | ipv4_address        |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-|                           | imds_compat         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `NetworkInterface`        | guest_mac           |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-|                           | host_dev_name       |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-|                           | iface_id            |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-|                           | mtu                 |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-|                           | rx_rate_limiter     |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-|                           | tx_rate_limiter     |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-| `PartialDrive`            | drive_id            |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | path_on_host        |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |
-| `PartialNetworkInterface` | iface_id            |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-|                           | rx_rate_limiter     |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-|                           | tx_rate_limiter     |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-| `RateLimiter`             | bandwidth           |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-|                           | ops                 |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |
-| `TokenBucket` \*\*        | one_time_burst      |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | refill_time         |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | size                |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |
-| `TokenBucket` \*\*        | one_time_burst      |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-|                           | refill_time         |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-|                           | size                |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
-| `Vm`                      | state               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `Vsock`                   | guest_cid           |    O     |       O        |      O       |        O         |     O      |    **R**     |     O      |      O      |     O      |
-|                           | uds_path            |    O     |       O        |      O       |        O         |     O      |    **R**     |     O      |      O      |     O      |
-|                           | vsock_id            |    O     |       O        |      O       |        O         |     O      |    **R**     |     O      |      O      |     O      |
-| `EntropyDevice`           | rate_limiter        |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |      O      |     O      |
-| `Pmem`                    | id                  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
-|                           | path_on_host        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
-|                           | root_device         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
-|                           | read_only           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
-|                           | rate_limiter        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
-| `PartialPmem`             | id                  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
-|                           | rate_limiter        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
-| `SerialDevice`            | serial_out_path     |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | rate_limiter        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `MemoryHotplugConfig`     | total_size_mib      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
-|                           | slot_size_mib       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
-|                           | block_size_mib      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
-| `MemoryHotplugSizeUpdate` | requested_size_mib  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
+| Schema                    | Property                 | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock | virtio-rng | virtio-pmem | virtio-mem | virtio-balloon |
+| ------------------------- | ------------------------ | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: | :--------: | :---------: | :--------: | :------------: |
+| `Balloon`                 | amount_mib               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                           | deflate_on_oom           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                           | stats_polling_interval_s |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                           | free_page_hinting        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                           | free_page_reporting      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+| `BalloonStartCmd`         | acknowledge_on_stop      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+| `BalloonStatsUpdate`      | stats_polling_interval_s |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+| `BalloonUpdate`           | amount_mib               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+| `BootSource`              | boot_args                |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | initrd_path              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | kernel_image_path        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `CpuConfig`               | cpuid_modifiers          |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | msr_modifiers            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | reg_modifiers            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `CpuTemplate`             | enum                     |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `SnapshotCreateParams`    | mem_file_path            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | snapshot_path            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | snapshot_type            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | sync_snapshot_files      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `Drive`                   | drive_id \*              |    O     |       O        |    **R**     |      **R**       |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | is_read_only             |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | is_root_device \*        |    O     |       O        |    **R**     |      **R**       |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | partuuid \*              |    O     |       O        |    **R**     |      **R**       |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | path_on_host             |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | rate_limiter             |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | socket                   |    O     |       O        |      O       |      **R**       |     O      |      O       |     O      |      O      |     O      |       O        |
+| `InstanceActionInfo`      | action_type              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `SnapshotLoadParams`      | track_dirty_pages        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | mem_file_path            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | mem_backend              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | snapshot_path            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | resume_vm                |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `Logger`                  | level                    |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | log_path                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | show_level               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | show_log_origin          |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `MachineConfiguration`    | cpu_template             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | smt                      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | mem_size_mib             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | track_dirty_pages        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | vcpu_count               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `Metrics`                 | metrics_path             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `MmdsConfig`              | network_interfaces       |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+|                           | version                  |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+|                           | ipv4_address             |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+|                           | imds_compat              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `NetworkInterface`        | guest_mac                |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+|                           | host_dev_name            |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+|                           | iface_id                 |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+|                           | mtu                      |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+|                           | rx_rate_limiter          |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+|                           | tx_rate_limiter          |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+| `PartialDrive`            | drive_id                 |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | path_on_host             |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `PartialNetworkInterface` | iface_id                 |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+|                           | rx_rate_limiter          |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+|                           | tx_rate_limiter          |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+| `RateLimiter`             | bandwidth                |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+|                           | ops                      |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `TokenBucket` \*\*        | one_time_burst           |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | refill_time              |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | size                     |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `TokenBucket` \*\*        | one_time_burst           |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+|                           | refill_time              |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+|                           | size                     |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
+| `Vm`                      | state                    |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `Vsock`                   | guest_cid                |    O     |       O        |      O       |        O         |     O      |    **R**     |     O      |      O      |     O      |       O        |
+|                           | uds_path                 |    O     |       O        |      O       |        O         |     O      |    **R**     |     O      |      O      |     O      |       O        |
+|                           | vsock_id                 |    O     |       O        |      O       |        O         |     O      |    **R**     |     O      |      O      |     O      |       O        |
+| `EntropyDevice`           | rate_limiter             |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |      O      |     O      |       O        |
+| `Pmem`                    | id                       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
+|                           | path_on_host             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
+|                           | root_device              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
+|                           | read_only                |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
+|                           | rate_limiter             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
+| `PartialPmem`             | id                       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
+|                           | rate_limiter             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
+| `SerialDevice`            | serial_out_path          |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | rate_limiter             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `MemoryHotplugConfig`     | total_size_mib           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |       O        |
+|                           | slot_size_mib            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |       O        |
+|                           | block_size_mib           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |       O        |
+| `MemoryHotplugSizeUpdate` | requested_size_mib       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |       O        |
 
 \* `Drive`'s `drive_id`, `is_root_device` and `partuuid` can be configured by
 either virtio-block or vhost-user-block devices.
@@ -130,23 +143,50 @@ All output schema fields can be found in the [Swagger](https://swagger.io)
 specification:
 [firecracker.yaml](./../src/firecracker/swagger/firecracker.yaml).
 
-| Schema                 | Property           | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock | virtio-rng | virtio-pmem | virtio-mem |
-| ---------------------- | ------------------ | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: | :--------: | :---------: | :--------: |
-| `Error`                | fault_message      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `InstanceInfo`         | app_name           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                        | id                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                        | state              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                        | vmm_version        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `MachineConfiguration` | cpu_template       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                        | smt                |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                        | mem_size_mib       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                        | track_dirty_pages  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                        | vcpu_count         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `MemoryHotplugStatus`  | total_size_mib     |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
-|                        | slot_size_mib      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
-|                        | block_size_mib     |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
-|                        | plugged_size_mib   |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
-|                        | requested_size_mib |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
+| Schema                 | Property                 | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock | virtio-rng | virtio-pmem | virtio-mem | virtio-balloon |
+| ---------------------- | ------------------------ | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: | :--------: | :---------: | :--------: | :------------: |
+| `Balloon`              | amount_mib               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | deflate_on_oom           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | stats_polling_interval_s |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | free_page_hinting        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | free_page_reporting      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+| `BalloonHintingStatus` | host_cmd                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | guest_cmd                |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+| `BalloonStats`         | target_pages             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | actual_pages             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | target_mib               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | actual_mib               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | swap_in                  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | swap_out                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | major_faults             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | minor_faults             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | free_memory              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | total_memory             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | available_memory         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | disk_caches              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | hugetlb_allocations      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | hugetlb_failures         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | oom_kill                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | alloc_stall              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | async_scan               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | direct_scan              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | async_reclaim            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+|                        | direct_reclaim           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |     **R**      |
+| `Error`                | fault_message            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `InstanceInfo`         | app_name                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | id                       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | state                    |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | vmm_version              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `MachineConfiguration` | cpu_template             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | smt                      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | mem_size_mib             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | track_dirty_pages        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | vcpu_count               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `MemoryHotplugStatus`  | total_size_mib           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |       O        |
+|                        | slot_size_mib            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |       O        |
+|                        | block_size_mib           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |       O        |
+|                        | plugged_size_mib         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |       O        |
+|                        | requested_size_mib       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |       O        |
 
 ## Instance Actions
 
@@ -154,11 +194,11 @@ All instance actions can be found in the [Swagger](https://swagger.io)
 specification:
 [firecracker.yaml](./../src/firecracker/swagger/firecracker.yaml).
 
-| Action           | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock | virtio-rng | virtio-pmem | virtio-mem |
-| ---------------- | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: | :--------: | :---------: | :--------: |
-| `FlushMetrics`   |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `InstanceStart`  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `SendCtrlAltDel` |  **R**   |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+| Action           | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock | virtio-rng | virtio-pmem | virtio-mem | virtio-balloon |
+| ---------------- | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: | :--------: | :---------: | :--------: | :------------: |
+| `FlushMetrics`   |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `InstanceStart`  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `SendCtrlAltDel` |  **R**   |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 
 The `keyboard` requirement for `SendCtrlAltDel` applies to x86_64, which
 emulates an i8042 keyboard controller. On aarch64 the action instead drives a
