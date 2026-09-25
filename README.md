@@ -22,11 +22,12 @@ speed and flexibility of containers.
 
 The main component of Firecracker is a virtual machine monitor (VMM) that uses
 the Linux Kernel Virtual Machine (KVM) to create and run microVMs. Firecracker
-has a minimalist design. It excludes unnecessary devices and guest-facing
-functionality to reduce the memory footprint and attack surface area of each
-microVM. This improves security, decreases the startup time, and increases
-hardware utilization. Firecracker has also been integrated in container
-runtimes, for example
+can also run a guest as a [Nitro Sandbox](docs/nitro-sandboxes/README.md),
+isolated by the AWS Nitro System instead of KVM. Firecracker has a minimalist
+design. It excludes unnecessary devices and guest-facing functionality to reduce
+the memory footprint and attack surface area of each microVM. This improves
+security, decreases the startup time, and increases hardware utilization.
+Firecracker has also been integrated in container runtimes, for example
 [Kata Containers](https://github.com/kata-containers/kata-containers) and
 [Flintlock](https://github.com/liquidmetal-dev/flintlock).
 

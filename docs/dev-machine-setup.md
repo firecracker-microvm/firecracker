@@ -2,7 +2,10 @@
 
 Firecracker uses KVM for the actual resource virtualization, hence setting up a
 development environment requires either a bare-metal machine (with hardware
-virtualization), or a virtual machine that supports nested virtualization. The
+virtualization), or a virtual machine that supports nested virtualization.
+Developing or testing [Nitro Sandboxes](nitro-sandboxes/README.md) instead needs
+an EC2 instance with Nitro Enclaves enabled; see
+[its requirements](nitro-sandboxes/getting-started.md#requirements). The
 different options are outlined below. Once the environment is set up, one can
 continue with the specific steps of setting up Firecracker (e.g., as outlined in
 the [Getting Started](getting-started.md) instructions).
