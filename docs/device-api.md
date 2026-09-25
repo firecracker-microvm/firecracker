@@ -130,23 +130,23 @@ All output schema fields can be found in the [Swagger](https://swagger.io)
 specification:
 [firecracker.yaml](./../src/firecracker/swagger/firecracker.yaml).
 
-| Schema                 | Property           | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock | virtio-mem |
-| ---------------------- | ------------------ | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: | :--------: |
-| `Error`                | fault_message      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
-| `InstanceInfo`         | app_name           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
-|                        | id                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
-|                        | state              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
-|                        | vmm_version        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
-| `MachineConfiguration` | cpu_template       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
-|                        | smt                |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
-|                        | mem_size_mib       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
-|                        | track_dirty_pages  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
-|                        | vcpu_count         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
-| `MemoryHotplugStatus`  | total_size_mib     |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |
-|                        | slot_size_mib      |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |
-|                        | block_size_mib     |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |
-|                        | plugged_size_mib   |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |
-|                        | requested_size_mib |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |
+| Schema                 | Property           | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock | virtio-rng | virtio-pmem | virtio-mem |
+| ---------------------- | ------------------ | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: | :--------: | :---------: | :--------: |
+| `Error`                | fault_message      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+| `InstanceInfo`         | app_name           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+|                        | id                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+|                        | state              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+|                        | vmm_version        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+| `MachineConfiguration` | cpu_template       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+|                        | smt                |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+|                        | mem_size_mib       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+|                        | track_dirty_pages  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+|                        | vcpu_count         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+| `MemoryHotplugStatus`  | total_size_mib     |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
+|                        | slot_size_mib      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
+|                        | block_size_mib     |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
+|                        | plugged_size_mib   |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
+|                        | requested_size_mib |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
 
 ## Instance Actions
 
@@ -154,11 +154,11 @@ All instance actions can be found in the [Swagger](https://swagger.io)
 specification:
 [firecracker.yaml](./../src/firecracker/swagger/firecracker.yaml).
 
-| Action           | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock |
-| ---------------- | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: |
-| `FlushMetrics`   |    O     |       O        |      O       |        O         |     O      |      O       |
-| `InstanceStart`  |    O     |       O        |      O       |        O         |     O      |      O       |
-| `SendCtrlAltDel` |  **R**   |       O        |      O       |        O         |     O      |      O       |
+| Action           | keyboard | serial console | virtio-block | vhost-user-block | virtio-net | virtio-vsock | virtio-rng | virtio-pmem | virtio-mem |
+| ---------------- | :------: | :------------: | :----------: | :--------------: | :--------: | :----------: | :--------: | :---------: | :--------: |
+| `FlushMetrics`   |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+| `InstanceStart`  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+| `SendCtrlAltDel` |  **R**   |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 
 The `keyboard` requirement for `SendCtrlAltDel` applies to x86_64, which
 emulates an i8042 keyboard controller. On aarch64 the action instead drives a
