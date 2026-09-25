@@ -31,6 +31,11 @@ NE_POOLS = {"mem_pool": 2**20, "cpu_pool": 1}
 DEFAULT_DMB_SIZE_MIB = 16
 NE_FLAT_COUNTERS = ("pcie_slots", "pcie_slots_total", "pcie_slots_in_use")
 
+# An enclave guest also holds the EIF image in its RAM, so it needs more
+# than a KVM guest to boot at all. At 128 MiB it starts but dies before
+# even reaching crng init, on both arches.
+MIN_ENCLAVE_MEM_SIZE_MIB = 256
+
 # Matched enclave start flags; mirror ne_ioctl::start_flags in the VMM. The
 # EIF header must carry exactly the matched flags passed to NE_START_ENCLAVE.
 NE_ENCLAVE_PCIE_MODE = 1 << 6
@@ -279,7 +284,7 @@ def enclave_basic_config(
     vm,
     vcpu_count: int = 2,
     smt: bool = None,
-    mem_size_mib: int = 256,
+    mem_size_mib: int = MIN_ENCLAVE_MEM_SIZE_MIB,
     add_root_device: bool = True,
     boot_args: str = None,
     use_initrd: bool = False,

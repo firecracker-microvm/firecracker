@@ -4,13 +4,18 @@
 
 from concurrent.futures import ThreadPoolExecutor
 
+from framework.enclave import MIN_ENCLAVE_MEM_SIZE_MIB
+
 NO_OF_MICROVMS = 20
 
 
-def test_run_concurrency(microvm_factory, guest_kernel, rootfs, pci_enabled):
+def test_run_concurrency(
+    microvm_factory, guest_kernel, rootfs, pci_enabled, vm_backend
+):
     """
     Check we can spawn multiple microvms.
     """
+    mem_size_mib = MIN_ENCLAVE_MEM_SIZE_MIB if vm_backend.is_enclave else 128
 
     def launch1():
         microvm = microvm_factory.build_booted(
@@ -18,7 +23,7 @@ def test_run_concurrency(microvm_factory, guest_kernel, rootfs, pci_enabled):
             rootfs,
             pci=pci_enabled,
             vcpu_count=1,
-            mem_size_mib=128,
+            mem_size_mib=mem_size_mib,
         )
         microvm.time_api_requests = False  # is flaky because of parallelism
 

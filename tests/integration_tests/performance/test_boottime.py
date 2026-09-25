@@ -9,6 +9,7 @@ import time
 import pytest
 
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_rootfs_mode
+from framework.enclave import MIN_ENCLAVE_MEM_SIZE_MIB
 from framework.utils_hugepages import HugePagesConfig
 from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
@@ -207,10 +208,7 @@ def test_boottime(
     if boot_from_pmem and vm_backend.is_enclave:
         pytest.skip("virtio-pmem has no Nitro Enclave transport")
 
-    # An enclave guest also holds the EIF image in its RAM, so it needs more
-    # than a KVM guest to boot at all. At 128 MiB it starts but dies before
-    # even reaching crng init, on both arches.
-    if vm_backend.is_enclave and mem_size_mib < 256:
+    if vm_backend.is_enclave and mem_size_mib < MIN_ENCLAVE_MEM_SIZE_MIB:
         pytest.skip(f"{mem_size_mib} MiB is below the enclave memory floor")
 
     for i in range(10):
