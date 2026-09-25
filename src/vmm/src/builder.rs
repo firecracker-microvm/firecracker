@@ -35,6 +35,7 @@ use crate::devices::virtio::mem::{VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB, VirtioMem};
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::pmem::device::Pmem;
 use crate::devices::virtio::rng::Entropy;
+use crate::devices::virtio::vhost_user_generic::device::VhostUserGeneric;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 #[cfg(feature = "gdb")]
 use crate::gdb;
@@ -254,6 +255,13 @@ pub fn build_microvm_for_boot(
         &vm,
         &mut boot_cmdline,
         &vm_resources.pmem.configs,
+        event_manager,
+    )?;
+    attach_vhost_user_devices(
+        &mut device_manager,
+        &vm,
+        &mut boot_cmdline,
+        vm_resources.vhost_user.devices.iter(),
         event_manager,
     )?;
 
@@ -731,6 +739,28 @@ fn attach_pmem_devices(
         let device = Arc::new(Mutex::new(pmem));
 
         device_manager.attach_boot_virtio_device(vm, id, device, cmdline, event_manager, false)?;
+    }
+    Ok(())
+}
+
+fn attach_vhost_user_devices<'a, I: Iterator<Item = &'a Arc<Mutex<VhostUserGeneric>>> + Debug>(
+    device_manager: &mut DeviceManager,
+    vm: &Vm,
+    cmdline: &mut LoaderKernelCmdline,
+    vhost_user_devices: I,
+    event_manager: &mut EventManager,
+) -> Result<(), StartMicrovmError> {
+    for device in vhost_user_devices {
+        let id = device.lock().expect("Poisoned lock").id.clone();
+        // The device mutex mustn't be locked here otherwise it will deadlock.
+        device_manager.attach_boot_virtio_device(
+            vm,
+            id,
+            device.clone(),
+            cmdline,
+            event_manager,
+            true, // vhost-user, so the MMIO interrupt status is synthesised
+        )?;
     }
     Ok(())
 }
