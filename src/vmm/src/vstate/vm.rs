@@ -38,7 +38,7 @@ use crate::vstate::interrupts::{InterruptError, MsixVector, MsixVectorGroup};
 use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{
     GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestMemoryState, GuestRegionMmap,
-    GuestRegionMmapExt, MemoryError,
+    GuestRegionMmapExt, HoleStrategy, MemoryError,
 };
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::{StartThreadedError, VcpuError, VcpuHandle};
@@ -615,32 +615,52 @@ impl KvmVm {
             .open(mem_file_path)
             .map_err(|err| MemoryBackingFile("open", err))?;
 
+        // FIFOs/pipes/sockets are not regular files: `set_len`/`truncate` fail
+        // with EINVAL and `seek` fails with ESPIPE. Detect once via file-type
+        // (not trait bounds: `File` always implements `Seek`) and skip size
+        // handling + fsync for them; full dumps instead stream zeros.
+        // Single `metadata` call reused for both type and size checks.
+        let metadata = file
+            .metadata()
+            .map_err(|e| MemoryBackingFile("get_metadata", e))?;
+        let is_regular = metadata.file_type().is_file();
+
         // Determine what size our total memory area is.
         let mem_size_mib = mem_size_mib(self.guest_memory());
         let expected_size = mem_size_mib * 1024 * 1024;
 
-        if file_existed {
-            let file_size = file
-                .metadata()
-                .map_err(|e| MemoryBackingFile("get_metadata", e))?
-                .len();
+        if is_regular {
+            if file_existed {
+                let file_size = metadata.len();
 
-            // Here we only truncate the file if the size mismatches.
-            // - For full snapshots, the entire file's contents will be overwritten anyway. We have
-            //   to avoid truncating here to deal with the edge case where it represents the
-            //   snapshot file from which this very microVM was loaded (as modifying the memory file
-            //   would be reflected in the mmap of the file, meaning a truncate operation would zero
-            //   out guest memory, and thus corrupt the VM).
-            // - For diff snapshots, we want to merge the diff layer directly into the file.
-            if file_size != expected_size {
-                file.set_len(0)
-                    .map_err(|err| MemoryBackingFile("truncate", err))?;
+                // Here we only truncate the file if the size mismatches.
+                // - For full snapshots, the entire file's contents will be overwritten anyway. We have
+                //   to avoid truncating here to deal with the edge case where it represents the
+                //   snapshot file from which this very microVM was loaded (as modifying the memory file
+                //   would be reflected in the mmap of the file, meaning a truncate operation would zero
+                //   out guest memory, and thus corrupt the VM).
+                // - For diff snapshots, we want to merge the diff layer directly into the file.
+                if file_size != expected_size {
+                    file.set_len(0)
+                        .map_err(|err| MemoryBackingFile("truncate", err))?;
+                }
             }
-        }
 
-        // Set the length of the file to the full size of the memory area.
-        file.set_len(expected_size)
-            .map_err(|e| MemoryBackingFile("set_length", e))?;
+            // Set the length of the file to the full size of the memory area.
+            file.set_len(expected_size)
+                .map_err(|e| MemoryBackingFile("set_length", e))?;
+        } else if snapshot_type == SnapshotType::Diff {
+            // Diff dumps encode clean pages as holes (seeked = non-dirty), which
+            // is load-bearing and has no streaming equivalent yet. Fail fast with
+            // a clear API error instead of hitting ESPIPE mid-dump.
+            return Err(MemoryBackingFile(
+                "diff_snapshot_to_non_seekable_file",
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "diff snapshots to non-seekable files (e.g. FIFOs) are not supported",
+                ),
+            ));
+        }
 
         match snapshot_type {
             SnapshotType::Diff => {
@@ -648,7 +668,12 @@ impl KvmVm {
                 self.guest_memory().dump_dirty(&mut file, &dirty_bitmap)?;
             }
             SnapshotType::Full => {
-                self.guest_memory().dump(&mut file)?;
+                let hole = if is_regular {
+                    HoleStrategy::Seek
+                } else {
+                    HoleStrategy::WriteZeros
+                };
+                self.guest_memory().dump(&mut file, hole)?;
                 self.reset_dirty_bitmap();
                 self.guest_memory().reset_dirty();
             }
@@ -656,7 +681,9 @@ impl KvmVm {
 
         file.flush()
             .map_err(|err| MemoryBackingFile("flush", err))?;
-        if sync_snapshot_files {
+        // `fsync` on a FIFO fails with EINVAL and is meaningless for a pipe,
+        // so only sync regular files.
+        if sync_snapshot_files && is_regular {
             file.sync_all()
                 .map_err(|err| MemoryBackingFile("sync_all", err))?;
         }

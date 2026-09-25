@@ -585,12 +585,7 @@ impl<'a> GuestMemorySlot<'a> {
                     // We are at the start of a new batch of dirty pages.
                     if skip_size > 0 {
                         // Seek forward over the unmodified pages.
-                        let offset = skip_size
-                            .try_into()
-                            .map_err(|_| MemoryError::SlotSizeTooLarge)?;
-                        writer
-                            .seek(SeekFrom::Current(offset))
-                            .map_err(MemoryError::SeekError)?;
+                        skip_hole(writer, skip_size)?;
                         dirty_batch_start = page_offset;
                         skip_size = 0;
                     }
@@ -615,9 +610,7 @@ impl<'a> GuestMemorySlot<'a> {
         // Advance the cursor even if the trailing pages are clean, so that the
         // next slot starts writing at the correct offset.
         if skip_size > 0 {
-            writer
-                .seek(SeekFrom::Current(skip_size.try_into().unwrap()))
-                .map_err(MemoryError::SeekError)?;
+            skip_hole(writer, skip_size)?;
         }
 
         Ok(())
@@ -1095,6 +1088,63 @@ pub fn snapshot_file(
     )
 }
 
+/// Strategy for handling holes (unplugged memory slots) when dumping guest memory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HoleStrategy {
+    /// Seek over holes, creating sparse files. Requires a seekable writer.
+    /// Holes read back as zeros without extra I/O. Use for regular files.
+    Seek,
+    /// Write explicit zeros for holes. Works on non-seekable writers such as
+    /// FIFOs, enabling streaming snapshots (compression/encryption/upload).
+    /// More I/O than seeking, but compatible with pipes.
+    WriteZeros,
+}
+
+/// Chunk size for zero-filling holes when dumping to non-seekable files.
+///
+/// 64 KiB matches the default Linux pipe capacity, so one `write` fills the
+/// pipe without extra syscalls, while staying small on the stack. The buffer
+/// lives inside `write_zeros` as `[0u8; N]`, zero-initialized by the compiler:
+/// no heap allocation, no allocator pressure, no RSS growth beyond the frame,
+/// and no uninitialized memory. It is only read from, never written to, and is
+/// created lazily only when a hole is actually zero-filled.
+pub const ZERO_FILL_CHUNK_SIZE: usize = 64 * 1024;
+
+/// Skip `len` bytes in a seekable writer (sparse hole).
+///
+/// Single shared helper so `dump` and `dump_dirty` don't duplicate the
+/// `try_from` + `seek` conversion. Returns `SlotSizeTooLarge` if `len` doesn't
+/// fit in `i64`, `SeekError` on ESPIPE / other seek failures.
+fn skip_hole<T: std::io::Seek>(writer: &mut T, len: usize) -> Result<(), MemoryError> {
+    if len == 0 {
+        return Ok(());
+    }
+    let offset = i64::try_from(len).map_err(|_| MemoryError::SlotSizeTooLarge)?;
+    writer
+        .seek(SeekFrom::Current(offset))
+        .map_err(MemoryError::SeekError)?;
+    Ok(())
+}
+
+/// Write `len` zero bytes to any `WriteVolatile` writer (FIFO-compatible hole).
+///
+/// Reusable by any future non-seekable path. Buffer is stack-local so callers
+/// pay nothing when there are no holes.
+fn write_zeros<T: WriteVolatile>(writer: &mut T, len: usize) -> Result<(), MemoryError> {
+    if len == 0 {
+        return Ok(());
+    }
+    let mut zeroes = [0u8; ZERO_FILL_CHUNK_SIZE];
+    let mut remaining = len;
+    while remaining > 0 {
+        let chunk = remaining.min(zeroes.len());
+        writer.write_all_volatile(&VolatileSlice::from(&mut zeroes[..chunk]))?;
+        // `chunk <= remaining` by construction.
+        remaining = remaining.saturating_sub(chunk);
+    }
+    Ok(())
+}
+
 /// Defines the interface for snapshotting memory.
 pub trait GuestMemoryExtension
 where
@@ -1107,7 +1157,18 @@ where
     fn mark_dirty(&self, addr: GuestAddress, len: usize);
 
     /// Dumps all contents of GuestMemoryMmap to a writer.
-    fn dump<T: WriteVolatile + std::io::Seek>(&self, writer: &mut T) -> Result<(), MemoryError>;
+    ///
+    /// `hole` controls how unplugged slots are handled: `Seek` skips over them
+    /// (sparse file, requires seekable writer), `WriteZeros` writes explicit
+    /// zeros in small stack-buffered chunks (works on FIFOs/pipes).
+    ///
+    /// `dump_dirty` (diff path) intentionally stays seek-only: there
+    /// seeked-means-clean is load-bearing and cannot be replaced by zeros.
+    fn dump<T: WriteVolatile + std::io::Seek>(
+        &self,
+        writer: &mut T,
+        hole: HoleStrategy,
+    ) -> Result<(), MemoryError>;
 
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
     fn dump_dirty<T: WriteVolatile + std::io::Seek>(
@@ -1196,19 +1257,26 @@ impl GuestMemoryExtension for GuestMemoryMmap {
     }
 
     /// Dumps all contents of GuestMemoryMmap to a writer.
-    fn dump<T: WriteVolatile + std::io::Seek>(&self, writer: &mut T) -> Result<(), MemoryError> {
+    fn dump<T: WriteVolatile + std::io::Seek>(
+        &self,
+        writer: &mut T,
+        hole: HoleStrategy,
+    ) -> Result<(), MemoryError> {
         self.iter()
             .flat_map(|region| region.slots())
             .try_for_each(|(mem_slot, plugged)| {
                 if !plugged {
-                    let ilen = i64::try_from(mem_slot.slice.len()).unwrap();
-                    writer.seek(SeekFrom::Current(ilen)).unwrap();
+                    match hole {
+                        HoleStrategy::Seek => skip_hole(writer, mem_slot.slice.len())?,
+                        HoleStrategy::WriteZeros => {
+                            write_zeros(writer, mem_slot.slice.len())?
+                        }
+                    }
                 } else {
                     writer.write_all_volatile(&mem_slot.slice)?;
                 }
                 Ok(())
             })
-            .map_err(MemoryError::WriteMemory)
     }
 
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
@@ -1224,11 +1292,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                 .flat_map(|region| region.slots())
                 .try_for_each(|(mem_slot, plugged)| {
                     if !plugged {
-                        let ilen = i64::try_from(mem_slot.slice.len())
-                            .map_err(|_| MemoryError::SlotSizeTooLarge)?;
-                        writer
-                            .seek(SeekFrom::Current(ilen))
-                            .map_err(MemoryError::SeekError)?;
+                        skip_hole(writer, mem_slot.slice.len())?;
                     } else {
                         let kvm_bitmap = dirty_bitmap
                             .get(&mem_slot.slot)
@@ -1730,7 +1794,9 @@ mod tests {
 
         // dump the full memory.
         let mut memory_file = TempFile::new().unwrap().into_file();
-        guest_memory.dump(&mut memory_file).unwrap();
+        guest_memory
+            .dump(&mut memory_file, HoleStrategy::Seek)
+            .unwrap();
 
         let restored_guest_memory = into_region_ext(
             snapshot_file(
@@ -1753,6 +1819,154 @@ mod tests {
             .read(restored_region.as_mut_slice(), region_2_address)
             .unwrap();
         assert_eq!(second_region, restored_region);
+    }
+
+    #[test]
+    fn test_dump_hole_strategies_match_with_unplugged_slot() {
+        let page_size = host_page_size();
+        // Layout: [plugged DRAM][unplugged slot][plugged slot].
+        // The middle hole must read back as zeros in both strategies, and the
+        // WriteZeros path must produce byte-identical output to the Seek path.
+        let dram_size = page_size * 2;
+        let slot_size = page_size * 2;
+        let dram_base = GuestAddress(0);
+        let hp_base = GuestAddress(dram_size as u64);
+
+        let dram_raw = anonymous(
+            [(dram_base, dram_size)].into_iter(),
+            false,
+            HugePageConfig::None,
+        )
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+        let dram_ext = GuestRegionMmapExt::dram_from_mmap_region(dram_raw, 0);
+
+        let hp_raw = anonymous(
+            [(hp_base, slot_size * 2)].into_iter(),
+            false,
+            HugePageConfig::None,
+        )
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+        let hp_state = GuestMemoryRegionState {
+            base_address: hp_base.0,
+            size: slot_size * 2,
+            region_type: GuestRegionType::Hotpluggable,
+            // First slot unplugged (hole), second plugged.
+            plugged: vec![false, true],
+        };
+        let hp_ext = GuestRegionMmapExt::from_state(hp_raw, &hp_state, 1).unwrap();
+
+        let guest_memory =
+            GuestMemoryMmap::from_regions(vec![dram_ext, hp_ext]).unwrap();
+
+        // Fill plugged areas with distinct patterns. Never touch the unplugged
+        // slot: in production it is PROT_NONE.
+        let dram_pattern = vec![0xAAu8; dram_size];
+        guest_memory.write(&dram_pattern, dram_base).unwrap();
+        let plugged_hp_base = GuestAddress(hp_base.0 + slot_size as u64);
+        let hp_pattern = vec![0xBBu8; slot_size];
+        guest_memory.write(&hp_pattern, plugged_hp_base).unwrap();
+
+        let mut seek_file = TempFile::new().unwrap().into_file();
+        guest_memory
+            .dump(&mut seek_file, HoleStrategy::Seek)
+            .unwrap();
+        let mut zeros_file = TempFile::new().unwrap().into_file();
+        guest_memory
+            .dump(&mut zeros_file, HoleStrategy::WriteZeros)
+            .unwrap();
+
+        // Both files must be byte-identical when fully read (holes read as zero).
+        seek_file.seek(SeekFrom::Start(0)).unwrap();
+        zeros_file.seek(SeekFrom::Start(0)).unwrap();
+        let mut seek_bytes = Vec::new();
+        let mut zeros_bytes = Vec::new();
+        seek_file.read_to_end(&mut seek_bytes).unwrap();
+        zeros_file.read_to_end(&mut zeros_bytes).unwrap();
+        assert_eq!(seek_bytes.len(), dram_size + slot_size * 2);
+        assert_eq!(seek_bytes, zeros_bytes);
+
+        // Verify layout: dram pattern, zero hole, plugged pattern.
+        assert_eq!(&seek_bytes[..dram_size], &dram_pattern[..]);
+        assert_eq!(
+            &seek_bytes[dram_size..dram_size + slot_size],
+            &vec![0u8; slot_size][..]
+        );
+        assert_eq!(
+            &seek_bytes[dram_size + slot_size..],
+            &hp_pattern[..]
+        );
+    }
+
+    #[test]
+    fn test_dump_write_zeros_chunks_large_hole() {
+        // Exercise the multi-chunk path: an unplugged hole larger than
+        // ZERO_FILL_CHUNK_SIZE (64 KiB) must be fully zero-filled.
+        let page_size = host_page_size();
+        let dram_size = page_size;
+        let large_hole_slots = 2;
+        // 192 KiB hole forces multiple 64 KiB-chunk writes, without the
+        // cost of a multi-MiB test allocation.
+        let slot_size = 96 * 1024;
+        let dram_base = GuestAddress(0);
+        let hp_base = GuestAddress(dram_size as u64);
+
+        let dram_raw = anonymous(
+            [(dram_base, dram_size)].into_iter(),
+            false,
+            HugePageConfig::None,
+        )
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+        let dram_ext = GuestRegionMmapExt::dram_from_mmap_region(dram_raw, 0);
+
+        let hp_raw = anonymous(
+            [(hp_base, slot_size * large_hole_slots)].into_iter(),
+            false,
+            HugePageConfig::None,
+        )
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+        let hp_state = GuestMemoryRegionState {
+            base_address: hp_base.0,
+            size: slot_size * large_hole_slots,
+            region_type: GuestRegionType::Hotpluggable,
+            plugged: vec![false; large_hole_slots],
+        };
+        let hp_ext = GuestRegionMmapExt::from_state(hp_raw, &hp_state, 1).unwrap();
+        let guest_memory =
+            GuestMemoryMmap::from_regions(vec![dram_ext, hp_ext]).unwrap();
+
+        guest_memory
+            .write(&vec![0xCCu8; dram_size], dram_base)
+            .unwrap();
+
+        let mut seek_file = TempFile::new().unwrap().into_file();
+        guest_memory
+            .dump(&mut seek_file, HoleStrategy::Seek)
+            .unwrap();
+        let mut zeros_file = TempFile::new().unwrap().into_file();
+        guest_memory
+            .dump(&mut zeros_file, HoleStrategy::WriteZeros)
+            .unwrap();
+
+        seek_file.seek(SeekFrom::Start(0)).unwrap();
+        zeros_file.seek(SeekFrom::Start(0)).unwrap();
+        let mut seek_bytes = Vec::new();
+        let mut zeros_bytes = Vec::new();
+        seek_file.read_to_end(&mut seek_bytes).unwrap();
+        zeros_file.read_to_end(&mut zeros_bytes).unwrap();
+        assert_eq!(seek_bytes, zeros_bytes);
+        assert!(zeros_bytes[dram_size..].iter().all(|&b| b == 0));
     }
 
     #[test]
