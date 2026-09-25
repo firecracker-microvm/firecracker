@@ -91,13 +91,6 @@ impl Debug for PciBus {
 }
 
 impl PciBus {
-    /// Create a new PCI bus
-    pub fn new(host_bridge: PciHostBridge) -> Self {
-        let mut bus: Self = Default::default();
-        bus.devices[0] = Some(Arc::new(Mutex::new(host_bridge)));
-        bus
-    }
-
     /// Get a reference to the device at index
     pub fn get_device(&self, device_id: u8) -> Option<&Mutex<dyn PciDevice>> {
         self.devices[device_id as usize].as_deref()
@@ -136,6 +129,56 @@ impl PciBus {
     }
 }
 
+/// Maximum number of PCI buses
+pub const MAX_PCI_BUSES: u8 = 32;
+
+/// ECAM space for a single PCI bus: 4096 bytes of configuration space for each
+/// of the 8 functions of each of the 32 devices that can sit on it.
+const PCI_MMIO_CONFIG_SIZE_PER_BUS: u64 = 4096 * 8 * 32;
+
+/// ECAM space per PCIe segment
+pub const PCI_MMIO_CONFIG_SIZE_PER_SEGMENT: u64 =
+    PCI_MMIO_CONFIG_SIZE_PER_BUS * MAX_PCI_BUSES as u64;
+
+/// The buses of a PCI segment, indexed by bus number. Only buses that exist
+/// are present: bus 0, the root bus carrying the host bridge and the Root
+/// Ports, and one secondary bus per root port.
+///
+/// Secondary buses are numbered from 1 in provisioning order, independently of
+/// the slots the root ports occupy on bus 0, so for example a root port at
+/// 00:04.0 may start bus 1.
+#[derive(Debug)]
+pub struct PciBuses {
+    buses: Box<[Arc<Mutex<PciBus>>]>,
+}
+
+impl PciBuses {
+    /// Create the root bus and one secondary bus per root port
+    pub fn new(secondary_buses: u8) -> Self {
+        let count = usize::from(secondary_buses) + 1;
+        PciBuses {
+            buses: (0..count)
+                .map(|_| Arc::new(Mutex::new(PciBus::default())))
+                .collect(),
+        }
+    }
+
+    /// Look up the bus with the given number
+    pub fn get(&self, bus_number: u8) -> Option<Arc<Mutex<PciBus>>> {
+        self.buses.get(usize::from(bus_number)).cloned()
+    }
+
+    /// Return the primary / root bus
+    pub fn root_bus(&self) -> Arc<Mutex<PciBus>> {
+        self.buses[0].clone()
+    }
+
+    /// Total Number of buses in the segment, including the primary.
+    pub fn num_buses(&self) -> u8 {
+        u8::try_from(self.buses.len()).expect("MAX_PCI_BUSES does not fit in a u8")
+    }
+}
+
 #[cfg(target_arch = "x86_64")]
 /// IO port used for configuring PCI over the legacy bus
 pub const PCI_CONFIG_IO_PORT: u64 = 0xcf8;
@@ -149,15 +192,15 @@ pub const PCI_CONFIG_IO_PORT_SIZE: u64 = 0x8;
 pub struct PciConfigIo {
     /// Config space register.
     config_address: u32,
-    pci_bus: Arc<Mutex<PciBus>>,
+    buses: Arc<PciBuses>,
 }
 
 impl PciConfigIo {
     /// New Port IO configuration handler
-    pub fn new(pci_bus: Arc<Mutex<PciBus>>) -> Self {
+    pub fn new(buses: Arc<PciBuses>) -> Self {
         PciConfigIo {
             config_address: 0,
-            pci_bus,
+            buses,
         }
     }
 
@@ -171,10 +214,9 @@ impl PciConfigIo {
         let (bus, device, function, register) =
             parse_io_config_address(self.config_address & !0x8000_0000);
 
-        // Only support one bus.
-        if bus != 0 {
+        let Some(pci_bus) = self.buses.get(bus) else {
             return 0xffff_ffff;
-        }
+        };
 
         // Don't support multi-function devices.
         if function > 0 {
@@ -184,7 +226,7 @@ impl PciConfigIo {
         // NOTE: Potential contention among vCPU threads on this lock. This should not
         // be a problem currently, since we mainly access this when we are setting up devices.
         // We might want to do some profiling to ensure this does not become a bottleneck.
-        let pci_bus = self.pci_bus.as_ref().lock().unwrap();
+        let pci_bus = pci_bus.lock().unwrap();
         if let Some(d) = pci_bus.get_device(device) {
             d.lock().unwrap().read_config_register(register)
         } else {
@@ -208,10 +250,7 @@ impl PciConfigIo {
         let (bus, device, function, register) =
             parse_io_config_address(self.config_address & !0x8000_0000);
 
-        // Only support one bus.
-        if bus != 0 {
-            return None;
-        }
+        let pci_bus = self.buses.get(bus)?;
 
         // Don't support multi-function devices.
         if function > 0 {
@@ -221,7 +260,7 @@ impl PciConfigIo {
         // NOTE: Potential contention among vCPU threads on this lock. This should not
         // be a problem currently, since we mainly access this when we are setting up devices.
         // We might want to do some profiling to ensure this does not become a bottleneck.
-        let pci_bus = self.pci_bus.as_ref().lock().unwrap();
+        let pci_bus = pci_bus.lock().unwrap();
         if let Some(d) = pci_bus.get_device(device) {
             let mut device = d.lock().unwrap();
 
@@ -296,29 +335,28 @@ impl BusDevice for PciConfigIo {
 #[derive(Debug)]
 /// Emulates PCI memory-mapped configuration access mechanism.
 pub struct PciConfigMmio {
-    pci_bus: Arc<Mutex<PciBus>>,
+    buses: Arc<PciBuses>,
 }
 
 impl PciConfigMmio {
     /// New MMIO configuration handler object
-    pub fn new(pci_bus: Arc<Mutex<PciBus>>) -> Self {
-        PciConfigMmio { pci_bus }
+    pub fn new(buses: Arc<PciBuses>) -> Self {
+        PciConfigMmio { buses }
     }
 
     fn config_space_read(&self, config_address: u32) -> u32 {
         let (bus, device, function, register) = parse_mmio_config_address(config_address);
 
-        // Only support one bus.
-        if bus != 0 {
+        let Some(pci_bus) = self.buses.get(bus) else {
             return 0xffff_ffff;
-        }
+        };
 
         // Don't support multi-function devices.
         if function > 0 {
             return 0xffff_ffff;
         }
 
-        let pci_bus = self.pci_bus.lock().unwrap();
+        let pci_bus = pci_bus.lock().unwrap();
         if let Some(d) = pci_bus.get_device(device) {
             d.lock().unwrap().read_config_register(register)
         } else {
@@ -333,17 +371,16 @@ impl PciConfigMmio {
 
         let (bus, device, function, register) = parse_mmio_config_address(config_address);
 
-        // Only support one bus.
-        if bus != 0 {
+        let Some(pci_bus) = self.buses.get(bus) else {
             return;
-        }
+        };
 
         // Don't support multi-function devices.
         if function > 0 {
             return;
         }
 
-        let pci_bus = self.pci_bus.lock().unwrap();
+        let pci_bus = pci_bus.lock().unwrap();
         if let Some(d) = pci_bus.get_device(device) {
             let mut device = d.lock().unwrap();
 
@@ -447,7 +484,7 @@ fn parse_io_config_address(config_address: u32) -> (u8, u8, u8, u16) {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use super::{PciBus, PciConfigIo, PciConfigMmio, PciHostBridge};
+    use super::{PciBuses, PciConfigIo, PciConfigMmio, PciHostBridge};
     use crate::pci::bus::{DEVICE_ID_INTEL_VIRT_PCIE_HOST, VENDOR_ID_INTEL};
     use crate::pci::configuration::PciConfiguration;
     use crate::pci::{PciClassCode, PciDevice, PciMassStorageSubclass};
@@ -488,8 +525,7 @@ mod tests {
 
     #[test]
     fn test_writing_io_config_address() {
-        let host_bridge = PciHostBridge::new(None);
-        let mut bus = PciConfigIo::new(Arc::new(Mutex::new(PciBus::new(host_bridge))));
+        let mut bus = PciConfigIo::new(Arc::new(PciBuses::new(0)));
 
         assert_eq!(bus.config_address, 0);
         // Writing more than 32 bits will should fail
@@ -529,8 +565,7 @@ mod tests {
 
     #[test]
     fn test_reading_io_config_address() {
-        let host_bridge = PciHostBridge::new(None);
-        let mut bus = PciConfigIo::new(Arc::new(Mutex::new(PciBus::new(host_bridge))));
+        let mut bus = PciConfigIo::new(Arc::new(PciBuses::new(0)));
 
         let mut buffer = [0u8; 4];
 
@@ -576,13 +611,20 @@ mod tests {
     }
 
     fn initialize_bus() -> (PciConfigMmio, PciConfigIo) {
-        let host_bridge = PciHostBridge::new(None);
-        let mut bus = PciBus::new(host_bridge);
-        bus.add_device(1, Arc::new(Mutex::new(PciDevMock::new())))
+        let buses = Arc::new(PciBuses::new(0));
+        let root_bus = buses.root_bus();
+        root_bus
+            .lock()
+            .unwrap()
+            .add_device(0, Arc::new(Mutex::new(PciHostBridge::new(None))))
+            .unwrap();
+        root_bus
+            .lock()
+            .unwrap()
+            .add_device(1, Arc::new(Mutex::new(PciDevMock::new())))
             .unwrap();
 
-        let bus = Arc::new(Mutex::new(bus));
-        (PciConfigMmio::new(bus.clone()), PciConfigIo::new(bus))
+        (PciConfigMmio::new(buses.clone()), PciConfigIo::new(buses))
     }
 
     #[test]
@@ -862,5 +904,58 @@ mod tests {
         write_mmio_config(&mut mmio_config, 0, 0, 0, 15, 0, &[0x42]);
         read_mmio_config(&mut mmio_config, 0, 0, 0, 15, 0, &mut buffer);
         assert_eq!(buffer[0], 0x42);
+    }
+
+    #[test]
+    fn test_mmio_secondary_bus_routing() {
+        // Build a multi-bus topology where bus 0 holds the host bridge at slot
+        // 0 and a mock device at slot 1 and bus 1 holds one mock device at
+        // slot 0.
+        let buses = Arc::new(PciBuses::new(1));
+        let root_bus = buses.root_bus();
+        root_bus
+            .lock()
+            .unwrap()
+            .add_device(0, Arc::new(Mutex::new(PciHostBridge::new(None))))
+            .unwrap();
+        root_bus
+            .lock()
+            .unwrap()
+            .add_device(1, Arc::new(Mutex::new(PciDevMock::new())))
+            .unwrap();
+        buses
+            .get(1)
+            .unwrap()
+            .lock()
+            .unwrap()
+            .add_device(0, Arc::new(Mutex::new(PciDevMock::new())))
+            .unwrap();
+
+        let mut mmio_config = PciConfigMmio::new(buses);
+        let mut buffer = [0u8; 4];
+
+        // The device at slot 0 of the secondary bus is reachable, and is not
+        // shadowed by the host bridge that sits at slot 0 of the root bus.
+        read_mmio_config(&mut mmio_config, 1, 0, 0, 0, 0, &mut buffer);
+        let vendor_id = u32::from_le_bytes(buffer) & 0xffff;
+        assert_eq!(vendor_id, 0x42);
+        read_mmio_config(&mut mmio_config, 0, 0, 0, 0, 0, &mut buffer);
+        assert_eq!(u32::from_le_bytes(buffer) & 0xffff, VENDOR_ID_INTEL as u32);
+
+        // An empty slot on the secondary bus reads as all 1s.
+        read_mmio_config(&mut mmio_config, 1, 1, 0, 0, 0, &mut buffer);
+        assert_eq!(buffer, u32::to_le_bytes(0xffff_ffff));
+
+        // So does a bus number outside the topology.
+        read_mmio_config(&mut mmio_config, 32, 0, 0, 0, 0, &mut buffer);
+        assert_eq!(buffer, u32::to_le_bytes(0xffff_ffff));
+
+        // Writes reach the secondary bus device too.
+        write_mmio_config(&mut mmio_config, 1, 0, 0, 15, 0, &[0x42]);
+        read_mmio_config(&mut mmio_config, 1, 0, 0, 15, 0, &mut buffer);
+        assert_eq!(buffer[0], 0x42);
+        // ... and do not leak onto the root bus.
+        read_mmio_config(&mut mmio_config, 0, 1, 0, 15, 0, &mut buffer);
+        assert_eq!(buffer[0], 0x0);
     }
 }
