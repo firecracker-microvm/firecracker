@@ -1,5 +1,11 @@
 # Using the balloon device with Firecracker
 
+> [!NOTE]
+>
+> The balloon device is not available in a
+> [Nitro Sandbox](nitro-sandboxes/README.md). Configuring one is rejected at
+> `InstanceStart`.
+
 ## What is the balloon device
 
 A memory balloon device is a virtio device that can be used to reclaim and give

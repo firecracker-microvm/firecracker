@@ -6,6 +6,13 @@
 > [Developer Preview](RELEASE_POLICY.md#developer-preview-features). It may have
 > limitations, and its API or behavior may change in future releases.
 
+> [!NOTE]
+>
+> [Nitro Sandboxes](nitro-sandboxes/README.md) support hot-plugging block and
+> network devices with the `hotplug_mode` option instead of
+> `pcie_hotplug_ports`, which they reject, but not hot-unplugging. See
+> [Device hotplug](nitro-sandboxes/features.md#device-hotplug).
+
 Device hotplugging allows attaching and detaching PCI virtio devices to a
 running microVM without requiring a reboot. Supported device types are:
 
