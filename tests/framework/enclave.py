@@ -333,6 +333,13 @@ def enclave_basic_config(
             f"Enclave backend cannot express huge-page mode {huge_pages!r}; "
             "pin this test to KVM with @pin_vm_backend(VM_BACKEND_KVM)."
         )
+    if mem_size_mib < MIN_ENCLAVE_MEM_SIZE_MIB:
+        raise EnclaveConfigError(
+            "Enclave guests of the test images need at least "
+            f"{MIN_ENCLAVE_MEM_SIZE_MIB} MiB to boot, got {mem_size_mib} MiB; "
+            "request more memory or pin this test to KVM with "
+            "@pin_vm_backend(VM_BACKEND_KVM)."
+        )
 
     # Enclaves can only run with PCI enabled. Skip MMIO variants
     if not vm.pci_enabled:

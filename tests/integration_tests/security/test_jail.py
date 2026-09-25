@@ -17,6 +17,7 @@ import urllib3
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.defs import FC_BINARY_NAME
 from framework.jailer import JailerContext
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 # These are the permissions that all files/dirs inside the jailer have.
 REG_PERMS = (
@@ -621,6 +622,9 @@ def test_args_resource_limits(uvm):
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+# The jailer limit under test doesn't depend on the backend, and 128 MiB is
+# below the enclave memory floor.
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_positive_file_size_limit(uvm):
     """
     Test creating vm succeeds when memory size is under `fsize` limit.
