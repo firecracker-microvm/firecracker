@@ -17,6 +17,14 @@ to perform its virtualization and emulation tasks.
 We exclusively use `.metal` instance types, because EC2 only supports KVM on
 `.metal` instance types.
 
+> [!NOTE]
+>
+> A [Nitro Sandbox](nitro-sandboxes/README.md) is the exception to both
+> statements. It is isolated by the AWS Nitro System rather than by KVM, needs
+> no `/dev/kvm` access, and runs on virtualized instance types that support AWS
+> Nitro Enclaves. See its
+> [requirements](nitro-sandboxes/getting-started.md#requirements).
+
 ### Architecture & OS
 
 Firecracker supports **x86_64** and **aarch64** Linux, see
