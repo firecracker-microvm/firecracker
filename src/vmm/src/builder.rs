@@ -208,6 +208,7 @@ pub fn build_microvm_for_boot(
         vm_resources.serial_out_path.as_ref(),
         vm_resources.serial_rate_limiter(),
         vm_resources.pci_enabled,
+        vm_resources.machine_config.pcie_hotplug_ports,
     )?;
 
     let guest_memory = kvm_vm.guest_memory();
@@ -297,6 +298,8 @@ pub fn build_microvm_for_boot(
         vm_resources.serial_out_path.as_ref(),
         vm_resources.serial_rate_limiter(),
     )?;
+
+    device_manager.attach_root_ports(&kvm_vm)?;
 
     device_manager.attach_vmgenid_device(&kvm_vm)?;
     device_manager.attach_vmclock_device(&kvm_vm)?;
@@ -859,12 +862,16 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_vmm_with_pci() -> Vmm {
+        default_vmm_with_pci_ports(0)
+    }
+
+    pub(crate) fn default_vmm_with_pci_ports(hotplug_ports: u8) -> Vmm {
         let mut vm = setup_vm_with_memory(mib_to_bytes(128));
 
         let _ = vm.create_vcpus(1).unwrap();
 
         let vm = Arc::new(vm);
-        let device_manager = default_device_manager_with_pci(&vm);
+        let device_manager = default_device_manager_with_pci(&vm, hotplug_ports);
 
         Vmm {
             instance_info: InstanceInfo::default(),
