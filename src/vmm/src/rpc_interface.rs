@@ -9,7 +9,7 @@ use utils::time::{ClockType, get_time_us};
 
 use super::builder::build_and_boot_microvm;
 use super::persist::{create_snapshot, restore_from_snapshot};
-use super::resources::VmResources;
+use super::resources::{ResourcesError, VmResources};
 use super::{Vmm, VmmError};
 use crate::EventManager;
 use crate::builder::StartMicrovmError;
@@ -225,6 +225,8 @@ pub enum VmmActionError {
     PciManager(#[from] PciManagerError),
     /// Device passthrough config error: {0}
     DevicePassthroughConfig(#[from] DevicePassthroughConfigError),
+    /// Incompatible device configuration: {0}
+    IncompatibleDeviceConfiguration(#[from] ResourcesError),
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
@@ -565,11 +567,13 @@ impl<'a> PrebootApiController<'a> {
     }
 
     fn set_balloon_device(&mut self, cfg: BalloonDeviceConfig) -> Result<VmmData, VmmActionError> {
+        self.vm_resources.compatible_with_balloon()?;
+
         self.boot_path = true;
         self.vm_resources
             .set_balloon_device(cfg)
-            .map(|()| VmmData::Empty)
-            .map_err(VmmActionError::BalloonConfig)
+            .map_err(VmmActionError::BalloonConfig)?;
+        Ok(VmmData::Empty)
     }
 
     fn set_boot_source(&mut self, cfg: BootSourceConfig) -> Result<VmmData, VmmActionError> {
@@ -625,6 +629,8 @@ impl<'a> PrebootApiController<'a> {
         &mut self,
         cfg: DevicePassthroughConfig,
     ) -> Result<VmmData, VmmActionError> {
+        self.vm_resources.compatible_with_passthrough_device()?;
+
         log_dev_preview_warning("device passthrough", None);
         self.boot_path = true;
         self.vm_resources
@@ -637,6 +643,8 @@ impl<'a> PrebootApiController<'a> {
         &mut self,
         cfg: MemoryHotplugConfig,
     ) -> Result<VmmData, VmmActionError> {
+        self.vm_resources.compatible_with_memory_hotplug()?;
+
         self.boot_path = true;
         self.vm_resources.set_memory_hotplug_config(cfg)?;
         Ok(VmmData::Empty)

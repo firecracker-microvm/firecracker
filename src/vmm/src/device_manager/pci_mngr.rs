@@ -37,18 +37,38 @@ use crate::pci::PciSBDF;
 use crate::pci::bus::PciRootError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
+use crate::vfio::{
+    VfioContainer, VfioDevice, VfioError, vfio_create_kvm_vfio_device_and_vfio_container,
+    vfio_dma_map_guest_memory,
+};
+use crate::vmm_config::device_passthrough::DevicePassthroughConfig;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vstate::bus::BusError;
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::KvmVm;
 
-#[derive(Debug)]
 pub struct PciDevices {
     /// PCIe segment of the VMM. We currently support a single PCIe segment.
     pub pci_segment: PciSegment,
     /// All VirtIO PCI devices of the system
     pub virtio_devices: HashMap<VirtioDeviceId, Arc<Mutex<VirtioPciDevice>>>,
+
+    // All VFIO PCI devices
+    pub vfio_devices: Vec<Arc<Mutex<VfioDevice>>>,
+    // Rust drops items in declaration order, so make sure the `container` is dropped after all vfio
+    // devices
+    vfio_container: Option<Arc<VfioContainer>>,
+}
+
+impl std::fmt::Debug for PciDevices {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PciDevices")
+            .field("pci_segment", &self.pci_segment)
+            .field("virtio_devices", &self.virtio_devices)
+            .field("vfio_devices", &self.vfio_devices)
+            .finish()
+    }
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -65,6 +85,8 @@ pub enum PciManagerError {
     VirtioPciDevice(#[from] VirtioPciDeviceError),
     /// KVM error: {0}
     Kvm(#[from] vmm_sys_util::errno::Error),
+    /// VFIO error: {0}
+    Vfio(#[from] VfioError),
 }
 
 impl PciDevices {
@@ -76,6 +98,8 @@ impl PciDevices {
         Ok(Self {
             pci_segment,
             virtio_devices: HashMap::new(),
+            vfio_devices: Vec::new(),
+            vfio_container: None,
         })
     }
 
@@ -218,6 +242,58 @@ impl PciDevices {
         // Ensure no other references to the device remain, so it is freed when
         // this function returns.
         assert_eq!(Arc::strong_count(&pci_device_arc), 1);
+
+        Ok(())
+    }
+
+    pub fn attach_vfio_device(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        config: DevicePassthroughConfig,
+    ) -> Result<(), PciManagerError> {
+        for device in self.vfio_devices.iter() {
+            let device = device.lock().unwrap();
+            // SAFETY: We must never add 2 devices with same id or same SBDF
+            assert_ne!(device.config.id, config.id);
+            assert_ne!(device.config.sbdf, config.sbdf);
+        }
+
+        let pci_device_bdf = self.pci_segment.next_device_sbdf()?;
+        debug!("VFIO: Allocating BDF: {pci_device_bdf:?} for device");
+
+        let device = if let Some(container) = &self.vfio_container {
+            VfioDevice::new(container, vm, config, pci_device_bdf)?
+        } else {
+            let container = vfio_create_kvm_vfio_device_and_vfio_container(vm.as_ref())?;
+            let device = VfioDevice::new(&container, vm, config, pci_device_bdf)?;
+            vfio_dma_map_guest_memory(&container, vm.guest_memory())?;
+            self.vfio_container = Some(container);
+            device
+        };
+
+        // Obtain this to avoid needing to lock device mutex below
+        let emulated_areas = device.emulated_areas.clone();
+
+        let device = Arc::new(Mutex::new(device));
+
+        // This is for config space
+        self.pci_segment
+            .pci_bus
+            .lock()
+            .unwrap()
+            // SAFETY: we should never add 2 devices with same device id
+            .add_device(pci_device_bdf.device(), device.clone())
+            .unwrap();
+
+        for area in emulated_areas {
+            vm.common
+                .mmio_bus
+                // SAFETY: areas are calculated by us and cannot overlap
+                .insert(device.clone(), area.gpa, area.size)
+                .unwrap();
+        }
+
+        self.vfio_devices.push(device);
 
         Ok(())
     }

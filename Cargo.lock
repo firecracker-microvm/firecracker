@@ -1612,7 +1612,7 @@ dependencies = [
  "kvm-ioctls",
  "libc",
  "log",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
  "vfio-bindings",
  "vm-memory",
  "vmm-sys-util",
