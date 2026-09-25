@@ -1,5 +1,12 @@
 # Using the Firecracker Virtio-block Device
 
+> [!NOTE]
+>
+> Virtio-block devices also work in a
+> [Nitro Sandbox](nitro-sandboxes/README.md). In a confidential sandbox a drive
+> additionally accepts `dmb_size_mib`; see
+> [DMB size](nitro-sandboxes/features.md#dmb-size).
+
 ### Kernel config
 
 - Guest kernel config has: `CONFIG_VIRTIO_BLK=y`

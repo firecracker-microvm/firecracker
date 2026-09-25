@@ -1,5 +1,11 @@
 # Using the Firecracker Virtio-vsock Device
 
+> [!NOTE]
+>
+> Vsock also works in a [Nitro Sandbox](nitro-sandboxes/README.md). In a
+> confidential sandbox the device additionally accepts `dmb_size_mib`; see
+> [DMB size](nitro-sandboxes/features.md#dmb-size).
+
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)

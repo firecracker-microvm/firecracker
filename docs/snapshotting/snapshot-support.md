@@ -1,5 +1,10 @@
 # Firecracker Snapshotting
 
+> [!NOTE]
+>
+> Snapshotting is not available for
+> [Nitro Sandboxes](../nitro-sandboxes/README.md), which have no paused state.
+
 ## Table of Contents
 
 - [What is microVM snapshotting?](#about-microvm-snapshotting)
