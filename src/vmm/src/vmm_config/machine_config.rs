@@ -24,9 +24,6 @@ pub enum MachineConfigError {
     InvalidVcpuCount,
     /// Could not get the configuration of the previously installed balloon device to validate the memory size.
     InvalidVmState,
-    /// Enabling simultaneous multithreading is not supported on aarch64.
-    #[cfg(target_arch = "aarch64")]
-    SmtNotSupported,
     /// Could not determine host kernel version when checking hugetlbfs compatibility
     KernelVersion,
 }
@@ -258,11 +255,6 @@ impl MachineConfig {
         let vcpu_count = update.vcpu_count.unwrap_or(self.vcpu_count);
 
         let smt = update.smt.unwrap_or(self.smt);
-
-        #[cfg(target_arch = "aarch64")]
-        if smt {
-            return Err(MachineConfigError::SmtNotSupported);
-        }
 
         if vcpu_count == 0 || vcpu_count > MAX_SUPPORTED_VCPUS {
             return Err(MachineConfigError::InvalidVcpuCount);
