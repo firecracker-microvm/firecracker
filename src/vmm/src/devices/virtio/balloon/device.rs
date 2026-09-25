@@ -1436,6 +1436,97 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_memfd_discard_queues() {
+        use std::os::unix::fs::MetadataExt;
+
+        use vm_memory::{GuestMemoryBackend, GuestMemoryRegion};
+
+        use crate::vmm_config::machine_config::HugePageConfig;
+        use crate::vstate::memory::memfd_backed;
+        use crate::vstate::memory::test_utils::into_region_ext;
+
+        let page_size = host_page_size();
+        let page_size_chain = u32::try_from(page_size).unwrap();
+        for operation in ["inflate", "hint", "report"] {
+            let mem = into_region_ext(
+                memfd_backed(
+                    &[(GuestAddress(0), 16 * page_size)],
+                    false,
+                    HugePageConfig::None,
+                )
+                .unwrap(),
+            );
+            let mut th = VirtioTestHelper::new(&mem, Balloon::new(0, true, 0, true, true).unwrap());
+            th.activate_device(&mem);
+            th.device()
+                .interrupt_trigger()
+                .ack_interrupt(VirtioInterruptType::Config);
+            let command_addr = align_up!(th.data_address(), page_size as u64);
+            let discard_addr = command_addr + page_size as u64;
+            let retained_addr = discard_addr + page_size as u64;
+            mem.write_slice(&vec![0x51; page_size], GuestAddress(discard_addr))
+                .unwrap();
+            mem.write_slice(&vec![0x72; page_size], GuestAddress(retained_addr))
+                .unwrap();
+
+            let (queue_index, descriptors) = match operation {
+                "inflate" => {
+                    mem.write_obj(
+                        u32::try_from(discard_addr >> VIRTIO_BALLOON_PFN_SHIFT).unwrap(),
+                        GuestAddress(command_addr),
+                    )
+                    .unwrap();
+                    (INFLATE_INDEX, vec![(0, command_addr, 4, 0)])
+                }
+                "hint" => {
+                    th.device().start_hinting(Default::default()).unwrap();
+                    th.device()
+                        .interrupt_trigger()
+                        .ack_interrupt(VirtioInterruptType::Config);
+                    let cmd = th.device().get_hinting_status().unwrap().host_cmd;
+                    mem.write_obj(cmd, GuestAddress(command_addr)).unwrap();
+                    (
+                        th.device().free_page_hinting_idx(),
+                        vec![
+                            (0, command_addr, 4, VIRTQ_DESC_F_WRITE),
+                            (1, discard_addr, page_size_chain, VIRTQ_DESC_F_WRITE),
+                        ],
+                    )
+                }
+                "report" => (
+                    th.device().free_page_reporting_idx(),
+                    vec![(0, discard_addr, page_size_chain, VIRTQ_DESC_F_WRITE)],
+                ),
+                _ => unreachable!(),
+            };
+            th.add_scatter_gather(queue_index, &descriptors);
+            let region = mem.iter().next().unwrap();
+            let file = region.file_offset().unwrap().file();
+            let allocated = file.metadata().unwrap().blocks();
+
+            invoke_handler_for_queue_event(&mut th.device(), queue_index);
+
+            // Reading the discarded page can allocate backing again.
+            assert_eq!(
+                file.metadata().unwrap().blocks(),
+                allocated - (page_size / 512) as u64,
+                "{operation}"
+            );
+            let used_idx = th.device().queues()[queue_index]
+                .used_ring_address
+                .unchecked_add(2);
+            assert_eq!(mem.read_obj::<u16>(used_idx).unwrap(), 1);
+            let mut contents = vec![0xff; page_size];
+            mem.read_slice(&mut contents, GuestAddress(discard_addr))
+                .unwrap();
+            assert_eq!(contents, vec![0; page_size], "{operation}");
+            mem.read_slice(&mut contents, GuestAddress(retained_addr))
+                .unwrap();
+            assert_eq!(contents, vec![0x72; page_size], "{operation}");
+        }
+    }
+
+    #[test]
     fn test_deflate() {
         let mut balloon = Balloon::new(0, true, 0, false, false).unwrap();
         let mem = default_mem();

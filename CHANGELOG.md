@@ -10,6 +10,10 @@ and this project adheres to
 
 ### Added
 
+- [#6237](https://github.com/firecracker-microvm/firecracker/pull/6237): Added
+  balloon and virtio-mem memory reclamation for shared memfd-backed guest
+  memory. Shared hugetlbfs discard requires ranges aligned to whole huge pages.
+
 ### Changed
 
 - [#6201](https://github.com/firecracker-microvm/firecracker/pull/6201):
@@ -33,7 +37,6 @@ and this project adheres to
   the vsock device stalling the VMM thread when the guest connects to a
   host-side Unix socket whose accept backlog is full. Such connection requests
   are now refused instead.
-
 - [#6218](https://github.com/firecracker-microvm/firecracker/pull/6218): Bumped
   `vm-superio` to 0.8.2, fixing serial console input being dropped while the
   guest has the UART interrupts masked. The Linux 8250 console masks IER for the
