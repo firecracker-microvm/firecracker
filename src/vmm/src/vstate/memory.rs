@@ -37,6 +37,9 @@ use crate::{DirtyBitmap, align_up, warn_unrestricted};
 /// Type of GuestMemoryMmap.
 pub type GuestMemoryMmap = vm_memory::GuestRegionCollection<GuestRegionMmapExt>;
 
+const FALLOC_FL_KEEP_SIZE: libc::c_int = 0x01;
+const FALLOC_FL_PUNCH_HOLE: libc::c_int = 0x02;
+
 /// A resolved guest-memory range with volatile accesses bounded by its original length.
 ///
 /// Reusing the resolved pointer avoids a region lookup on each access.
@@ -917,12 +920,50 @@ impl GuestRegionMmapExt {
                 }
                 Ok(())
             }
-            // Match either the case of an anonymous mapping, or the case
-            // of a shared file mapping.
-            // TODO: madvise(MADV_DONTNEED) doesn't actually work with memfd
-            // (or in general MAP_SHARED of a fd). In those cases we should use
-            // fallocate64(FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE).
-            // We keep falling to the madvise branch to keep the previous behaviour.
+            // For shared file-backed memory, punch a hole in the backing file so the
+            // discarded pages are actually reclaimed while preserving the file size.
+            (Some(file_offset), flags) if flags & libc::MAP_SHARED != 0 => {
+                let offset = file_offset
+                    .start()
+                    .checked_add(caddr.raw_value())
+                    .ok_or_else(|| {
+                        GuestMemoryError::IOError(std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "discard offset overflow",
+                        ))
+                    })?;
+                let offset = libc::off_t::try_from(offset).map_err(|_| {
+                    GuestMemoryError::IOError(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "discard offset overflow",
+                    ))
+                })?;
+                let len = libc::off_t::try_from(len).map_err(|_| {
+                    GuestMemoryError::IOError(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "discard length overflow",
+                    ))
+                })?;
+
+                // SAFETY: file_offset contains a valid backing fd and fallocate does not retain
+                // any of the arguments passed to it.
+                let ret = unsafe {
+                    libc::fallocate(
+                        file_offset.file().as_raw_fd(),
+                        FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
+                        offset,
+                        len,
+                    )
+                };
+                if ret < 0 {
+                    let os_error = std::io::Error::last_os_error();
+                    error!("discard_range: fallocate failed: {:?}", os_error);
+                    Err(GuestMemoryError::IOError(os_error))
+                } else {
+                    Ok(())
+                }
+            }
+            // Anonymous mappings can release their physical pages with MADV_DONTNEED.
             _ => {
                 // Madvise the region in order to mark it as not used.
                 let host_addr = self.get_host_address(caddr)?;
@@ -2020,6 +2061,49 @@ mod tests {
     }
 
     #[test]
+    fn test_discard_range_on_memfd() {
+        let page_size = host_page_size();
+        let discard_pages = 256;
+        let keep_pages = 256;
+        let discard_size = discard_pages * page_size;
+        let region_size = (discard_pages + keep_pages) * page_size;
+
+        let regions = [(GuestAddress(0), region_size)];
+        let mem = into_region_ext(memfd_backed(&regions, false, HugePageConfig::None).unwrap());
+
+        let region = mem.iter().next().unwrap();
+        let backing_file = region.file_offset().unwrap().file();
+
+        // Populate the complete memfd-backed region.
+        let ones = vec![1u8; region_size];
+        mem.write(&ones, GuestAddress(0)).unwrap();
+
+        let allocated_before = backing_file.metadata().unwrap().blocks() * 512;
+
+        // Discard the first half of the mapping.
+        mem.discard_range(GuestAddress(0), discard_size).unwrap();
+
+        // Check reclamation before touching the discarded pages again.
+        // Reading them would fault zero pages back into the memfd.
+        let allocated_after = backing_file.metadata().unwrap().blocks() * 512;
+        assert!(
+            allocated_after < allocated_before,
+            "expected physical allocation to decrease: before={allocated_before}, after={allocated_after}"
+        );
+
+        // The adjacent, non-discarded range must remain untouched.
+        let mut preserved = vec![0u8; keep_pages * page_size];
+        mem.read(&mut preserved, GuestAddress(discard_size as u64))
+            .unwrap();
+        assert_eq!(preserved, vec![1u8; keep_pages * page_size]);
+
+        // The discarded range must read back as zero.
+        let mut discarded = vec![0u8; discard_size];
+        mem.read(&mut discarded, GuestAddress(0)).unwrap();
+        assert_eq!(discarded, vec![0u8; discard_size]);
+    }
+
+    #[test]
     fn test_discard_range_on_file() {
         let page_size: usize = 0x1000;
         let mut memory_file = TempFile::new().unwrap().into_file();
@@ -2437,15 +2521,13 @@ mod tests {
         ext.check_range_plugged(MemoryRegionAddress(0x1000), 0x100)
             .unwrap();
         // Slot 2 (offset 0x2000..0x3000): unplugged
-        assert!(
-            ext.check_range_plugged(MemoryRegionAddress(0x2000), 0x100)
-                .is_err()
-        );
+        assert!(ext
+            .check_range_plugged(MemoryRegionAddress(0x2000), 0x100)
+            .is_err());
         // Spanning slots 1-2: fails because slot 2 is unplugged
-        assert!(
-            ext.check_range_plugged(MemoryRegionAddress(0x1800), 0x1000)
-                .is_err()
-        );
+        assert!(ext
+            .check_range_plugged(MemoryRegionAddress(0x1800), 0x1000)
+            .is_err());
         // Spanning slots 0-1: both plugged
         ext.check_range_plugged(MemoryRegionAddress(0x800), 0x1000)
             .unwrap();
