@@ -49,11 +49,10 @@ specification:
 |                           | msr_modifiers       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 |                           | reg_modifiers       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 | `CpuTemplate`             | enum                |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `CreateSnapshotParams`    | mem_file_path       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+| `SnapshotCreateParams`    | mem_file_path       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 |                           | snapshot_path       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 |                           | snapshot_type       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 |                           | sync_snapshot_files |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-|                           | version             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 | `Drive`                   | drive_id \*         |    O     |       O        |    **R**     |      **R**       |     O      |      O       |     O      |      O      |     O      |
 |                           | is_read_only        |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |
 |                           | is_root_device \*   |    O     |       O        |    **R**     |      **R**       |     O      |      O       |     O      |      O      |     O      |
@@ -62,7 +61,7 @@ specification:
 |                           | rate_limiter        |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |
 |                           | socket              |    O     |       O        |      O       |      **R**       |     O      |      O       |     O      |      O      |     O      |
 | `InstanceActionInfo`      | action_type         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
-| `LoadSnapshotParams`      | track_dirty_pages   |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+| `SnapshotLoadParams`      | track_dirty_pages   |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 |                           | mem_file_path       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 |                           | mem_backend         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 |                           | snapshot_path       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
@@ -112,11 +111,11 @@ specification:
 |                           | rate_limiter        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
 | `PartialPmem`             | id                  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
 |                           | rate_limiter        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
-| `SerialConfig`            | serial_out_path     |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+| `SerialDevice`            | serial_out_path     |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 |                           | rate_limiter        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 | `MemoryHotplugConfig`     | total_size_mib      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
 |                           | slot_size_mib       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
-|                           | block_size_mi       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
+|                           | block_size_mib      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
 | `MemoryHotplugSizeUpdate` | requested_size_mib  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
 
 \* `Drive`'s `drive_id`, `is_root_device` and `partuuid` can be configured by
@@ -143,8 +142,7 @@ specification:
 |                        | mem_size_mib       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
 |                        | track_dirty_pages  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
 |                        | vcpu_count         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
-|                        | vmm_version        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
-| `MemoryHotplugStatus ` | total_size_mib     |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |
+| `MemoryHotplugStatus`  | total_size_mib     |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |
 |                        | slot_size_mib      |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |
 |                        | block_size_mib     |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |
 |                        | plugged_size_mib   |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |
