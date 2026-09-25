@@ -906,6 +906,7 @@ pub(crate) mod tests {
                 ),
                 rate_limiter: None,
                 file_engine_type: None,
+                image_format: None,
                 blk_size: None,
                 topology: None,
 

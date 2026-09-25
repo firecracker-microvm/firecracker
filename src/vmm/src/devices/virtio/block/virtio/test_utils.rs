@@ -13,6 +13,7 @@ use vmm_sys_util::tempfile::TempFile;
 use super::RequestHeader;
 use super::device::VirtioBlockConfig;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
+use crate::devices::virtio::block::virtio::io::DiskImageFormat;
 #[cfg(test)]
 use crate::devices::virtio::block::virtio::io::FileEngine;
 use crate::devices::virtio::block::virtio::{CacheType, VirtioBlock};
@@ -59,6 +60,7 @@ pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -
             }),
         }),
         file_engine_type,
+        image_format: DiskImageFormat::Raw,
         blk_size: None,
         topology: None,
     };
@@ -122,7 +124,7 @@ pub fn simulate_queue_and_async_completion_events(b: &mut VirtioBlock, expected_
             simulate_queue_event(b, None);
             simulate_async_completion_event(b, expected_irq);
         }
-        FileEngine::Sync(_) => {
+        FileEngine::Sync(_) | FileEngine::Vmdk(_) => {
             simulate_queue_event(b, Some(expected_irq));
         }
     }
