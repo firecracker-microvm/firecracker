@@ -1,5 +1,11 @@
 # CPU templates
 
+> [!NOTE]
+>
+> CPU templates are not available for
+> [Nitro Sandboxes](../nitro-sandboxes/README.md). Setting `cpu_template`,
+> directly or through `PUT /cpu-config`, is rejected at `InstanceStart`.
+
 Firecracker allows users to customise how the vCPUs are represented to the guest
 software by changing the following configuration:
 

@@ -9,6 +9,12 @@ should consider modifying this setup to accommodate your specific needs.
 > Currently, Firecracker supports only a TUN/TAP network backend with no multi
 > queue support.
 
+> [!NOTE]
+>
+> The same TAP setup applies to a [Nitro Sandbox](nitro-sandboxes/README.md). In
+> a confidential sandbox a network interface additionally accepts
+> `dmb_size_mib`; see [DMB size](nitro-sandboxes/features.md#dmb-size).
+
 The steps in this guide assume `eth0` to be your Internet-facing network
 interface on the host. If `eth0` isn't your main network interface, you should
 change the value to the correct one in the commands below. IPv4 is also assumed
