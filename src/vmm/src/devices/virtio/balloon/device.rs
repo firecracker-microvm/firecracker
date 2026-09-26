@@ -930,23 +930,29 @@ impl VirtioDevice for Balloon {
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
-        let config_space_bytes = self.config_space.as_mut_slice();
-        let start = usize::try_from(offset).ok();
-        let end = start.and_then(|s| s.checked_add(data.len()));
-        let Some(dst) = start
-            .zip(end)
-            .and_then(|(start, end)| config_space_bytes.get_mut(start..end))
-        else {
-            warn!(
-                "virtio-balloon: guest driver attempted to write device config out of bounds \
-                 (offset={:#x}, len={:#x})",
-                offset,
-                data.len()
-            );
-            return;
-        };
+        // Per the virtio-balloon spec, `actual` is the only driver-writable field: the guest
+        // reports the current balloon size through it. `num_pages` and `free_page_hint_cmd_id`
+        // are device-owned and are read back by the operator through the management API, so
+        // guest writes touching them (or landing out of bounds) are rejected.
+        let actual_start = std::mem::offset_of!(ConfigSpace, actual_pages);
+        let actual_end = actual_start + SIZE_OF_U32;
 
-        dst.copy_from_slice(data);
+        let start = usize::try_from(offset).ok();
+        let end = start.and_then(|start| start.checked_add(data.len()));
+        match (start, end) {
+            (Some(start), Some(end)) if start >= actual_start && end <= actual_end => {
+                self.config_space.as_mut_slice()[start..end].copy_from_slice(data);
+            }
+            _ => {
+                METRICS.cfg_fails.inc();
+                warn!(
+                    "virtio-balloon: guest driver attempted to write read-only device config \
+                     (offset={:#x}, len={:#x})",
+                    offset,
+                    data.len()
+                );
+            }
+        }
     }
 
     fn activate(
@@ -1226,29 +1232,76 @@ pub(crate) mod tests {
     fn test_virtio_write_config() {
         let mut balloon = Balloon::new(0, true, 0, false, false).unwrap();
 
-        let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] = [
-            0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        ];
-        balloon.write_config(0, &expected_config_space);
+        // `actual` is the only driver-writable field, so this write goes through.
+        let mut expected_config_space = [0u8; BALLOON_CONFIG_SPACE_SIZE];
+        expected_config_space[4..8].copy_from_slice(&0x5000u32.to_le_bytes());
+        check_metric_after_block!(METRICS.cfg_fails, 0, {
+            balloon.write_config(4, &0x5000u32.to_le_bytes())
+        });
 
         let mut actual_config_space = [0u8; BALLOON_CONFIG_SPACE_SIZE];
         balloon.read_config(0, &mut actual_config_space);
         assert_eq!(actual_config_space, expected_config_space);
 
+        // Writes to the device-owned `num_pages` and `free_page_hint_cmd_id` fields are
+        // rejected, as are writes straddling them.
+        for offset in [0, 6, 8] {
+            check_metric_after_block!(METRICS.cfg_fails, 1, {
+                balloon.write_config(offset, &0xdead_beefu32.to_le_bytes())
+            });
+            // Make sure nothing got written.
+            balloon.read_config(0, &mut actual_config_space);
+            assert_eq!(actual_config_space, expected_config_space);
+        }
+
         // Invalid write.
         let new_config_space = [
             0xd, 0xe, 0xa, 0xd, 0xb, 0xe, 0xe, 0xf, 0x00, 0x00, 0x00, 0x00,
         ];
-        balloon.write_config(5, &new_config_space);
+        check_metric_after_block!(METRICS.cfg_fails, 1, {
+            balloon.write_config(5, &new_config_space)
+        });
         // Make sure nothing got written.
         balloon.read_config(0, &mut actual_config_space);
         assert_eq!(actual_config_space, expected_config_space);
 
         // Large offset that may cause an overflow.
-        balloon.write_config(u64::MAX, &new_config_space);
+        check_metric_after_block!(METRICS.cfg_fails, 1, {
+            balloon.write_config(u64::MAX, &new_config_space)
+        });
         // Make sure nothing got written.
         balloon.read_config(0, &mut actual_config_space);
         assert_eq!(actual_config_space, expected_config_space);
+    }
+
+    #[test]
+    fn test_write_config_rejects_read_only_fields() {
+        let mut balloon = Balloon::new(0x10, true, 0, true, false).unwrap();
+        let num_pages = balloon.num_pages();
+        let free_page_hint_cmd_id = balloon.config_space.free_page_hint_cmd_id;
+
+        // A guest write to the device-owned `num_pages` must not change the balloon target
+        // the operator reads back through the management API.
+        check_metric_after_block!(METRICS.cfg_fails, 1, {
+            balloon.write_config(0, &0xdead_beefu32.to_le_bytes())
+        });
+        assert_eq!(balloon.num_pages(), num_pages);
+        assert_eq!(balloon.size_mb(), 0x10);
+
+        // Same for `free_page_hint_cmd_id`, which is driven by the device.
+        check_metric_after_block!(METRICS.cfg_fails, 1, {
+            balloon.write_config(8, &0xdead_beefu32.to_le_bytes())
+        });
+        assert_eq!(
+            balloon.config_space.free_page_hint_cmd_id,
+            free_page_hint_cmd_id
+        );
+
+        // `actual` stays driver-writable: the guest reports the current balloon size there.
+        check_metric_after_block!(METRICS.cfg_fails, 0, {
+            balloon.write_config(4, &1234u32.to_le_bytes())
+        });
+        assert_eq!(balloon.actual_pages(), 1234);
     }
 
     #[test]
@@ -1262,11 +1315,12 @@ pub(crate) mod tests {
         balloon.set_queue(balloon.free_page_hinting_idx(), infq.create_queue());
         balloon.activate(mem.clone(), interrupt).unwrap();
 
+        // `num_pages` is device-owned, so it is set through the device API.
+        balloon.update_num_pages(0x5000);
+
         let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] = [
             0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
-        balloon.write_config(0, &expected_config_space);
-
         let mut actual_config_space = [0u8; BALLOON_CONFIG_SPACE_SIZE];
         balloon.read_config(0, &mut actual_config_space);
         assert_eq!(actual_config_space, expected_config_space);
@@ -1995,11 +2049,15 @@ pub(crate) mod tests {
         assert_eq!(balloon.actual_pages(), 0x1234);
         assert_eq!(balloon.size_mb(), 16);
 
-        // Update fields through the config space.
-        let expected_config = vec![0x44, 0x33, 0x22, 0x11, 0x78, 0x56, 0x34, 0x12, 0, 0, 0, 0];
-        balloon.write_config(0, &expected_config);
-        assert_eq!(balloon.num_pages(), 0x1122_3344);
+        // The guest may only update `actual` through the config space.
+        balloon.write_config(4, &0x1234_5678u32.to_le_bytes());
         assert_eq!(balloon.actual_pages(), 0x1234_5678);
+
+        // `num_pages` is device-owned, so a guest write to it is rejected and the target
+        // set through the API is preserved.
+        balloon.write_config(0, &0x1122_3344u32.to_le_bytes());
+        assert_eq!(balloon.num_pages(), 0x1000);
+        assert_eq!(balloon.size_mb(), 16);
     }
 
     /// Test that process_stats_queue holds oversized descriptors without

@@ -135,6 +135,7 @@ def validate_fc_metrics(metrics):
         ],
         "balloon": [
             "activate_fails",
+            "cfg_fails",
             "inflate_count",
             "stats_updates_count",
             "stats_update_fails",
