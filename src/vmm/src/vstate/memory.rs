@@ -268,11 +268,7 @@ impl RawGuestRegionMmap {
         if requested_size == 0 {
             return Err(MemoryError::ZeroSize);
         }
-        let page_size = match hugetlb_flags {
-            0 => host_page_size(),
-            flags if flags == libc::MAP_HUGETLB | libc::MAP_HUGE_2MB => mib_to_bytes(2),
-            _ => unreachable!("Only 2MiB hugetlb pages are supported"),
-        };
+        let page_size = Self::page_size(hugetlb_flags);
         let size_page_multiple = align_up!(requested_size, page_size);
 
         // Over-allocate to guarantee we can find a 2 MiB-aligned sub-region of the desired size.
@@ -405,6 +401,14 @@ impl RawGuestRegionMmap {
     /// Given some mmap flags, extracts the ones related to hugetlb
     fn extract_huge_tlb_mmap_flags(flags: libc::c_int) -> libc::c_int {
         flags & HUGETLB_FLAG_MASK
+    }
+
+    fn page_size(flags: libc::c_int) -> usize {
+        match Self::extract_huge_tlb_mmap_flags(flags) {
+            0 => host_page_size(),
+            flags if flags == libc::MAP_HUGETLB | libc::MAP_HUGE_2MB => mib_to_bytes(2),
+            _ => unreachable!("Only 2MiB hugetlb pages are supported"),
+        }
     }
 }
 
@@ -841,11 +845,16 @@ impl GuestRegionMmapExt {
         len: usize,
     ) -> Result<(), GuestMemoryError> {
         // The address and length can come straight from a guest descriptor (balloon), so reject
-        // unaligned input here rather than letting the mmap/madvise below fail on it.
+        // ranges that are not host page aligned or that run past the end of the region.
         let page_size = host_page_size() as u64;
-        if !caddr.raw_value().is_multiple_of(page_size) || !(len as u64).is_multiple_of(page_size) {
+        let start = caddr.raw_value();
+        let aligned = start.is_multiple_of(page_size) && (len as u64).is_multiple_of(page_size);
+        let in_region = start
+            .checked_add(len as u64)
+            .is_some_and(|end| end <= self.len());
+        if !aligned || !in_region {
             return Err(GuestMemoryError::InvalidGuestAddress(
-                self.start_addr().unchecked_add(caddr.raw_value()),
+                self.start_addr().unchecked_add(start),
             ));
         }
 
@@ -853,90 +862,99 @@ impl GuestRegionMmapExt {
             // If and only if we are resuming from a snapshot file, we have a file and it's mapped
             // private
             (Some(_), flags) if flags & libc::MAP_PRIVATE != 0 => {
-                // Mmap a new anonymous region over the present one in order to create a hole
-                // with zero pages.
-                // This workaround is (only) needed after resuming from a snapshot file because the
-                // guest memory is mmaped from file as private. In this case, MADV_DONTNEED on the
-                // file only drops any anonymous pages in range, but subsequent accesses would read
-                // whatever page is stored on the backing file. Mmapping anonymous pages ensures
-                // it's zeroed.
-                // Keep MAP_NORESERVE to match the flags the region was created with (see `create`).
-                // Without it the replacement is subject to overcommit accounting and can fail with
-                // ENOMEM, by which point MAP_FIXED has already unmapped the range.
-                // TODO: this does not re-apply the region's madvise flags, so it would drop the
-                // MADV_HUGEPAGE hint on a THP + file-restore VM. That combination is unsupported
-                // today; revisit if it becomes supported.
-                //
-                // Map each intersecting slot directly to its final protection: fully unplugged
-                // slots get PROT_NONE, plugged (or mixed) slots stay PROT_READ | PROT_WRITE. This
-                // avoids mapping the whole range PROT_READ | PROT_WRITE and then reprotecting the
-                // unplugged slots.
-                let base = self.start_addr().raw_value();
-                let from = base
-                    .checked_add(caddr.raw_value())
-                    .expect("caddr should be within the region");
-                let to = from
-                    .checked_add(len as u64)
-                    .expect("range should be within the region");
-                for (slot, plugged) in self.slots_intersecting_range(GuestAddress(from), len) {
-                    let slot_start = slot.guest_addr.raw_value();
-                    let slot_end = slot_start
-                        .checked_add(slot.slice.len() as u64)
-                        .expect("slot should be within the region");
-                    let start = slot_start.max(from);
-                    let end = slot_end.min(to);
-                    let host = self.get_host_address(MemoryRegionAddress(start - base))?;
-                    let prot = if plugged {
-                        libc::PROT_READ | libc::PROT_WRITE
-                    } else {
-                        libc::PROT_NONE
-                    };
-                    // SAFETY: [start, end) is clamped to this slot, so `host` and the length are
-                    // within the region's existing mapping. MAP_FIXED replaces exactly that range.
-                    let ret = unsafe {
-                        libc::mmap(
-                            host.cast(),
-                            u64_to_usize(end - start),
-                            prot,
-                            libc::MAP_FIXED
-                                | libc::MAP_ANONYMOUS
-                                | libc::MAP_PRIVATE
-                                | libc::MAP_NORESERVE,
-                            -1,
-                            0,
-                        )
-                    };
-                    // MAP_FIXED has already unmapped the old range, so a failure here cannot be
-                    // recovered from.
-                    if ret == libc::MAP_FAILED {
-                        panic!(
-                            "discard_range: mmap failed: {:?}",
-                            std::io::Error::last_os_error()
-                        );
-                    }
-                }
-                Ok(())
+                self.remap_anonymous_range(caddr, len)?
             }
-            // Match either the case of an anonymous mapping, or the case
-            // of a shared file mapping.
             // TODO: madvise(MADV_DONTNEED) doesn't actually work with memfd
             // (or in general MAP_SHARED of a fd). In those cases we should use
             // fallocate64(FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE).
-            // We keep falling to the madvise branch to keep the previous behaviour.
-            _ => {
-                // Madvise the region in order to mark it as not used.
-                let host_addr = self.get_host_address(caddr)?;
-                // SAFETY: The address and length are known to be valid.
-                let ret = unsafe { libc::madvise(host_addr.cast(), len, libc::MADV_DONTNEED) };
-                if ret < 0 {
-                    let os_error = std::io::Error::last_os_error();
-                    error!("discard_range: madvise failed: {:?}", os_error);
-                    Err(GuestMemoryError::IOError(os_error))
-                } else {
-                    Ok(())
-                }
+            (Some(_), _) => self.madvise_range(caddr, len, libc::MADV_DONTNEED)?,
+            (None, _) => self.madvise_range(caddr, len, libc::MADV_DONTNEED)?,
+        }
+        Ok(())
+    }
+
+    fn remap_anonymous_range(
+        &self,
+        caddr: MemoryRegionAddress,
+        len: usize,
+    ) -> Result<(), GuestMemoryError> {
+        // Mmap a new anonymous region over the present one in order to create a hole
+        // with zero pages.
+        // This workaround is (only) needed after resuming from a snapshot file because the
+        // guest memory is mmaped from file as private. In this case, MADV_DONTNEED on the
+        // file only drops any anonymous pages in range, but subsequent accesses would read
+        // whatever page is stored on the backing file. Mmapping anonymous pages ensures
+        // it's zeroed.
+        // Keep MAP_NORESERVE to match the flags the region was created with (see `create`).
+        // Without it the replacement is subject to overcommit accounting and can fail with
+        // ENOMEM, by which point MAP_FIXED has already unmapped the range.
+        // TODO: this does not re-apply the region's madvise flags, so it would drop the
+        // MADV_HUGEPAGE hint on a THP + file-restore VM. That combination is unsupported
+        // today; revisit if it becomes supported.
+        //
+        // Map each intersecting slot directly to its final protection: fully unplugged
+        // slots get PROT_NONE, plugged (or mixed) slots stay PROT_READ | PROT_WRITE. This
+        // avoids mapping the whole range PROT_READ | PROT_WRITE and then reprotecting the
+        // unplugged slots.
+        let base = self.start_addr().raw_value();
+        let from = base
+            .checked_add(caddr.raw_value())
+            .expect("caddr should be within the region");
+        let to = from
+            .checked_add(len as u64)
+            .expect("range should be within the region");
+        for (slot, plugged) in self.slots_intersecting_range(GuestAddress(from), len) {
+            let slot_start = slot.guest_addr.raw_value();
+            let slot_end = slot_start
+                .checked_add(slot.slice.len() as u64)
+                .expect("slot should be within the region");
+            let start = slot_start.max(from);
+            let end = slot_end.min(to);
+            let host = self.get_host_address(MemoryRegionAddress(start - base))?;
+            let prot = if plugged {
+                libc::PROT_READ | libc::PROT_WRITE
+            } else {
+                libc::PROT_NONE
+            };
+            // SAFETY: [start, end) is clamped to this slot, so `host` and the length are
+            // within the region's existing mapping. MAP_FIXED replaces exactly that range.
+            let ret = unsafe {
+                libc::mmap(
+                    host.cast(),
+                    u64_to_usize(end - start),
+                    prot,
+                    libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE | libc::MAP_NORESERVE,
+                    -1,
+                    0,
+                )
+            };
+            // MAP_FIXED has already unmapped the old range, so a failure here cannot be
+            // recovered from.
+            if ret == libc::MAP_FAILED {
+                panic!(
+                    "discard_range: mmap failed: {:?}",
+                    std::io::Error::last_os_error()
+                );
             }
         }
+        Ok(())
+    }
+
+    fn madvise_range(
+        &self,
+        caddr: MemoryRegionAddress,
+        len: usize,
+        advice: libc::c_int,
+    ) -> Result<(), GuestMemoryError> {
+        let host_addr = self.get_host_address(caddr)?;
+        // SAFETY: `discard_range` checked that the range is aligned and lies within this region.
+        let ret = unsafe { libc::madvise(host_addr.cast(), len, advice) };
+        if ret < 0 {
+            let os_error = std::io::Error::last_os_error();
+            error!("discard_range: madvise failed: {:?}", os_error);
+            return Err(GuestMemoryError::IOError(os_error));
+        }
+        Ok(())
     }
 }
 
@@ -2168,6 +2186,15 @@ mod tests {
         // Unaligned address is rejected.
         assert_match!(
             mem.discard_range(GuestAddress(0x20), page_size)
+                .unwrap_err(),
+            GuestMemoryError::InvalidGuestAddress(_)
+        );
+
+        // Range running past the end of the region.
+        let region = mem.iter().next().unwrap();
+        assert_match!(
+            region
+                .discard_range(MemoryRegionAddress(page_size as u64), 2 * page_size)
                 .unwrap_err(),
             GuestMemoryError::InvalidGuestAddress(_)
         );
