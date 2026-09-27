@@ -10,6 +10,13 @@ and this project adheres to
 
 ### Added
 
+- Added developer preview support for assigning host PCIe devices, such as GPUs,
+  to a microVM with VFIO, through the new `/vfio/{id}` API endpoint and `vfio`
+  section of the configuration file. Passthrough requires `--enable-pci`. The
+  jailer gained the `--vfio-device` argument and the `memlock` resource limit to
+  run such microVMs jailed. More information can be found in the
+  [PCIe device passthrough](docs/device-passthrough.md) documentation page.
+
 ### Changed
 
 - [#6201](https://github.com/firecracker-microvm/firecracker/pull/6201):

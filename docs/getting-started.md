@@ -215,7 +215,9 @@ a PCI VirtIO transport. This flag is optional. If not passed, Firecracker will
 create devices using the legacy MMIO transport. We suggest that users enable the
 PCI transport, as it yields higher throughput and lower latency for VirtIO
 devices. For more information regarding guest kernel requirements for using PCI
-look at our [kernel policy documentation](./kernel-policy.md).
+look at our [kernel policy documentation](./kernel-policy.md). Enabling PCI is
+also a prerequisite for assigning a physical PCIe device (for example a GPU) to
+a microVM; see [PCIe device passthrough](./device-passthrough.md).
 
 In a new terminal (do not close the 1st one):
 
