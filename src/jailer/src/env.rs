@@ -5,6 +5,7 @@ use std::ffi::{CStr, CString, OsString};
 use std::fs::{self, File, OpenOptions, Permissions, canonicalize, read_to_string};
 use std::io;
 use std::io::Write;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, fchown};
 use std::os::unix::io::AsRawFd;
 use std::os::unix::process::CommandExt;
@@ -19,7 +20,7 @@ use vmm_sys_util::syscall::SyscallReturnCode;
 use crate::JailerError;
 use crate::cgroup::{CgroupConfiguration, CgroupConfigurationBuilder};
 use crate::chroot::chroot;
-use crate::resource_limits::{FSIZE_ARG, NO_FILE_ARG, ResourceLimits};
+use crate::resource_limits::{FSIZE_ARG, MEMLOCK_ARG, NO_FILE_ARG, ResourceLimits};
 
 pub const PROC_MOUNTS: &str = "/proc/mounts";
 
@@ -131,6 +132,12 @@ pub struct Env {
     cgroup_conf: Option<CgroupConfiguration>,
     resource_limits: ResourceLimits,
     uffd_dev_minor: Option<u32>,
+    // VFIO character device nodes to recreate inside the chroot, as
+    // (absolute path, major, minor) triples.
+    vfio_dev_nodes: Vec<(PathBuf, u32, u32)>,
+    // `iommu_group` links of the VFIO devices to recreate inside the chroot, as
+    // (sysfs path of the device, link target) pairs.
+    vfio_iommu_group_links: Vec<(PathBuf, PathBuf)>,
 }
 
 /// Creates a new file owned by the given uid/gid at `dst` and writes `line`
@@ -276,6 +283,14 @@ impl Env {
 
         let uffd_dev_minor = Self::get_userfaultfd_minor_dev_number().ok();
 
+        let vfio_args: &[String] = arguments.multiple_values("vfio-device").unwrap_or_default();
+        let vfio_iommu_group_links = Self::resolve_vfio_iommu_group_links(vfio_args)?;
+        let vfio_dev_nodes = if vfio_iommu_group_links.is_empty() {
+            Vec::new()
+        } else {
+            Self::resolve_vfio_dev_nodes(&vfio_iommu_group_links)?
+        };
+
         Ok(Env {
             id: id.to_owned(),
             chroot_dir,
@@ -292,7 +307,85 @@ impl Env {
             cgroup_conf,
             resource_limits,
             uffd_dev_minor,
+            vfio_dev_nodes,
+            vfio_iommu_group_links,
         })
+    }
+
+    // Decompose a `dev_t` into its (major, minor) parts using the glibc encoding, which is what
+    // `libc::makedev` (used by `mknod_and_own_dev`) expects.
+    //
+    // The casts are intentionally truncating: glibc computes each component in 32 bits.
+    #[allow(clippy::cast_possible_truncation)]
+    fn major_minor(dev: u64) -> (u32, u32) {
+        let major = (((dev >> 8) & 0xfff) as u32) | ((dev >> 32) as u32 & !0xfffu32);
+        let minor = ((dev & 0xff) as u32) | (((dev >> 12) as u32) & !0xffu32);
+        (major, minor)
+    }
+
+    // Look up the (major, minor) device numbers of a character device on the host.
+    fn host_dev_numbers(path: &Path) -> Result<(u32, u32), JailerError> {
+        let metadata =
+            fs::metadata(path).map_err(|err| JailerError::Metadata(path.to_path_buf(), err))?;
+        Ok(Self::major_minor(metadata.rdev()))
+    }
+
+    // Read the `iommu_group` link of every VFIO device sysfs path, returning (sysfs path, link
+    // target) pairs.
+    fn resolve_vfio_iommu_group_links(
+        sysfs_paths: &[String],
+    ) -> Result<Vec<(PathBuf, PathBuf)>, JailerError> {
+        sysfs_paths
+            .iter()
+            .map(|sysfs_path| {
+                let sysfs_path = PathBuf::from(sysfs_path);
+                // The same path is used by Firecracker inside the jail.
+                if !sysfs_path.is_absolute() {
+                    return Err(JailerError::VfioDevice(format!(
+                        "{sysfs_path:?} is not an absolute path"
+                    )));
+                }
+                let link = sysfs_path.join("iommu_group");
+                let target = fs::read_link(&link).map_err(|err| {
+                    JailerError::VfioDevice(format!("cannot read {link:?}: {err}"))
+                })?;
+                Ok((sysfs_path, target))
+            })
+            .collect()
+    }
+
+    // Resolve the set of VFIO character device nodes that must be exposed inside the chroot for the
+    // given devices: the shared `/dev/vfio/vfio` container plus the `/dev/vfio/<group>` node of
+    // every distinct IOMMU group involved.
+    fn resolve_vfio_dev_nodes(
+        iommu_group_links: &[(PathBuf, PathBuf)],
+    ) -> Result<Vec<(PathBuf, u32, u32)>, JailerError> {
+        let mut nodes = Vec::new();
+
+        let container = PathBuf::from("/dev/vfio/vfio");
+        let (major, minor) = Self::host_dev_numbers(&container)?;
+        nodes.push((container, major, minor));
+
+        let mut seen_groups = std::collections::HashSet::new();
+        for (sysfs_path, group_target) in iommu_group_links {
+            let group = group_target
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| {
+                    JailerError::VfioDevice(format!("invalid IOMMU group for {sysfs_path:?}"))
+                })?
+                .to_owned();
+
+            if !seen_groups.insert(group.clone()) {
+                continue;
+            }
+
+            let group_node = PathBuf::from(format!("/dev/vfio/{group}"));
+            let (major, minor) = Self::host_dev_numbers(&group_node)?;
+            nodes.push((group_node, major, minor));
+        }
+
+        Ok(nodes)
     }
 
     pub fn chroot_dir(&self) -> &Path {
@@ -341,6 +434,7 @@ impl Env {
             match name {
                 FSIZE_ARG => resource_limits.set_file_size(limit_value),
                 NO_FILE_ARG => resource_limits.set_no_file(limit_value),
+                MEMLOCK_ARG => resource_limits.set_memlock(limit_value),
                 _ => return Err(JailerError::ResLimitArgument(name.to_string())),
             }
         }
@@ -710,6 +804,27 @@ impl Env {
         // Expose the device in the jailed environment.
         if let Some(minor) = self.uffd_dev_minor {
             self.mknod_and_own_dev(DEV_UFFD_PATH, DEV_UFFD_MAJOR, minor)?;
+        }
+
+        // Expose the VFIO character devices (the container and the relevant IOMMU group nodes)
+        // inside the chroot, so a jailed Firecracker can assign the host PCI devices through VFIO.
+        if !self.vfio_dev_nodes.is_empty() {
+            self.setup_jailed_folder("/dev/vfio")?;
+            for (path, major, minor) in &self.vfio_dev_nodes {
+                let dev_path = CString::new(path.as_os_str().as_bytes())
+                    .map_err(JailerError::CStringParsing)?;
+                self.mknod_and_own_dev(&dev_path, *major, *minor)?;
+            }
+        }
+
+        // Firecracker finds the IOMMU group of a VFIO device through the `iommu_group` link in the
+        // device's sysfs directory, and that link is the only sysfs entry it uses. Recreate the
+        // link at the same path inside the jail, so that no part of the host sysfs is exposed.
+        for (sysfs_path, target) in &self.vfio_iommu_group_links {
+            self.setup_jailed_folder(sysfs_path)?;
+            let link = sysfs_path.join("iommu_group");
+            std::os::unix::fs::symlink(target, &link)
+                .map_err(|err| JailerError::VfioDevice(format!("cannot create {link:?}: {err}")))?;
         }
 
         self.jailer_cpu_time_us = get_time_us(ClockType::ProcessCpu) - self.start_time_cpu_us;
@@ -1190,6 +1305,68 @@ mod tests {
             let dev_path = dev.to_str().map(CString::new).unwrap().unwrap();
             ensure_mknod_and_own_dev(&env, &dev_path, major, minor);
         }
+    }
+
+    #[test]
+    fn test_major_minor() {
+        // `major_minor` must exactly invert `libc::makedev`, including numbers that use the high
+        // bits of both components.
+        for (major, minor) in [
+            (0, 0),
+            (10, 196),
+            (243, 0),
+            (0xfff, 0xff),
+            (0x1000, 0x100),
+            (0xdead_beef, 0x1234_5678),
+            (u32::MAX, u32::MAX),
+        ] {
+            assert_eq!(
+                Env::major_minor(libc::makedev(major, minor)),
+                (major, minor)
+            );
+        }
+    }
+
+    #[test]
+    fn test_host_dev_numbers() {
+        // /dev/null is the character device (1, 3) on every Linux system.
+        assert_eq!(
+            Env::host_dev_numbers(Path::new("/dev/null")).unwrap(),
+            (1, 3)
+        );
+        assert!(matches!(
+            Env::host_dev_numbers(Path::new("/nonexistent/dev/vfio/vfio")),
+            Err(JailerError::Metadata(..))
+        ));
+    }
+
+    #[test]
+    fn test_resolve_vfio_iommu_group_links() {
+        let dir = TempDir::new().unwrap();
+        let device = dir.as_path().join("0000:01:00.0");
+        fs::create_dir(&device).unwrap();
+        let device_str = device.to_str().unwrap().to_string();
+
+        // A relative path would not designate the same file inside the jail.
+        assert!(matches!(
+            Env::resolve_vfio_iommu_group_links(&["sys/bus/pci/devices/0000:01:00.0".into()]),
+            Err(JailerError::VfioDevice(_))
+        ));
+        // A device without an IOMMU group cannot be assigned.
+        assert!(matches!(
+            Env::resolve_vfio_iommu_group_links(std::slice::from_ref(&device_str)),
+            Err(JailerError::VfioDevice(_))
+        ));
+
+        std::os::unix::fs::symlink(
+            "../../../../kernel/iommu_groups/49",
+            device.join("iommu_group"),
+        )
+        .unwrap();
+        assert_eq!(
+            Env::resolve_vfio_iommu_group_links(&[device_str]).unwrap(),
+            vec![(device, PathBuf::from("../../../../kernel/iommu_groups/49"))]
+        );
     }
 
     #[test]

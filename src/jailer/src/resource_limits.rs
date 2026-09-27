@@ -14,13 +14,17 @@ const NO_FILE: u64 = 2048;
 pub(crate) const FSIZE_ARG: &str = "fsize";
 // Number of files resource argument name.
 pub(crate) const NO_FILE_ARG: &str = "no-file";
+// Locked memory size resource argument name.
+pub(crate) const MEMLOCK_ARG: &str = "memlock";
 
 #[derive(Debug, Clone, Copy)]
 pub enum Resource {
     // Size of created files.
-    RlimitFsize,
+    Fsize,
     // Number of open file descriptors.
-    RlimitNoFile,
+    NoFile,
+    // Size of locked memory, which includes the guest memory pinned for VFIO DMA.
+    Memlock,
 }
 
 impl From<Resource> for u32 {
@@ -32,14 +36,21 @@ impl From<Resource> for u32 {
             //      * when equals to "musl" -> libc::RLIMIT_FSIZE is a c_int (which is an i32)
             //      * when equals to "gnu" -> libc::RLIMIT_FSIZE is __rlimit_resource_t which is a
             //        c_uint (which is an u32)
-            Resource::RlimitFsize => libc::RLIMIT_FSIZE as u32,
+            Resource::Fsize => libc::RLIMIT_FSIZE as u32,
             #[allow(clippy::unnecessary_cast)]
             #[allow(clippy::cast_possible_wrap)]
             // Definition of libc::RLIMIT_NOFILE depends on the target_env:
             //      * when equals to "musl" -> libc::RLIMIT_NOFILE is a c_int (which is an i32)
             //      * when equals to "gnu" -> libc::RLIMIT_NOFILE is __rlimit_resource_t which is a
             //        c_uint (which is an u32)
-            Resource::RlimitNoFile => libc::RLIMIT_NOFILE as u32,
+            Resource::NoFile => libc::RLIMIT_NOFILE as u32,
+            #[allow(clippy::unnecessary_cast)]
+            #[allow(clippy::cast_possible_wrap)]
+            // Definition of libc::RLIMIT_MEMLOCK depends on the target_env:
+            //      * when equals to "musl" -> libc::RLIMIT_MEMLOCK is a c_int (which is an i32)
+            //      * when equals to "gnu" -> libc::RLIMIT_MEMLOCK is __rlimit_resource_t which is
+            //        a c_uint (which is an u32)
+            Resource::Memlock => libc::RLIMIT_MEMLOCK as u32,
         }
     }
 }
@@ -53,14 +64,21 @@ impl From<Resource> for i32 {
             //      * when equals to "musl" -> libc::RLIMIT_FSIZE is a c_int (which is an i32)
             //      * when equals to "gnu" -> libc::RLIMIT_FSIZE is __rlimit_resource_t which is a
             //        c_uint (which is an u32)
-            Resource::RlimitFsize => libc::RLIMIT_FSIZE as i32,
+            Resource::Fsize => libc::RLIMIT_FSIZE as i32,
             #[allow(clippy::unnecessary_cast)]
             #[allow(clippy::cast_possible_wrap)]
             // Definition of libc::RLIMIT_NOFILE depends on the target_env:
             //      * when equals to "musl" -> libc::RLIMIT_NOFILE is a c_int (which is an i32)
             //      * when equals to "gnu" -> libc::RLIMIT_NOFILE is __rlimit_resource_t which is a
             //        c_uint (which is an u32)
-            Resource::RlimitNoFile => libc::RLIMIT_NOFILE as i32,
+            Resource::NoFile => libc::RLIMIT_NOFILE as i32,
+            #[allow(clippy::unnecessary_cast)]
+            #[allow(clippy::cast_possible_wrap)]
+            // Definition of libc::RLIMIT_MEMLOCK depends on the target_env:
+            //      * when equals to "musl" -> libc::RLIMIT_MEMLOCK is a c_int (which is an i32)
+            //      * when equals to "gnu" -> libc::RLIMIT_MEMLOCK is __rlimit_resource_t which is
+            //        a c_uint (which is an u32)
+            Resource::Memlock => libc::RLIMIT_MEMLOCK as i32,
         }
     }
 }
@@ -68,8 +86,9 @@ impl From<Resource> for i32 {
 impl Display for Resource {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Resource::RlimitFsize => write!(f, "size of file"),
-            Resource::RlimitNoFile => write!(f, "number of file descriptors"),
+            Resource::Fsize => write!(f, "size of file"),
+            Resource::NoFile => write!(f, "number of file descriptors"),
+            Resource::Memlock => write!(f, "size of locked memory"),
         }
     }
 }
@@ -78,6 +97,7 @@ impl Display for Resource {
 pub struct ResourceLimits {
     file_size: Option<u64>,
     no_file: u64,
+    memlock: Option<u64>,
 }
 
 impl Default for ResourceLimits {
@@ -85,6 +105,7 @@ impl Default for ResourceLimits {
         ResourceLimits {
             file_size: None,
             no_file: NO_FILE,
+            memlock: None,
         }
     }
 }
@@ -93,10 +114,14 @@ impl ResourceLimits {
     pub fn install(self) -> Result<(), JailerError> {
         if let Some(file_size) = self.file_size {
             // Set file size limit.
-            ResourceLimits::set_limit(Resource::RlimitFsize, file_size)?;
+            ResourceLimits::set_limit(Resource::Fsize, file_size)?;
         }
         // Set limit on number of file descriptors.
-        ResourceLimits::set_limit(Resource::RlimitNoFile, self.no_file)?;
+        ResourceLimits::set_limit(Resource::NoFile, self.no_file)?;
+        if let Some(memlock) = self.memlock {
+            // Set locked memory size limit.
+            ResourceLimits::set_limit(Resource::Memlock, memlock)?;
+        }
 
         Ok(())
     }
@@ -121,6 +146,10 @@ impl ResourceLimits {
     pub fn set_no_file(&mut self, no_file: u64) {
         self.no_file = no_file;
     }
+
+    pub fn set_memlock(&mut self, memlock: u64) {
+        self.memlock = Some(memlock);
+    }
 }
 
 #[cfg(test)]
@@ -130,23 +159,24 @@ mod tests {
 
     #[test]
     #[allow(clippy::unnecessary_cast)]
+    #[allow(clippy::cast_possible_wrap)]
     fn test_from_resource() {
-        assert_eq!(u32::from(Resource::RlimitFsize), libc::RLIMIT_FSIZE as u32);
-        assert_eq!(
-            u32::from(Resource::RlimitNoFile),
-            libc::RLIMIT_NOFILE as u32
-        );
+        assert_eq!(u32::from(Resource::Fsize), libc::RLIMIT_FSIZE as u32);
+        assert_eq!(u32::from(Resource::NoFile), libc::RLIMIT_NOFILE as u32);
+        assert_eq!(u32::from(Resource::Memlock), libc::RLIMIT_MEMLOCK as u32);
+        assert_eq!(i32::from(Resource::Memlock), libc::RLIMIT_MEMLOCK as i32);
     }
 
     #[test]
     fn test_display_resource() {
+        assert_eq!(Resource::Fsize.to_string(), "size of file".to_string());
         assert_eq!(
-            Resource::RlimitFsize.to_string(),
-            "size of file".to_string()
+            Resource::NoFile.to_string(),
+            "number of file descriptors".to_string()
         );
         assert_eq!(
-            Resource::RlimitNoFile.to_string(),
-            "number of file descriptors".to_string()
+            Resource::Memlock.to_string(),
+            "size of locked memory".to_string()
         );
     }
 
@@ -160,11 +190,14 @@ mod tests {
         assert_eq!(rlimits.file_size.unwrap(), 1);
         rlimits.set_no_file(1);
         assert_eq!(rlimits.no_file, 1);
+        assert!(rlimits.memlock.is_none());
+        rlimits.set_memlock(1);
+        assert_eq!(rlimits.memlock.unwrap(), 1);
     }
 
     #[test]
     fn test_set_resource_limits() {
-        let resource = Resource::RlimitNoFile;
+        let resource = Resource::NoFile;
         let new_limit = NO_FILE - 1;
         // Get current file size limit.
         let mut rlim: libc::rlimit = libc::rlimit {
@@ -196,13 +229,25 @@ mod tests {
         let new_no_file_limit = 1000;
         rlimits.set_file_size(new_file_size_limit);
         rlimits.set_no_file(new_no_file_limit);
+        // Lowering a limit needs no privilege: pick a value below the current hard limit.
+        let mut current_memlock: libc::rlimit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        unsafe { libc::getrlimit(Resource::Memlock.into(), &mut current_memlock) };
+        let new_memlock_limit = if current_memlock.rlim_max == libc::RLIM_INFINITY {
+            1 << 26
+        } else {
+            current_memlock.rlim_max / 2
+        };
+        rlimits.set_memlock(new_memlock_limit);
 
         // Install the new limits to file size and
         // the number of file descriptors
         rlimits.install().unwrap();
 
         // Verify the new limit for file size
-        let file_size_resource = Resource::RlimitFsize;
+        let file_size_resource = Resource::Fsize;
         let mut file_size_limit: libc::rlimit = libc::rlimit {
             rlim_cur: 0,
             rlim_max: 0,
@@ -212,7 +257,7 @@ mod tests {
         assert_eq!(file_size_limit.rlim_max, new_file_size_limit);
 
         // Verify the new limit for the number of file descriptors
-        let file_descriptor_resource = Resource::RlimitNoFile;
+        let file_descriptor_resource = Resource::NoFile;
         let mut file_descriptor_limit: libc::rlimit = libc::rlimit {
             rlim_cur: 0,
             rlim_max: 0,
@@ -220,5 +265,14 @@ mod tests {
         unsafe { libc::getrlimit(file_descriptor_resource.into(), &mut file_descriptor_limit) };
         assert_eq!(file_descriptor_limit.rlim_cur, new_no_file_limit);
         assert_eq!(file_descriptor_limit.rlim_max, new_no_file_limit);
+
+        // Verify the new limit for locked memory
+        let mut memlock_limit: libc::rlimit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        unsafe { libc::getrlimit(Resource::Memlock.into(), &mut memlock_limit) };
+        assert_eq!(memlock_limit.rlim_cur, new_memlock_limit);
+        assert_eq!(memlock_limit.rlim_max, new_memlock_limit);
     }
 }
