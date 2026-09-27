@@ -177,17 +177,19 @@ def test_hinting_fault_latency(
 
 
 # pylint: disable=C0103
+@pytest.mark.parametrize("backing", ["anonymous", "memfd"])
 @pytest.mark.parametrize("method", ["traditional", "hinting", "reporting"])
-def test_size_reduction(uvm, method, huge_pages):
+def test_size_reduction(uvm, rootfs, method, backing, huge_pages):
     """
     Verify that ballooning reduces RSS usage on a newly booted guest.
     """
     traditional_balloon = method == "traditional"
     free_page_reporting = method == "reporting"
     free_page_hinting = method == "hinting"
+    memfd_backing = backing == "memfd"
 
     if huge_pages != HugePagesConfig.NONE:
-        if not supports_hugetlbfs_discard():
+        if not memfd_backing and not supports_hugetlbfs_discard():
             pytest.skip("Host does not support hugetlb discard")
 
         if traditional_balloon:
@@ -195,7 +197,12 @@ def test_size_reduction(uvm, method, huge_pages):
 
     test_microvm = uvm
     test_microvm.spawn()
-    test_microvm.basic_config(huge_pages=huge_pages)
+    test_microvm.basic_config(huge_pages=huge_pages, add_root_device=not memfd_backing)
+    if memfd_backing:
+        # Guest memory is only backed by a memfd when a vhost-user device is attached.
+        test_microvm.add_vhost_user_drive(
+            "rootfs", rootfs, is_root_device=True, is_read_only=True
+        )
     test_microvm.add_net_iface()
 
     # Add a memory balloon.
