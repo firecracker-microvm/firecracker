@@ -1576,7 +1576,7 @@ impl Drop for VfioPciDevice {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::collections::HashMap;
     use std::fs::File;
     use std::os::fd::FromRawFd;
@@ -1897,6 +1897,25 @@ mod tests {
 
     fn default_device(dynamic_msix: bool) -> TestDevice {
         build(mock_file(), mock_regions(None), dynamic_msix)
+    }
+
+    /// A mock device like [`default_device`], with the given id, at `sbdf` in `vm`.
+    pub(crate) fn mock_vfio_device(id: &str, sbdf: PciSBDF, vm: Arc<KvmVm>) -> VfioPciDevice {
+        let mock = MockDevice {
+            regions: mock_regions(None),
+            irqs: mock_irqs(true),
+            file: mock_file(),
+            state: Arc::default(),
+        };
+        VfioPciDevice::with_io(
+            id.to_string(),
+            sbdf,
+            id.to_string(),
+            Path::new("/sys/bus/pci/devices").join(id),
+            Box::new(mock),
+            vm,
+        )
+        .unwrap()
     }
 
     /// Place BARs as the PCI manager does: reserved at the top of the MMIO windows of the VM.
@@ -2560,7 +2579,7 @@ mod tests {
     }
 
     /// A VM with guest memory and its interrupt controller, which INTx routing needs.
-    fn setup_vm_with_irqchip() -> KvmVm {
+    pub(crate) fn setup_vm_with_irqchip() -> KvmVm {
         #[cfg(target_arch = "x86_64")]
         {
             let vm = setup_vm_with_memory(0x1000_0000);

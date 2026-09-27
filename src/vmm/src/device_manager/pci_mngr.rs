@@ -254,22 +254,49 @@ impl PciDevices {
         }
         // Only one attach is supported: all the devices must share a single IOMMU context.
         assert!(self.vfio_context.is_none());
-        let pci_segment = &self.pci_segment;
 
         let paths: Vec<&Path> = configs.iter().map(|&(_, path)| path).collect();
         let (context, opened) = VfioContext::new(vm, &paths)?;
+        self.add_vfio_devices(
+            vm,
+            configs.iter().zip(opened).map(|((id, _), opened)| {
+                move |sbdf: PciSBDF| VfioPciDevice::new(id.clone(), sbdf, opened, vm.clone())
+            }),
+        )?;
+        self.vfio_context = Some(context);
 
-        let mut devices = Vec::with_capacity(configs.len());
+        Ok(())
+    }
+
+    /// Add passthrough devices to the PCI bus, each built by its constructor at the SBDF it is
+    /// given, then place and map the BARs of all of them.
+    fn add_vfio_devices<F>(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        constructors: impl IntoIterator<Item = F>,
+    ) -> Result<(), PciManagerError>
+    where
+        F: FnOnce(PciSBDF) -> Result<VfioPciDevice, VfioPciError>,
+    {
+        let mut devices = Vec::new();
         let mut intx_gsis = IntxGsis::default();
-        for ((id, _), opened) in configs.iter().zip(opened) {
-            let sbdf = pci_segment.next_device_sbdf()?;
-            debug!("Allocating SBDF: {sbdf:?} for VFIO device {id}");
-            let mut device = VfioPciDevice::new(id.clone(), sbdf, opened, vm.clone())?;
+        for constructor in constructors {
+            // The bus does not reserve the device ID it hands out: each device is added to the
+            // bus before the next ID is taken.
+            let sbdf = self.pci_segment.next_device_sbdf()?;
+            let mut device = constructor(sbdf)?;
+            debug!("Allocating SBDF: {sbdf:?} for VFIO device {}", device.id());
             if device.supports_intx() {
                 let gsi = intx_gsis.next(&mut vm.resource_allocator())?;
-                debug!("vfio: routing INTx of {id} to GSI {gsi}");
+                debug!("vfio: routing INTx of {} to GSI {gsi}", device.id());
                 device.route_intx(gsi)?;
             }
+            let device = Arc::new(Mutex::new(device));
+            self.pci_segment
+                .pci_bus
+                .lock()
+                .expect("Poisoned lock")
+                .add_device(sbdf.device(), device.clone())?;
             devices.push(device);
         }
 
@@ -277,14 +304,19 @@ impl PciDevices {
             .iter()
             .enumerate()
             .flat_map(|(device, vfio)| {
-                vfio.bar_requirements()
+                vfio.lock()
+                    .expect("Poisoned lock")
+                    .bar_requirements()
                     .into_iter()
                     .map(move |requirement| (device, requirement))
             })
             .collect();
         let placements = place_vfio_bars(&mut vm.resource_allocator(), requirements)?;
         for (device, slot, guest_addr) in placements {
-            devices[device].place_bar(slot, guest_addr);
+            devices[device]
+                .lock()
+                .expect("Poisoned lock")
+                .place_bar(slot, guest_addr);
         }
 
         #[cfg(target_arch = "x86_64")]
@@ -292,32 +324,26 @@ impl PciDevices {
             // The ACPI PCI routing table of the segment maps INTA of each slot to its GSI.
             let pci_segment = &mut self.pci_segment;
             for device in &devices {
-                if let Some(gsi) = device.intx_gsi() {
-                    pci_segment.pci_irq_slots[usize::from(device.sbdf().device())] =
+                let vfio = device.lock().expect("Poisoned lock");
+                if let Some(gsi) = vfio.intx_gsi() {
+                    pci_segment.pci_irq_slots[usize::from(vfio.sbdf().device())] =
                         u8::try_from(gsi).expect("x86 legacy GSIs fit in a byte");
                 }
             }
         }
-        let pci_segment = &self.pci_segment;
 
-        for mut device in devices {
-            device.map_bars()?;
-            let ranges = device.mmio_ranges();
-            let sbdf_device = device.sbdf().device();
-            let id = device.id().to_string();
-            let device = Arc::new(Mutex::new(device));
-            pci_segment
-                .pci_bus
-                .lock()
-                .expect("Poisoned lock")
-                .add_device(sbdf_device, device.clone())?;
+        for device in devices {
+            let (id, ranges) = {
+                let mut vfio = device.lock().expect("Poisoned lock");
+                vfio.map_bars()?;
+                (vfio.id().to_string(), vfio.mmio_ranges())
+            };
             for (base, len) in ranges {
                 debug!("vfio: trapping BAR range {base:#x}:{len:#x} on the MMIO bus");
                 vm.common.mmio_bus.insert(device.clone(), base, len)?;
             }
             self.vfio_devices.insert(id, device);
         }
-        self.vfio_context = Some(context);
 
         Ok(())
     }
@@ -1239,6 +1265,62 @@ mod tests {
         let mut allocator = ResourceAllocator::new();
         while allocator.allocate_gsi_legacy(1).is_ok() {}
         IntxGsis::default().next(&mut allocator).unwrap_err();
+    }
+
+    #[test]
+    fn test_add_vfio_devices() {
+        use crate::devices::vfio::pci::tests::{mock_vfio_device, setup_vm_with_irqchip};
+
+        let vm = Arc::new(setup_vm_with_irqchip());
+        let mut pci_devices = PciDevices::new(&vm).unwrap();
+        let first = pci_devices.pci_segment.next_device_sbdf().unwrap().device();
+
+        // The bus does not reserve the device IDs it hands out, yet every device gets a slot of
+        // its own, as all the functions of an IOMMU group attached to one microVM need.
+        let ids = ["gpu0", "audio0"];
+        pci_devices
+            .add_vfio_devices(
+                &vm,
+                ids.map(|id| {
+                    let vm = vm.clone();
+                    move |sbdf| Ok(mock_vfio_device(id, sbdf, vm))
+                }),
+            )
+            .unwrap();
+        let slot_of = |id: &str| pci_devices.vfio_devices[id].lock().unwrap().sbdf().device();
+        assert_eq!(ids.map(&slot_of), [first, first + 1]);
+        {
+            let bus = pci_devices.pci_segment.pci_bus.lock().unwrap();
+            for id in ids {
+                assert!(bus.get_device(slot_of(id)).is_some());
+            }
+        }
+        assert_eq!(
+            pci_devices.pci_segment.next_device_sbdf().unwrap().device(),
+            first + 2
+        );
+
+        // Each INTA pin is routed to a GSI of its own, for the slot of its device.
+        let routes = pci_devices.intx_routes();
+        let slots: Vec<u8> = routes.iter().map(|&(slot, _)| slot).collect();
+        assert_eq!(slots, [first, first + 1]);
+        assert_ne!(routes[0].1, routes[1].1);
+        #[cfg(target_arch = "x86_64")]
+        for (slot, gsi) in routes {
+            let pci_irq_slot = pci_devices.pci_segment.pci_irq_slots[usize::from(slot)];
+            assert_eq!(u32::from(pci_irq_slot), gsi);
+        }
+
+        // The BARs of the devices do not overlap.
+        let mut ranges: Vec<(u64, u64)> = pci_devices
+            .vfio_devices
+            .values()
+            .flat_map(|device| device.lock().unwrap().mmio_ranges())
+            .collect();
+        ranges.sort_unstable();
+        for pair in ranges.windows(2) {
+            assert!(pair[0].0 + pair[0].1 <= pair[1].0, "{pair:x?}");
+        }
     }
 
     #[test]
