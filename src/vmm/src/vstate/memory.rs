@@ -32,7 +32,7 @@ use crate::logger::error;
 use crate::utils::{mib_to_bytes, u64_to_usize};
 use crate::vmm_config::machine_config::HugePageConfig;
 use crate::vstate::vm::{KvmVm, VmError};
-use crate::{DirtyBitmap, align_up, warn_unrestricted};
+use crate::{DirtyBitmap, align_down, align_up, warn_unrestricted};
 
 /// Type of GuestMemoryMmap.
 pub type GuestMemoryMmap = vm_memory::GuestRegionCollection<GuestRegionMmapExt>;
@@ -148,6 +148,8 @@ impl GuestMemorySlice {
 const GUEST_MEMORY_ALIGNMENT: usize = mib_to_bytes(2);
 /// A mask to extract mmap's flags related to HUGETLB
 const HUGETLB_FLAG_MASK: libc::c_int = libc::MAP_HUGETLB | (0x3F << libc::MAP_HUGE_SHIFT);
+/// Source for zeroing guest memory, kept small so that it stays in cache while copying.
+static ZEROS: [u8; 4096] = [0; 4096];
 
 /// Errors associated with dumping guest memory to file.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -713,7 +715,7 @@ impl GuestRegionMmapExt {
         len: usize,
     ) -> Result<(), GuestMemoryError> {
         // caddr is guaranteed to be within the region by the caller
-        // (try_for_each_region_in_range validates this).
+        // (try_for_each_region_in_range and discard_range validate this).
         let from = self
             .start_addr()
             .checked_add(caddr.raw_value())
@@ -849,26 +851,58 @@ impl GuestRegionMmapExt {
         let page_size = host_page_size() as u64;
         let start = caddr.raw_value();
         let aligned = start.is_multiple_of(page_size) && (len as u64).is_multiple_of(page_size);
-        let in_region = start
+        let Some(end) = start
             .checked_add(len as u64)
-            .is_some_and(|end| end <= self.len());
-        if !aligned || !in_region {
+            .filter(|&end| aligned && end <= self.len())
+        else {
             return Err(GuestMemoryError::InvalidGuestAddress(
                 self.start_addr().unchecked_add(start),
             ));
-        }
+        };
 
+        // Only whole backing pages can be freed. With hugetlbfs, the partial huge pages at either
+        // end of the range are zeroed instead, which allocates them if they were not backed yet.
+        // Linux guests inflate the traditional balloon at most 1 MiB at a time, so with
+        // hugetlbfs, inflation frees nothing and can increase host memory use. Free page hinting
+        // reports whole huge pages, and so does free page reporting by default.
+        let backing_page_size = RawGuestRegionMmap::page_size(self.inner.flags()) as u64;
+        let backing_aligned_start = align_up!(start, backing_page_size).min(end);
+        let backing_aligned_end = align_down!(end, backing_page_size).max(backing_aligned_start);
+        let backing_aligned_addr = MemoryRegionAddress(backing_aligned_start);
+        let backing_aligned_len = u64_to_usize(backing_aligned_end - backing_aligned_start);
         match (self.inner.file_offset(), self.inner.flags()) {
+            _ if backing_aligned_len == 0 => (),
             // If and only if we are resuming from a snapshot file, we have a file and it's mapped
             // private
             (Some(_), flags) if flags & libc::MAP_PRIVATE != 0 => {
-                self.remap_anonymous_range(caddr, len)?
+                self.remap_anonymous_range(backing_aligned_addr, backing_aligned_len)?
             }
             // TODO: madvise(MADV_DONTNEED) doesn't actually work with memfd
             // (or in general MAP_SHARED of a fd). In those cases we should use
             // fallocate64(FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE).
-            (Some(_), _) => self.madvise_range(caddr, len, libc::MADV_DONTNEED)?,
-            (None, _) => self.madvise_range(caddr, len, libc::MADV_DONTNEED)?,
+            (Some(_), _) => self.madvise_range(
+                backing_aligned_addr,
+                backing_aligned_len,
+                libc::MADV_DONTNEED,
+            )?,
+            (None, _) => self.madvise_range(
+                backing_aligned_addr,
+                backing_aligned_len,
+                libc::MADV_DONTNEED,
+            )?,
+        }
+
+        for (edge_start, edge_end) in [(start, backing_aligned_start), (backing_aligned_end, end)] {
+            let edge_addr = MemoryRegionAddress(edge_start);
+            let edge_len = u64_to_usize(edge_end - edge_start);
+            // Unplugged slots are PROT_NONE, and snapshots store them as holes.
+            if edge_len == 0 || self.check_range_plugged(edge_addr, edge_len).is_err() {
+                continue;
+            }
+            assert!(edge_len.is_multiple_of(ZEROS.len()));
+            for offset in (edge_start..edge_end).step_by(ZEROS.len()) {
+                self.write_slice(&ZEROS, MemoryRegionAddress(offset))?;
+            }
         }
         Ok(())
     }
@@ -1240,7 +1274,7 @@ where
     where
         F: FnMut(&GuestRegionMmapExt, MemoryRegionAddress, usize) -> Result<(), GuestMemoryError>;
 
-    /// Discards a memory range, freeing up memory pages
+    /// Discards a memory range, freeing the whole backing pages inside it and zeroing the rest
     fn discard_range(&self, addr: GuestAddress, range_len: usize) -> Result<(), GuestMemoryError>;
 
     /// Check whether the given guest address range falls entirely within plugged memory.
@@ -2251,6 +2285,83 @@ mod tests {
                 .unwrap_err(),
             GuestMemoryError::InvalidGuestAddress(_)
         );
+    }
+
+    #[test]
+    fn test_discard_range_on_hugetlb_zeroes_partial_pages() {
+        if free_hugepages_2m() < 2 {
+            println!("Skipping: fewer than two free 2 MiB hugepages available");
+            return;
+        }
+        let page_size = HugePageConfig::Hugetlbfs2M.page_size();
+        let mem = into_region_ext(
+            anonymous(
+                &[(GuestAddress(0), 2 * page_size)],
+                false,
+                HugePageConfig::Hugetlbfs2M,
+            )
+            .unwrap(),
+        );
+        mem.write(&vec![1; 2 * page_size], GuestAddress(0)).unwrap();
+
+        mem.discard_range(GuestAddress(0), host_page_size())
+            .unwrap();
+        mem.discard_range(GuestAddress(host_page_size() as u64), page_size)
+            .unwrap();
+        assert_match!(
+            mem.discard_range(GuestAddress(0x20), host_page_size())
+                .unwrap_err(),
+            GuestMemoryError::InvalidGuestAddress(_)
+        );
+
+        let discarded_len = page_size + host_page_size();
+        let mut actual = vec![0; 2 * page_size];
+        mem.read(&mut actual, GuestAddress(0)).unwrap();
+        let expected = [
+            vec![0; discarded_len],
+            vec![1; 2 * page_size - discarded_len],
+        ]
+        .concat();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_discard_range_on_hugetlb_skips_unplugged_slots() {
+        if free_hugepages_2m() < 2 {
+            println!("Skipping: fewer than two free 2 MiB hugepages available");
+            return;
+        }
+        let page_size = HugePageConfig::Hugetlbfs2M.page_size();
+        let mmap_region = anonymous(
+            &[(GuestAddress(0), 2 * page_size)],
+            false,
+            HugePageConfig::Hugetlbfs2M,
+        )
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+        let region = GuestRegionMmapExt::hotpluggable_from_mmap_region(mmap_region, 0, page_size);
+        region.plugged.lock().unwrap().set(0, true);
+        region.mem_slot(1).protect(true).unwrap();
+        region
+            .write_slice(&vec![1; page_size], MemoryRegionAddress(0))
+            .unwrap();
+
+        region
+            .discard_range(MemoryRegionAddress(host_page_size() as u64), page_size)
+            .unwrap();
+
+        let mut actual = vec![0; page_size];
+        region
+            .read_slice(&mut actual, MemoryRegionAddress(0))
+            .unwrap();
+        let expected = [
+            vec![1; host_page_size()],
+            vec![0; page_size - host_page_size()],
+        ]
+        .concat();
+        assert_eq!(actual, expected);
     }
 
     /// Verifies that `slots_intersecting_range` returns the correct slots for
