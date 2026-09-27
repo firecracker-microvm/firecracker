@@ -34,6 +34,8 @@ pub mod pmem;
 /// Wrapper for configuring microVM snapshots and the microVM state.
 pub mod serial;
 pub mod snapshot;
+/// Wrapper for configuring VFIO based PCIe device passthrough.
+pub mod vfio;
 /// Wrapper for configuring the vsock devices attached to the microVM.
 pub mod vsock;
 

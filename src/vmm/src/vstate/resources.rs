@@ -99,6 +99,14 @@ impl ResourceAllocator {
         allocate_many_ids(&mut self.gsi_legacy_allocator, gsi_count)
     }
 
+    /// Allocate the lowest free legacy GSI that is at least `min`.
+    pub fn allocate_gsi_legacy_from(&mut self, min: u32) -> Result<u32, vm_allocator::Error> {
+        let gsi = (arch::GSI_LEGACY_START..=arch::GSI_LEGACY_END)
+            .find(|&gsi| gsi >= min && !self.gsi_legacy_allocator.is_allocated(gsi))
+            .ok_or(vm_allocator::Error::ResourceNotAvailable)?;
+        self.gsi_legacy_allocator.allocate_id_at(gsi)
+    }
+
     /// Allocate a number of GSIs for MSI
     ///
     /// # Arguments
@@ -311,6 +319,32 @@ mod tests {
             for i in arch::GSI_LEGACY_START + 2..=arch::GSI_LEGACY_END {
                 assert_eq!(allocator.allocate_gsi_legacy(1), Ok(vec![i]));
             }
+        }
+
+        #[test]
+        fn test_allocate_gsi_legacy_from() {
+            let start = arch::GSI_LEGACY_START;
+            let mut allocator = ResourceAllocator::new();
+            // The lowest free GSI from `min`, leaving the lower ones free.
+            assert_eq!(allocator.allocate_gsi_legacy_from(start + 3), Ok(start + 3));
+            assert_eq!(allocator.allocate_gsi_legacy_from(start + 3), Ok(start + 4));
+            assert_eq!(
+                allocator.allocate_gsi_legacy(3),
+                Ok(vec![start, start + 1, start + 2])
+            );
+            assert_eq!(allocator.allocate_gsi_legacy(1), Ok(vec![start + 5]));
+            // Nothing free from `min`: the lower GSIs stay free.
+            let mut allocator = ResourceAllocator::new();
+            assert_eq!(
+                allocator.allocate_gsi_legacy_from(arch::GSI_LEGACY_END + 1),
+                Err(vm_allocator::Error::ResourceNotAvailable)
+            );
+            assert_eq!(
+                allocator
+                    .allocate_gsi_legacy(GSI_LEGACY_NUM)
+                    .map(|gsis| gsis.len()),
+                Ok(GSI_LEGACY_NUM as usize)
+            );
         }
 
         #[test]

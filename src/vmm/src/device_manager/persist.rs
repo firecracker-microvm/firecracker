@@ -888,6 +888,7 @@ mod tests {
       "rate_limiter": null
     }}
   ],
+  "vfio": [],
   "memory-hotplug": {{
     "total_size_mib": 1024,
     "block_size_mib": 2,

@@ -25,6 +25,7 @@ use crate::cpu_config::templates::StaticCpuTemplate;
 use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 #[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
+use crate::device_manager::pci_mngr::PciDevices;
 use crate::device_manager::{DevicePersistError, DevicesState};
 // Re-exported so external crates inspecting a `MicrovmState` snapshot can match on the
 // serialised virtio transport variant.
@@ -160,6 +161,8 @@ pub enum CreateSnapshotError {
     SerializeMicrovmState(#[from] crate::snapshot::SnapshotError),
     /// Cannot perform {0} on the snapshot backing file: {1}
     SnapshotBackingFile(&'static str, io::Error),
+    /// Snapshotting a microVM with a VFIO passthrough device attached is not supported
+    VfioNotSupported,
 }
 
 /// Snapshot version
@@ -171,6 +174,17 @@ pub fn create_snapshot(
     vm_info: &VmInfo,
     params: &CreateSnapshotParams,
 ) -> Result<(), CreateSnapshotError> {
+    // The internal state of a physically assigned (VFIO passthrough) device lives in the hardware
+    // and cannot be captured, so reject snapshots while any such device is attached rather than
+    // silently producing an unrestorable snapshot.
+    if vmm
+        .device_manager
+        .pci_devices()
+        .is_some_and(PciDevices::has_vfio_devices)
+    {
+        return Err(CreateSnapshotError::VfioNotSupported);
+    }
+
     let microvm_state = vmm
         .save_state(vm_info)
         .map_err(CreateSnapshotError::MicrovmState)?;

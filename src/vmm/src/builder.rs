@@ -54,6 +54,7 @@ use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::pmem::PmemConfig;
+use crate::vmm_config::vfio::VfioDeviceConfig;
 use crate::vstate::kvm::{Kvm, KvmError};
 use crate::vstate::memory::GuestRegionMmap;
 #[cfg(target_arch = "aarch64")]
@@ -115,6 +116,8 @@ pub enum StartMicrovmError {
     SetVmResources(MachineConfigError),
     /// Cannot create the entropy device: {0}
     CreateEntropyDevice(crate::devices::virtio::rng::EntropyError),
+    /// VFIO device passthrough cannot be combined with {0}
+    VfioIncompatible(&'static str),
     /// Failed to allocate guest resource: {0}
     AllocateResources(#[from] vm_allocator::Error),
     /// Error starting GDB debug session: {0}
@@ -154,6 +157,8 @@ pub fn build_microvm_for_boot(
         .builder
         .as_ref()
         .ok_or(StartMicrovmError::MissingKernelConfig)?;
+
+    validate_vfio_config(vm_resources)?;
 
     let (guest_memory, mut memfd_backing) = vm_resources
         .allocate_guest_memory()
@@ -257,6 +262,7 @@ pub fn build_microvm_for_boot(
         &vm_resources.pmem.configs,
         event_manager,
     )?;
+    attach_vfio_devices(&mut device_manager, &vm, &vm_resources.vfio.configs)?;
 
     if let Some(unix_vsock) = vm_resources.vsock.get() {
         attach_unixsock_vsock_device(
@@ -773,6 +779,45 @@ fn attach_pmem_devices(
         let device = Arc::new(Mutex::new(pmem));
 
         device_manager.attach_boot_virtio_device(vm, id, device, cmdline, event_manager, false)?;
+    }
+    Ok(())
+}
+
+fn attach_vfio_devices(
+    device_manager: &mut DeviceManager,
+    vm: &Vm,
+    configs: &[VfioDeviceConfig],
+) -> Result<(), StartMicrovmError> {
+    let configs: Vec<(String, &std::path::Path)> = configs
+        .iter()
+        .map(|config| (config.id.clone(), std::path::Path::new(&config.path)))
+        .collect();
+    device_manager.attach_vfio_devices(vm, &configs)?;
+    Ok(())
+}
+
+/// Check that the configuration can be used together with VFIO device passthrough.
+///
+/// An assigned device reaches guest memory through IOMMU mappings created at boot, which pin the
+/// guest pages. Features that hand guest memory back to the host while the VM runs would leave the
+/// device with mappings to pages the guest no longer sees: the balloon device (inflation, free
+/// page hinting and free page reporting all discard guest pages; QEMU rejects them with VFIO
+/// through `ram_block_discard_disable`) and memory hotplug (plugging and unplugging memory would
+/// need matching IOMMU mappings, which are not implemented).
+fn validate_vfio_config(vm_resources: &VmResources) -> Result<(), StartMicrovmError> {
+    if vm_resources.vfio.configs.is_empty() {
+        return Ok(());
+    }
+    if !vm_resources.pci_enabled {
+        return Err(StartMicrovmError::AttachDevice(
+            AttachDeviceError::PciNotEnabled,
+        ));
+    }
+    if vm_resources.balloon.get().is_some() {
+        return Err(StartMicrovmError::VfioIncompatible("a balloon device"));
+    }
+    if vm_resources.memory_hotplug.is_some() {
+        return Err(StartMicrovmError::VfioIncompatible("memory hotplug"));
     }
     Ok(())
 }
@@ -1527,6 +1572,63 @@ pub(crate) mod tests {
         assert!(cmdline_contains(
             &cmdline,
             "virtio_mmio.device=4K@0xc0001000:5"
+        ));
+    }
+
+    #[test]
+    fn test_validate_vfio_config() {
+        use crate::vmm_config::balloon::BalloonBuilder;
+        use crate::vmm_config::vfio::VfioDeviceConfig;
+
+        let mut resources = VmResources {
+            // The test default configures a balloon.
+            balloon: BalloonBuilder::new(),
+            ..Default::default()
+        };
+        // Without VFIO devices, nothing is checked.
+        validate_vfio_config(&resources).unwrap();
+
+        resources
+            .vfio
+            .insert(VfioDeviceConfig {
+                id: "gpu0".to_string(),
+                path: "/sys/bus/pci/devices/0000:01:00.0".to_string(),
+            })
+            .unwrap();
+        assert!(matches!(
+            validate_vfio_config(&resources),
+            Err(StartMicrovmError::AttachDevice(
+                AttachDeviceError::PciNotEnabled
+            ))
+        ));
+
+        resources.pci_enabled = true;
+        validate_vfio_config(&resources).unwrap();
+
+        resources.memory_hotplug = Some(MemoryHotplugConfig {
+            total_size_mib: 1024,
+            block_size_mib: 2,
+            slot_size_mib: 128,
+        });
+        assert!(matches!(
+            validate_vfio_config(&resources),
+            Err(StartMicrovmError::VfioIncompatible("memory hotplug"))
+        ));
+        resources.memory_hotplug = None;
+
+        resources
+            .balloon
+            .set(BalloonDeviceConfig {
+                amount_mib: 0,
+                deflate_on_oom: false,
+                stats_polling_interval_s: 0,
+                free_page_hinting: false,
+                free_page_reporting: false,
+            })
+            .unwrap();
+        assert!(matches!(
+            validate_vfio_config(&resources),
+            Err(StartMicrovmError::VfioIncompatible("a balloon device"))
         ));
     }
 }

@@ -44,6 +44,7 @@ use crate::vmm_config::net::{
 use crate::vmm_config::pmem::{PmemConfig, PmemConfigError, PmemDeviceUpdateConfig};
 use crate::vmm_config::serial::SerialConfig;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
+use crate::vmm_config::vfio::{VfioConfigError, VfioDeviceConfig};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
 
@@ -88,6 +89,9 @@ pub enum VmmAction {
     InsertPmemDevice(PmemConfig),
     /// Update an existing pmem device's rate limiter.
     UpdatePmemDevice(PmemDeviceUpdateConfig),
+    /// Assign a host PCI device to the microVM through VFIO passthrough. This action can only be
+    /// called before the microVM has booted and requires the PCIe transport to be enabled.
+    InsertVfioDevice(VfioDeviceConfig),
     /// Add a new network interface config or update one that already exists using the
     /// `NetworkInterfaceConfig` as input. This action can only be called before the microVM has
     /// booted.
@@ -177,6 +181,8 @@ pub enum VmmActionError {
     EntropyConfig(#[from] EntropyDeviceError),
     /// Pmem config error: {0}
     PmemConfig(#[from] PmemConfigError),
+    /// VFIO config error: {0}
+    VfioConfig(#[from] VfioConfigError),
     /// Memory hotplug config error: {0}
     MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
     /// Memory hotplug update error: {0}
@@ -476,6 +482,7 @@ impl<'a> PrebootApiController<'a> {
             GetVmmVersion => Ok(VmmData::VmmVersion(self.instance_info.vmm_version.clone())),
             InsertBlockDevice(config) => self.insert_block_device(config),
             InsertPmemDevice(config) => self.insert_pmem_device(config),
+            InsertVfioDevice(config) => self.insert_vfio_device(config),
             InsertNetworkDevice(config) => self.insert_net_device(config),
             LoadSnapshot(config) => self
                 .load_snapshot(&config)
@@ -557,6 +564,14 @@ impl<'a> PrebootApiController<'a> {
             .build_pmem_device(cfg)
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::PmemConfig)
+    }
+
+    fn insert_vfio_device(&mut self, cfg: VfioDeviceConfig) -> Result<VmmData, VmmActionError> {
+        self.boot_path = true;
+        self.vm_resources
+            .build_vfio_device(cfg)
+            .map(|()| VmmData::Empty)
+            .map_err(VmmActionError::VfioConfig)
     }
 
     fn set_balloon_device(&mut self, cfg: BalloonDeviceConfig) -> Result<VmmData, VmmActionError> {
@@ -852,6 +867,7 @@ impl RuntimeApiController {
             | ConfigureLogger(_)
             | ConfigureMetrics(_)
             | ConfigureSerial(_)
+            | InsertVfioDevice(_)
             | LoadSnapshot(_)
             | PutCpuConfiguration(_)
             | SetBalloonDevice(_)

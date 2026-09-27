@@ -13,6 +13,7 @@ pub mod acpi;
 pub mod legacy;
 pub mod pci;
 pub mod pseudo;
+pub mod vfio;
 pub mod virtio;
 
 use crate::devices::virtio::net::metrics::NetDeviceMetrics;

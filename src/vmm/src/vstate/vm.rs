@@ -666,7 +666,28 @@ impl KvmVm {
     /// Register a device IRQ
     pub fn register_irq(&self, fd: &EventFd, gsi: u32) -> Result<(), errno::Error> {
         self.common.fd.register_irqfd(fd, gsi)?;
+        self.add_irqchip_route(gsi);
+        Ok(())
+    }
 
+    /// Register a level-triggered device IRQ: KVM asserts `gsi` when `fd` is signalled and, when
+    /// the guest acknowledges the interrupt, deasserts it and signals `resample_fd`.
+    pub fn register_irq_with_resample(
+        &self,
+        fd: &EventFd,
+        resample_fd: &EventFd,
+        gsi: u32,
+    ) -> Result<(), errno::Error> {
+        self.common
+            .fd
+            .register_irqfd_with_resample(fd, resample_fd, gsi)?;
+        self.add_irqchip_route(gsi);
+        Ok(())
+    }
+
+    /// Route `gsi` to the pin of the same number of the interrupt controller. The route is part of
+    /// the table [`KvmVm::set_gsi_routes`] gives to KVM, which replaces the whole routing table.
+    fn add_irqchip_route(&self, gsi: u32) {
         let mut entry = kvm_irq_routing_entry {
             gsi,
             type_: KVM_IRQ_ROUTING_IRQCHIP,
@@ -693,7 +714,6 @@ impl KvmVm {
                     masked: false,
                 },
             );
-        Ok(())
     }
 
     /// Register an MSI device interrupt

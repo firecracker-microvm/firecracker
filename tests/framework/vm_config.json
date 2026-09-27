@@ -41,5 +41,6 @@
   "mmds-config": null,
   "entropy": null,
   "pmem": [],
+  "vfio": [],
   "memory-hotplug": null
 }

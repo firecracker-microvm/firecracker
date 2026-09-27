@@ -339,6 +339,37 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /vfio/{id}:
+    put:
+      summary: Assigns a host PCI device to the guest via VFIO passthrough. Pre-boot only.
+      description:
+        Assigns the host PCI device identified by its sysfs path to the microVM as a
+        passthrough PCIe device with ID specified by the id parameter.
+        Requires the PCIe transport to be enabled.
+      operationId: putGuestVfioByID
+      parameters:
+        - name: id
+          in: path
+          description: The id of the guest VFIO passthrough device
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: Guest VFIO passthrough device properties
+          required: true
+          schema:
+            $ref: "#/definitions/Vfio"
+      responses:
+        204:
+          description: VFIO passthrough device is created
+        400:
+          description: VFIO passthrough device cannot be created due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
   /pmem/{id}:
     put:
       summary: Creates or updates a pmem device. Pre-boot only.
@@ -1328,6 +1359,23 @@ definitions:
       rate_limiter:
         $ref: "#/definitions/RateLimiter"
 
+  Vfio:
+    type: object
+    required:
+      - id
+      - path
+    properties:
+      id:
+        type: string
+        description:
+          Identificator for this passthrough device.
+      path:
+        type: string
+        description:
+          Host sysfs path of the assigned PCI function, e.g.
+          /sys/bus/pci/devices/0000:01:00.0. The device must already be bound to the
+          vfio-pci driver on the host.
+
   Error:
     type: object
     properties:
@@ -1370,6 +1418,11 @@ definitions:
         description: Configurations for all pmem devices.
         items:
           $ref: "#/definitions/Pmem"
+      vfio:
+        type: array
+        description: Configurations for all VFIO passthrough devices.
+        items:
+          $ref: "#/definitions/Vfio"
       vsock:
         $ref: "#/definitions/Vsock"
       entropy:

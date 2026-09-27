@@ -351,7 +351,13 @@ impl VirtioPciDevice {
     /// This must happen only during the creation of a brand new VM. When a VM is restored from a
     /// known state, the BARs are already created with the right content, therefore we don't need
     /// to go through this codepath.
-    pub fn allocate_bars(&mut self, allocator: &mut AddressAllocator) {
+    ///
+    /// Fails when `allocator` has no room left for the BAR, which can happen once passthrough
+    /// devices with large BARs share its MMIO window.
+    pub fn allocate_bars(
+        &mut self,
+        allocator: &mut AddressAllocator,
+    ) -> Result<(), vm_allocator::Error> {
         // Allocate the virtio-pci capability BAR.
         // See http://docs.oasis-open.org/virtio/virtio/v1.0/cs04/virtio-v1.0-cs04.html#x1-740004
         self.bar_address = allocator
@@ -359,8 +365,7 @@ impl VirtioPciDevice {
                 CAPABILITY_BAR_SIZE,
                 CAPABILITY_BAR_SIZE,
                 AllocPolicy::FirstMatch,
-            )
-            .unwrap()
+            )?
             .start();
         self.bars.set_bar_64(
             VIRTIO_BAR_INDEX,
@@ -369,6 +374,7 @@ impl VirtioPciDevice {
             BarPrefetchable::No,
         );
         self.add_pci_capabilities();
+        Ok(())
     }
 
     /// Free the PCI BAR of the VirtIO device.

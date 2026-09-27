@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::collections::BTreeSet;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::mem::{self, size_of};
@@ -63,6 +64,8 @@ pub enum MptableError {
     WriteMpcTable,
     /// Failure to allocate memory for MPTable
     AllocateMemory(#[from] vm_allocator::Error),
+    /// Invalid PCI interrupt route from slot {0} to IOAPIC input {1}
+    InvalidPciIntxRoute(u8, u32),
 }
 
 // With APIC/xAPIC, there are only 255 APIC IDs available. And IOAPIC occupies
@@ -82,6 +85,10 @@ const MPC_SPEC: i8 = 4;
 const MPC_OEM: [c_char; 8] = char_array!(c_char; 'F', 'C', ' ', ' ', ' ', ' ', ' ', ' ');
 const MPC_PRODUCT_ID: [c_char; 12] = ['0' as c_char; 12];
 const BUS_TYPE_ISA: [u8; 6] = *b"ISA   ";
+const BUS_TYPE_PCI: [u8; 6] = *b"PCI   ";
+/// MP bus id of the PCI bus. Linux looks PCI interrupts up by PCI bus number in the MP table
+/// (`IO_APIC_get_PCI_irq_vector`), so it must be the PCI bus number: 0.
+const PCI_BUS_ID: u8 = 0;
 const IO_APIC_DEFAULT_PHYS_BASE: u32 = 0xfec0_0000; // source: linux/arch/x86/include/asm/apicdef.h
 const APIC_DEFAULT_PHYS_BASE: u32 = 0xfee0_0000; // source: linux/arch/x86/include/asm/apicdef.h
 const APIC_VERSION: u8 = 0x14;
@@ -102,27 +109,45 @@ fn mpf_intel_compute_checksum(v: &mpspec::mpf_intel) -> u8 {
     (!checksum).wrapping_add(1)
 }
 
-fn compute_mp_size(num_cpus: u8) -> usize {
+/// The IOAPIC inputs PCI interrupts are routed to.
+fn routed_pins(pci_intx_routes: &[(u8, u32)]) -> BTreeSet<u32> {
+    pci_intx_routes.iter().map(|&(_, gsi)| gsi).collect()
+}
+
+fn compute_mp_size(num_cpus: u8, pci_intx_routes: &[(u8, u32)]) -> usize {
+    let buses = if pci_intx_routes.is_empty() { 1 } else { 2 };
+    let isa_irqs = GSI_LEGACY_END as usize + 1 - routed_pins(pci_intx_routes).len();
     mem::size_of::<mpspec::mpf_intel>()
         + mem::size_of::<mpspec::mpc_table>()
         + mem::size_of::<mpspec::mpc_cpu>() * (num_cpus as usize)
         + mem::size_of::<mpspec::mpc_ioapic>()
-        + mem::size_of::<mpspec::mpc_bus>()
-        + mem::size_of::<mpspec::mpc_intsrc>() * (GSI_LEGACY_END as usize + 1)
+        + mem::size_of::<mpspec::mpc_bus>() * buses
+        + mem::size_of::<mpspec::mpc_intsrc>() * (isa_irqs + pci_intx_routes.len())
         + mem::size_of::<mpspec::mpc_lintsrc>() * 2
 }
 
-/// Performs setup of the MP table for the given `num_cpus`.
+/// Performs setup of the MP table for the given `num_cpus`, with the INTA pins of the PCI slots
+/// in `pci_intx_routes` routed to the given IOAPIC inputs, as `(slot, IOAPIC input)`.
 pub fn setup_mptable(
     mem: &GuestMemoryMmap,
     resource_allocator: &mut ResourceAllocator,
     num_cpus: u8,
+    pci_intx_routes: &[(u8, u32)],
 ) -> Result<(), MptableError> {
     if num_cpus > MAX_SUPPORTED_CPUS {
         return Err(MptableError::TooManyCpus);
     }
+    if let Some(&(slot, gsi)) = pci_intx_routes
+        .iter()
+        .find(|&&(slot, gsi)| slot >= 32 || gsi > GSI_LEGACY_END)
+    {
+        return Err(MptableError::InvalidPciIntxRoute(slot, gsi));
+    }
+    let routed_pins = routed_pins(pci_intx_routes);
+    // With PCI interrupts, the PCI bus takes MP bus id 0 (see `PCI_BUS_ID`) and the ISA bus id 1.
+    let isa_bus_id: u8 = if pci_intx_routes.is_empty() { 0 } else { 1 };
 
-    let mp_size = compute_mp_size(num_cpus);
+    let mp_size = compute_mp_size(num_cpus, pci_intx_routes);
     let mptable_addr = resource_allocator
         .system_memory
         .allocate(mp_size as u64, 1, AllocPolicy::FirstMatch)?
@@ -197,12 +222,16 @@ pub fn setup_mptable(
             mp_num_entries += 1;
         }
     }
-    {
+    let mut buses = vec![(isa_bus_id, BUS_TYPE_ISA)];
+    if !pci_intx_routes.is_empty() {
+        buses.insert(0, (PCI_BUS_ID, BUS_TYPE_PCI));
+    }
+    for (busid, bustype) in buses {
         let size = mem::size_of::<mpspec::mpc_bus>() as u64;
         let mpc_bus = mpspec::mpc_bus {
             type_: mpspec::MP_BUS.try_into().unwrap(),
-            busid: 0,
-            bustype: BUS_TYPE_ISA,
+            busid,
+            bustype,
         };
         mem.write_obj(mpc_bus, base_mp)
             .map_err(|_| MptableError::WriteMpcBus)?;
@@ -225,17 +254,30 @@ pub fn setup_mptable(
         checksum = checksum.wrapping_add(compute_checksum(&mpc_ioapic));
         mp_num_entries += 1;
     }
-    // Per kvm_setup_default_irq_routing() in kernel
-    for i in 0..=u8::try_from(GSI_LEGACY_END).map_err(|_| MptableError::TooManyIrqs)? {
+    // Per kvm_setup_default_irq_routing() in kernel. The IOAPIC inputs PCI interrupts are routed
+    // to are only described by their PCI entries.
+    let isa_irqs = (0..=u8::try_from(GSI_LEGACY_END).map_err(|_| MptableError::TooManyIrqs)?)
+        .filter(|&irq| !routed_pins.contains(&u32::from(irq)))
+        .map(|irq| (isa_bus_id, irq, irq));
+    // A PCI interrupt source is INTA (0) of a slot: `(slot << 2) | pin`. Its flags conform to the
+    // PCI bus: level-triggered and active low.
+    let pci_irqs = pci_intx_routes.iter().map(|&(slot, gsi)| {
+        (
+            PCI_BUS_ID,
+            slot << 2,
+            u8::try_from(gsi).expect("checked against GSI_LEGACY_END"),
+        )
+    });
+    for (srcbus, srcbusirq, dstirq) in isa_irqs.chain(pci_irqs) {
         let size = mem::size_of::<mpspec::mpc_intsrc>() as u64;
         let mpc_intsrc = mpspec::mpc_intsrc {
             type_: mpspec::MP_INTSRC.try_into().unwrap(),
             irqtype: mpspec::mp_irq_source_types::mp_INT.try_into().unwrap(),
             irqflag: mpspec::MP_IRQPOL_DEFAULT.try_into().unwrap(),
-            srcbus: 0,
-            srcbusirq: i,
+            srcbus,
+            srcbusirq,
             dstapic: ioapicid,
-            dstirq: i,
+            dstirq,
         };
         mem.write_obj(mpc_intsrc, base_mp)
             .map_err(|_| MptableError::WriteMpcIntsrc)?;
@@ -249,7 +291,7 @@ pub fn setup_mptable(
             type_: mpspec::MP_LINTSRC.try_into().unwrap(),
             irqtype: mpspec::mp_irq_source_types::mp_ExtINT.try_into().unwrap(),
             irqflag: mpspec::MP_IRQPOL_DEFAULT.try_into().unwrap(),
-            srcbusid: 0,
+            srcbusid: isa_bus_id,
             srcbusirq: 0,
             destapic: 0,
             destapiclint: 0,
@@ -266,7 +308,7 @@ pub fn setup_mptable(
             type_: mpspec::MP_LINTSRC.try_into().unwrap(),
             irqtype: mpspec::mp_irq_source_types::mp_NMI.try_into().unwrap(),
             irqflag: mpspec::MP_IRQPOL_DEFAULT.try_into().unwrap(),
-            srcbusid: 0,
+            srcbusid: isa_bus_id,
             srcbusirq: 0,
             destapic: 0xFF,
             destapiclint: 1,
@@ -334,28 +376,28 @@ mod tests {
     #[test]
     fn bounds_check() {
         let num_cpus = 4;
-        let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus));
+        let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus, &[]));
         let mut resource_allocator = ResourceAllocator::new();
 
-        setup_mptable(&mem, &mut resource_allocator, num_cpus).unwrap();
+        setup_mptable(&mem, &mut resource_allocator, num_cpus, &[]).unwrap();
     }
 
     #[test]
     fn bounds_check_fails() {
         let num_cpus = 4;
-        let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus) - 1);
+        let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus, &[]) - 1);
         let mut resource_allocator = ResourceAllocator::new();
 
-        setup_mptable(&mem, &mut resource_allocator, num_cpus).unwrap_err();
+        setup_mptable(&mem, &mut resource_allocator, num_cpus, &[]).unwrap_err();
     }
 
     #[test]
     fn mpf_intel_checksum() {
         let num_cpus = 1;
-        let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus));
+        let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus, &[]));
         let mut resource_allocator = ResourceAllocator::new();
 
-        setup_mptable(&mem, &mut resource_allocator, num_cpus).unwrap();
+        setup_mptable(&mem, &mut resource_allocator, num_cpus, &[]).unwrap();
 
         let mpf_intel: mpspec::mpf_intel = mem.read_obj(GuestAddress(SYSTEM_MEM_START)).unwrap();
 
@@ -365,10 +407,10 @@ mod tests {
     #[test]
     fn mpc_table_checksum() {
         let num_cpus = 4;
-        let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus));
+        let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus, &[]));
         let mut resource_allocator = ResourceAllocator::new();
 
-        setup_mptable(&mem, &mut resource_allocator, num_cpus).unwrap();
+        setup_mptable(&mem, &mut resource_allocator, num_cpus, &[]).unwrap();
 
         let mpf_intel: mpspec::mpf_intel = mem.read_obj(GuestAddress(SYSTEM_MEM_START)).unwrap();
         let mpc_offset = GuestAddress(u64::from(mpf_intel.physptr));
@@ -388,10 +430,10 @@ mod tests {
     #[test]
     fn mpc_entry_count() {
         let num_cpus = 1;
-        let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus));
+        let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus, &[]));
         let mut resource_allocator = ResourceAllocator::new();
 
-        setup_mptable(&mem, &mut resource_allocator, num_cpus).unwrap();
+        setup_mptable(&mem, &mut resource_allocator, num_cpus, &[]).unwrap();
 
         let mpf_intel: mpspec::mpf_intel = mem.read_obj(GuestAddress(SYSTEM_MEM_START)).unwrap();
         let mpc_offset = GuestAddress(u64::from(mpf_intel.physptr));
@@ -417,12 +459,12 @@ mod tests {
 
     #[test]
     fn cpu_entry_count() {
-        let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(MAX_SUPPORTED_CPUS));
+        let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(MAX_SUPPORTED_CPUS, &[]));
 
         for i in 0..MAX_SUPPORTED_CPUS {
             let mut resource_allocator = ResourceAllocator::new();
 
-            setup_mptable(&mem, &mut resource_allocator, i).unwrap();
+            setup_mptable(&mem, &mut resource_allocator, i, &[]).unwrap();
 
             let mpf_intel: mpspec::mpf_intel =
                 mem.read_obj(GuestAddress(SYSTEM_MEM_START)).unwrap();
@@ -451,10 +493,92 @@ mod tests {
     #[test]
     fn cpu_entry_count_max() {
         let cpus = MAX_SUPPORTED_CPUS + 1;
-        let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(cpus));
+        let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(cpus, &[]));
         let mut resource_allocator = ResourceAllocator::new();
 
-        let result = setup_mptable(&mem, &mut resource_allocator, cpus).unwrap_err();
+        let result = setup_mptable(&mem, &mut resource_allocator, cpus, &[]).unwrap_err();
         assert_eq!(result, MptableError::TooManyCpus);
+    }
+
+    /// The bus and interrupt source entries of the MP table written at `SYSTEM_MEM_START`.
+    fn read_buses_and_irqs(
+        mem: &GuestMemoryMmap,
+    ) -> (Vec<mpspec::mpc_bus>, Vec<mpspec::mpc_intsrc>, Vec<u8>) {
+        let mpf_intel: mpspec::mpf_intel = mem.read_obj(GuestAddress(SYSTEM_MEM_START)).unwrap();
+        let mpc_offset = GuestAddress(u64::from(mpf_intel.physptr));
+        let mpc_table: mpspec::mpc_table = mem.read_obj(mpc_offset).unwrap();
+        let mpc_end = mpc_offset.checked_add(u64::from(mpc_table.length)).unwrap();
+        let mut entry_offset = mpc_offset
+            .checked_add(mem::size_of::<mpspec::mpc_table>() as u64)
+            .unwrap();
+        let (mut buses, mut irqs, mut lint_buses) = (Vec::new(), Vec::new(), Vec::new());
+        while entry_offset < mpc_end {
+            let entry_type: u8 = mem.read_obj(entry_offset).unwrap();
+            match u32::from(entry_type) {
+                mpspec::MP_BUS => buses.push(mem.read_obj(entry_offset).unwrap()),
+                mpspec::MP_INTSRC => irqs.push(mem.read_obj(entry_offset).unwrap()),
+                mpspec::MP_LINTSRC => lint_buses.push(
+                    mem.read_obj::<mpspec::mpc_lintsrc>(entry_offset)
+                        .unwrap()
+                        .srcbusid,
+                ),
+                _ => {}
+            }
+            entry_offset = entry_offset
+                .checked_add(table_entry_size(entry_type) as u64)
+                .unwrap();
+        }
+        assert_eq!(entry_offset, mpc_end);
+        (buses, irqs, lint_buses)
+    }
+
+    #[test]
+    fn pci_interrupt_routes() {
+        let num_cpus = 2;
+
+        // Without PCI interrupt routes, there is only the ISA bus, with id 0.
+        let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus, &[]));
+        setup_mptable(&mem, &mut ResourceAllocator::new(), num_cpus, &[]).unwrap();
+        let (buses, irqs, lint_buses) = read_buses_and_irqs(&mem);
+        assert_eq!(buses.len(), 1);
+        assert_eq!((buses[0].busid, buses[0].bustype), (0, BUS_TYPE_ISA));
+        assert_eq!(irqs.len(), GSI_LEGACY_END as usize + 1);
+        assert!(
+            irqs.iter()
+                .all(|irq| irq.srcbus == 0 && irq.srcbusirq == irq.dstirq)
+        );
+        assert_eq!(lint_buses, [0, 0]);
+
+        // Slots 3 and 4 share IOAPIC input 20, slot 5 has input 21.
+        let routes = [(3, 20), (4, 20), (5, 21)];
+        let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus, &routes));
+        setup_mptable(&mem, &mut ResourceAllocator::new(), num_cpus, &routes).unwrap();
+        let (buses, irqs, lint_buses) = read_buses_and_irqs(&mem);
+        let buses: Vec<_> = buses.iter().map(|bus| (bus.busid, bus.bustype)).collect();
+        assert_eq!(buses, [(0, BUS_TYPE_PCI), (1, BUS_TYPE_ISA)]);
+        let isa: Vec<_> = irqs.iter().filter(|irq| irq.srcbus == 1).collect();
+        assert_eq!(isa.len(), GSI_LEGACY_END as usize + 1 - 2);
+        assert!(
+            isa.iter()
+                .all(|irq| irq.srcbusirq == irq.dstirq && irq.dstirq != 20 && irq.dstirq != 21)
+        );
+        let pci: Vec<_> = irqs
+            .iter()
+            .filter(|irq| irq.srcbus == 0)
+            .map(|irq| (irq.srcbusirq, irq.dstirq, irq.irqflag))
+            .collect();
+        assert_eq!(pci, [(3 << 2, 20, 0), (4 << 2, 20, 0), (5 << 2, 21, 0)]);
+        assert_eq!(lint_buses, [1, 1]);
+
+        // Routes must be to a slot of the bus and to an IOAPIC input.
+        let mut resource_allocator = ResourceAllocator::new();
+        assert_eq!(
+            setup_mptable(&mem, &mut resource_allocator, num_cpus, &[(32, 20)]),
+            Err(MptableError::InvalidPciIntxRoute(32, 20))
+        );
+        assert_eq!(
+            setup_mptable(&mem, &mut resource_allocator, num_cpus, &[(3, 24)]),
+            Err(MptableError::InvalidPciIntxRoute(3, 24))
+        );
     }
 }

@@ -106,6 +106,8 @@ pub enum AttachDeviceError {
     PciTransport(#[from] PciManagerError),
     /// Operation not supported on this VM type
     NotSupported,
+    /// VFIO passthrough requires the PCIe transport to be enabled (--enable-pci)
+    PciNotEnabled,
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -291,6 +293,26 @@ impl DeviceManager {
         }
     }
 
+    /// Assigns the host PCI functions `configs`, given as `(id, sysfs path)`, to the VM.
+    pub(crate) fn attach_vfio_devices(
+        &mut self,
+        vm: &Vm,
+        configs: &[(String, &std::path::Path)],
+    ) -> Result<(), AttachDeviceError> {
+        if configs.is_empty() {
+            return Ok(());
+        }
+        let kvm_vm = vm
+            .as_kvm()
+            .cloned()
+            .ok_or(AttachDeviceError::NotSupported)?;
+        let VirtioDevices::Pci(pci_devices) = &mut self.virtio_devices else {
+            return Err(AttachDeviceError::PciNotEnabled);
+        };
+        pci_devices.attach_vfio_devices(&kvm_vm, configs)?;
+        Ok(())
+    }
+
     /// Attaches a [`BootTimer`] to the VM
     pub(crate) fn attach_boot_timer_device(
         &mut self,
@@ -338,7 +360,7 @@ impl DeviceManager {
         }
     }
 
-    #[cfg(target_arch = "aarch64")]
+    /// The PCI devices, when the PCI transport is enabled.
     pub(crate) fn pci_devices(&self) -> Option<&PciDevices> {
         match &self.virtio_devices {
             VirtioDevices::Pci(pci_devices) => Some(pci_devices),

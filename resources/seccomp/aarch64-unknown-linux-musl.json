@@ -1442,6 +1442,51 @@
                         "comment": "KVM_IRQFD"
                     }
                 ]
+            },
+            {
+                "syscall": "pread64",
+                "comment": "Used to read the configuration space and trapped BARs of VFIO devices"
+            },
+            {
+                "syscall": "pwrite64",
+                "comment": "Used to write the configuration space and trapped BARs of VFIO devices"
+            },
+            {
+                "syscall": "ppoll",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "qword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "nfds: one eventfd, polled with a zero timeout"
+                    }
+                ],
+                "comment": "Used to read the MSI/MSI-X pending bits of VFIO devices without consuming interrupts"
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15214,
+                        "comment": "VFIO_DEVICE_SET_IRQS, used when the guest enables MSI/MSI-X of VFIO devices"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1075883590,
+                        "comment": "KVM_SET_USER_MEMORY_REGION, used when the guest toggles memory decoding of VFIO devices"
+                    }
+                ]
             }
         ]
     }

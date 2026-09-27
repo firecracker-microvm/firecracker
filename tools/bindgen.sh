@@ -176,6 +176,17 @@ info "BINDGEN include/uapi/linux/vmclock-abi.h"
 fc-bindgen \
     "$KERNEL_DIR/include/uapi/linux/vmclock-abi.h" > src/vmm/src/devices/acpi/generated/vmclock_abi.rs
 
+info "BINDGEN vfio.h"
+fc-bindgen \
+    --allowlist-var "VFIO_(API_VERSION|TYPE1v2_IOMMU|TYPE|BASE|GROUP_FLAGS_.*|DEVICE_FLAGS_(RESET|PCI)|REGION_INFO_.*|IRQ_INFO_.*|IRQ_SET_.*|IOMMU_INFO_.*|IOMMU_TYPE1_INFO_.*|DMA_MAP_FLAG_(READ|WRITE)|PCI_.*_INDEX)" \
+    --allowlist-type "vfio_(info_cap_header|group_status|device_info|region_info|region_sparse_mmap_area|region_info_cap_sparse_mmap|irq_info|irq_set|pci_dependent_device|pci_hot_reset_info|pci_hot_reset|iommu_type1_info|iova_range|iommu_type1_info_cap_iova_range|iommu_type1_info_dma_avail|iommu_type1_dma_map|iommu_type1_dma_unmap)" \
+    "$INCLUDE/linux/vfio.h" |replace_linux_int_types >src/vmm/src/devices/vfio/generated/vfio.rs
+
+info "BINDGEN pci_regs.h"
+fc-bindgen \
+    --allowlist-var "PCI_(COMMAND|COMMAND_MEMORY|STATUS|STATUS_CAP_LIST|HEADER_TYPE|HEADER_TYPE_MASK|HEADER_TYPE_MFD|BASE_ADDRESS_.*|ROM_ADDRESS|ROM_ADDRESS_ENABLE|ROM_ADDRESS_MASK|CAPABILITY_LIST|INTERRUPT_LINE|INTERRUPT_PIN|CAP_LIST_ID|CAP_LIST_NEXT|CAP_ID_PM|CAP_ID_MSI|CAP_ID_EXP|CAP_ID_MSIX|MSI_.*|MSIX_.*|PM_CTRL|PM_CTRL_STATE_MASK|EXP_DEVCTL|EXP_DEVCTL_BCR_FLR|CFG_SPACE_SIZE|CFG_SPACE_EXP_SIZE|EXT_CAP_ID_(SRIOV|ARI|REBAR|VF_REBAR)|STD_HEADER_SIZEOF)" \
+    "$INCLUDE/linux/pci_regs.h" >src/vmm/src/devices/vfio/generated/pci_regs.rs
+
 # Apply any patches
 info "Apply patches"
 for PATCH in $(dirname $0)/bindgen-patches/*.patch; do

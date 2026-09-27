@@ -20,9 +20,9 @@ use crate::arch::{
 };
 use crate::device_manager::DeviceManager;
 use crate::device_manager::mmio::MMIODeviceInfo;
+use crate::device_manager::pci_mngr::PciDevices;
 use crate::devices::acpi::vmclock::{VMCLOCK_SIZE, VmClock};
 use crate::devices::acpi::vmgenid::{VMGENID_MEM_SIZE, VmGenId};
-use crate::devices::pci::PciSegment;
 use crate::initrd::InitrdConfig;
 use crate::vstate::memory::{Address, GuestMemoryMmap, GuestRegionType};
 
@@ -101,7 +101,7 @@ pub fn create_fdt(
     create_vmgenid_node(&mut fdt_writer, device_manager.acpi_devices.vmgenid())?;
     create_vmclock_node(&mut fdt_writer, device_manager.acpi_devices.vmclock())?;
     if let Some(pci_devices) = device_manager.pci_devices() {
-        create_pci_nodes(&mut fdt_writer, pci_devices.pci_segment())?;
+        create_pci_nodes(&mut fdt_writer, pci_devices)?;
     }
 
     // End Header node.
@@ -484,7 +484,30 @@ fn create_devices_node(
     Ok(())
 }
 
-fn create_pci_nodes(fdt: &mut FdtWriter, segment: &PciSegment) -> Result<(), FdtError> {
+/// The `interrupt-map` of the PCI host node routing INTA of each `(slot, GSI)` to the SPI of the
+/// GSI, level-triggered.
+fn pci_interrupt_map(routes: &[(u8, u32)]) -> Vec<u32> {
+    routes
+        .iter()
+        .flat_map(|&(slot, gsi)| {
+            [
+                u32::from(slot) << 11,
+                0,
+                0,
+                1,
+                GIC_PHANDLE,
+                0,
+                0,
+                GIC_FDT_IRQ_TYPE_SPI,
+                gsi,
+                IRQ_TYPE_LEVEL_HI,
+            ]
+        })
+        .collect()
+}
+
+fn create_pci_nodes(fdt: &mut FdtWriter, pci_devices: &PciDevices) -> Result<(), FdtError> {
+    let segment = pci_devices.pci_segment();
     let pci_node_name = format!("pci@{:x}", segment.mmio_config_address);
     // Each range here is a thruple of `(PCI address, CPU address, PCI size)`.
     //
@@ -547,8 +570,21 @@ fn create_pci_nodes(fdt: &mut FdtWriter, segment: &PciSegment) -> Result<(), Fdt
         ],
     )?;
     fdt.property_u32("#interrupt-cells", 1)?;
-    fdt.property_null("interrupt-map")?;
-    fdt.property_null("interrupt-map-mask")?;
+    // Route INTA of the slots with an INTx pin to their SPI, level-triggered (KVM only resamples
+    // level-triggered interrupts). A map entry is the child unit address (phys.hi holds the
+    // device number: `slot << 11`), the child interrupt (pin 1: INTA), the GIC phandle, the GIC
+    // unit address (the GIC node has 2 address cells) and the GIC interrupt specifier. Devices
+    // are function 0 of their slot on bus 0, so no swizzling applies.
+    // See Documentation/devicetree/bindings/pci/pci.txt and of_irq_parse_raw.
+    let interrupt_map = pci_interrupt_map(&pci_devices.intx_routes());
+    if interrupt_map.is_empty() {
+        fdt.property_null("interrupt-map")?;
+        fdt.property_null("interrupt-map-mask")?;
+    } else {
+        fdt.property_array_u32("interrupt-map", &interrupt_map)?;
+        // Match the device number and the pin.
+        fdt.property_array_u32("interrupt-map-mask", &[0xf800, 0, 0, 7])?;
+    }
     fdt.property_null("dma-coherent")?;
     fdt.property_array_u32("msi-map", &msi_map)?;
     fdt.property_u32("msi-parent", MSI_PHANDLE)?;
@@ -570,6 +606,36 @@ mod tests {
     use crate::test_utils::arch_mem;
     use crate::vstate::memory::GuestAddress;
     use crate::{EventManager, Kvm};
+
+    #[test]
+    fn test_pci_interrupt_map() {
+        assert!(pci_interrupt_map(&[]).is_empty());
+        assert_eq!(
+            pci_interrupt_map(&[(3, 7), (4, 7)]),
+            [
+                3 << 11,
+                0,
+                0,
+                1,
+                GIC_PHANDLE,
+                0,
+                0,
+                GIC_FDT_IRQ_TYPE_SPI,
+                7,
+                IRQ_TYPE_LEVEL_HI,
+                4 << 11,
+                0,
+                0,
+                1,
+                GIC_PHANDLE,
+                0,
+                0,
+                GIC_FDT_IRQ_TYPE_SPI,
+                7,
+                IRQ_TYPE_LEVEL_HI,
+            ]
+        );
+    }
 
     #[test]
     fn test_create_fdt() {

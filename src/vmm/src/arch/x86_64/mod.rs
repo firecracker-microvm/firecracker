@@ -40,6 +40,7 @@ use crate::arch::{BootProtocol, SYSTEM_MEM_SIZE, SYSTEM_MEM_START, arch_memory_r
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
 use crate::cpu_config::x86_64::{apply_template_to_cpuid, apply_template_to_msrs, cpuid::Cpuid};
 use crate::device_manager::DeviceManager;
+use crate::device_manager::pci_mngr::PciDevices;
 use crate::initrd::InitrdConfig;
 use crate::logger::debug;
 use crate::utils::{u64_to_usize, usize_to_u64};
@@ -273,6 +274,10 @@ pub fn configure_system_for_boot(
         vm.guest_memory(),
         &mut vm.resource_allocator(),
         machine_config.vcpu_count,
+        &device_manager
+            .pci_devices()
+            .map(PciDevices::intx_routes)
+            .unwrap_or_default(),
     )
     .map_err(ConfigurationError::MpTableSetup)?;
 
@@ -674,7 +679,7 @@ mod tests {
         let no_vcpus = 4;
         let gm = single_region_mem(0x10000);
         let mut resource_allocator = ResourceAllocator::new();
-        let err = mptable::setup_mptable(&gm, &mut resource_allocator, 1);
+        let err = mptable::setup_mptable(&gm, &mut resource_allocator, 1, &[]);
         assert!(matches!(
             err.unwrap_err(),
             mptable::MptableError::NotEnoughMemory
@@ -684,7 +689,7 @@ mod tests {
         let mem_size = mib_to_bytes(128);
         let gm = arch_mem(mem_size);
         let mut resource_allocator = ResourceAllocator::new();
-        mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus).unwrap();
+        mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus, &[]).unwrap();
         configure_64bit_boot(&gm, GuestAddress(0), 0, &None, None).unwrap();
         configure_pvh(&gm, GuestAddress(0), &None).unwrap();
 
@@ -692,7 +697,7 @@ mod tests {
         let mem_size = mib_to_bytes(3328);
         let gm = arch_mem(mem_size);
         let mut resource_allocator = ResourceAllocator::new();
-        mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus).unwrap();
+        mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus, &[]).unwrap();
         configure_64bit_boot(&gm, GuestAddress(0), 0, &None, None).unwrap();
         configure_pvh(&gm, GuestAddress(0), &None).unwrap();
 
@@ -700,7 +705,7 @@ mod tests {
         let mem_size = mib_to_bytes(3330);
         let gm = arch_mem(mem_size);
         let mut resource_allocator = ResourceAllocator::new();
-        mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus).unwrap();
+        mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus, &[]).unwrap();
         configure_64bit_boot(&gm, GuestAddress(0), 0, &None, None).unwrap();
         configure_pvh(&gm, GuestAddress(0), &None).unwrap();
     }

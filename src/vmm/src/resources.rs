@@ -31,6 +31,7 @@ use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::pmem::{PmemBuilder, PmemConfig, PmemConfigError};
 use crate::vmm_config::serial::SerialConfig;
+use crate::vmm_config::vfio::{VfioBuilder, VfioConfigError, VfioDeviceConfig};
 use crate::vmm_config::vsock::*;
 use crate::vstate::memory;
 use crate::vstate::memory::{GuestRegionMmap, MemfdBacking, MemoryError};
@@ -66,6 +67,8 @@ pub enum ResourcesError {
     EntropyConfig(#[from] EntropyDeviceError),
     /// Pmem device error: {0}
     PmemConfig(#[from] PmemConfigError),
+    /// VFIO device error: {0}
+    VfioConfig(#[from] VfioConfigError),
     /// Memory hotplug config error: {0}
     MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
 }
@@ -97,6 +100,8 @@ pub struct VmmConfig {
     pub entropy: Option<EntropyDeviceConfig>,
     #[serde(default, rename = "pmem")]
     pub pmem_devices: Vec<PmemConfig>,
+    #[serde(default, rename = "vfio")]
+    pub vfio_devices: Vec<VfioDeviceConfig>,
     #[serde(skip)]
     pub serial_config: Option<SerialConfig>,
     pub memory_hotplug: Option<MemoryHotplugConfig>,
@@ -122,6 +127,8 @@ pub struct VmResources {
     pub entropy: EntropyDeviceBuilder,
     /// The pmem device configs.
     pub pmem: PmemBuilder,
+    /// The VFIO passthrough device configs.
+    pub vfio: VfioBuilder,
     /// The memory hotplug configuration.
     pub memory_hotplug: Option<MemoryHotplugConfig>,
     /// The optional Mmds data store.
@@ -230,6 +237,10 @@ impl VmResources {
 
         for pmem_config in vmm_config.pmem_devices.into_iter() {
             resources.build_pmem_device(pmem_config)?;
+        }
+
+        for vfio_config in vmm_config.vfio_devices.into_iter() {
+            resources.build_vfio_device(vfio_config)?;
         }
 
         if let Some(serial_cfg) = vmm_config.serial_config {
@@ -394,6 +405,14 @@ impl VmResources {
     pub fn build_pmem_device(&mut self, body: PmemConfig) -> Result<(), PmemConfigError> {
         let has_block_root = self.block.has_root_device();
         self.pmem.build(body, has_block_root)
+    }
+
+    /// Adds a VFIO passthrough device to be attached when the VM starts.
+    ///
+    /// PCIe support (`--enable-pci`) is required for passthrough; the device is only attached at
+    /// boot, and only if PCI is enabled.
+    pub fn build_vfio_device(&mut self, body: VfioDeviceConfig) -> Result<(), VfioConfigError> {
+        self.vfio.insert(body)
     }
 
     /// Sets the memory hotplug configuration.
@@ -585,6 +604,7 @@ impl From<&VmResources> for VmmConfig {
             vsock: resources.vsock.config(),
             entropy: resources.entropy.config(),
             pmem_devices: resources.pmem.configs.clone(),
+            vfio_devices: resources.vfio.configs.clone(),
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots.
             serial_config: None,
             memory_hotplug: resources.memory_hotplug.clone(),
@@ -703,6 +723,7 @@ mod tests {
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
             entropy: Default::default(),
             pmem: Default::default(),
+            vfio: Default::default(),
             pci_enabled: false,
             serial_out_path: None,
             serial_rate_limiter_cfg: None,
@@ -1865,5 +1886,103 @@ mod tests {
         assert_eq!(vm_resources.pmem.configs.len(), 0);
         vm_resources.build_pmem_device(cfg).unwrap();
         assert_eq!(vm_resources.pmem.configs.len(), 1);
+    }
+
+    #[test]
+    fn test_set_vfio_device() {
+        let mut vm_resources = default_vm_resources();
+
+        let cfg = VfioDeviceConfig {
+            id: "gpu0".to_string(),
+            path: "/sys/bus/pci/devices/0000:01:00.0".to_string(),
+        };
+        assert!(vm_resources.vfio.configs.is_empty());
+        vm_resources.build_vfio_device(cfg.clone()).unwrap();
+        assert_eq!(vm_resources.vfio.configs, vec![cfg.clone()]);
+
+        // A second device reusing the id is rejected and leaves the existing config untouched.
+        let duplicate = VfioDeviceConfig {
+            id: "gpu0".to_string(),
+            path: "/sys/bus/pci/devices/0000:02:00.0".to_string(),
+        };
+        assert!(matches!(
+            vm_resources.build_vfio_device(duplicate),
+            Err(VfioConfigError::DeviceIdAlreadyExists(id)) if id == "gpu0"
+        ));
+        assert_eq!(vm_resources.vfio.configs, vec![cfg]);
+    }
+
+    #[test]
+    fn test_vfio_config_json() {
+        let kernel_file = TempFile::new().unwrap();
+        let kernel_path = kernel_file.as_path().to_str().unwrap();
+        let from_json = |vfio: &str| {
+            let json = format!(
+                r#"{{
+                    "boot-source": {{ "kernel_image_path": "{kernel_path}" }},
+                    "drives": [],
+                    "vfio": {vfio}
+                }}"#
+            );
+            VmResources::from_json(
+                json.as_str(),
+                &InstanceInfo::default(),
+                HTTP_MAX_PAYLOAD_SIZE,
+                None,
+                true,
+            )
+        };
+
+        // The `vfio` array of the configuration file populates the VFIO builder.
+        let resources =
+            from_json(r#"[{ "id": "gpu0", "path": "/sys/bus/pci/devices/0000:01:00.0" }]"#)
+                .unwrap();
+        let expected = vec![VfioDeviceConfig {
+            id: "gpu0".to_string(),
+            path: "/sys/bus/pci/devices/0000:01:00.0".to_string(),
+        }];
+        assert_eq!(resources.vfio.configs, expected);
+
+        // It is reported back under the same `vfio` key.
+        let vmm_config = VmmConfig::from(&resources);
+        assert_eq!(vmm_config.vfio_devices, expected);
+        let value = serde_json::to_value(&vmm_config).unwrap();
+        assert_eq!(
+            value["vfio"],
+            serde_json::json!([{ "id": "gpu0", "path": "/sys/bus/pci/devices/0000:01:00.0" }])
+        );
+
+        // Without passthrough devices the key serializes as an empty list, placed between `pmem`
+        // and `memory-hotplug` (the field declaration order).
+        let resources = from_json("[]").unwrap();
+        assert!(resources.vfio.configs.is_empty());
+        let pretty = serde_json::to_string_pretty(&VmmConfig::from(&resources)).unwrap();
+        let pmem = pretty.find("\"pmem\": []").unwrap();
+        let vfio = pretty.find("\"vfio\": []").unwrap();
+        let memory_hotplug = pretty.find("\"memory-hotplug\"").unwrap();
+        assert!(pmem < vfio && vfio < memory_hotplug, "{pretty}");
+
+        // Duplicate ids are rejected.
+        assert!(matches!(
+            from_json(
+                r#"[
+                    { "id": "gpu0", "path": "/sys/bus/pci/devices/0000:01:00.0" },
+                    { "id": "gpu0", "path": "/sys/bus/pci/devices/0000:02:00.0" }
+                ]"#,
+            ),
+            Err(ResourcesError::VfioConfig(
+                VfioConfigError::DeviceIdAlreadyExists(_)
+            ))
+        ));
+
+        // Unknown fields and missing required fields are rejected.
+        assert!(matches!(
+            from_json(r#"[{ "id": "gpu0", "path": "/x", "bogus": 1 }]"#),
+            Err(ResourcesError::InvalidJson(_))
+        ));
+        assert!(matches!(
+            from_json(r#"[{ "id": "gpu0" }]"#),
+            Err(ResourcesError::InvalidJson(_))
+        ));
     }
 }

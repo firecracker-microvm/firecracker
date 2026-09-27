@@ -354,6 +354,25 @@ mod tests {
     use crate::builder::tests::default_vmm;
     use crate::utils::u64_to_usize;
 
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_pci_routing_table() {
+        let vmm = default_vmm();
+        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
+        let mut pci_irq_slots = [0u8; 32];
+        pci_irq_slots[3] = 20;
+        let pci_segment = PciSegment::new(0, &kvm_vm, &pci_irq_slots).unwrap();
+        let mut dsdt = Vec::new();
+        pci_segment.append_aml_bytes(&mut dsdt).unwrap();
+
+        // INTA (0) of slot 3 is routed to GSI 20.
+        let mut entry = Vec::new();
+        aml::Package::new(vec![&0x3_ffffu32, &0u8, &0u8, &20u32])
+            .append_aml_bytes(&mut entry)
+            .unwrap();
+        assert!(dsdt.windows(entry.len()).any(|window| window == entry));
+    }
+
     #[test]
     fn test_pci_segment_build() {
         let vmm = default_vmm();
