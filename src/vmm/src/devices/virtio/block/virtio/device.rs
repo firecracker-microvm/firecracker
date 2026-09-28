@@ -312,6 +312,8 @@ pub struct VirtioBlockConfig {
     pub is_read_only: bool,
     /// If set to true, the device advertises discard support to the guest.
     pub discard: bool,
+    /// If set to true, process requests on a dedicated worker thread.
+    pub threaded: bool,
     /// Path of the backing file on the host
     pub path_on_host: String,
     /// Rate Limiter for I/O operations.
@@ -339,6 +341,7 @@ impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
 
                 is_read_only: value.is_read_only.unwrap_or(false),
                 discard: value.discard.unwrap_or(false),
+                threaded: value.threaded,
                 path_on_host: path_on_host.clone(),
                 rate_limiter: value.rate_limiter,
                 file_engine_type: value.file_engine_type.unwrap_or_default(),
@@ -361,6 +364,7 @@ impl From<VirtioBlockConfig> for BlockDeviceConfig {
 
             is_read_only: Some(value.is_read_only),
             discard: Some(value.discard),
+            threaded: value.threaded,
             path_on_host: Some(value.path_on_host),
             rate_limiter: value.rate_limiter,
             file_engine_type: Some(value.file_engine_type),
@@ -994,6 +998,7 @@ mod tests {
 
             is_read_only: Some(true),
             discard: None,
+            threaded: false,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Default::default(),
@@ -1012,6 +1017,7 @@ mod tests {
 
             is_read_only: None,
             discard: None,
+            threaded: false,
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: Default::default(),
@@ -1030,6 +1036,7 @@ mod tests {
 
             is_read_only: Some(true),
             discard: None,
+            threaded: false,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Default::default(),
@@ -1107,6 +1114,7 @@ mod tests {
             partuuid: None,
             is_read_only: false,
             discard: true,
+            threaded: false,
             cache_type: CacheType::Unsafe,
             rate_limiter: None,
             file_engine_type: FileEngineType::Sync,
@@ -1135,6 +1143,7 @@ mod tests {
             partuuid: None,
             is_read_only: false,
             discard: true,
+            threaded: false,
             cache_type: CacheType::Unsafe,
             rate_limiter: None,
             file_engine_type: FileEngineType::Async,
@@ -1155,6 +1164,7 @@ mod tests {
             partuuid: None,
             is_read_only: true,
             discard: true,
+            threaded: false,
             cache_type: CacheType::Unsafe,
             rate_limiter: None,
             file_engine_type: FileEngineType::Sync,
@@ -1178,6 +1188,7 @@ mod tests {
             partuuid: None,
             is_read_only: false,
             discard: true,
+            threaded: false,
             cache_type: CacheType::Unsafe,
             rate_limiter: None,
             file_engine_type: FileEngineType::Sync,
@@ -2255,6 +2266,7 @@ mod tests {
             for threaded in [false, true] {
                 let mut block = default_block(engine);
                 if threaded {
+                    block.config.threaded = true;
                     block.spawn_worker(Arc::new(vec![])).unwrap();
                 }
 
