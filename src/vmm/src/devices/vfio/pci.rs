@@ -234,6 +234,21 @@ struct ProbedBar {
     prefetchable: bool,
 }
 
+impl ProbedBar {
+    /// The MMIO window the BAR is placed in. The guest sees the 64-bit window as prefetchable
+    /// (the ACPI `_CRS` of the PCI segment and the `ranges` of the device tree say so), and it
+    /// does not accept a non-prefetchable BAR in a prefetchable window: Linux does not claim it
+    /// (`pci_find_parent_resource()`). So only 64-bit prefetchable BARs are placed in the 64-bit
+    /// window, and the others below 4 GiB.
+    fn window(&self) -> BarWindow {
+        if self.is_64bit && self.prefetchable {
+            BarWindow::Mmio64
+        } else {
+            BarWindow::Mmio32
+        }
+    }
+}
+
 /// A host mapping of part of a BAR, exposed to the guest as a KVM memory slot.
 struct BarMapping {
     host_addr: *mut libc::c_void,
@@ -392,6 +407,9 @@ struct BarRegion {
     index: u32,
     guest_addr: u64,
     size: u64,
+    /// The window of the BAR, see [`ProbedBar::window`]. The BAR can also move into the 32-bit
+    /// window, which is not prefetchable.
+    window: BarWindow,
     mappings: Vec<BarMapping>,
 }
 
@@ -460,6 +478,8 @@ enum RelocationError {
     Bus(#[source] BusError),
     /// A memory slot of the BAR is still registered
     SlotRegistered,
+    /// A BAR that is not 64-bit prefetchable cannot be placed in the prefetchable 64-bit window
+    NotPrefetchable,
 }
 
 /// The device MMIO window that holds the range `[addr, addr + size)`, if any.
@@ -822,11 +842,7 @@ impl VfioPciDevice {
             .map(|bar| BarRequirement {
                 slot: BarSlot::Bar(bar.index),
                 size: bar.size,
-                window: if bar.is_64bit {
-                    BarWindow::Mmio64
-                } else {
-                    BarWindow::Mmio32
-                },
+                window: bar.window(),
             })
             .collect();
         if let Some(rom) = &self.rom {
@@ -876,6 +892,7 @@ impl VfioPciDevice {
                     index: VFIO_PCI_BAR0_REGION_INDEX + u32::from(index),
                     guest_addr,
                     size: bar.size,
+                    window: bar.window(),
                     mappings: Vec::new(),
                 });
             }
@@ -1027,13 +1044,22 @@ impl VfioPciDevice {
         }
     }
 
-    /// Move the guest range `[old, old + size)` of a BAR on the MMIO bus to `new`, and update the
-    /// reservations of the device MMIO windows. Nothing changes on failure.
+    /// Move the guest range `[old, old + size)` of a BAR of window `window` on the MMIO bus to
+    /// `new`, and update the reservations of the device MMIO windows. Nothing changes on failure.
     ///
     /// The allocator lock is only held while reserving or freeing a range, never together with
     /// the bus locks.
-    fn move_guest_range(&self, old: u64, new: u64, size: u64) -> Result<(), RelocationError> {
+    fn move_guest_range(
+        &self,
+        old: u64,
+        new: u64,
+        size: u64,
+        window: BarWindow,
+    ) -> Result<(), RelocationError> {
         let new_window = window_of(new, size).ok_or(RelocationError::OutsideWindows)?;
+        if new_window == BarWindow::Mmio64 && window != BarWindow::Mmio64 {
+            return Err(RelocationError::NotPrefetchable);
+        }
         let old_window = window_of(old, size).expect("BARs are placed in a device MMIO window");
         let new_range = window_allocator(&mut self.vm.resource_allocator(), new_window)
             .allocate(size, size, AllocPolicy::ExactMatch(new))
@@ -1057,6 +1083,7 @@ impl VfioPciDevice {
         let BarRegion {
             guest_addr: old,
             size,
+            window,
             ref mappings,
             ..
         } = self.regions[region];
@@ -1064,7 +1091,7 @@ impl VfioPciDevice {
         if mappings.iter().any(|mapping| mapping.registered) {
             return Err(RelocationError::SlotRegistered);
         }
-        self.move_guest_range(old, new, size)?;
+        self.move_guest_range(old, new, size, window)?;
         let region = &mut self.regions[region];
         region.guest_addr = new;
         // Both addresses are aligned to the BAR size, so each mapping keeps the host alignment
@@ -1124,7 +1151,8 @@ impl VfioPciDevice {
         if new == old {
             return;
         }
-        let result = self.move_guest_range(old, new, size);
+        // The expansion ROM BAR is a 32-bit register, placed in the 32-bit window.
+        let result = self.move_guest_range(old, new, size, BarWindow::Mmio32);
         let rom = self.rom.as_mut().expect("ROM exists");
         match result {
             Ok(()) => {
@@ -2360,8 +2388,15 @@ pub(crate) mod tests {
 
     /// A placed and mapped device, trapped on the MMIO bus of its VM like the PCI manager does.
     fn attached_device() -> (Arc<KvmVm>, Arc<Mutex<VfioPciDevice>>, HashMap<String, u64>) {
+        attached_device_with(mock_file())
+    }
+
+    /// [`attached_device`], with the regions and configuration space in `file`.
+    fn attached_device_with(
+        file: File,
+    ) -> (Arc<KvmVm>, Arc<Mutex<VfioPciDevice>>, HashMap<String, u64>) {
         let vm = Arc::new(setup_vm_with_memory(0x1000_0000));
-        let mut device = build_in(vm.clone(), mock_file(), mock_regions(None), true).device;
+        let mut device = build_in(vm.clone(), file, mock_regions(None), true).device;
         let placed = place_and_map(&mut device);
         let ranges = device.mmio_ranges();
         let device = Arc::new(Mutex::new(device));
@@ -2539,6 +2574,92 @@ pub(crate) mod tests {
         ));
         drop(locked);
         assert!(on_bus(&vm, bar0) && !is_reserved(&vm, new0, BAR0_SIZE));
+    }
+
+    /// The mock device, with BAR2 a 64-bit non-prefetchable BAR.
+    fn mock_file_non_prefetchable_bar2() -> File {
+        let file = mock_file();
+        put_u32(&file, BAR0 + 8, 0x4);
+        file
+    }
+
+    #[test]
+    fn test_bar_windows() {
+        // Only a 64-bit prefetchable BAR is placed in the 64-bit window, which the guest sees as
+        // prefetchable: a 64-bit non-prefetchable BAR is placed below 4 GiB, like 32-bit BARs.
+        for (file, bar2_window, bar2_flags) in [
+            (mock_file(), BarWindow::Mmio64, 0xc),
+            (mock_file_non_prefetchable_bar2(), BarWindow::Mmio32, 0x4),
+        ] {
+            let mut test = build(file, mock_regions(None), true);
+            let device = &mut test.device;
+            let windows: Vec<(BarSlot, BarWindow)> = device
+                .bar_requirements()
+                .iter()
+                .map(|requirement| (requirement.slot, requirement.window))
+                .collect();
+            assert_eq!(
+                windows,
+                vec![
+                    (BarSlot::Bar(0), BarWindow::Mmio32),
+                    (BarSlot::Bar(2), bar2_window),
+                    (BarSlot::Bar(5), BarWindow::Mmio32),
+                    (BarSlot::Rom, BarWindow::Mmio32),
+                ]
+            );
+            let bar2 = place_and_map(device)["Bar(2)"];
+            assert_eq!(window_of(bar2, BAR2_SIZE), Some(bar2_window));
+            // The register keeps the type bits of the host BAR.
+            assert_eq!(
+                u64::from(read_config(device, BAR0 + 8)),
+                (bar2 & 0xffff_ffff) | bar2_flags
+            );
+            assert_eq!(u64::from(read_config(device, BAR0 + 12)), bar2 >> 32);
+        }
+    }
+
+    /// Program the 64-bit BAR2 of `device` to `addr` with decoding disabled, then enable
+    /// decoding, and return the address BAR2 then reads.
+    fn relocate_bar2(device: &Mutex<VfioPciDevice>, addr: u64) -> u64 {
+        set_memory_space(device, false);
+        write_config_u32(device, BAR0 + 8, addr & 0xffff_ffff);
+        write_config_u32(device, BAR0 + 12, addr >> 32);
+        set_memory_space(device, true);
+        read_config_u64(device, BAR0 + 8) & !0xf | read_config_u64(device, BAR0 + 12) << 32
+    }
+
+    #[test]
+    fn test_bar_relocation_windows() {
+        let in_mmio64 = arch::MEM_64BIT_DEVICES_START;
+        let in_mmio32 = arch::MEM_32BIT_DEVICES_START.next_multiple_of(BAR2_SIZE);
+        assert_eq!(window_of(in_mmio64, BAR2_SIZE), Some(BarWindow::Mmio64));
+        assert_eq!(window_of(in_mmio32, BAR2_SIZE), Some(BarWindow::Mmio32));
+
+        // A 64-bit non-prefetchable BAR does not move into the prefetchable 64-bit window: it
+        // stays, and its register is reset to the address it decodes at.
+        let (vm, device, placed) = attached_device_with(mock_file_non_prefetchable_bar2());
+        let bar2 = placed["Bar(2)"];
+        assert_eq!(relocate_bar2(&device, in_mmio64), bar2);
+        assert!(on_bus(&vm, bar2) && !on_bus(&vm, in_mmio64));
+        assert!(is_reserved(&vm, bar2, BAR2_SIZE) && !is_reserved(&vm, in_mmio64, BAR2_SIZE));
+        assert_eq!(slots(&device)[1], (bar2, true));
+        // It moves inside the 32-bit window.
+        assert_eq!(relocate_bar2(&device, in_mmio32), in_mmio32);
+        assert!(on_bus(&vm, in_mmio32) && !on_bus(&vm, bar2));
+        assert!(is_reserved(&vm, in_mmio32, BAR2_SIZE) && !is_reserved(&vm, bar2, BAR2_SIZE));
+        assert_eq!(slots(&device)[1], (in_mmio32, true));
+
+        // A 64-bit prefetchable BAR moves inside the 64-bit window, and into the 32-bit window.
+        let (vm, device, placed) = attached_device();
+        let bar2 = placed["Bar(2)"];
+        assert_eq!(window_of(bar2, BAR2_SIZE), Some(BarWindow::Mmio64));
+        assert_eq!(relocate_bar2(&device, in_mmio64), in_mmio64);
+        assert!(on_bus(&vm, in_mmio64) && !on_bus(&vm, bar2));
+        assert!(is_reserved(&vm, in_mmio64, BAR2_SIZE) && !is_reserved(&vm, bar2, BAR2_SIZE));
+        assert_eq!(slots(&device)[1], (in_mmio64, true));
+        assert_eq!(relocate_bar2(&device, in_mmio32), in_mmio32);
+        assert!(on_bus(&vm, in_mmio32) && !on_bus(&vm, in_mmio64));
+        assert_eq!(slots(&device)[1], (in_mmio32, true));
     }
 
     #[test]

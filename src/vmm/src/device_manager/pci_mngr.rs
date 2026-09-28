@@ -1160,9 +1160,10 @@ mod tests {
         use crate::devices::vfio::pci::{BarRequirement, BarSlot, BarWindow};
 
         let mut allocator = ResourceAllocator::new();
-        // A virtio-pci BAR, allocated from the bottom of the 64-bit window.
+        // A virtio-pci BAR, allocated from the bottom of the 32-bit window as
+        // `VirtioPciDevice::allocate_bars` does.
         let virtio = allocator
-            .mmio64_memory
+            .mmio32_memory
             .allocate(
                 CAPABILITY_BAR_SIZE,
                 CAPABILITY_BAR_SIZE,
@@ -1205,7 +1206,7 @@ mod tests {
             ]
         );
         // The largest BAR takes the top half of the 64-bit window, the next ones are packed right
-        // below it, clear of the virtio-pci BAR.
+        // below it.
         let top64 = MEM_64BIT_DEVICES_START + MEM_64BIT_DEVICES_SIZE;
         assert_eq!(placements[0].2, top64 - half_window);
         assert_eq!(placements[1].2, top64 - half_window - (256 << 20));
@@ -1213,7 +1214,10 @@ mod tests {
             placements[2].2,
             top64 - half_window - (256 << 20) - (32 << 20)
         );
-        assert!(placements[2].2 > virtio + CAPABILITY_BAR_SIZE);
+        // The BARs of the 32-bit window are placed from its top, clear of the virtio-pci BAR.
+        for &(_, _, addr) in &placements[3..] {
+            assert!(addr >= virtio + CAPABILITY_BAR_SIZE);
+        }
         // Every BAR is naturally aligned and inside its window, and no two BARs overlap.
         for (&(device, slot, addr), i) in placements.iter().zip(0..) {
             let (_, requirement) = requirements
@@ -1235,7 +1239,7 @@ mod tests {
             }
         }
 
-        // A BAR as large as the whole window no longer fits next to the virtio-pci BAR.
+        // A BAR as large as the whole 64-bit window no longer fits next to the BARs placed in it.
         let whole_window = vec![(
             0,
             requirement(BarSlot::Bar(0), MEM_64BIT_DEVICES_SIZE, BarWindow::Mmio64),
