@@ -23,5 +23,6 @@ def test_run_concurrency(microvm_factory, guest_kernel, rootfs, pci_enabled):
         microvm.time_api_requests = False  # is flaky because of parallelism
 
     with ThreadPoolExecutor(max_workers=NO_OF_MICROVMS) as tpe:
-        for _ in range(NO_OF_MICROVMS):
-            tpe.submit(launch1)
+        futures = [tpe.submit(launch1) for _ in range(NO_OF_MICROVMS)]
+        for future in futures:
+            future.result()

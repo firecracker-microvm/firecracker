@@ -208,14 +208,19 @@ retry_cmd() {
     {
         $command
     } || {
+        rc=$?
+
         # Command failed, substract one from retry_cnt
         retry_cnt=$((retry_cnt - 1))
 
-        # If retry_cnt is larger than 0, sleep and call again
+        # If retry_cnt is larger than 0, sleep and call again. Otherwise,
+        # give up and report the last failure.
         if [ "$retry_cnt" -gt 0 ]; then
             echo "$command failed, retrying..."
             sleep "$sleep_int"
             retry_cmd "$command" "$retry_cnt" "$sleep_int"
+        else
+            return $rc
         fi
     }
 }
@@ -293,6 +298,13 @@ cmd_build_devctr() {
     docker build -t "$DEVCTR_IMAGE_NO_TAG" -f "$docker_file_name" $build_args .
 }
 
+# Prints the development container image reference, so that other tooling
+# can pull, cache or inspect the exact image devtool would run.
+#
+cmd_devctr_image() {
+    echo "$DEVCTR_IMAGE"
+}
+
 
 # Validate the user supplied kernel version number.
 # It must be composed of 2 groups of integers separated by dot, with an optional third group.
@@ -309,10 +321,13 @@ validate_kernel_version() {
 }
 
 
-# Helper function to run the dev container.
+# Helper function to run the dev container. Pulls the image first if it is
+# not available locally.
 # Usage: run_devctr <docker args> -- <container args>
 # Example: run_devctr --privileged -- bash -c "echo 'hello world'"
 run_devctr() {
+    ensure_devctr
+
     docker_args=()
     ctr_args=()
     docker_args_done=false
@@ -420,6 +435,9 @@ cmd_help() {
     echo ""
     echo "    checkenv"
     echo "        Performs prerequisites checks needed to execute firecracker."
+    echo ""
+    echo "    devctr_image"
+    echo "        Print the development container image reference (name:tag)."
     echo ""
     echo "    distclean"
     echo "        Clean up the build tree and remove the docker container."
@@ -568,7 +586,6 @@ cmd_build() {
     done
 
     # Check prerequisites
-    ensure_devctr
     ensure_build_dir
 
     # Map the public and private keys to the guest if they are specified.
@@ -1008,7 +1025,6 @@ cmd_test() {
         acquire_shared_kvm_lock
         setup_kvm
     fi
-    ensure_devctr
     [ $do_build_dir_check != 0 ] && ensure_build_dir
     if [ $do_artifacts_check != 0 ]; then
       if [ -z $artifacts ]; then
@@ -1133,7 +1149,6 @@ cmd_shell() {
     done
 
     # Make sure we have what we need to continue.
-    ensure_devctr
     ensure_build_dir
 
     if [[ $privileged = true ]]; then
@@ -1431,9 +1446,6 @@ cmd_install() {
 }
 
 cmd_build_ci_artifacts() {
-    # Check prerequisites
-    ensure_devctr
-
     # We need to run nested Docker here, so run this container as privileged.
     run_devctr \
         --privileged \
