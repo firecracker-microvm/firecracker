@@ -30,6 +30,8 @@ PCI_COMMAND_MEMORY = 0x2
 PCI_BASE_CLASS_DISPLAY = 0x03
 # Offset of the Interrupt Pin register in the configuration space.
 PCI_INTERRUPT_PIN = 0x3D
+# Where the /dev/mem tool is copied in the guest.
+DEVMEM_PATH = "/tmp/devmem"
 
 
 def _vfio_available():
@@ -287,3 +289,107 @@ def test_vfio_iommu_group(uvm):
     vm.mark_killed()
     datapoints = vm.get_all_metrics()
     assert datapoints[-1]["seccomp"]["num_faults"] == 0
+
+
+def _devmem_read(vm, addr):
+    """Read 4 bytes at guest physical address `addr` through /dev/mem."""
+    stdout = vm.ssh.check_output(f"{DEVMEM_PATH} read 0x{addr:x} 4").stdout
+    return int(stdout.strip(), 16)
+
+
+def _guest_memory_ranges(vm):
+    """The inclusive memory ranges of the BARs and expansion ROMs of every PCI
+    function of the guest."""
+    ranges = []
+    resources = vm.ssh.check_output("cat /sys/bus/pci/devices/*/resource").stdout
+    for line in resources.strip().splitlines():
+        start, end, flags = (int(field, 16) for field in line.split())
+        if flags & IORESOURCE_MEM and end:
+            ranges.append((start, end))
+    return ranges
+
+
+def _bar_address(vm, bdf, index, is_64bit):
+    """The address that BAR `index` of guest function `bdf` reads."""
+
+    def register(i):
+        return int(vm.ssh.check_output(f"setpci -s {bdf} BASE_ADDRESS_{i}").stdout, 16)
+
+    high = register(index + 1) if is_64bit else 0
+    return high << 32 | register(index) & ~0xF
+
+
+def _program_bar(vm, bdf, index, is_64bit, addr):
+    """Program BAR `index` of guest function `bdf` to `addr` with memory decoding
+    disabled, then enable decoding again, which is when Firecracker applies the
+    address."""
+    vm.ssh.check_output(f"setpci -s {bdf} COMMAND=0:{PCI_COMMAND_MEMORY:x}")
+    vm.ssh.check_output(f"setpci -s {bdf} BASE_ADDRESS_{index}={addr & 0xFFFFFFFF:08x}")
+    if is_64bit:
+        vm.ssh.check_output(
+            f"setpci -s {bdf} BASE_ADDRESS_{index + 1}={addr >> 32:08x}"
+        )
+    vm.ssh.check_output(
+        f"setpci -s {bdf} COMMAND={PCI_COMMAND_MEMORY:x}:{PCI_COMMAND_MEMORY:x}"
+    )
+
+
+@needs_vfio
+@pin_pci(True)
+def test_vfio_bar_relocation(uvm, devmem_bin):
+    """The guest moves a BAR of an assigned function, as it can for every
+    Firecracker PCI device: the new address takes effect when memory decoding is
+    enabled again, and a move outside the device MMIO windows is refused."""
+    vm = uvm
+    host = Path(VFIO_DEVICE)
+    vendor = (host / "vendor").read_text().strip().removeprefix("0x")
+    device = (host / "device").read_text().strip().removeprefix("0x")
+    host_bars = _memory_bar_sizes((host / "resource").read_text())
+    index = next(index for index, size in enumerate(host_bars) if size)
+    size = host_bars[index]
+
+    _assign(vm)
+    vm.start()
+    vm.ssh.scp_put(devmem_bin, DEVMEM_PATH)
+    vm.ssh.check_output(f"chmod +x {DEVMEM_PATH}")
+    bdf = vm.ssh.check_output(f"lspci -Dn -d {vendor}:{device}").stdout.split()[0]
+    register = int(
+        vm.ssh.check_output(f"setpci -s {bdf} BASE_ADDRESS_{index}").stdout, 16
+    )
+    # Bits 2:1 of a memory BAR give its type, 0b10 for 64-bit.
+    is_64bit = ((register >> 1) & 0x3) == 0x2
+    old = _bar_address(vm, bdf, index, is_64bit)
+    # No guest driver enabled memory decoding: until it is, the BAR reads all ones.
+    vm.ssh.check_output(
+        f"setpci -s {bdf} COMMAND={PCI_COMMAND_MEMORY:x}:{PCI_COMMAND_MEMORY:x}"
+    )
+    # Reads through the memory slots of the BAR do not exit to Firecracker, which
+    # logs the reads that reach no device and returns 0 for them.
+    witness = _devmem_read(vm, old)
+    assert f"Invalid MMIO read @ {old:#x}:" not in vm.log_data
+
+    # The highest free, naturally aligned range below the BAR. Passthrough BARs are
+    # placed from the top of their window, virtio-pci BARs from the bottom of the
+    # 32-bit window.
+    used = _guest_memory_ranges(vm)
+    new = old - size
+    while any(start <= new + size - 1 and new <= end for start, end in used):
+        new -= size
+
+    _program_bar(vm, bdf, index, is_64bit, new)
+    assert _bar_address(vm, bdf, index, is_64bit) == new
+    # The function answers at the new address...
+    assert _devmem_read(vm, new) == witness
+    assert f"Invalid MMIO read @ {new:#x}:" not in vm.log_data
+    # ...and nothing answers at the old one anymore.
+    assert _devmem_read(vm, old) == 0
+    assert f"Invalid MMIO read @ {old:#x}:" in vm.log_data
+
+    # Outside the device MMIO windows: the BAR stays where it is, and its register
+    # reads that address back.
+    outside = size
+    _program_bar(vm, bdf, index, is_64bit, outside)
+    assert f"cannot relocate BAR {index} {new:#x} -> {outside:#x}" in vm.log_data
+    assert _bar_address(vm, bdf, index, is_64bit) == new
+    assert _devmem_read(vm, new) == witness
+    assert f"Invalid MMIO read @ {new:#x}:" not in vm.log_data
