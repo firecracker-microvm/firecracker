@@ -821,6 +821,7 @@ def test_drive_patch(uvm, io_engine):
         is_root_device=False,
         is_read_only=False,
         io_engine=io_engine,
+        threaded=True,
     )
 
     fs_vub = drive_tools.FilesystemFile(
@@ -1023,6 +1024,7 @@ def _drive_patch(test_microvm, io_engine):
             "cache_type": "Unsafe",
             "is_read_only": True,
             "discard": False,
+            "threaded": False,
             "path_on_host": "/" + test_microvm.rootfs_file.name,
             "rate_limiter": None,
             "io_engine": "Sync",
@@ -1042,6 +1044,7 @@ def _drive_patch(test_microvm, io_engine):
             "cache_type": "Unsafe",
             "is_read_only": False,
             "discard": False,
+            "threaded": True,
             "path_on_host": "/scratch_new.ext4",
             "rate_limiter": {
                 "bandwidth": {"size": 5000, "one_time_burst": None, "refill_time": 100},
@@ -1064,6 +1067,7 @@ def _drive_patch(test_microvm, io_engine):
             "cache_type": "Unsafe",
             "is_read_only": None,
             "discard": None,
+            "threaded": False,
             "path_on_host": None,
             "rate_limiter": None,
             "io_engine": None,
@@ -1457,6 +1461,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
             "cache_type": "Unsafe",
             "is_read_only": True,
             "discard": False,
+            "threaded": False,
             "path_on_host": f"/{uvm_configured.rootfs_file.name}",
             "rate_limiter": None,
             "io_engine": "Sync",
@@ -1606,6 +1611,7 @@ def test_get_full_config(uvm):
             "cache_type": "Unsafe",
             "is_read_only": True,
             "discard": False,
+            "threaded": False,
             "path_on_host": "/" + test_microvm.rootfs_file.name,
             "rate_limiter": None,
             "io_engine": "Sync",
