@@ -11,7 +11,6 @@ from framework.ab_test import (
     git_ab_test_host_command_if_pr,
     set_did_not_grow_comparator,
 )
-from framework.defs import FC_WORKSPACE_DIR
 from framework.utils_cpuid import CpuVendor, get_cpu_vendor
 
 
@@ -51,9 +50,8 @@ def test_cargo_audit():
         return findings
 
     utils.run_cmd("cargo install --locked cargo-deny --debug")
-    toml_file = FC_WORKSPACE_DIR / "Cargo.toml"
 
     git_ab_test_host_command_if_pr(
-        f"RUSTUP_LOG=warn cargo deny --manifest-path {toml_file} -f json check advisories",
+        "RUSTUP_LOG=warn cargo deny --manifest-path Cargo.toml -f json check advisories",
         comparator=set_did_not_grow_comparator(set_of_vulnerabilities),
     )
