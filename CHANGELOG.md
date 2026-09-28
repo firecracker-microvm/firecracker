@@ -10,6 +10,12 @@ and this project adheres to
 
 ### Added
 
+- [#6030](https://github.com/firecracker-microvm/firecracker/issues/6030):
+  Full snapshots can now stream guest memory to non-seekable files such as
+  FIFOs (named pipes), e.g. for piping snapshot memory into compression,
+  encryption, or upload without landing on local disk first. Unplugged memory
+  slots are written as zeroes instead of being skipped with `seek()`.
+
 ### Changed
 
 - [#6201](https://github.com/firecracker-microvm/firecracker/pull/6201):

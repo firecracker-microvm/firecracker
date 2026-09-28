@@ -9,6 +9,7 @@ import os
 import platform
 import re
 import shutil
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -39,6 +40,41 @@ from framework.utils_vsock import (
 # Kernel emits this message when it resumes from a snapshot with VMGenID device
 # present
 DMESG_VMGENID_RESUME = "random: crng reseeded due to virtual machine fork"
+
+
+def test_full_snapshot_to_fifo(uvm_configured):
+    """A full snapshot can stream its memory image to a non-seekable FIFO."""
+    vm = uvm_configured
+    vm.start()
+    regular_snapshot = vm.snapshot_full()
+    expected_memory = regular_snapshot.mem.read_bytes()
+
+    fifo_path = Path(vm.chroot()) / "mem_fifo"
+    fifo_path.unlink(missing_ok=True)
+    os.mkfifo(fifo_path)
+    received = bytearray()
+    reader_error = []
+
+    def drain_fifo():
+        try:
+            with fifo_path.open("rb") as fifo:
+                while chunk := fifo.read(1024 * 1024):
+                    received.extend(chunk)
+        except BaseException as error:  # pragma: no cover - reported in the test thread
+            reader_error.append(error)
+
+    reader = threading.Thread(target=drain_fifo, daemon=True)
+    reader.start()
+    vm.api.snapshot_create.put(
+        mem_file_path="mem_fifo",
+        snapshot_path="vmstate_fifo",
+        snapshot_type=SnapshotType.FULL.api_type,
+    )
+    reader.join(timeout=10)
+
+    assert not reader.is_alive()
+    assert not reader_error
+    assert bytes(received) == expected_memory
 
 
 def check_vmgenid_update_count(vm, resume_count):
@@ -820,3 +856,83 @@ def test_clocksource_snapshot_restore(
     assert (
         jumped == clock_realtime
     ), f"Clock {jumped_str} but clock_realtime was {"not" if clock_realtime else ""} set."
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_full_snapshot_to_fifo(uvm_configured):
+    """Full snapshot memory can be streamed to a FIFO (non-seekable file).
+
+    Configures a hotpluggable region left completely unplugged, so the dump
+    contains holes. The regular-file snapshot seeks over holes (sparse) while
+    the FIFO snapshot must write explicit zeros — both must be byte-identical
+    when fully read. See https://github.com/firecracker-microvm/firecracker/issues/6030.
+    """
+    vm = uvm_configured
+    # 128 MiB hotplug region in 2x64 MiB slots, left unplugged to exercise
+    # HoleStrategy::WriteZeros. Boots with 256 MiB DRAM by default.
+    vm.api.memory_hotplug.put(total_size_mib=128, slot_size_mib=64, block_size_mib=2)
+    vm.add_net_iface()
+    vm.start()
+
+    vm.pause()
+    root = Path(vm.chroot())
+
+    # Reference regular-file snapshot (paused, so guest memory is stable).
+    vm.api.snapshot_create.put(
+        mem_file_path="mem_regular",
+        snapshot_path="vmstate_regular",
+        snapshot_type="Full",
+    )
+    regular_mem = root / "mem_regular"
+    assert regular_mem.exists() and regular_mem.stat().st_size > 0
+    with open(regular_mem, "rb") as f:
+        expected = f.read()
+
+    # FIFO snapshot: reader thread must drain concurrently, otherwise the
+    # writer blocks on a full pipe. Opening the FIFO itself blocks until
+    # both ends are open, so the reader opens first in a thread.
+    fifo_name = "mem_fifo"
+    fifo_host = root / fifo_name
+    if fifo_host.exists():
+        os.unlink(fifo_host)
+    os.mkfifo(fifo_host)
+
+    fifo_bytes = bytearray()
+    reader_error = []
+
+    def _drain():
+        try:
+            with open(fifo_host, "rb") as fifo:
+                while True:
+                    chunk = fifo.read(2 * 1024 * 1024)
+                    if not chunk:
+                        break
+                    fifo_bytes.extend(chunk)
+        except Exception as exc:  # pylint: disable=broad-except
+            reader_error.append(exc)
+
+    reader = threading.Thread(target=_drain, daemon=True)
+    reader.start()
+
+    try:
+        vm.api.snapshot_create.put(
+            mem_file_path=fifo_name,
+            snapshot_path="vmstate_fifo",
+            snapshot_type="Full",
+        )
+    finally:
+        # Writer closed -> reader sees EOF and exits.
+        reader.join(timeout=120)
+    assert not reader_error, f"FIFO reader failed: {reader_error}"
+    assert not reader.is_alive(), "FIFO reader thread hung"
+
+    # Byte-identical: holes are zeros in both (sparse holes read as zero).
+    assert len(fifo_bytes) == len(expected), (
+        f"FIFO bytes {len(fifo_bytes)} != regular {len(expected)}"
+    )
+    assert bytes(fifo_bytes) == expected
+
+    # Sanity: unplugged hotplug region exists, so the file is larger than
+    # boot DRAM alone and contains a large zero run (the hole).
+    assert len(expected) > 256 * 1024 * 1024
+    vm.resume()
