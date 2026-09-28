@@ -18,6 +18,13 @@ and this project adheres to
   changes to an active queue's configuration. The MMIO and PCI transports
   already reject queue configuration writes after `DRIVER_OK`, so a guest cannot
   reach this condition.
+- [#6233](https://github.com/firecracker-microvm/firecracker/pull/6233): When
+  guest memory is backed by a memfd (currently, when a vhost-user device is
+  configured), the hotpluggable memory region is now placed in the same memfd as
+  guest DRAM, with the same layout as a memory snapshot file. The memfd is thus
+  as large as DRAM plus the hotpluggable region, and the jailer's `fsize`
+  resource limit, if set, must be at least `mem_size_mib + total_size_mib` (in
+  bytes) for Firecracker to boot.
 
 ### Deprecated
 
