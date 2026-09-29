@@ -59,7 +59,7 @@ workspace. The code is located at `firecracker/src/seccompiler/src`.
 ## Supported platforms
 
 Seccompiler-bin is supported on the
-[same platforms as Firecracker](../README.md#supported-platforms).
+[same platforms as Firecracker](../README.md#tested-platforms).
 
 ## Release policy
 
