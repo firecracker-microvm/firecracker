@@ -36,6 +36,7 @@ use crate::logger::{debug, warn};
 use crate::pci::PciSBDF;
 use crate::pci::bus::PciRootError;
 use crate::resources::VmResources;
+use crate::seccomp::BpfProgram;
 use crate::snapshot::Persist;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vstate::bus::BusError;
@@ -332,6 +333,7 @@ pub struct PciDevicesConstructorArgs<'a> {
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
     pub event_manager: &'a mut EventManager,
+    pub blk_worker_filter: Option<Arc<BpfProgram>>,
 }
 
 impl<'a> Debug for PciDevicesConstructorArgs<'a> {
@@ -834,6 +836,7 @@ mod tests {
             vm_resources,
             instance_id: "microvm-id",
             event_manager: &mut event_manager,
+            blk_worker_filter: None,
         };
         let _restored_dev_manager = PciDevices::restore(restore_args, pci_state).unwrap();
 

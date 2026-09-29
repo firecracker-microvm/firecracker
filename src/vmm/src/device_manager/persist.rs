@@ -38,6 +38,7 @@ use crate::devices::virtio::vsock::persist::{
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::mmds::data_store::MmdsVersion;
 use crate::resources::VmResources;
+use crate::seccomp::BpfProgram;
 use crate::snapshot::Persist;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -137,6 +138,7 @@ pub struct MMIODevManagerConstructorArgs<'a> {
     pub event_manager: &'a mut EventManager,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
+    pub blk_worker_filter: Option<Arc<BpfProgram>>,
 }
 
 pub struct MMIOPlatformDevicesConstructorArgs<'a> {
@@ -806,6 +808,7 @@ mod tests {
             event_manager: &mut event_manager,
             vm_resources,
             instance_id: "microvm-id",
+            blk_worker_filter: None,
         };
         let _restored_dev_manager = MMIOVirtioDevices::restore(restore_args, mmio_state).unwrap();
 
