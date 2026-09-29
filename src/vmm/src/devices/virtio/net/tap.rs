@@ -201,7 +201,10 @@ pub mod tests {
     use crate::devices::virtio::iovec::IoVecBuffer;
     use crate::devices::virtio::net::generated;
     use crate::devices::virtio::net::test_utils::{TapTrafficSimulator, enable, if_index};
-    use crate::vstate::memory::GuestMemoryMmap;
+    use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
+    use crate::devices::virtio::test_utils::VirtQueue;
+    use crate::test_utils::single_region_mem;
+    use crate::vstate::memory::{Bytes, GuestAddress};
 
     // Redefine `IoVecBufferMut` with specific length. Otherwise
     // Rust will not know what to do.
@@ -316,19 +319,44 @@ pub mod tests {
         enable(&tap);
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&tap));
 
-        let mut buff1 = vec![0; PAYLOAD_SIZE + VNET_HDR_SIZE];
-        let mut buff2 = vec![0; 2 * PAYLOAD_SIZE];
-
-        let mut rx_buffers = IoVecBufferMut::from(vec![buff1.as_mut_slice(), buff2.as_mut_slice()]);
+        // Two write-only descriptor chains of one descriptor each, in guest memory, with the
+        // first one holding exactly the virtio-net header and the first half of the payload.
+        let mem = single_region_mem(0x10000);
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        let mut q = vq.create_queue();
+        q.ready = true;
+        let buff1_len = u32::try_from(PAYLOAD_SIZE + VNET_HDR_SIZE).unwrap();
+        let buff2_len = u32::try_from(2 * PAYLOAD_SIZE).unwrap();
+        let buff1_addr = vq.end().0;
+        let buff2_addr = buff1_addr + u64::from(buff1_len);
+        vq.dtable[0].set(buff1_addr, buff1_len, VIRTQ_DESC_F_WRITE, 0);
+        vq.dtable[1].set(buff2_addr, buff2_len, VIRTQ_DESC_F_WRITE, 0);
+        vq.avail.ring[0].set(0);
+        vq.avail.ring[1].set(1);
+        vq.avail.idx.set(2);
+        let mut rx_buffers = IoVecBufferMut::new().unwrap();
+        // SAFETY: the two chains do not overlap.
+        unsafe {
+            rx_buffers
+                .append_descriptor_chain(&mem, q.pop().unwrap().unwrap(), 0)
+                .unwrap();
+            rx_buffers
+                .append_descriptor_chain(&mem, q.pop().unwrap().unwrap(), 0)
+                .unwrap();
+        }
 
         let packet = vmm_sys_util::rand::rand_alphanumerics(2 * PAYLOAD_SIZE);
         tap_traffic_simulator.push_tx_packet(packet.as_bytes());
         assert_eq!(
-            rx_buffers
-                .readv_from(&GuestMemoryMmap::new(), &tap, true)
-                .unwrap(),
+            rx_buffers.readv_from(&mem, &tap, true).unwrap(),
             2 * PAYLOAD_SIZE + VNET_HDR_SIZE
         );
+        let mut buff1 = vec![0; PAYLOAD_SIZE + VNET_HDR_SIZE];
+        mem.read_slice(&mut buff1, GuestAddress(buff1_addr))
+            .unwrap();
+        let mut buff2 = vec![0; 2 * PAYLOAD_SIZE];
+        mem.read_slice(&mut buff2, GuestAddress(buff2_addr))
+            .unwrap();
         assert_eq!(&buff1[VNET_HDR_SIZE..], &packet.as_bytes()[..PAYLOAD_SIZE]);
         assert_eq!(&buff2[..PAYLOAD_SIZE], &packet.as_bytes()[PAYLOAD_SIZE..]);
         assert_eq!(&buff2[PAYLOAD_SIZE..], &vec![0; PAYLOAD_SIZE])
