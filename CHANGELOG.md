@@ -36,6 +36,13 @@ and this project adheres to
 
 ### Fixed
 
+- [#6253](https://github.com/firecracker-microvm/firecracker/pull/6253): Guest
+  memory written by the virtio-net, vsock and entropy devices (RX buffers) is
+  now marked dirty for diff snapshots when it is written, and only for the bytes
+  written, instead of for the whole descriptor chain when it is parsed. Diff
+  snapshots taken while such devices are active no longer include buffers the
+  guest posted but the device never filled.
+
 - [#6208](https://github.com/firecracker-microvm/firecracker/pull/6208): Fixed
   the vsock device stalling the VMM thread when the guest connects to a
   host-side Unix socket whose accept backlog is full. Such connection requests

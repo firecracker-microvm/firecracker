@@ -171,6 +171,18 @@ impl RxBuffers {
 
     /// Mark the first `size` bytes of available memory as used.
     ///
+    /// This is called after a frame has been written into the buffer, and marks the written
+    /// range dirty.
+    ///
+    /// # Dirty tracking
+    ///
+    /// The frame was received with `readv` straight into the `iovec`s, which fills them in order
+    /// and contiguously and returns the number of bytes transferred, so the bytes written are
+    /// exactly the first `bytes_written` bytes of the buffer. Handing each used chain back with
+    /// its share of that prefix therefore marks exactly what was written, provided
+    /// `parsed_descriptors` describes the same chains as `self.iovec`, in the same order. That
+    /// invariant is maintained by `add_buffer`, `clear` and this function, and checked here.
+    ///
     /// # Safety:
     ///
     /// * The `RxBuffers` should include at least one parsed `DescriptorChain`.
@@ -182,6 +194,14 @@ impl RxBuffers {
         mut bytes_written: u32,
         rx_queue: &mut Queue,
     ) {
+        assert_eq!(
+            self.parsed_descriptors
+                .iter()
+                .map(|parsed_dc| parsed_dc.length)
+                .sum::<u32>(),
+            self.iovec.len(),
+            "parsed descriptors out of sync with the RX iovecs"
+        );
         self.used_bytes = bytes_written;
 
         let mut used_heads: u16 = 0;
@@ -204,12 +224,18 @@ impl RxBuffers {
         // when we set headers, we will iterate over new, yet unused chains instead of the ones
         // we need.
         self.header_set_num_buffers(mem, used_heads);
+        // A frame read from the TAP lands straight in the `iovec`s, bypassing the buffer's own
+        // dirty tracking. Dropping each used chain with its share of the frame marks it dirty,
+        // now that it holds its final contents.
+        let mut remaining = self.used_bytes;
         for _ in 0..used_heads {
             let parsed_dc = self
                 .parsed_descriptors
                 .pop_front()
                 .expect("This should never happen if write to the buffer succeeded.");
-            self.iovec.drop_chain_front(&parsed_dc);
+            let written = remaining.min(parsed_dc.length);
+            remaining -= written;
+            self.iovec.drop_chain_front(mem, &parsed_dc, written);
         }
     }
 
@@ -1681,6 +1707,85 @@ pub mod tests {
         rx_multiple_frames(th);
     }
 
+    /// A single region at guest address 0 with dirty page tracking enabled.
+    fn dirty_tracking_mem(size: usize) -> GuestMemoryMmap {
+        use crate::vmm_config::machine_config::HugePageConfig;
+        use crate::vstate::memory::{GuestRegionMmapExt, anonymous};
+
+        GuestMemoryMmap::from_regions(vec![GuestRegionMmapExt::dram_from_mmap_region(
+            anonymous(&[(GuestAddress(0), size)], true, HugePageConfig::None)
+                .unwrap()
+                .remove(0),
+            0,
+        )])
+        .unwrap()
+    }
+
+    fn rx_dirty_tracking(mut th: TestHelper, mem: &GuestMemoryMmap) {
+        use crate::arch::host_page_size;
+        use crate::vstate::memory::{Bitmap, GuestMemoryExtension};
+
+        let page_size = host_page_size() as u64;
+        th.activate_net();
+
+        // Two Rx chains of one full-size buffer each; only the first receives a frame.
+        th.add_desc_chain(
+            NetQueue::Rx,
+            0,
+            &[(0, MAX_BUFFER_SIZE as u32, VIRTQ_DESC_F_WRITE)],
+        );
+        th.add_desc_chain(
+            NetQueue::Rx,
+            2 * MAX_BUFFER_SIZE as u64,
+            &[(1, MAX_BUFFER_SIZE as u32, VIRTQ_DESC_F_WRITE)],
+        );
+        mem.reset_dirty();
+
+        let frame = inject_tap_tx_frame(&th.net(), 1000);
+        check_metric_after_block!(
+            th.net().metrics.rx_packets_count,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+        // Both chains were parsed, one was filled.
+        assert_eq!(th.net().rx_buffer.parsed_descriptors.len(), 1);
+        assert_eq!(th.rxq.used.idx.get(), 1);
+
+        let dirty = |addr: u64| {
+            mem.find_region(GuestAddress(0))
+                .unwrap()
+                .bitmap()
+                .dirty_at(addr as usize)
+        };
+        let first = th.rxq.dtable[0].addr.get();
+        let second = th.rxq.dtable[1].addr.get();
+
+        // The written part of the first buffer is dirty, the rest of it is not.
+        assert!(frame.len() < page_size as usize);
+        assert!(dirty(first));
+        assert!(dirty(first + frame.len() as u64 - 1));
+        assert!(!dirty(first + 2 * page_size));
+        // The parsed but unfilled second buffer is not dirty.
+        assert!(!dirty(second));
+        assert!(!dirty(second + page_size));
+    }
+
+    #[test]
+    fn test_rx_dirty_tracking() {
+        let mem = dirty_tracking_mem(4 * MAX_BUFFER_SIZE);
+        let th = TestHelper::get_default(&mem);
+        rx_dirty_tracking(th, &mem);
+    }
+
+    #[test]
+    fn test_rx_dirty_tracking_mrg() {
+        let mem = dirty_tracking_mem(4 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_dirty_tracking(th, &mem);
+    }
+
     fn rx_mrg_rxbuf_only(mut th: TestHelper) {
         th.activate_net();
 
@@ -2077,7 +2182,7 @@ pub mod tests {
             .parsed_descriptors
             .push_back(ParsedDescriptorChain {
                 head_index: 1,
-                length: 1024,
+                length: MAX_BUFFER_SIZE as u32,
                 nr_iovecs: 1,
             });
 
