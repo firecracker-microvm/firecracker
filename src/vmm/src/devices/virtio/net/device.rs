@@ -1998,10 +1998,18 @@ pub mod tests {
             interrupt: default_interrupt(),
         });
 
-        // Inject a fake buffer in the devices buffers, otherwise we won't be able to receive the
-        // MMDS frame. One iovec, i.e. one descriptor chain, will be just fine.
-        let mut fake_buffer = vec![0u8; MAX_BUFFER_SIZE];
-        net.rx_buffer.iovec = IoVecBufferMut::from(fake_buffer.as_mut_slice());
+        // Give the device an RX buffer in guest memory, otherwise we won't be able to receive the
+        // MMDS frame. One descriptor chain of `MAX_BUFFER_SIZE` bytes will be just fine.
+        rxq.dtable[0].set(
+            rxq.end().raw_value(),
+            MAX_BUFFER_SIZE as u32,
+            VIRTQ_DESC_F_WRITE,
+            0,
+        );
+        rxq.avail.ring[0].set(0);
+        rxq.avail.idx.set(1);
+        net.parse_rx_descriptors().unwrap();
+        assert_eq!(net.rx_buffer.iovec.chains.len(), 1);
 
         let src_mac = MacAddr::from_str("11:11:11:11:11:11").unwrap();
         let src_ip = Ipv4Addr::new(10, 1, 2, 3);
