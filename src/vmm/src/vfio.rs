@@ -136,6 +136,7 @@ impl Drop for VfioBars {
 #[derive(Debug, Copy, Clone)]
 struct VfioBarMapping {
     kvm_slot: u32,
+    kvm_flags: u32,
     gpa: u64,
     size: u64,
     hva: u64,
@@ -1038,6 +1039,7 @@ fn vfio_map_bar_mapping(
 
     Ok(VfioBarMapping {
         kvm_slot: slot,
+        kvm_flags,
         gpa,
         size,
         hva,
