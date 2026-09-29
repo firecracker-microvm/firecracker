@@ -341,12 +341,12 @@ impl VsockPacketRx {
     /// contains a guest-to-host (TX) packet. It returned [`VsockError::InvalidPktLen`] if the
     /// packet's payload as described by this [`VsockPacket`] would exceed
     /// [`defs::MAX_PKT_BUF_SIZE`].
-    pub fn commit_hdr(&mut self) -> Result<(), VsockError> {
+    pub fn commit_hdr(&mut self, mem: &GuestMemoryMmap) -> Result<(), VsockError> {
         if self.hdr.len > defs::MAX_PKT_BUF_SIZE {
             return Err(VsockError::InvalidPktLen(self.hdr.len));
         }
         self.buffer
-            .write_all_volatile_at(self.hdr.as_slice(), 0)
+            .write_all_volatile_at(mem, self.hdr.as_slice(), 0)
             .map_err(GuestMemoryError::from)
             .map_err(VsockError::GuestMemoryMmap)
     }
@@ -362,6 +362,7 @@ impl VsockPacketRx {
 
     pub fn read_at_offset_from<T: ReadVolatile + Debug>(
         &mut self,
+        mem: &GuestMemoryMmap,
         src: &mut T,
         offset: u32,
         count: u32,
@@ -377,7 +378,12 @@ impl VsockPacketRx {
         }
 
         self.buffer
-            .write_volatile_at(src, (offset + VSOCK_PKT_HDR_SIZE) as usize, count as usize)
+            .write_volatile_at(
+                mem,
+                src,
+                (offset + VSOCK_PKT_HDR_SIZE) as usize,
+                count as usize,
+            )
             .map_err(|err| VsockError::GuestMemoryMmap(GuestMemoryError::from(err)))
             .and_then(|read| read.try_into().map_err(|_| VsockError::DescChainOverflow))
     }
@@ -676,8 +682,13 @@ mod tests {
             let mut expected_data = zeros[..offset as usize].to_vec();
             expected_data.extend_from_slice(&data[..(pkt.buf_size() - offset) as usize]);
 
-            pkt.read_at_offset_from(&mut data.as_slice(), offset, pkt.buf_size() - offset)
-                .unwrap();
+            pkt.read_at_offset_from(
+                &test_ctx.mem,
+                &mut data.as_slice(),
+                offset,
+                pkt.buf_size() - offset,
+            )
+            .unwrap();
 
             buf_desc.check_data(&expected_data);
 
@@ -698,7 +709,7 @@ mod tests {
         ];
         let mut buf = vec![0; pkt.buf_size() as usize];
         for (offset, count) in oob_cases {
-            let res = pkt.read_at_offset_from(&mut data.as_slice(), offset, count);
+            let res = pkt.read_at_offset_from(&test_ctx.mem, &mut data.as_slice(), offset, count);
             assert!(matches!(res, Err(VsockError::GuestMemoryBounds)));
             let res = pkt2.write_from_offset_to(&mut buf.as_mut_slice(), offset, count);
             assert!(matches!(res, Err(VsockError::GuestMemoryBounds)));

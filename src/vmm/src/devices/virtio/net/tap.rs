@@ -196,6 +196,7 @@ pub mod tests {
     use crate::devices::virtio::iovec::IoVecBuffer;
     use crate::devices::virtio::net::generated;
     use crate::devices::virtio::net::test_utils::{TapTrafficSimulator, enable, if_index};
+    use crate::vstate::memory::GuestMemoryMmap;
 
     // Redefine `IoVecBufferMut` with specific length. Otherwise
     // Rust will not know what to do.
@@ -318,7 +319,9 @@ pub mod tests {
         let packet = vmm_sys_util::rand::rand_alphanumerics(2 * PAYLOAD_SIZE);
         tap_traffic_simulator.push_tx_packet(packet.as_bytes());
         assert_eq!(
-            rx_buffers.readv_from(&tap, true).unwrap(),
+            rx_buffers
+                .readv_from(&GuestMemoryMmap::new(), &tap, true)
+                .unwrap(),
             2 * PAYLOAD_SIZE + VNET_HDR_SIZE
         );
         assert_eq!(&buff1[VNET_HDR_SIZE..], &packet.as_bytes()[..PAYLOAD_SIZE]);

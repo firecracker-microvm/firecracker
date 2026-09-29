@@ -94,6 +94,7 @@ use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::packet::{VsockPacketHeader, VsockPacketRx, VsockPacketTx};
 use crate::logger::{IncMetric, debug, error, info, warn};
 use crate::utils::wrap_usize_to_u32;
+use crate::vstate::memory::GuestMemoryMmap;
 
 /// Trait that vsock connection backends need to implement.
 ///
@@ -159,7 +160,11 @@ where
     /// - `Err(VsockError::NoData)`: there was no data available with which to fill in the packet;
     /// - `Err(VsockError::PktBufMissing)`: the packet would've been filled in with data, but it is
     ///   missing the data buffer.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<(), VsockError> {
+    fn recv_pkt(
+        &mut self,
+        mem: &GuestMemoryMmap,
+        pkt: &mut VsockPacketRx,
+    ) -> Result<(), VsockError> {
         // Perform some generic initialization that is the same for any packet operation (e.g.
         // source, destination, credit, etc).
         self.init_pkt_hdr(&mut pkt.hdr);
@@ -218,7 +223,7 @@ where
             let max_len = std::cmp::min(pkt.buf_size(), self.peer_avail_credit());
 
             // Read data from the stream straight to the RX buffer, for maximum throughput.
-            match pkt.read_at_offset_from(&mut self.stream, 0, max_len) {
+            match pkt.read_at_offset_from(mem, &mut self.stream, 0, max_len) {
                 Ok(read_cnt) => {
                     if read_cnt == 0 {
                         // A 0-length read means the host stream was closed down. In that case,
@@ -899,7 +904,7 @@ mod tests {
                         PEER_BUF_ALLOC,
                     );
                     assert!(conn.has_pending_rx());
-                    conn.recv_pkt(&mut rx_pkt).unwrap();
+                    conn.recv_pkt(&vsock_test_ctx.mem, &mut rx_pkt).unwrap();
                     assert_eq!(rx_pkt.hdr.op(), uapi::VSOCK_OP_RESPONSE);
                     conn
                 }
@@ -930,7 +935,9 @@ mod tests {
         }
 
         fn recv(&mut self) {
-            self.conn.recv_pkt(&mut self.rx_pkt).unwrap();
+            self.conn
+                .recv_pkt(&self._vsock_test_ctx.mem, &mut self.rx_pkt)
+                .unwrap();
         }
 
         fn notify_epollin(&mut self) {
@@ -953,7 +960,12 @@ mod tests {
 
             let len = data.len();
             self.rx_pkt
-                .read_at_offset_from(&mut data, 0, len.try_into().unwrap())
+                .read_at_offset_from(
+                    &self._vsock_test_ctx.mem,
+                    &mut data,
+                    0,
+                    len.try_into().unwrap(),
+                )
                 .unwrap();
             &self.tx_pkt
         }
@@ -1028,7 +1040,7 @@ mod tests {
 
         // There's no more data in the stream, so `recv_pkt` should yield `VsockError::NoData`.
         // match ctx.conn.recv_pkt(&mut ctx.tx_pkt) {
-        match ctx.conn.recv_pkt(&mut ctx.rx_pkt) {
+        match ctx.conn.recv_pkt(&ctx._vsock_test_ctx.mem, &mut ctx.rx_pkt) {
             Err(VsockError::NoData) => (),
             other => panic!("{:?}", other),
         }
@@ -1064,7 +1076,9 @@ mod tests {
         assert!(!ctx.conn.get_polled_evset().contains(EventSet::IN));
 
         // Once the stream drains (read returns `WouldBlock`), `Rw` is cleared and IN re-armed.
-        ctx.conn.recv_pkt(&mut ctx.rx_pkt).unwrap_err();
+        ctx.conn
+            .recv_pkt(&ctx._vsock_test_ctx.mem, &mut ctx.rx_pkt)
+            .unwrap_err();
         assert!(!ctx.conn.has_pending_rx());
         assert!(ctx.conn.get_polled_evset().contains(EventSet::IN));
     }
@@ -1095,7 +1109,9 @@ mod tests {
         assert!(ctx.conn.has_pending_rx());
 
         // Stream now empty: the next read would block, clearing `Rw` and re-arming IN.
-        ctx.conn.recv_pkt(&mut ctx.rx_pkt).unwrap_err();
+        ctx.conn
+            .recv_pkt(&ctx._vsock_test_ctx.mem, &mut ctx.rx_pkt)
+            .unwrap_err();
         assert!(!ctx.conn.has_pending_rx());
         assert!(ctx.conn.get_polled_evset().contains(EventSet::IN));
     }
