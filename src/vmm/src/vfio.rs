@@ -23,7 +23,9 @@ use zerocopy::IntoBytes;
 
 use crate::arch::host_page_size;
 use crate::logger::{debug, error, warn};
-use crate::pci::configuration::{BAR0_REG_IDX, Bars, NUM_BAR_REGS, ROM_BAR_REG};
+use crate::pci::configuration::{
+    BAR0_REG_IDX, Bars, COMMAND_MEMORY_SPACE_ENABLE, COMMAND_REG, NUM_BAR_REGS, ROM_BAR_REG,
+};
 use crate::pci::msix::{MsixCap, MsixConfig};
 use crate::pci::{PciCapabilityId, PciDevice, PciExpressCapabilityId, PciSBDF};
 use crate::utils::{
@@ -31,7 +33,7 @@ use crate::utils::{
     u64_to_usize, usize_to_u64,
 };
 use crate::vmm_config::device_passthrough::DevicePassthroughConfig;
-use crate::vstate::bus::BusDevice;
+use crate::vstate::bus::{BusDevice, BusError};
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::{GuestMemoryMmap, GuestRegionType};
 use crate::vstate::resources::ResourceAllocator;
@@ -63,6 +65,8 @@ pub enum VfioError {
     KvmSlot,
     /// Failed to set KVM user memory region: {0}
     SetUserMemoryRegion(VmError),
+    /// Failed to move MMIO bus range: {0}
+    MoveBusRange(BusError),
     /// vfio-ioctls crate error: {0}
     VfioIoctls(#[from] vfio_ioctls::VfioError),
     /// Cannot create Msix vector group: {0}
@@ -101,7 +105,7 @@ struct VfioBars {
     /// BARs as the guest sees them, with the addresses the guest wrote to their registers.
     guest_bars: Bars,
     /// BARs as the VMM uses them: the ranges handed out by the resource allocator, so they are the
-    /// ones to give back on drop.
+    /// ones to give back on drop. They follow `guest_bars` on BAR relocation.
     vmm_bars: Bars,
     vm: Arc<KvmVm>,
 }
@@ -197,6 +201,10 @@ impl VfioDevice {
         sbdf: PciSBDF,
     ) -> Result<VfioDevice, VfioError> {
         vfio_init_device(container, vm, config, sbdf)
+    }
+
+    fn maybe_relocate_bars(&mut self) {
+        vfio_maybe_relocate_bars(self);
     }
 }
 
@@ -391,9 +399,29 @@ impl PciDevice for VfioDevice {
             handled |= self.masks.iter().any(|m| m.register == reg_idx);
         }
         if !handled {
+            let command_reg_offset = COMMAND_REG as u64 * 4;
+            let mut result: u32 = 0;
+            self.device.region_read(
+                VFIO_PCI_CONFIG_REGION_INDEX,
+                result.as_mut_bytes(),
+                command_reg_offset,
+            );
+            let mem_enabled_before = result & COMMAND_MEMORY_SPACE_ENABLE != 0;
+
             let config_offset = reg_idx as u64 * 4 + offset as u64;
             self.device
                 .region_write(VFIO_PCI_CONFIG_REGION_INDEX, data, config_offset);
+
+            self.device.region_read(
+                VFIO_PCI_CONFIG_REGION_INDEX,
+                result.as_mut_bytes(),
+                command_reg_offset,
+            );
+            let mem_enabled_after = result & COMMAND_MEMORY_SPACE_ENABLE != 0;
+
+            if !mem_enabled_before && mem_enabled_after {
+                self.maybe_relocate_bars();
+            }
         }
         None
     }
@@ -977,6 +1005,120 @@ fn vfio_calculate_bar_areas(
     Ok((mmappable_areas, emulated_areas))
 }
 
+/// Move emulated areas and mappings located in the BAR at `from` to the BAR at `to`. Parts of the
+/// BAR are found by their current address, so calling this with swapped `from` and `to` after a
+/// failure moves back only the parts which were already moved.
+fn vfio_move_bar(
+    emulated_areas: &mut [VfioBarEmulatedArea],
+    bar_mappings: &mut [VfioBarMapping],
+    from: u64,
+    to: u64,
+    size: u64,
+    vm: &KvmVm,
+) -> Result<(), VfioError> {
+    for mapping in bar_mappings.iter_mut() {
+        if from <= mapping.gpa && mapping.gpa < from + size {
+            let gpa = mapping.gpa - from + to;
+            vm.set_user_memory_region(kvm_userspace_memory_region {
+                slot: mapping.kvm_slot,
+                flags: mapping.kvm_flags,
+                guest_phys_addr: gpa,
+                memory_size: mapping.size,
+                userspace_addr: mapping.hva,
+            })
+            .map_err(VfioError::SetUserMemoryRegion)?;
+            mapping.gpa = gpa;
+        }
+    }
+    for area in emulated_areas.iter_mut() {
+        if from <= area.gpa && area.gpa < from + size {
+            let gpa = area.gpa - from + to;
+            vm.common
+                .mmio_bus
+                .move_range(area.gpa, gpa, area.size)
+                .map_err(VfioError::MoveBusRange)?;
+            area.gpa = gpa;
+        }
+    }
+    Ok(())
+}
+
+/// Relocate the BAR if a new address was written to its registers
+fn vfio_maybe_relocate_bar(
+    bars: &mut VfioBars,
+    bar_idx: u8,
+    emulated_areas: &mut [VfioBarEmulatedArea],
+    bar_mappings: &mut [VfioBarMapping],
+    vm: &KvmVm,
+) {
+    let old_base = bars.vmm_bars.get_bar_addr(bar_idx);
+    let new_base = bars.guest_bars.get_bar_addr(bar_idx);
+    if new_base == old_base {
+        return;
+    }
+
+    let size = bars.vmm_bars.get_bar_size(bar_idx);
+    let is_64bit = bars.vmm_bars.bars[bar_idx as usize].is_64bit();
+    let mut resource_allocator = vm.resource_allocator();
+    let allocator = if is_64bit {
+        &mut resource_allocator.mmio64_memory
+    } else {
+        &mut resource_allocator.mmio32_memory
+    };
+
+    let new_range = match allocator.allocate(size, size, AllocPolicy::ExactMatch(new_base)) {
+        Ok(range) => range,
+        Err(err) => {
+            error!("Cannot reserve relocated BAR{bar_idx} range at {new_base:#x}: {err:?}");
+            return;
+        }
+    };
+
+    if let Err(err) = vfio_move_bar(emulated_areas, bar_mappings, old_base, new_base, size, vm) {
+        error!("Failed to relocate BAR{bar_idx} {old_base:#x} -> {new_base:#x}: {err}");
+        if let Err(err) = vfio_move_bar(emulated_areas, bar_mappings, new_base, old_base, size, vm)
+        {
+            // Do not return the possibly "poisoned" address range to the allocator.
+            error!("Failed to move BAR{bar_idx} back to {old_base:#x}: {err}");
+        } else {
+            allocator.free(&new_range).unwrap();
+        }
+        return;
+    }
+
+    // SAFETY: the old range was allocated for this BAR
+    let old_range = RangeInclusive::new(old_base, old_base + size - 1).unwrap();
+    allocator.free(&old_range).unwrap();
+
+    let i = bar_idx as usize;
+    bars.vmm_bars.bars[i].encoded_addr = bars.guest_bars.bars[i].encoded_addr;
+    if is_64bit {
+        bars.vmm_bars.bars[i + 1].encoded_addr = bars.guest_bars.bars[i + 1].encoded_addr;
+    }
+    debug!("Relocated BAR{bar_idx} {old_base:#x} -> {new_base:#x}");
+}
+
+/// Relocate all BARs which have a new address written to their registers
+fn vfio_maybe_relocate_bars(device: &mut VfioDevice) {
+    let mut bar_idx = 0;
+    while bar_idx < NUM_BAR_REGS {
+        let bar = device.bars.vmm_bars.bars[bar_idx as usize];
+        if bar.used() {
+            vfio_maybe_relocate_bar(
+                &mut device.bars,
+                bar_idx,
+                &mut device.emulated_areas,
+                &mut device.bar_mappings,
+                &device.vm,
+            );
+        }
+        if bar.is_64bit() {
+            bar_idx += 1;
+        }
+        bar_idx += 1;
+    }
+}
+
 /// Mmaps the area of the device BAR and creates a sets the KVM memory region for it, giving guest
 /// direct access to that memory.
 fn vfio_map_bar_mapping(
@@ -1290,8 +1432,12 @@ pub fn vfio_create_kvm_vfio_device_and_vfio_container(
 
 #[cfg(test)]
 mod tests {
+    use std::fs::OpenOptions;
+    use std::sync::Mutex;
+
     use super::*;
     use crate::pci::configuration::BarPrefetchable;
+    use crate::vstate::vm::tests::setup_vm;
 
     fn dummy_bar_region_info(value: u32, size: u64) -> VfioRegionInfo {
         VfioRegionInfo {
@@ -2218,5 +2364,213 @@ mod tests {
         let area = emulated_area_table_only();
         let cap = MsixCap::new(0, 4, 0, 0, 0x800);
         let _ = vfio_distribute_msix_access(&area, &cap, BAR_GPA + 0x1000, 0, 4);
+    }
+
+    struct DummyBusDevice;
+    impl BusDevice for DummyBusDevice {}
+
+    struct RelocationSetup {
+        vm: Arc<KvmVm>,
+        bars: VfioBars,
+        emulated_areas: VfioBarEmulatedAreas,
+        bar_mappings: Vec<VfioBarMapping>,
+        _bus_device: Arc<Mutex<DummyBusDevice>>,
+    }
+
+    /// Set up BARs the same way `vfio_init_device` does, but with mappings backed by `/dev/zero`:
+    /// - BAR0: 64bit BAR of 4 pages with the MSIx table in the second page:
+    ///   [ mapping ][ emulated area ][       mapping        ]
+    /// - BAR2: 32bit BAR which is fully emulated
+    /// - BAR3: 32bit mmappable BAR smaller than host page which is fully emulated
+    fn relocation_setup() -> RelocationSetup {
+        let page = usize_to_u64(host_page_size());
+        let vm = Arc::new(setup_vm());
+        let region_infos = dummy_region_infos([
+            VfioRegionInfo {
+                value: PCI_CONFIG_MEMORY_BAR_64BIT,
+                ..dummy_region_info(4 * page, vec![VfioRegionInfoCap::MsixMappable])
+            },
+            dummy_bar_region_info(0, 0),
+            dummy_non_mmappable_region_info(page),
+            dummy_region_info(page / 16, vec![]),
+        ]);
+        let msix_cap = MsixCap::new(0, 1, u32::try_from(page).unwrap(), 0, 0);
+        let bars = VfioBars::new(vm.clone(), &region_infos).unwrap();
+        let (areas, emulated_areas) =
+            vfio_calculate_bar_areas(&bars.vmm_bars, &region_infos, &msix_cap).unwrap();
+        let zero = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/zero")
+            .unwrap();
+        let slot = vm
+            .next_kvm_slot(u32::try_from(areas.len()).unwrap())
+            .unwrap();
+        let bar_mappings = vfio_create_bar_mappings_from_areas(&vm, &areas, &zero, slot).unwrap();
+        let bus_device = Arc::new(Mutex::new(DummyBusDevice));
+        for area in emulated_areas.iter() {
+            vm.common
+                .mmio_bus
+                .insert(bus_device.clone(), area.gpa, area.size)
+                .unwrap();
+        }
+        RelocationSetup {
+            vm,
+            bars,
+            emulated_areas,
+            bar_mappings,
+            _bus_device: bus_device,
+        }
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn relocate(s: &mut RelocationSetup, bar_idx: u8, base: u64) {
+        s.bars
+            .guest_bars
+            .write(bar_idx, 0, &(base as u32).to_le_bytes());
+        if s.bars.guest_bars.bars[bar_idx as usize].is_64bit() {
+            s.bars
+                .guest_bars
+                .write(bar_idx + 1, 0, &((base >> 32) as u32).to_le_bytes());
+        }
+        vfio_maybe_relocate_bar(
+            &mut s.bars,
+            bar_idx,
+            &mut s.emulated_areas,
+            &mut s.bar_mappings,
+            &s.vm,
+        );
+    }
+
+    fn bus_mapped(s: &RelocationSetup, gpa: u64) -> bool {
+        s.vm.common.mmio_bus.read(gpa, &mut [0u8; 4]).is_ok()
+    }
+
+    /// KVM refuses to add a memory slot overlapping an existing one, which makes the mappings
+    /// observable.
+    fn kvm_mapped(s: &RelocationSetup, gpa: u64) -> bool {
+        let region = kvm_userspace_memory_region {
+            slot: s.vm.next_kvm_slot(1).unwrap(),
+            flags: 0,
+            guest_phys_addr: gpa,
+            memory_size: usize_to_u64(host_page_size()),
+            userspace_addr: s.bar_mappings[0].hva,
+        };
+        let result = s.vm.set_user_memory_region(region);
+        if result.is_ok() {
+            s.vm.set_user_memory_region(kvm_userspace_memory_region {
+                memory_size: 0,
+                ..region
+            })
+            .unwrap();
+        }
+        matches!(result, Err(VmError::SetUserMemoryRegion(err)) if err.errno() == libc::EEXIST)
+    }
+
+    /// Assert that the BAR and its `mappings` number of mappings are at `base` in both records and
+    /// KVM/mmio bus, and that nothing is left at `other`.
+    fn assert_bar_at(s: &RelocationSetup, bar_idx: u8, base: u64, other: u64, mappings: usize) {
+        assert_eq!(s.bars.vmm_bars.get_bar_addr(bar_idx), base);
+        let size = s.bars.vmm_bars.get_bar_size(bar_idx);
+        for area in s.emulated_areas.iter().filter(|a| a.bar_idx == bar_idx) {
+            assert_eq!(area.gpa, base + area.in_bar_offset);
+            assert!(bus_mapped(s, area.gpa));
+            assert!(!bus_mapped(s, other + area.in_bar_offset));
+        }
+        let bar_mappings: Vec<_> = s
+            .bar_mappings
+            .iter()
+            .filter(|m| base <= m.gpa && m.gpa < base + size)
+            .collect();
+        assert_eq!(bar_mappings.len(), mappings);
+        for mapping in bar_mappings {
+            assert!(kvm_mapped(s, mapping.gpa));
+            assert!(!kvm_mapped(s, mapping.gpa - base + other));
+        }
+    }
+
+    /// Dropping BARs must give back exactly the ranges they hold, leaving the allocator empty.
+    fn assert_bars_dropped_cleanly(s: RelocationSetup) {
+        drop(s.bars);
+        let resource_allocator = s.vm.resource_allocator();
+        let empty = ResourceAllocator::new();
+        assert_eq!(resource_allocator.mmio32_memory, empty.mmio32_memory);
+        assert_eq!(resource_allocator.mmio64_memory, empty.mmio64_memory);
+    }
+
+    #[test]
+    fn test_vfio_maybe_relocate_bar() {
+        let page = usize_to_u64(host_page_size());
+        let mut s = relocation_setup();
+        for (bar_idx, mappings) in [(0, 2), (2, 0), (3, 0)] {
+            let old_base = s.bars.vmm_bars.get_bar_addr(bar_idx);
+            // Unchanged BAR is not relocated
+            relocate(&mut s, bar_idx, old_base);
+            assert_bar_at(&s, bar_idx, old_base, old_base + 16 * page, mappings);
+
+            relocate(&mut s, bar_idx, old_base + 16 * page);
+            assert_bar_at(&s, bar_idx, old_base + 16 * page, old_base, mappings);
+        }
+
+        // BAR smaller than the host page can be placed at address which is not host page aligned
+        let old_base = s.bars.vmm_bars.get_bar_addr(3);
+        relocate(&mut s, 3, old_base + page / 16);
+        assert_bar_at(&s, 3, old_base + page / 16, old_base, 0);
+
+        assert_bars_dropped_cleanly(s);
+    }
+
+    #[test]
+    fn test_vfio_maybe_relocate_bar_refused() {
+        let page = usize_to_u64(host_page_size());
+        let mut s = relocation_setup();
+
+        // Range taken by someone else and range outside of the 64bit MMIO window
+        let old_base = s.bars.vmm_bars.get_bar_addr(0);
+        let taken =
+            s.vm.resource_allocator()
+                .mmio64_memory
+                .allocate(
+                    4 * page,
+                    4 * page,
+                    AllocPolicy::ExactMatch(old_base + 16 * page),
+                )
+                .unwrap();
+        for base in [taken.start(), 0] {
+            relocate(&mut s, 0, base);
+            assert_bar_at(&s, 0, old_base, base, 2);
+        }
+        s.vm.resource_allocator()
+            .mmio64_memory
+            .free(&taken)
+            .unwrap();
+
+        assert_bars_dropped_cleanly(s);
+    }
+
+    #[test]
+    fn test_vfio_maybe_relocate_bar_rollback() {
+        let page = usize_to_u64(host_page_size());
+        let mut s = relocation_setup();
+        let old_base = s.bars.vmm_bars.get_bar_addr(0);
+        let new_base = old_base + 16 * page;
+
+        // Moving the second mapping fails after the first one was moved
+        s.vm.fail_next_set_user_memory_region(2);
+        relocate(&mut s, 0, new_base);
+        assert_bar_at(&s, 0, old_base, new_base, 2);
+
+        // Moving the emulated area fails after all mappings were moved, because the new range is
+        // taken on the mmio bus by a device unknown to the allocator
+        let bus_device = Arc::new(Mutex::new(DummyBusDevice));
+        s.vm.common
+            .mmio_bus
+            .insert(bus_device, new_base + page, page)
+            .unwrap();
+        relocate(&mut s, 0, new_base);
+        s.vm.common.mmio_bus.remove(new_base + page, page).unwrap();
+        assert_bar_at(&s, 0, old_base, new_base, 2);
+
+        assert_bars_dropped_cleanly(s);
     }
 }
