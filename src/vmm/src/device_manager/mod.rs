@@ -53,6 +53,7 @@ use crate::pci::bus::MAX_PCI_BUSES;
 use crate::rate_limiter::TokenBucket;
 use crate::resources::VmResources;
 use crate::rpc_interface::VmmActionError;
+use crate::seccomp::BpfProgram;
 use crate::snapshot::Persist;
 use crate::utils::open_file_nonblock;
 use crate::vmm_config::HotplugDeviceConfig;
@@ -132,6 +133,8 @@ pub struct DeviceManager {
     pub acpi_devices: ACPIDeviceManager,
     /// Virtio devices (MMIO or PCI)
     pub virtio_devices: VirtioDevices,
+    /// Seccomp filter installed on block worker threads
+    pub blk_worker_filter: Option<Arc<BpfProgram>>,
 }
 
 impl DeviceManager {
@@ -235,6 +238,7 @@ impl DeviceManager {
     }
 
     #[cfg_attr(target_arch = "aarch64", allow(unused))]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         event_manager: &mut EventManager,
         vcpus_exit_evt: &EventFd,
@@ -243,6 +247,7 @@ impl DeviceManager {
         serial_rate_limiter: Option<TokenBucket>,
         pci_enabled: bool,
         pcie_hotplug_ports: u8,
+        blk_worker_filter: Option<Arc<BpfProgram>>,
     ) -> Result<Self, DeviceManagerCreateError> {
         #[cfg(target_arch = "x86_64")]
         let legacy_devices = Self::create_legacy_devices(
@@ -260,6 +265,7 @@ impl DeviceManager {
             legacy_devices: Some(legacy_devices),
             acpi_devices: ACPIDeviceManager::default(),
             virtio_devices: Self::create_virtio_devices(pci_enabled, vm, pcie_hotplug_ports)?,
+            blk_worker_filter,
         })
     }
 
@@ -769,6 +775,7 @@ pub struct DeviceRestoreArgs<'a> {
     pub vcpus_exit_evt: &'a EventFd,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
+    pub blk_worker_filter: Option<Arc<BpfProgram>>,
 }
 
 impl std::fmt::Debug for DeviceRestoreArgs<'_> {
@@ -841,6 +848,7 @@ impl<'a> Persist<'a> for DeviceManager {
                     vm_resources: constructor_args.vm_resources,
                     instance_id: constructor_args.instance_id,
                     event_manager: constructor_args.event_manager,
+                    blk_worker_filter: constructor_args.blk_worker_filter.clone(),
                 };
                 let pci_devices = PciDevices::restore(pci_ctor_args, pci_state)
                     .map_err(DeviceManagerPersistError::PciRestore)?;
@@ -853,6 +861,7 @@ impl<'a> Persist<'a> for DeviceManager {
                     event_manager: constructor_args.event_manager,
                     vm_resources: constructor_args.vm_resources,
                     instance_id: constructor_args.instance_id,
+                    blk_worker_filter: constructor_args.blk_worker_filter.clone(),
                 };
                 let mmio_virtio_devices = MMIOVirtioDevices::restore(mmio_ctor_args, mmio_state)
                     .map_err(DeviceManagerPersistError::MmioRestore)?;
@@ -866,6 +875,7 @@ impl<'a> Persist<'a> for DeviceManager {
             legacy_devices: Some(legacy_devices),
             acpi_devices,
             virtio_devices,
+            blk_worker_filter: constructor_args.blk_worker_filter,
         })
     }
 }
@@ -914,6 +924,7 @@ pub(crate) mod tests {
             legacy_devices: Some(legacy_devices),
             acpi_devices,
             virtio_devices,
+            blk_worker_filter: None,
         }
     }
 
