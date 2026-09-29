@@ -116,7 +116,7 @@ impl Entropy {
     }
 
     /// Fills `buffer`, the chain of an entropy request, with random bytes.
-    fn handle_one(buffer: &mut IoVecBufferMut) -> Result<u32, EntropyError> {
+    fn handle_one(mem: &GuestMemoryMmap, buffer: &mut IoVecBufferMut) -> Result<u32, EntropyError> {
         // If guest provided us with an empty buffer just return directly
         if buffer.is_empty() {
             return Ok(0);
@@ -133,7 +133,7 @@ impl Entropy {
         })?;
 
         // It is ok to unwrap here. We are writing `len` bytes at offset 0.
-        buffer.write_all_volatile_at(&rand_bytes, 0).unwrap();
+        buffer.write_all_volatile_at(mem, &rand_bytes, 0).unwrap();
         Ok(len)
     }
 
@@ -168,7 +168,7 @@ impl Entropy {
                         break;
                     }
 
-                    Self::handle_one(&mut self.buffer).unwrap_or_else(|err| {
+                    Self::handle_one(mem, &mut self.buffer).unwrap_or_else(|err| {
                         error!("entropy: {err}");
                         METRICS.entropy_event_fails.inc();
                         0
@@ -441,7 +441,7 @@ mod tests {
         let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop().unwrap().unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
         entropy_dev.buffer = unsafe { IoVecBufferMut::from_descriptor_chain(&mem, desc).unwrap() };
-        Entropy::handle_one(&mut entropy_dev.buffer).unwrap();
+        Entropy::handle_one(&mem, &mut entropy_dev.buffer).unwrap();
     }
 
     #[test]
@@ -646,7 +646,7 @@ mod tests {
 
         let mut dev = default_entropy();
         dev.buffer = buf;
-        let bytes = Entropy::handle_one(&mut dev.buffer).unwrap();
+        let bytes = Entropy::handle_one(&mem, &mut dev.buffer).unwrap();
 
         assert_eq!(
             bytes,
@@ -690,7 +690,7 @@ mod tests {
 
         let mut dev = default_entropy();
         dev.buffer = buf;
-        let bytes = Entropy::handle_one(&mut dev.buffer).unwrap();
+        let bytes = Entropy::handle_one(&mem, &mut dev.buffer).unwrap();
 
         assert_eq!(
             bytes, MAX_ENTROPY_BYTES,
@@ -725,7 +725,7 @@ mod tests {
 
         let mut dev = default_entropy();
         dev.buffer = buf;
-        let bytes = Entropy::handle_one(&mut dev.buffer).unwrap();
+        let bytes = Entropy::handle_one(&mem, &mut dev.buffer).unwrap();
 
         assert_eq!(
             bytes, SIZE,

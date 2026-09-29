@@ -143,7 +143,7 @@ impl RxBuffers {
     /// # Panics
     ///
     /// Panics if the buffer holds no chain, or fewer than `bytes_written` bytes.
-    fn mark_used(&mut self, mut bytes_written: u32, rx_queue: &mut Queue) {
+    fn mark_used(&mut self, mem: &GuestMemoryMmap, mut bytes_written: u32, rx_queue: &mut Queue) {
         self.used_bytes = bytes_written;
 
         let mut used_heads: u16 = 0;
@@ -166,20 +166,21 @@ impl RxBuffers {
         // We need to set num_buffers before dropping chains from `self.iovec`. Otherwise
         // when we set headers, we will iterate over new, yet unused chains instead of the ones
         // we need.
-        self.header_set_num_buffers(used_heads);
+        self.header_set_num_buffers(mem, used_heads);
         for _ in 0..used_heads {
             self.iovec.drop_chain_front();
         }
     }
 
     /// Write the number of descriptors used in VirtIO header
-    fn header_set_num_buffers(&mut self, nr_descs: u16) {
+    fn header_set_num_buffers(&mut self, mem: &GuestMemoryMmap, nr_descs: u16) {
         // We can unwrap here, because we have checked before that the `IoVecBufferMut` holds at
         // least one buffer with the proper size, depending on the feature negotiation. In any
         // case, the buffer holds memory of at least `std::mem::size_of::<virtio_net_hdr_v1>()`
         // bytes.
         self.iovec
             .write_all_volatile_at(
+                mem,
                 &nr_descs.to_le_bytes(),
                 std::mem::offset_of!(virtio_net_hdr_v1, num_buffers),
             )
@@ -597,6 +598,11 @@ impl Net {
             }
         }
 
+        // This is safe since we checked in the event handler that the device is activated. Taken
+        // once here: everything below works on disjoint fields of `self`, so the borrow can be
+        // held across the frame's reception.
+        let mem = &self.device_state.active_state().unwrap().mem;
+
         let len = if let Some(ns) = self.mmds_ns.as_mut()
             && let Some(len) =
                 ns.write_next_frame(frame_bytes_from_buf_mut(&mut self.rx_frame_buf)?)
@@ -605,9 +611,11 @@ impl Net {
             METRICS.mmds.tx_frames.inc();
             METRICS.mmds.tx_bytes.add(len as u64);
             init_vnet_hdr(&mut self.rx_frame_buf);
-            self.rx_buffer
-                .iovec
-                .write_all_volatile_at(&self.rx_frame_buf[..vnet_hdr_len() + len], 0)?;
+            self.rx_buffer.iovec.write_all_volatile_at(
+                mem,
+                &self.rx_frame_buf[..vnet_hdr_len() + len],
+                0,
+            )?;
             // SAFETY:
             // * len will never be bigger that u32::MAX because mmds is bound
             // by the size of `self.rx_frame_buf` which is MAX_BUFFER_SIZE size.
@@ -620,14 +628,15 @@ impl Net {
             let len = self
                 .rx_buffer
                 .iovec
-                .readv_from(&self.tap, mrg_rxbuf)
+                .readv_from(mem, &self.tap, mrg_rxbuf)
                 .map_err(NetError::IO)?;
             // SAFETY:
             // * len will never be bigger that u32::MAX
             len.try_into().unwrap()
         };
 
-        self.rx_buffer.mark_used(len, &mut self.queues[RX_INDEX]);
+        self.rx_buffer
+            .mark_used(mem, len, &mut self.queues[RX_INDEX]);
         Ok(Some(len))
     }
 
@@ -1068,7 +1077,7 @@ pub mod tests {
         inject_tap_tx_frame, set_mac,
     };
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
-    use crate::devices::virtio::test_utils::VirtQueue;
+    use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt};
     use crate::dumbo::EthernetFrame;
     use crate::dumbo::pdu::arp::{ETH_IPV4_FRAME_LEN, EthIPv4ArpFrame};
     use crate::dumbo::pdu::ethernet::ETHERTYPE_ARP;
@@ -1983,6 +1992,11 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let rxq = VirtQueue::new(GuestAddress(0), &mem, 16);
         net.queues[RX_INDEX] = rxq.create_queue();
+        // Receiving a frame marks guest memory dirty, which needs the device to be activated.
+        net.device_state = DeviceState::Activated(ActiveState {
+            mem: mem.clone(),
+            interrupt: default_interrupt(),
+        });
 
         // Inject a fake buffer in the devices buffers, otherwise we won't be able to receive the
         // MMDS frame. One iovec, i.e. one descriptor chain, will be just fine.
