@@ -208,6 +208,7 @@ pub fn build_microvm_for_boot(
         vm_resources.serial_out_path.as_ref(),
         vm_resources.serial_rate_limiter(),
         vm_resources.pci_enabled,
+        seccomp_filters.get("blk_worker").cloned(),
     )?;
 
     let guest_memory = kvm_vm.guest_memory();
@@ -505,6 +506,7 @@ pub fn build_microvm_from_snapshot(
         vm_resources,
         instance_id: &instance_info.id,
         vcpus_exit_evt: kvm_vm.vcpus_exit_evt(),
+        blk_worker_filter: seccomp_filters.get("blk_worker").cloned(),
     };
     #[allow(unused_mut)]
     let mut device_manager =
