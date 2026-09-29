@@ -638,7 +638,9 @@ impl Net {
             }
         }
 
-        if let Some(ns) = self.mmds_ns.as_mut()
+        let mrg_rxbuf = self.has_feature(VIRTIO_NET_F_MRG_RXBUF as u64);
+
+        let len = if let Some(ns) = self.mmds_ns.as_mut()
             && let Some(len) =
                 ns.write_next_frame(frame_bytes_from_buf_mut(&mut self.rx_frame_buf)?)
         {
@@ -652,29 +654,22 @@ impl Net {
             // SAFETY:
             // * len will never be bigger that u32::MAX because mmds is bound
             // by the size of `self.rx_frame_buf` which is MAX_BUFFER_SIZE size.
-            let len: u32 = (vnet_hdr_len() + len).try_into().unwrap();
-
+            (vnet_hdr_len() + len).try_into().unwrap()
+        } else {
             // SAFETY:
-            // * We checked that `rx_buffer` includes at least one `DescriptorChain`
-            // * `rx_frame_buf` has size of `MAX_BUFFER_SIZE` and all `DescriptorChain` objects are
-            //   at least that big.
-            unsafe {
-                self.rx_buffer.mark_used(len, &mut self.queues[RX_INDEX]);
-            }
-            return Ok(Some(len));
-        }
-
-        // SAFETY:
-        // * We ensured that `self.rx_buffer` has at least one DescriptorChain parsed in it.
-        let len = unsafe { self.read_tap().map_err(NetError::IO) }?;
-        // SAFETY:
-        // * len will never be bigger that u32::MAX
-        let len: u32 = len.try_into().unwrap();
+            // * We ensured that `self.rx_buffer` has at least one DescriptorChain parsed in it.
+            let len = unsafe { Self::read_tap(&mut self.tap, &mut self.rx_buffer, mrg_rxbuf) }
+                .map_err(NetError::IO)?;
+            // SAFETY:
+            // * len will never be bigger that u32::MAX
+            len.try_into().unwrap()
+        };
 
         // SAFETY:
         // * `rx_buffer` has at least one `DescriptorChain`
-        // * `read_tap` passes the first `DescriptorChain` to `readv` so we can't have read more
-        //   bytes than its capacity.
+        // * MMDS frames fit in `rx_frame_buf`, which is `MAX_BUFFER_SIZE` bytes, and every
+        //   `DescriptorChain` is at least that big; `read_tap` passes the first `DescriptorChain`
+        //   to `readv` so we can't have read more bytes than its capacity.
         unsafe {
             self.rx_buffer.mark_used(len, &mut self.queues[RX_INDEX]);
         }
@@ -866,18 +861,23 @@ impl Net {
         self.tx_rate_limiter.update_buckets(tx_bytes, tx_ops);
     }
 
-    /// Reads a frame from the TAP device inside the first descriptor held by `self.rx_buffer`.
+    /// Reads a frame from the TAP device inside the first descriptor held by `rx_buffer`, or in
+    /// as many as needed when `mrg_rxbuf` (VIRTIO_NET_F_MRG_RXBUF) is negotiated.
     ///
     /// # Safety
     ///
-    /// `self.rx_buffer` needs to have at least one descriptor chain parsed
-    pub unsafe fn read_tap(&mut self) -> std::io::Result<usize> {
-        let slice = if self.has_feature(VIRTIO_NET_F_MRG_RXBUF as u64) {
-            self.rx_buffer.all_chains_slice_mut()
+    /// `rx_buffer` needs to have at least one descriptor chain parsed
+    unsafe fn read_tap(
+        tap: &mut Tap,
+        rx_buffer: &mut RxBuffers,
+        mrg_rxbuf: bool,
+    ) -> std::io::Result<usize> {
+        let slice = if mrg_rxbuf {
+            rx_buffer.all_chains_slice_mut()
         } else {
-            self.rx_buffer.single_chain_slice_mut()
+            rx_buffer.single_chain_slice_mut()
         };
-        self.tap.read_iovec(slice)
+        tap.read_iovec(slice)
     }
 
     fn write_tap(tap: &mut Tap, buf: &IoVecBuffer) -> std::io::Result<usize> {
