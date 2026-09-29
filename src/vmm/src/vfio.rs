@@ -979,7 +979,7 @@ fn vfio_calculate_bar_areas(
 /// Mmaps the area of the device BAR and creates a sets the KVM memory region for it, giving guest
 /// direct access to that memory.
 fn vfio_map_bar_mapping(
-    device: &InternalVfioDevice,
+    device: &impl AsRawFd,
     vm: &KvmVm,
     area: &VfioBarMappableArea,
     slot: u32,
@@ -1048,7 +1048,7 @@ fn vfio_map_bar_mapping(
 fn vfio_create_bar_mappings_from_areas(
     vm: &KvmVm,
     areas: &[VfioBarMappableArea],
-    device: &InternalVfioDevice,
+    device: &impl AsRawFd,
     first_area_slot: u32,
 ) -> Result<Vec<VfioBarMapping>, VfioError> {
     let mut mappings = Vec::with_capacity(areas.len());
