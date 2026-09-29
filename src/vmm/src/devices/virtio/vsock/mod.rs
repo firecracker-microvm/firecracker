@@ -32,6 +32,7 @@ pub use self::unix::{VsockUnixBackend, VsockUnixBackendError};
 use super::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecError;
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
+use crate::vstate::memory::GuestMemoryMmap;
 
 mod defs {
     use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
@@ -165,8 +166,12 @@ pub trait VsockEpollListener: AsRawFd {
 ///       - `recv_pkt(&mut pkt)` will read data from the channel, and place it into `pkt`; and
 ///       - `send_pkt(&pkt)` will fetch data from `pkt`, and place it into the channel.
 pub trait VsockChannel {
-    /// Read/receive an incoming packet from the channel.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<(), VsockError>;
+    /// Read/receive an incoming packet from the channel, writing it into `pkt`'s guest buffer.
+    fn recv_pkt(
+        &mut self,
+        pkt: &mut VsockPacketRx,
+        mem: &GuestMemoryMmap,
+    ) -> Result<(), VsockError>;
 
     /// Write/send a packet through the channel.
     ///

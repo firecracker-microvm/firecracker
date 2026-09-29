@@ -399,7 +399,8 @@ impl<const L: u16> IoVecBufferMut<L> {
     ///
     /// This will try to fill `IoVecBufferMut` writing bytes from the `buf` starting from
     /// the given offset. It will write as many bytes from `buf` as they fit inside the
-    /// `IoVecBufferMut` starting from `offset`.
+    /// `IoVecBufferMut` starting from `offset`. `mem` is the guest memory the chains were
+    /// parsed from.
     ///
     /// # Returns
     ///
@@ -408,12 +409,13 @@ impl<const L: u16> IoVecBufferMut<L> {
     /// `Err(VolatileMemoryError::OutOfBounds)` if `offset >= self.len()`.
     pub fn write_all_volatile_at(
         &mut self,
+        mem: &GuestMemoryMmap,
         mut buf: &[u8],
         offset: usize,
     ) -> Result<(), VolatileMemoryError> {
         if offset < self.len() as usize {
             let expected = buf.len();
-            let bytes_written = self.write_volatile_at(&mut buf, offset, expected)?;
+            let bytes_written = self.write_volatile_at(mem, &mut buf, offset, expected)?;
 
             if bytes_written != expected {
                 return Err(VolatileMemoryError::PartialBuffer {
@@ -431,9 +433,11 @@ impl<const L: u16> IoVecBufferMut<L> {
 
     /// Writes up to `len` bytes into the `IoVecBuffer` starting at the given offset.
     ///
-    /// This will try to write to the given [`WriteVolatile`].
+    /// This will try to write to the given [`WriteVolatile`]. `mem` is the guest memory the
+    /// chains were parsed from.
     pub fn write_volatile_at<W: ReadVolatile>(
         &mut self,
+        _mem: &GuestMemoryMmap,
         src: &mut W,
         mut offset: usize,
         mut len: usize,
@@ -743,10 +747,10 @@ mod tests {
         let mut test_vec4 = vec![0u8; 64];
 
         // Control test: Initially all three regions should be zero
-        iovec.write_all_volatile_at(&test_vec1, 0).unwrap();
-        iovec.write_all_volatile_at(&test_vec2, 64).unwrap();
-        iovec.write_all_volatile_at(&test_vec3, 128).unwrap();
-        iovec.write_all_volatile_at(&test_vec4, 192).unwrap();
+        iovec.write_all_volatile_at(&mem, &test_vec1, 0).unwrap();
+        iovec.write_all_volatile_at(&mem, &test_vec2, 64).unwrap();
+        iovec.write_all_volatile_at(&mem, &test_vec3, 128).unwrap();
+        iovec.write_all_volatile_at(&mem, &test_vec4, 192).unwrap();
         vq.dtable[0].check_data(&test_vec1);
         vq.dtable[1].check_data(&test_vec2);
         vq.dtable[2].check_data(&test_vec3);
@@ -755,7 +759,7 @@ mod tests {
         // Let's initialize test_vec1 with our buffer.
         test_vec1[..buf.len()].copy_from_slice(&buf);
         // And write just a part of it
-        iovec.write_all_volatile_at(&buf[..3], 0).unwrap();
+        iovec.write_all_volatile_at(&mem, &buf[..3], 0).unwrap();
         // Not all 5 bytes from buf should be written in memory,
         // just 3 of them.
         vq.dtable[0].check_data(&[0u8, 1, 2, 0, 0]);
@@ -764,7 +768,7 @@ mod tests {
         vq.dtable[3].check_data(&test_vec4);
         // But if we write the whole `buf` in memory then all
         // of it should be observable.
-        iovec.write_all_volatile_at(&buf, 0).unwrap();
+        iovec.write_all_volatile_at(&mem, &buf, 0).unwrap();
         vq.dtable[0].check_data(&test_vec1);
         vq.dtable[1].check_data(&test_vec2);
         vq.dtable[2].check_data(&test_vec3);
@@ -773,7 +777,7 @@ mod tests {
         // We are now writing with an offset of 1. So, initialize
         // the corresponding part of `test_vec1`
         test_vec1[1..buf.len() + 1].copy_from_slice(&buf);
-        iovec.write_all_volatile_at(&buf, 1).unwrap();
+        iovec.write_all_volatile_at(&mem, &buf, 1).unwrap();
         vq.dtable[0].check_data(&test_vec1);
         vq.dtable[1].check_data(&test_vec2);
         vq.dtable[2].check_data(&test_vec3);
@@ -784,7 +788,7 @@ mod tests {
         // first region and one byte on the second
         test_vec1[60..64].copy_from_slice(&buf[0..4]);
         test_vec2[0] = 4;
-        iovec.write_all_volatile_at(&buf, 60).unwrap();
+        iovec.write_all_volatile_at(&mem, &buf, 60).unwrap();
         vq.dtable[0].check_data(&test_vec1);
         vq.dtable[1].check_data(&test_vec2);
         vq.dtable[2].check_data(&test_vec3);
@@ -797,7 +801,9 @@ mod tests {
         // 5 bytes at offset 252 (only 4 bytes left).
         test_vec4[60..64].copy_from_slice(&buf[0..4]);
         assert_eq!(
-            iovec.write_volatile_at(&mut &*buf, 252, buf.len()).unwrap(),
+            iovec
+                .write_volatile_at(&mem, &mut &*buf, 252, buf.len())
+                .unwrap(),
             4
         );
         vq.dtable[0].check_data(&test_vec1);
@@ -807,7 +813,7 @@ mod tests {
 
         // Trying to add past the end of the buffer should not write anything
         assert!(matches!(
-            iovec.write_all_volatile_at(&buf, 256),
+            iovec.write_all_volatile_at(&mem, &buf, 256),
             Err(VolatileMemoryError::OutOfBounds { addr: 256 })
         ));
         vq.dtable[0].check_data(&test_vec1);
@@ -829,6 +835,7 @@ mod verification {
     use super::IoVecBuffer;
     use crate::arch::GUEST_PAGE_SIZE;
     use crate::devices::virtio::iov_deque::IovDeque;
+    use crate::vstate::memory::GuestMemoryMmap;
     // Redefine `IoVecBufferMut` and `IovDeque` with specific length. Otherwise
     // Rust will not know what to do.
     type IoVecBufferMutDefault = super::IoVecBufferMut<FIRECRACKER_MAX_QUEUE_SIZE>;
@@ -1065,9 +1072,13 @@ mod verification {
             // Furthermore, we know our Read-/WriteVolatile implementation above is infallible, so
             // provided that the logic inside write_volatile_at is correct, we should always get
             // Ok(...)
+            // Dirty tracking is not part of this proof: with no guest memory regions, marking is
+            // a no-op.
+            let mem = GuestMemoryMmap::new();
             assert_eq!(
                 iov_mut
                     .write_volatile_at(
+                        &mem,
                         &mut KaniBuffer(&mut buf),
                         offset as usize,
                         GUEST_MEMORY_SIZE
