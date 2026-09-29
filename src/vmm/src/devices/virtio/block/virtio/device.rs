@@ -23,14 +23,17 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::io::FileEngine;
 use super::worker::{BlockWorker, FlushMode, WorkerHandle};
-use super::{BLOCK_QUEUE_SIZE, MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError};
+use super::{
+    BLOCK_QUEUE_SIZE, DEFAULT_BLOCK_NUM_QUEUES, MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE,
+    VirtioBlockError,
+};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
 use crate::devices::virtio::device::{ActiveState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::{
-    VIRTIO_BLK_F_BLK_SIZE, VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO,
-    VIRTIO_BLK_F_TOPOLOGY, VIRTIO_BLK_ID_BYTES,
+    VIRTIO_BLK_F_BLK_SIZE, VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_MQ,
+    VIRTIO_BLK_F_RO, VIRTIO_BLK_F_TOPOLOGY, VIRTIO_BLK_ID_BYTES,
 };
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
@@ -450,11 +453,23 @@ impl VirtioBlock {
             return Err(VirtioBlockError::DiscardAsyncUnsupported);
         }
 
-        let disk_properties = DiskProperties::new(
-            &config.path_on_host,
-            config.is_read_only,
-            config.file_engine_type,
-        )?;
+        let num_queues = config
+            .num_queues
+            .map_or(DEFAULT_BLOCK_NUM_QUEUES, NonZeroU16::get);
+        let mut resources = Vec::with_capacity(usize::from(num_queues));
+        for queue_idx in 0..num_queues {
+            resources.push(BlockResources {
+                queue: Queue::new(BLOCK_QUEUE_SIZE),
+                queue_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
+                queue_idx,
+                disk: DiskProperties::new(
+                    &config.path_on_host,
+                    config.is_read_only,
+                    config.file_engine_type,
+                )?,
+                is_io_engine_throttled: false,
+            });
+        }
 
         let rate_limiter = config
             .rate_limiter
@@ -466,7 +481,8 @@ impl VirtioBlock {
         let mut avail_features = (1u64 << VIRTIO_F_VERSION_1)
             | (1u64 << VIRTIO_RING_F_EVENT_IDX)
             | (1u64 << VIRTIO_BLK_F_BLK_SIZE)
-            | (1u64 << VIRTIO_BLK_F_TOPOLOGY);
+            | (1u64 << VIRTIO_BLK_F_TOPOLOGY)
+            | (1u64 << VIRTIO_BLK_F_MQ);
 
         if config.cache_type == CacheType::Writeback {
             avail_features |= 1u64 << VIRTIO_BLK_F_FLUSH;
@@ -480,13 +496,15 @@ impl VirtioBlock {
         }
 
         let mut config_space = ConfigSpace {
-            capacity: disk_properties.nsectors.to_le(),
+            capacity: resources[0].disk.nsectors.to_le(),
+            num_queues: num_queues.to_le(),
             ..Default::default()
         };
 
         if config.blk_size.is_none() && config.topology.is_none() {
-            if let Some((blk_size, topology)) = query_blk_attrs(disk_properties.file_engine.file())
-                .and_then(calculate_blk_size_and_topology)
+            if let Some((blk_size, topology)) =
+                query_blk_attrs(resources[0].disk.file_engine.file())
+                    .and_then(calculate_blk_size_and_topology)
             {
                 config_space.blk_size = blk_size;
                 config_space.topology = topology;
@@ -515,17 +533,7 @@ impl VirtioBlock {
 
             config,
             rate_limiter: Arc::new(Mutex::new(rate_limiter)),
-            state: BlockRuntimeState::Configuring(
-                vec![BlockResources {
-                    queue: Queue::new(BLOCK_QUEUE_SIZE),
-                    queue_evt: EventFd::new(libc::EFD_NONBLOCK)
-                        .map_err(VirtioBlockError::EventFd)?,
-                    queue_idx: 0,
-                    disk: disk_properties,
-                    is_io_engine_throttled: false,
-                }],
-                Vec::new(),
-            ),
+            state: BlockRuntimeState::Configuring(resources, Vec::new()),
             metrics,
         })
     }
@@ -758,7 +766,11 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn num_queues(&self) -> usize {
-        usize::from(self.config_space.num_queues)
+        usize::from(
+            self.config
+                .num_queues
+                .map_or(DEFAULT_BLOCK_NUM_QUEUES, NonZeroU16::get),
+        )
     }
 
     fn queue_config(&self, index: usize) -> Option<&QueueConfig> {
@@ -1060,8 +1072,8 @@ mod tests {
     use crate::check_metric_after_block;
     use crate::devices::virtio::block::virtio::request::*;
     use crate::devices::virtio::block::virtio::test_utils::{
-        RequestDescriptorChain, default_block, default_threaded_block, read_blk_req_descriptors,
-        set_queue, set_rate_limiter, simulate_async_completion_event,
+        RequestDescriptorChain, default_block, default_mq_block, default_threaded_block,
+        read_blk_req_descriptors, set_queue, set_rate_limiter, simulate_async_completion_event,
         simulate_queue_and_async_completion_events, simulate_queue_event,
     };
     use crate::devices::virtio::block::virtio::{DEFAULT_BLOCK_NUM_QUEUES, IO_URING_NUM_ENTRIES};
@@ -1190,7 +1202,8 @@ mod tests {
             let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
                 | (1u64 << VIRTIO_RING_F_EVENT_IDX)
                 | (1u64 << VIRTIO_BLK_F_BLK_SIZE)
-                | (1u64 << VIRTIO_BLK_F_TOPOLOGY);
+                | (1u64 << VIRTIO_BLK_F_TOPOLOGY)
+                | (1u64 << VIRTIO_BLK_F_MQ);
 
             assert_eq!(
                 block.avail_features_by_page(0),
@@ -2378,7 +2391,7 @@ mod tests {
         block.activate(mem.clone(), interrupt).unwrap();
 
         assert!(block.is_threaded_active());
-        assert_eq!(block.num_queues(), DEFAULT_BLOCK_NUM_QUEUES);
+        assert_eq!(block.num_queues(), usize::from(DEFAULT_BLOCK_NUM_QUEUES));
         assert_eq!(block.queue_config(0).unwrap().size, vq.size());
         assert!(block.queue_config_mut(0).is_some());
         assert!(block.queue_event(0).is_some());
@@ -2438,11 +2451,13 @@ mod tests {
     }
 
     #[test]
-    fn test_threaded_queue_dirty() {
-        let mut block = default_threaded_block(FileEngineType::Sync);
+    fn test_queue_dirty_readiness() {
+        let mut block = default_mq_block(FileEngineType::Sync, 2);
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
+        assert!(block.queue_config(0).unwrap().ready);
+        assert!(!block.queue_config(1).unwrap().ready);
         block.activate(mem.clone(), default_interrupt()).unwrap();
 
         assert!(matches!(
@@ -2518,6 +2533,98 @@ mod tests {
         block.activate(mem, default_interrupt()).unwrap();
 
         block.reset();
+    }
+
+    #[test]
+    fn test_num_queues() {
+        let block = default_block(FileEngineType::Sync);
+        assert_eq!(block.num_queues(), 1);
+        assert_eq!(u16::from_le(block.config_space.num_queues), 1);
+        assert_ne!(block.avail_features() & (1u64 << VIRTIO_BLK_F_MQ), 0);
+
+        let block = default_mq_block(FileEngineType::Sync, 3);
+        assert_eq!(block.num_queues(), 3);
+        assert_eq!(u16::from_le(block.config_space.num_queues), 3);
+        assert_ne!(block.avail_features() & (1u64 << VIRTIO_BLK_F_MQ), 0);
+        for idx in 0u16..3 {
+            assert_eq!(block.resources()[usize::from(idx)].queue_idx, idx);
+            assert!(block.queue_config(usize::from(idx)).is_some());
+            assert!(block.queue_event(usize::from(idx)).is_some());
+        }
+        assert!(block.queue_config(3).is_none());
+        assert!(block.queue_event(3).is_none());
+    }
+
+    #[test]
+    fn test_mq_activate_reset() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let mut block = default_mq_block(engine, 2);
+            let mem = default_mem();
+            let vq0 = VirtQueue::new(GuestAddress(0), &mem, 16);
+            let vq1 = VirtQueue::new(GuestAddress(0x4000), &mem, 16);
+            set_queue(&mut block, 0, vq0.create_queue());
+            set_queue(&mut block, 1, vq1.create_queue());
+            block.activate(mem.clone(), default_interrupt()).unwrap();
+            assert!(block.is_threaded_active());
+            assert!(block.queue_config(1).unwrap().ready);
+
+            assert!(block.reset());
+            assert!(!block.queue_config(1).unwrap().ready);
+            let BlockRuntimeState::Configuring(resources, worker_handles) = &block.state else {
+                panic!("reset must leave the block device configuring");
+            };
+            assert_eq!(resources.len(), 2);
+            assert_eq!(worker_handles.len(), 2);
+
+            set_queue(&mut block, 0, vq0.create_queue());
+            set_queue(&mut block, 1, vq1.create_queue());
+            block.activate(mem, default_interrupt()).unwrap();
+            assert!(block.is_threaded_active());
+        }
+    }
+
+    #[test]
+    fn test_mq_update_disk() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let mut block = default_mq_block(engine, 2);
+
+            // Before activation, every queue's disk is updated on the VMM thread.
+            let disk = TempFile::new().unwrap();
+            disk.as_file().set_len(0x2000).unwrap();
+            let disk_path = disk.as_path().to_str().unwrap().to_string();
+            block.update_disk_image(disk_path.clone()).unwrap();
+            assert_eq!(u64::from_le(block.config_space.capacity), 16);
+            for resources in block.resources() {
+                assert_eq!(resources.disk.nsectors, 16);
+            }
+
+            // Once active, every worker is updated.
+            let mem = default_mem();
+            let interrupt = default_interrupt();
+            let vqs = [
+                VirtQueue::new(GuestAddress(0), &mem, 16),
+                VirtQueue::new(GuestAddress(0x4000), &mem, 16),
+            ];
+            for (idx, vq) in vqs.iter().enumerate() {
+                set_queue(&mut block, idx, vq.create_queue());
+            }
+            block.activate(mem, interrupt.clone()).unwrap();
+            let disk = TempFile::new().unwrap();
+            disk.as_file().set_len(0x3000).unwrap();
+            let disk_path = disk.as_path().to_str().unwrap().to_string();
+            block.update_disk_image(disk_path.clone()).unwrap();
+            assert_eq!(block.config().path_on_host, disk_path);
+            assert_eq!(u64::from_le(block.config_space.capacity), 24);
+            assert!(
+                interrupt.has_pending_interrupt(VirtioInterruptType::Config),
+                "updating an active disk must notify the guest"
+            );
+
+            assert!(block.reset());
+            for resources in block.resources() {
+                assert_eq!(resources.disk.nsectors, 24);
+            }
+        }
     }
 
     #[test]
