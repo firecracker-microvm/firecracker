@@ -481,6 +481,11 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                 &block_state.device_state,
             )?));
 
+            device
+                .lock()
+                .expect("Poisoned lock")
+                .spawn_worker(constructor_args.blk_worker_filter.clone())?;
+
             constructor_args
                 .vm_resources
                 .block
