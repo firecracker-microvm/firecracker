@@ -48,6 +48,11 @@ pub struct PmemConfig {
     pub read_only: bool,
     /// Rate Limiter for flush operations.
     pub rate_limiter: Option<RateLimiterConfig>,
+    /// If set to true, the device is placed behind a PCIe root port, which is
+    /// what makes it possible to hot-unplug it later. It consumes one of the
+    /// ports set aside by `pcie_hotplug_ports`.
+    #[serde(default)]
+    pub removable: bool,
 }
 
 /// Wrapper for the collection that holds all the Pmem device configs.

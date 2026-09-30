@@ -101,6 +101,7 @@ mod tests {
             root_device: true,
             read_only: true,
             rate_limiter: Some(Default::default()),
+            removable: false,
         };
         assert_eq!(r, VmmAction::InsertPmemDevice(expected_config));
     }

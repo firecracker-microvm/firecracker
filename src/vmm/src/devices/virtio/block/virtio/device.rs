@@ -374,6 +374,7 @@ impl From<VirtioBlockConfig> for BlockDeviceConfig {
             topology: value.topology,
 
             socket: None,
+            removable: false,
         }
     }
 }
@@ -932,6 +933,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
         VirtioBlockConfig::try_from(&block_config).unwrap();
 
@@ -950,6 +952,7 @@ mod tests {
             topology: None,
 
             socket: Some("sock".to_string()),
+            removable: false,
         };
         VirtioBlockConfig::try_from(&block_config).unwrap_err();
 
@@ -968,6 +971,7 @@ mod tests {
             topology: None,
 
             socket: Some("sock".to_string()),
+            removable: false,
         };
         VirtioBlockConfig::try_from(&block_config).unwrap_err();
     }

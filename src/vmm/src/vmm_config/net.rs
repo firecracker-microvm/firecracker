@@ -31,6 +31,11 @@ pub struct NetworkInterfaceConfig {
     pub rx_rate_limiter: Option<RateLimiterConfig>,
     /// Rate Limiter for transmitted packages.
     pub tx_rate_limiter: Option<RateLimiterConfig>,
+    /// If set to true, the device is placed behind a PCIe root port, which is
+    /// what makes it possible to hot-unplug it later. It consumes one of the
+    /// ports set aside by `pcie_hotplug_ports`.
+    #[serde(default)]
+    pub removable: bool,
 }
 
 impl From<&Net> for NetworkInterfaceConfig {
@@ -44,6 +49,7 @@ impl From<&Net> for NetworkInterfaceConfig {
             mtu: net.mtu(),
             rx_rate_limiter: rx_rl.into_option(),
             tx_rate_limiter: tx_rl.into_option(),
+            removable: false,
         }
     }
 }
@@ -198,6 +204,7 @@ mod tests {
             mtu: None,
             rx_rate_limiter: RateLimiterConfig::default().into_option(),
             tx_rate_limiter: RateLimiterConfig::default().into_option(),
+            removable: false,
         }
     }
 
@@ -210,6 +217,7 @@ mod tests {
                 mtu: self.mtu,
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
+                removable: false,
             }
         }
     }
