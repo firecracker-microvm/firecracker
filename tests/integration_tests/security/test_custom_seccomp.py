@@ -53,7 +53,7 @@ def test_missing_block_worker_filter(uvm, seccompiler):
         path_on_host=test_microvm.rootfs_file,
         is_root_device=True,
         is_read_only=test_microvm.rootfs_file.suffix == ".squashfs",
-        threaded=True,
+        num_queues=1,
     )
 
     with pytest.raises(RuntimeError, match="Missing block worker seccomp filter"):
@@ -83,7 +83,7 @@ def test_working_filter(uvm, seccompiler):
         path_on_host=test_microvm.rootfs_file,
         is_root_device=True,
         is_read_only=test_microvm.rootfs_file.suffix == ".squashfs",
-        threaded=True,
+        num_queues=1,
     )
     test_microvm.start()
 
