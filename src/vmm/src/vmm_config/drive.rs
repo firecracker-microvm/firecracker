@@ -3,6 +3,7 @@
 
 use std::collections::VecDeque;
 use std::io;
+use std::num::NonZeroU16;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -54,9 +55,10 @@ pub struct BlockDeviceConfig {
     pub is_read_only: Option<bool>,
     /// If set to true, the drive advertises discard support to the guest.
     pub discard: Option<bool>,
-    /// If set to true, process requests on a dedicated worker thread.
-    #[serde(default)]
-    pub threaded: bool,
+    /// Number of queues for the device, each processed on a dedicated worker thread.
+    /// If unset, the device exposes a single queue processed on the VMM thread.
+    /// Cannot exceed the configured vCPU count.
+    pub num_queues: Option<NonZeroU16>,
     /// Path of the drive.
     pub path_on_host: Option<String>,
     /// Rate Limiter for I/O operations.
@@ -219,7 +221,7 @@ mod tests {
                 is_root_device: self.is_root_device,
                 is_read_only: self.is_read_only,
                 discard: self.discard,
-                threaded: self.threaded,
+                num_queues: self.num_queues,
                 cache_type: self.cache_type,
 
                 path_on_host: self.path_on_host.clone(),
@@ -252,7 +254,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
@@ -290,7 +292,7 @@ mod tests {
 
             is_read_only: Some(true),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
@@ -326,7 +328,7 @@ mod tests {
 
             is_read_only: Some(true),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
@@ -359,7 +361,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
@@ -379,7 +381,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
@@ -410,7 +412,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
@@ -430,7 +432,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
@@ -450,7 +452,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(dummy_path_3),
             rate_limiter: None,
             file_engine_type: None,
@@ -495,7 +497,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
@@ -515,7 +517,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
@@ -535,7 +537,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(dummy_path_3),
             rate_limiter: None,
             file_engine_type: None,
@@ -581,7 +583,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(dummy_path_1.clone()),
             rate_limiter: None,
             file_engine_type: None,
@@ -601,7 +603,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(dummy_path_2.clone()),
             rate_limiter: None,
             file_engine_type: None,
@@ -677,7 +679,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
@@ -697,7 +699,7 @@ mod tests {
 
             is_read_only: Some(false),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
@@ -727,7 +729,7 @@ mod tests {
 
             is_read_only: Some(true),
             discard: Some(false),
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(dummy_file.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
@@ -766,7 +768,7 @@ mod tests {
 
             is_read_only: Some(true),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some(backing_file.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: None,
@@ -784,5 +786,23 @@ mod tests {
             block_devs.devices.pop_back().unwrap().lock().unwrap().id(),
             block_id
         );
+    }
+
+    #[test]
+    fn test_deserialize_num_queues() {
+        let minimal: BlockDeviceConfig =
+            serde_json::from_str(r#"{"drive_id": "test_id", "is_root_device": true}"#).unwrap();
+        assert_eq!(minimal.num_queues, None);
+
+        let explicit: BlockDeviceConfig = serde_json::from_str(
+            r#"{"drive_id": "test_id", "is_root_device": true, "num_queues": 4}"#,
+        )
+        .unwrap();
+        assert_eq!(explicit.num_queues, NonZeroU16::new(4));
+
+        serde_json::from_str::<BlockDeviceConfig>(
+            r#"{"drive_id": "test_id", "is_root_device": true, "num_queues": 0}"#,
+        )
+        .unwrap_err();
     }
 }

@@ -121,7 +121,8 @@ impl Block {
         seccomp_filter: Option<Arc<BpfProgram>>,
     ) -> Result<(), BlockError> {
         match self {
-            Self::Virtio(b) if b.config.threaded => b
+            // A set `num_queues` means the block device runs on worker threads.
+            Self::Virtio(b) if b.config.num_queues.is_some() => b
                 .spawn_worker(seccomp_filter.ok_or(BlockError::MissingSeccompFilter)?)
                 .map_err(BlockError::VirtioBackend),
             Self::Virtio(_) | Self::VhostUser(_) => Ok(()),
@@ -326,7 +327,7 @@ mod tests {
         inline.spawn_worker(None).unwrap();
 
         let mut threaded = default_block(FileEngineType::Sync);
-        threaded.config.threaded = true;
+        threaded.config.num_queues = std::num::NonZeroU16::new(1);
         let mut threaded = Block::Virtio(threaded);
 
         assert!(matches!(

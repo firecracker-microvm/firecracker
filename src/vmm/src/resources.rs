@@ -621,7 +621,7 @@ mod tests {
 
                 is_read_only: Some(false),
                 discard: None,
-                threaded: false,
+                num_queues: None,
                 path_on_host: Some(tmp_file.as_path().to_str().unwrap().to_string()),
                 rate_limiter: Some(RateLimiterConfig::default()),
                 file_engine_type: None,
