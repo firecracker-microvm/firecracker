@@ -1,6 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 use std::fmt::Debug;
+use std::num::NonZeroU16;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -24,6 +25,8 @@ pub enum MachineConfigError {
     InvalidVcpuCount,
     /// Could not get the configuration of the previously installed balloon device to validate the memory size.
     InvalidVmState,
+    /// Invalid queue count {1} for device {0}; cannot exceed the configured vCPU count {2}.
+    InvalidQueueCount(String, u16, u8),
     /// Enabling simultaneous multithreading is not supported on aarch64.
     #[cfg(target_arch = "aarch64")]
     SmtNotSupported,
@@ -298,12 +301,32 @@ impl MachineConfig {
             gdb_socket_path: update.gdb_socket_path.clone(),
         })
     }
+
+    pub(crate) fn validate_num_queues(
+        &self,
+        id: &str,
+        num_queues: Option<NonZeroU16>,
+    ) -> Result<(), MachineConfigError> {
+        let Some(num_queues) = num_queues else {
+            return Ok(());
+        };
+        if num_queues.get() > u16::from(self.vcpu_count) {
+            return Err(MachineConfigError::InvalidQueueCount(
+                id.to_owned(),
+                num_queues.get(),
+                self.vcpu_count,
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU16;
+
     use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
-    use crate::vmm_config::machine_config::MachineConfig;
+    use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError};
 
     // Ensure the special (de)serialization logic for the cpu_template field works:
     // only static cpu templates can be specified via the machine-config endpoint, but
@@ -349,5 +372,29 @@ mod tests {
         let deserialized = serde_json::from_str::<MachineConfig>(&serialized).unwrap();
 
         assert!(deserialized.cpu_template.is_none());
+    }
+
+    #[test]
+    fn test_validate_num_queues() {
+        let mconfig = MachineConfig {
+            vcpu_count: 4,
+            ..Default::default()
+        };
+
+        mconfig.validate_num_queues("dev", None).unwrap();
+        mconfig
+            .validate_num_queues("dev", NonZeroU16::new(1))
+            .unwrap();
+        mconfig
+            .validate_num_queues("dev", NonZeroU16::new(4))
+            .unwrap();
+        assert_eq!(
+            mconfig.validate_num_queues("dev", NonZeroU16::new(5)),
+            Err(MachineConfigError::InvalidQueueCount(
+                "dev".to_string(),
+                5,
+                4
+            ))
+        );
     }
 }
