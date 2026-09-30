@@ -73,6 +73,12 @@ pub enum ResourcesError {
     MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
     /// Device passthrough config error: {0}
     DevicePassthroughConfig(#[from] DevicePassthroughConfigError),
+    /// Passthrough devices attached, but PCI disabled
+    DevicePassthroughWithoutPci,
+    /// Passthrough devices are not compatible with memory hot-plugging device
+    DevicePassthroughWithMemHotplug,
+    /// Passthrough devices are not compatible with memory balloon device
+    DevicePassthroughWithBalloon,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -253,6 +259,44 @@ impl VmResources {
         }
 
         Ok(resources)
+    }
+
+    /// Validate the VM configuration for incompatibilities
+    pub fn validate(&self) -> Result<(), ResourcesError> {
+        if !self.device_passthrough.configs.is_empty() {
+            self.compatible_with_passthrough_device()?;
+        }
+        Ok(())
+    }
+
+    /// Check if current config is compatible with adding a balloon device
+    pub fn compatible_with_balloon(&self) -> Result<(), ResourcesError> {
+        if !self.device_passthrough.configs.is_empty() {
+            return Err(ResourcesError::DevicePassthroughWithBalloon);
+        }
+        Ok(())
+    }
+
+    /// Check if current config is compatible with adding a memory hotplug device
+    pub fn compatible_with_memory_hotplug(&self) -> Result<(), ResourcesError> {
+        if !self.device_passthrough.configs.is_empty() {
+            return Err(ResourcesError::DevicePassthroughWithMemHotplug);
+        }
+        Ok(())
+    }
+
+    /// Check if current config is compatible with adding a passthrough device
+    pub fn compatible_with_passthrough_device(&self) -> Result<(), ResourcesError> {
+        if !self.pci_enabled {
+            return Err(ResourcesError::DevicePassthroughWithoutPci);
+        }
+        if self.memory_hotplug.is_some() {
+            return Err(ResourcesError::DevicePassthroughWithMemHotplug);
+        }
+        if self.balloon.get().is_some() {
+            return Err(ResourcesError::DevicePassthroughWithBalloon);
+        }
+        Ok(())
     }
 
     /// If not initialised, create the mmds data store with the default config.
