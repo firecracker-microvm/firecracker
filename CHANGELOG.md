@@ -10,8 +10,20 @@ and this project adheres to
 
 ### Added
 
+- [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
+  `SendCtrlAltDel` action is now supported on aarch64. It injects a virtual
+  power-button press through a new PL061 GPIO controller exposed to the guest as
+  a `gpio-keys` power button, enabling external graceful shutdown (aarch64
+  previously rejected the action with a 400). The controller's register state is
+  saved and restored with the microVM, which bumps the snapshot version to
+  `13.0.0`.
+
 ### Changed
 
+- [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
+  PL061 GPIO controller backing the new aarch64 power button is always attached
+  and uses one extra GSI, which reduces the GSIs left for VirtIO devices. The
+  new maximum is 91 devices on aarch64; x86_64 is unaffected at 17.
 - [#6201](https://github.com/firecracker-microvm/firecracker/pull/6201):
   Bounds-check every virtio queue access against the ranges validated at
   activation, adding defense in depth against out-of-bounds accesses caused by
