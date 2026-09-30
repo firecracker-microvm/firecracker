@@ -15,6 +15,14 @@ use super::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::queue::DescriptorChain;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap};
 
+/// Marks the `len` bytes of guest memory at host address `ptr` dirty.
+///
+/// The single point through which `IoVecBufferMut` marks memory dirty, so that the Kani proofs
+/// can stub it and check which bytes were marked.
+fn mark_dirty_host(mem: &GuestMemoryMmap, ptr: *const u8, len: usize) {
+    mem.mark_dirty_host(ptr, len);
+}
+
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum IoVecError {
     /// Tried to create an `IoVec` from a write-only descriptor chain
@@ -364,7 +372,7 @@ impl<const L: u16> IoVecBufferMut<L> {
                 break;
             }
             let len = remaining.min(iov.iov_len);
-            mem.mark_dirty_host(iov.iov_base.cast(), len);
+            mark_dirty_host(mem, iov.iov_base.cast(), len);
             remaining -= len;
         }
 
@@ -500,7 +508,7 @@ impl<const L: u16> IoVecBufferMut<L> {
                 Ok(bytes_read) => {
                     // Mark what landed in this slice right away, so that nothing written is left
                     // unmarked whichever way the loop exits.
-                    mem.mark_dirty_host(slice.ptr_guard().as_ptr(), bytes_read);
+                    mark_dirty_host(mem, slice.ptr_guard().as_ptr(), bytes_read);
                     total_bytes_read += bytes_read;
 
                     if bytes_read < slice.len() {
@@ -959,7 +967,7 @@ mod verification {
     use vm_memory::VolatileSlice;
     use vm_memory::bitmap::BitmapSlice;
 
-    use super::IoVecBuffer;
+    use super::{IoVecBuffer, ParsedDescriptorChain};
     use crate::arch::GUEST_PAGE_SIZE;
     use crate::devices::virtio::iov_deque::IovDeque;
     use crate::vstate::memory::GuestMemoryMmap;
@@ -982,6 +990,58 @@ mod verification {
 
     mod stubs {
         use super::*;
+
+        /// Upper bound on `mark_dirty_host` calls per operation under proof: one per `iovec`.
+        const MAX_MARKS: usize = MAX_DESC_LENGTH;
+
+        /// The ranges `mark_dirty_host` was called with since the last `reset`, as offsets into
+        /// the arena the `iovec`s point into. Offsets rather than addresses keep pointer-to-integer
+        /// casts, which are costly for the verifier, out of the proof.
+        pub(super) struct DirtyLog {
+            arena: *const u8,
+            ranges: [(usize, usize); MAX_MARKS],
+            count: usize,
+        }
+
+        pub(super) static mut DIRTY_LOG: DirtyLog = DirtyLog {
+            arena: std::ptr::null(),
+            ranges: [(0, 0); MAX_MARKS],
+            count: 0,
+        };
+
+        impl DirtyLog {
+            /// Forget past marks and record offsets relative to `arena` from now on.
+            pub(super) fn reset(arena: *const u8) {
+                // SAFETY: proofs are single-threaded; no other reference is live.
+                let log = unsafe { &mut *std::ptr::addr_of_mut!(DIRTY_LOG) };
+                log.arena = arena;
+                log.count = 0;
+            }
+
+            /// Whether the byte at `offset` into the arena has been marked dirty.
+            pub(super) fn is_dirty(offset: usize) -> bool {
+                // SAFETY: as above.
+                let log = unsafe { &*std::ptr::addr_of!(DIRTY_LOG) };
+                log.ranges[..log.count]
+                    .iter()
+                    .any(|&(start, len)| (start..start + len).contains(&offset))
+            }
+        }
+
+        /// This is a stub for `super::mark_dirty_host`: instead of touching a bitmap, record the
+        /// range so the proof can check which bytes were marked.
+        pub fn mark_dirty_host(_mem: &GuestMemoryMmap, ptr: *const u8, len: usize) {
+            if len == 0 {
+                return;
+            }
+            // SAFETY: as above.
+            let log = unsafe { &mut *std::ptr::addr_of_mut!(DIRTY_LOG) };
+            // SAFETY: every `iovec` under proof points into the arena, so `ptr` does too.
+            let start = usize::try_from(unsafe { ptr.offset_from(log.arena) }).unwrap();
+            assert!(log.count < MAX_MARKS, "more marks than iovecs");
+            log.ranges[log.count] = (start, len);
+            log.count += 1;
+        }
 
         /// This is a stub for the `IovDeque::push_back` method.
         ///
@@ -1092,6 +1152,11 @@ mod verification {
 
     impl IoVecBufferMutDefault {
         fn any_of_length(nr_descs: usize) -> Self {
+            Self::any_of_length_in_arena(nr_descs).0
+        }
+
+        /// Like `any_of_length`, also returning the base of the memory the `iovec`s point into.
+        fn any_of_length_in_arena(nr_descs: usize) -> (Self, *mut u8) {
             // We only write into `IoVecBufferMut` objects, so we can simply create a guest memory
             // object initialized to zeroes, trying to be nice to Kani.
             let mem = unsafe {
@@ -1102,11 +1167,43 @@ mod verification {
             };
 
             let (vecs, len) = create_iovecs_mut(mem, GUEST_MEMORY_SIZE, nr_descs);
-            Self {
-                vecs,
-                len: len.try_into().unwrap(),
-            }
+            (
+                Self {
+                    vecs,
+                    len: len.try_into().unwrap(),
+                },
+                mem,
+            )
         }
+    }
+
+    /// Whether the buffer offsets `written` (a range of `[0, buffer.len())`) map onto the byte at
+    /// `byte` into the arena through the first `nr_iovecs` `iovec`s of `buffer`.
+    ///
+    /// Ranges of `iovec`s may overlap, so this is an existence check over all of them. It is the
+    /// specification the marking code is checked against: a byte must be marked if and only if
+    /// some written buffer offset lands on it.
+    fn maps_onto(
+        buffer: &IoVecBufferMutDefault,
+        arena: *const u8,
+        nr_iovecs: usize,
+        written: std::ops::Range<usize>,
+        byte: usize,
+    ) -> bool {
+        let mut offset = 0usize;
+        for iov in buffer.vecs.as_slice().iter().take(nr_iovecs) {
+            // SAFETY: every `iovec` under proof points into the arena.
+            let base =
+                usize::try_from(unsafe { iov.iov_base.cast::<u8>().offset_from(arena) }).unwrap();
+            // The buffer offsets covered by this iovec that were written.
+            let start = written.start.max(offset);
+            let end = written.end.min(offset + iov.iov_len);
+            if start < end && (base + (start - offset)..base + (end - offset)).contains(&byte) {
+                return true;
+            }
+            offset += iov.iov_len;
+        }
+        false
     }
 
     // A mock for the Read-/WriteVolatile implementation for u8 slices that does
@@ -1215,5 +1312,102 @@ mod verification {
             );
             std::mem::forget(iov_mut.vecs);
         }
+    }
+
+    /// `write_volatile_at` marks dirty exactly the bytes it wrote: every host byte some written
+    /// buffer offset maps onto is marked, and no other byte is.
+    /// A `ReadVolatile` source of `remaining` bytes that reports what it would have transferred
+    /// without copying anything. Dirty tracking only depends on how many bytes land in each
+    /// `iovec`, and a copy with symbolic bounds is by far the most expensive part of a proof.
+    struct CountingSource {
+        remaining: usize,
+    }
+
+    impl vm_memory::ReadVolatile for CountingSource {
+        fn read_volatile<B: BitmapSlice>(
+            &mut self,
+            buf: &mut VolatileSlice<B>,
+        ) -> Result<usize, vm_memory::VolatileMemoryError> {
+            let count = buf.len().min(self.remaining);
+            self.remaining -= count;
+            Ok(count)
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(5)]
+    #[kani::solver(cadical)]
+    #[kani::stub(IovDeque::push_back, stubs::push_back)]
+    #[kani::stub(super::mark_dirty_host, stubs::mark_dirty_host)]
+    fn verify_write_to_iovec_marks_dirty() {
+        let mem = GuestMemoryMmap::new();
+        // Two iovecs of arbitrary (possibly zero) length are enough to reach every way a write
+        // can relate to an iovec: skip it entirely, start inside it, span its end, or stop inside
+        // it. More iovecs only repeat these cases and make the proof several times slower.
+        const NR_IOVECS: usize = 2;
+        let (mut iov_mut, arena) = IoVecBufferMutDefault::any_of_length_in_arena(NR_IOVECS);
+        // Offsets and lengths past the buffer are clamped by the code under proof; going one
+        // past its end is enough to reach that.
+        let bound = iov_mut.len() as usize + 1;
+        let offset: usize = kani::any_where(|&o| o <= bound);
+        let len: usize = kani::any_where(|&l| l <= bound);
+        // A source shorter than `len` exercises the short-read exit of the loop as well.
+        let mut src = CountingSource {
+            remaining: kani::any_where(|&r| r <= bound),
+        };
+
+        stubs::DirtyLog::reset(arena);
+        let written = iov_mut
+            .write_volatile_at(&mem, &mut src, offset, len)
+            .unwrap();
+
+        // Check one arbitrary byte of the arena; Kani covers all of them.
+        let byte: usize = kani::any_where(|&b| b < GUEST_MEMORY_SIZE);
+        assert_eq!(
+            stubs::DirtyLog::is_dirty(byte),
+            maps_onto(&iov_mut, arena, NR_IOVECS, offset..offset + written, byte)
+        );
+        std::mem::forget(iov_mut.vecs);
+    }
+
+    /// `drop_chain_front` marks dirty exactly the first `written` bytes of the chain it drops,
+    /// leaves the rest of the buffer unmarked, and removes exactly that chain.
+    #[kani::proof]
+    #[kani::unwind(5)]
+    #[kani::solver(cadical)]
+    #[kani::stub(IovDeque::push_back, stubs::push_back)]
+    #[kani::stub(super::mark_dirty_host, stubs::mark_dirty_host)]
+    fn verify_drop_chain_front_marks_written() {
+        let mem = GuestMemoryMmap::new();
+        // Split `MAX_DESC_LENGTH` iovecs of arbitrary (possibly zero) length into a front chain of
+        // `NR_IOVECS` and the rest. Zero-length iovecs make this cover chains of one or two
+        // iovecs followed by zero, one or two more; a symbolic split would cost the verifier far
+        // more for no change in the code paths exercised.
+        const NR_IOVECS: usize = MAX_DESC_LENGTH / 2;
+        let (mut iov_mut, arena) = IoVecBufferMutDefault::any_of_length_in_arena(MAX_DESC_LENGTH);
+        let total_len = iov_mut.len();
+
+        let mut length = 0u32;
+        for iov in iov_mut.vecs.as_slice().iter().take(NR_IOVECS) {
+            length += u32::try_from(iov.iov_len).unwrap();
+        }
+        let parsed = ParsedDescriptorChain {
+            head_index: 0,
+            length,
+            nr_iovecs: NR_IOVECS.try_into().unwrap(),
+        };
+        let written: u32 = kani::any_where(|&w| w <= length);
+
+        // `maps_onto` needs the iovecs, which the drop removes: evaluate it first.
+        let byte: usize = kani::any_where(|&b| b < GUEST_MEMORY_SIZE);
+        let expected = maps_onto(&iov_mut, arena, NR_IOVECS, 0..written as usize, byte);
+
+        stubs::DirtyLog::reset(arena);
+        iov_mut.drop_chain_front(&mem, &parsed, written);
+
+        assert_eq!(stubs::DirtyLog::is_dirty(byte), expected);
+        assert_eq!(iov_mut.len(), total_len - length);
+        assert_eq!(usize::from(iov_mut.vecs.len()), MAX_DESC_LENGTH - NR_IOVECS);
+        std::mem::forget(iov_mut.vecs);
     }
 }
