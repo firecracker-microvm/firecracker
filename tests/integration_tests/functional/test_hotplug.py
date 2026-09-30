@@ -42,7 +42,7 @@ def test_hotplug_block(uvm_any):
         rate_limiter={
             "ops": {"size": 100, "refill_time": 100},
         },
-        threaded=True,
+        num_queues=1,
     )
 
     # Rescan PCI bus since no hotplug notification mechanism exists yet
@@ -423,7 +423,7 @@ def test_hotplug_preserved_after_snapshot(uvm_any, microvm_factory):
         path_on_host=vm.create_jailed_resource(host_file.path),
         is_root_device=False,
         is_read_only=False,
-        threaded=True,
+        num_queues=1,
     )
     vm.disks["block0"] = host_file.path
 

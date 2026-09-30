@@ -484,9 +484,9 @@ def io_engine(request):
     return request.param
 
 
-@pytest.fixture(params=[False, True], ids=["inline", "threaded"])
-def threaded(request):
-    """Whether the block device uses a dedicated worker thread."""
+@pytest.fixture(params=[None, 1], ids=["inline", "threaded"])
+def num_queues(request):
+    """Block device queue count. `None` keeps the queue on the VMM thread."""
     return request.param
 
 

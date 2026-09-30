@@ -40,7 +40,7 @@ pub fn default_block(file_engine_type: FileEngineType) -> VirtioBlock {
 #[cfg(test)]
 pub fn default_threaded_block(file_engine_type: FileEngineType) -> VirtioBlock {
     let mut block = default_block(file_engine_type);
-    block.config.threaded = true;
+    block.config.num_queues = std::num::NonZeroU16::new(1);
     block.spawn_worker(Arc::new(vec![])).unwrap();
     block
 }
@@ -54,7 +54,7 @@ pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -
         partuuid: None,
         is_read_only: false,
         discard: false,
-        threaded: false,
+        num_queues: None,
         cache_type: CacheType::Unsafe,
         // Rate limiting is enabled but with a high operation rate (10 million ops/s).
         rate_limiter: Some(RateLimiterConfig {
