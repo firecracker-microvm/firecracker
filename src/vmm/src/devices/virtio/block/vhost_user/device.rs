@@ -67,14 +67,11 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
     type Error = VhostUserBlockError;
 
     fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
-        if value.threaded {
-            return Err(VhostUserBlockError::Config);
-        }
-
-        if let (Some(socket), None, None, None, None, None, None, None) = (
+        if let (Some(socket), None, None, None, None, None, None, None, None) = (
             &value.socket,
             &value.is_read_only,
             &value.discard,
+            &value.num_queues,
             &value.path_on_host,
             &value.rate_limiter,
             &value.file_engine_type,
@@ -105,7 +102,7 @@ impl From<VhostUserBlockConfig> for BlockDeviceConfig {
 
             is_read_only: None,
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
@@ -447,7 +444,7 @@ mod tests {
 
             is_read_only: None,
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
@@ -459,6 +456,12 @@ mod tests {
         VhostUserBlockConfig::try_from(&block_config).unwrap();
 
         let block_config = BlockDeviceConfig {
+            num_queues: std::num::NonZeroU16::new(1),
+            ..block_config
+        };
+        VhostUserBlockConfig::try_from(&block_config).unwrap_err();
+
+        let block_config = BlockDeviceConfig {
             drive_id: "".to_string(),
             partuuid: None,
             is_root_device: false,
@@ -466,7 +469,7 @@ mod tests {
 
             is_read_only: Some(true),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
@@ -485,7 +488,7 @@ mod tests {
 
             is_read_only: Some(true),
             discard: None,
-            threaded: false,
+            num_queues: None,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),

@@ -5,6 +5,7 @@
 
 use device::ConfigSpace;
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroU16;
 use std::sync::{Arc, Mutex};
 use vmm_sys_util::eventfd::EventFd;
 
@@ -68,7 +69,7 @@ pub struct VirtioBlockState {
     blk_size: u32,
     topology: VirtioBlkTopology,
     discard_sector_alignment: u32,
-    threaded: bool,
+    num_queues: Option<NonZeroU16>,
 }
 
 impl Persist<'_> for VirtioBlock {
@@ -104,7 +105,7 @@ impl Persist<'_> for VirtioBlock {
             blk_size: self.config_space.blk_size,
             topology: self.config_space.topology,
             discard_sector_alignment: self.config_space.discard_sector_alignment,
-            threaded: self.config.threaded,
+            num_queues: self.config.num_queues,
         }
     }
 
@@ -123,7 +124,7 @@ impl Persist<'_> for VirtioBlock {
             cache_type: state.cache_type,
             is_read_only,
             discard: state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD) != 0,
-            threaded: state.threaded,
+            num_queues: state.num_queues,
             path_on_host: state.disk_path.clone(),
             rate_limiter: rate_limiter_config.into_option(),
             file_engine_type: state.file_engine_type.into(),
@@ -208,7 +209,7 @@ mod tests {
             partuuid: None,
             is_read_only: false,
             discard: false,
-            threaded: false,
+            num_queues: None,
             cache_type: CacheType::Writeback,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
@@ -253,7 +254,7 @@ mod tests {
             partuuid: None,
             is_read_only: false,
             discard: false,
-            threaded: false,
+            num_queues: None,
             cache_type: CacheType::Unsafe,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
@@ -298,7 +299,7 @@ mod tests {
             disk.as_file().set_len(0x1000).unwrap();
             let mut block =
                 default_block_with_path(disk.as_path().to_str().unwrap().to_string(), engine);
-            block.config.threaded = true;
+            block.config.num_queues = NonZeroU16::new(1);
             block.spawn_worker(Arc::new(vec![])).unwrap();
             let mem = default_mem();
             let vq = VirtQueue::new(GuestAddress(0), &mem, BLOCK_QUEUE_SIZE);
@@ -314,9 +315,9 @@ mod tests {
             let restored =
                 VirtioBlock::restore(BlockConstructorArgs { mem }, &restored_state).unwrap();
 
-            assert!(state.threaded);
+            assert_eq!(state.num_queues, NonZeroU16::new(1));
             assert!(state.virtio_state.activated);
-            assert!(restored.config().threaded);
+            assert_eq!(restored.config().num_queues, NonZeroU16::new(1));
             assert!(!restored.is_activated());
             assert_eq!(restored.acked_features(), block.acked_features());
             assert_eq!(restored.queue_config(0), block.queue_config(0));
