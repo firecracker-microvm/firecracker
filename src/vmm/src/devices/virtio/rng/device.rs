@@ -115,16 +115,17 @@ impl Entropy {
         rate_limiter.manual_replenish(bytes, TokenType::Bytes);
     }
 
-    fn handle_one(&mut self) -> Result<u32, EntropyError> {
+    /// Fills `buffer`, the chain of an entropy request, with random bytes.
+    fn handle_one(buffer: &mut IoVecBufferMut, mem: &GuestMemoryMmap) -> Result<u32, EntropyError> {
         // If guest provided us with an empty buffer just return directly
-        if self.buffer.is_empty() {
+        if buffer.is_empty() {
             return Ok(0);
         }
 
         // Cap the number of bytes we actually generate so that the host-side
         // allocation stays bounded even when buffer.len() is inflated by
         // overlapping descriptors in the chain.
-        let len = std::cmp::min(self.buffer.len(), MAX_ENTROPY_BYTES);
+        let len = std::cmp::min(buffer.len(), MAX_ENTROPY_BYTES);
 
         let mut rand_bytes = vec![0; len as usize];
         rand::fill(&mut rand_bytes).inspect_err(|_| {
@@ -132,7 +133,7 @@ impl Entropy {
         })?;
 
         // It is ok to unwrap here. We are writing `len` bytes at offset 0.
-        self.buffer.write_all_volatile_at(&rand_bytes, 0).unwrap();
+        buffer.write_all_volatile_at(mem, &rand_bytes, 0).unwrap();
         Ok(len)
     }
 
@@ -164,7 +165,9 @@ impl Entropy {
                         break;
                     }
 
-                    self.handle_one().unwrap_or_else(|err| {
+                    // Re-borrow guest memory: the rate limiter call above needed `&mut self`.
+                    let mem = &self.device_state.active_state().unwrap().mem;
+                    Self::handle_one(&mut self.buffer, mem).unwrap_or_else(|err| {
                         error!("entropy: {err}");
                         METRICS.entropy_event_fails.inc();
                         0
@@ -437,7 +440,7 @@ mod tests {
         let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop().unwrap().unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
         entropy_dev.buffer = unsafe { IoVecBufferMut::from_descriptor_chain(&mem, desc).unwrap() };
-        entropy_dev.handle_one().unwrap();
+        Entropy::handle_one(&mut entropy_dev.buffer, &mem).unwrap();
     }
 
     #[test]
@@ -642,7 +645,7 @@ mod tests {
 
         let mut dev = default_entropy();
         dev.buffer = buf;
-        let bytes = dev.handle_one().unwrap();
+        let bytes = Entropy::handle_one(&mut dev.buffer, &mem).unwrap();
 
         assert_eq!(
             bytes,
@@ -686,7 +689,7 @@ mod tests {
 
         let mut dev = default_entropy();
         dev.buffer = buf;
-        let bytes = dev.handle_one().unwrap();
+        let bytes = Entropy::handle_one(&mut dev.buffer, &mem).unwrap();
 
         assert_eq!(
             bytes, MAX_ENTROPY_BYTES,
@@ -721,7 +724,7 @@ mod tests {
 
         let mut dev = default_entropy();
         dev.buffer = buf;
-        let bytes = dev.handle_one().unwrap();
+        let bytes = Entropy::handle_one(&mut dev.buffer, &mem).unwrap();
 
         assert_eq!(
             bytes, SIZE,

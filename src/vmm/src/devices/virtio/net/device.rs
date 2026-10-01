@@ -171,12 +171,37 @@ impl RxBuffers {
 
     /// Mark the first `size` bytes of available memory as used.
     ///
+    /// This is called after a frame has been written into the buffer, and marks the written
+    /// range dirty.
+    ///
+    /// # Dirty tracking
+    ///
+    /// The frame was received with `readv` straight into the `iovec`s, which fills them in order
+    /// and contiguously and returns the number of bytes transferred, so the bytes written are
+    /// exactly the first `bytes_written` bytes of the buffer. Handing each used chain back with
+    /// its share of that prefix therefore marks exactly what was written, provided
+    /// `parsed_descriptors` describes the same chains as `self.iovec`, in the same order. That
+    /// invariant is maintained by `add_buffer`, `clear` and this function, and checked here.
+    ///
     /// # Safety:
     ///
     /// * The `RxBuffers` should include at least one parsed `DescriptorChain`.
     /// * `size` needs to be smaller or equal to total length of the first `DescriptorChain` stored
     ///   in the `RxBuffers`.
-    unsafe fn mark_used(&mut self, mut bytes_written: u32, rx_queue: &mut Queue) {
+    unsafe fn mark_used(
+        &mut self,
+        mem: &GuestMemoryMmap,
+        mut bytes_written: u32,
+        rx_queue: &mut Queue,
+    ) {
+        assert_eq!(
+            self.parsed_descriptors
+                .iter()
+                .map(|parsed_dc| parsed_dc.length)
+                .sum::<u32>(),
+            self.iovec.len(),
+            "parsed descriptors out of sync with the RX iovecs"
+        );
         self.used_bytes = bytes_written;
 
         let mut used_heads: u16 = 0;
@@ -198,24 +223,31 @@ impl RxBuffers {
         // We need to set num_buffers before dropping chains from `self.iovec`. Otherwise
         // when we set headers, we will iterate over new, yet unused chains instead of the ones
         // we need.
-        self.header_set_num_buffers(used_heads);
+        self.header_set_num_buffers(mem, used_heads);
+        // A frame read from the TAP lands straight in the `iovec`s, bypassing the buffer's own
+        // dirty tracking. Dropping each used chain with its share of the frame marks it dirty,
+        // now that it holds its final contents.
+        let mut remaining = self.used_bytes;
         for _ in 0..used_heads {
             let parsed_dc = self
                 .parsed_descriptors
                 .pop_front()
                 .expect("This should never happen if write to the buffer succeeded.");
-            self.iovec.drop_chain_front(&parsed_dc);
+            let written = remaining.min(parsed_dc.length);
+            remaining -= written;
+            self.iovec.drop_chain_front(mem, &parsed_dc, written);
         }
     }
 
     /// Write the number of descriptors used in VirtIO header
-    fn header_set_num_buffers(&mut self, nr_descs: u16) {
+    fn header_set_num_buffers(&mut self, mem: &GuestMemoryMmap, nr_descs: u16) {
         // We can unwrap here, because we have checked before that the `IoVecBufferMut` holds at
         // least one buffer with the proper size, depending on the feature negotiation. In any
         // case, the buffer holds memory of at least `std::mem::size_of::<virtio_net_hdr_v1>()`
         // bytes.
         self.iovec
             .write_all_volatile_at(
+                mem,
                 &nr_descs.to_le_bytes(),
                 std::mem::offset_of!(virtio_net_hdr_v1, num_buffers),
             )
@@ -638,7 +670,13 @@ impl Net {
             }
         }
 
-        if let Some(ns) = self.mmds_ns.as_mut()
+        // This is safe since we checked in the event handler that the device is activated. Taken
+        // once here: everything below works on disjoint fields of `self`, so the borrow can be
+        // held across the frame's reception.
+        let mem = &self.device_state.active_state().unwrap().mem;
+        let mrg_rxbuf = self.has_feature(VIRTIO_NET_F_MRG_RXBUF as u64);
+
+        let len = if let Some(ns) = self.mmds_ns.as_mut()
             && let Some(len) =
                 ns.write_next_frame(frame_bytes_from_buf_mut(&mut self.rx_frame_buf)?)
         {
@@ -646,37 +684,33 @@ impl Net {
             METRICS.mmds.tx_frames.inc();
             METRICS.mmds.tx_bytes.add(len as u64);
             init_vnet_hdr(&mut self.rx_frame_buf);
-            self.rx_buffer
-                .iovec
-                .write_all_volatile_at(&self.rx_frame_buf[..vnet_hdr_len() + len], 0)?;
+            self.rx_buffer.iovec.write_all_volatile_at(
+                mem,
+                &self.rx_frame_buf[..vnet_hdr_len() + len],
+                0,
+            )?;
             // SAFETY:
             // * len will never be bigger that u32::MAX because mmds is bound
             // by the size of `self.rx_frame_buf` which is MAX_BUFFER_SIZE size.
-            let len: u32 = (vnet_hdr_len() + len).try_into().unwrap();
-
+            (vnet_hdr_len() + len).try_into().unwrap()
+        } else {
             // SAFETY:
-            // * We checked that `rx_buffer` includes at least one `DescriptorChain`
-            // * `rx_frame_buf` has size of `MAX_BUFFER_SIZE` and all `DescriptorChain` objects are
-            //   at least that big.
-            unsafe {
-                self.rx_buffer.mark_used(len, &mut self.queues[RX_INDEX]);
-            }
-            return Ok(Some(len));
-        }
-
-        // SAFETY:
-        // * We ensured that `self.rx_buffer` has at least one DescriptorChain parsed in it.
-        let len = unsafe { self.read_tap().map_err(NetError::IO) }?;
-        // SAFETY:
-        // * len will never be bigger that u32::MAX
-        let len: u32 = len.try_into().unwrap();
+            // * We ensured that `self.rx_buffer` has at least one DescriptorChain parsed in it.
+            let len = unsafe { Self::read_tap(&mut self.tap, &mut self.rx_buffer, mrg_rxbuf) }
+                .map_err(NetError::IO)?;
+            // SAFETY:
+            // * len will never be bigger that u32::MAX
+            len.try_into().unwrap()
+        };
 
         // SAFETY:
         // * `rx_buffer` has at least one `DescriptorChain`
-        // * `read_tap` passes the first `DescriptorChain` to `readv` so we can't have read more
-        //   bytes than its capacity.
+        // * MMDS frames fit in `rx_frame_buf`, which is `MAX_BUFFER_SIZE` bytes, and every
+        //   `DescriptorChain` is at least that big; `read_tap` passes the first `DescriptorChain`
+        //   to `readv` so we can't have read more bytes than its capacity.
         unsafe {
-            self.rx_buffer.mark_used(len, &mut self.queues[RX_INDEX]);
+            self.rx_buffer
+                .mark_used(mem, len, &mut self.queues[RX_INDEX]);
         }
         Ok(Some(len))
     }
@@ -866,18 +900,23 @@ impl Net {
         self.tx_rate_limiter.update_buckets(tx_bytes, tx_ops);
     }
 
-    /// Reads a frame from the TAP device inside the first descriptor held by `self.rx_buffer`.
+    /// Reads a frame from the TAP device inside the first descriptor held by `rx_buffer`, or in
+    /// as many as needed when `mrg_rxbuf` (VIRTIO_NET_F_MRG_RXBUF) is negotiated.
     ///
     /// # Safety
     ///
-    /// `self.rx_buffer` needs to have at least one descriptor chain parsed
-    pub unsafe fn read_tap(&mut self) -> std::io::Result<usize> {
-        let slice = if self.has_feature(VIRTIO_NET_F_MRG_RXBUF as u64) {
-            self.rx_buffer.all_chains_slice_mut()
+    /// `rx_buffer` needs to have at least one descriptor chain parsed
+    unsafe fn read_tap(
+        tap: &mut Tap,
+        rx_buffer: &mut RxBuffers,
+        mrg_rxbuf: bool,
+    ) -> std::io::Result<usize> {
+        let slice = if mrg_rxbuf {
+            rx_buffer.all_chains_slice_mut()
         } else {
-            self.rx_buffer.single_chain_slice_mut()
+            rx_buffer.single_chain_slice_mut()
         };
-        self.tap.read_iovec(slice)
+        tap.read_iovec(slice)
     }
 
     fn write_tap(tap: &mut Tap, buf: &IoVecBuffer) -> std::io::Result<usize> {
@@ -1137,7 +1176,7 @@ pub mod tests {
         inject_tap_tx_frame, set_mac,
     };
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
-    use crate::devices::virtio::test_utils::VirtQueue;
+    use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt};
     use crate::dumbo::EthernetFrame;
     use crate::dumbo::pdu::arp::{ETH_IPV4_FRAME_LEN, EthIPv4ArpFrame};
     use crate::dumbo::pdu::ethernet::ETHERTYPE_ARP;
@@ -1668,6 +1707,85 @@ pub mod tests {
         rx_multiple_frames(th);
     }
 
+    /// A single region at guest address 0 with dirty page tracking enabled.
+    fn dirty_tracking_mem(size: usize) -> GuestMemoryMmap {
+        use crate::vmm_config::machine_config::HugePageConfig;
+        use crate::vstate::memory::{GuestRegionMmapExt, anonymous};
+
+        GuestMemoryMmap::from_regions(vec![GuestRegionMmapExt::dram_from_mmap_region(
+            anonymous(&[(GuestAddress(0), size)], true, HugePageConfig::None)
+                .unwrap()
+                .remove(0),
+            0,
+        )])
+        .unwrap()
+    }
+
+    fn rx_dirty_tracking(mut th: TestHelper, mem: &GuestMemoryMmap) {
+        use crate::arch::host_page_size;
+        use crate::vstate::memory::{Bitmap, GuestMemoryExtension};
+
+        let page_size = host_page_size() as u64;
+        th.activate_net();
+
+        // Two Rx chains of one full-size buffer each; only the first receives a frame.
+        th.add_desc_chain(
+            NetQueue::Rx,
+            0,
+            &[(0, MAX_BUFFER_SIZE as u32, VIRTQ_DESC_F_WRITE)],
+        );
+        th.add_desc_chain(
+            NetQueue::Rx,
+            2 * MAX_BUFFER_SIZE as u64,
+            &[(1, MAX_BUFFER_SIZE as u32, VIRTQ_DESC_F_WRITE)],
+        );
+        mem.reset_dirty();
+
+        let frame = inject_tap_tx_frame(&th.net(), 1000);
+        check_metric_after_block!(
+            th.net().metrics.rx_packets_count,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+        // Both chains were parsed, one was filled.
+        assert_eq!(th.net().rx_buffer.parsed_descriptors.len(), 1);
+        assert_eq!(th.rxq.used.idx.get(), 1);
+
+        let dirty = |addr: u64| {
+            mem.find_region(GuestAddress(0))
+                .unwrap()
+                .bitmap()
+                .dirty_at(addr as usize)
+        };
+        let first = th.rxq.dtable[0].addr.get();
+        let second = th.rxq.dtable[1].addr.get();
+
+        // The written part of the first buffer is dirty, the rest of it is not.
+        assert!(frame.len() < page_size as usize);
+        assert!(dirty(first));
+        assert!(dirty(first + frame.len() as u64 - 1));
+        assert!(!dirty(first + 2 * page_size));
+        // The parsed but unfilled second buffer is not dirty.
+        assert!(!dirty(second));
+        assert!(!dirty(second + page_size));
+    }
+
+    #[test]
+    fn test_rx_dirty_tracking() {
+        let mem = dirty_tracking_mem(4 * MAX_BUFFER_SIZE);
+        let th = TestHelper::get_default(&mem);
+        rx_dirty_tracking(th, &mem);
+    }
+
+    #[test]
+    fn test_rx_dirty_tracking_mrg() {
+        let mem = dirty_tracking_mem(4 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
+        // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_dirty_tracking(th, &mem);
+    }
+
     fn rx_mrg_rxbuf_only(mut th: TestHelper) {
         th.activate_net();
 
@@ -2049,6 +2167,11 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let rxq = VirtQueue::new(GuestAddress(0), &mem, 16);
         net.queues[RX_INDEX] = rxq.create_queue();
+        // Receiving a frame marks guest memory dirty, which needs the device to be activated.
+        net.device_state = DeviceState::Activated(ActiveState {
+            mem: mem.clone(),
+            interrupt: default_interrupt(),
+        });
 
         // Inject a fake buffer in the devices buffers, otherwise we won't be able to receive the
         // MMDS frame. One iovec will be just fine.
@@ -2059,7 +2182,7 @@ pub mod tests {
             .parsed_descriptors
             .push_back(ParsedDescriptorChain {
                 head_index: 1,
-                length: 1024,
+                length: MAX_BUFFER_SIZE as u32,
                 nr_iovecs: 1,
             });
 
