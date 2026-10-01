@@ -108,6 +108,7 @@ impl From<VhostUserBlockConfig> for BlockDeviceConfig {
             topology: None,
 
             socket: Some(value.socket),
+            removable: false,
         }
     }
 }
@@ -431,6 +432,7 @@ mod tests {
             topology: None,
 
             socket: Some("sock".to_string()),
+            removable: false,
         };
         VhostUserBlockConfig::try_from(&block_config).unwrap();
 
@@ -449,6 +451,7 @@ mod tests {
             topology: None,
 
             socket: None,
+            removable: false,
         };
         VhostUserBlockConfig::try_from(&block_config).unwrap_err();
 
@@ -467,6 +470,7 @@ mod tests {
             topology: None,
 
             socket: Some("sock".to_string()),
+            removable: false,
         };
         VhostUserBlockConfig::try_from(&block_config).unwrap_err();
     }

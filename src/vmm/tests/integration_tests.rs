@@ -572,6 +572,7 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
         topology: None,
 
         socket: None,
+        removable: false,
     };
 
     let req = VmmAction::InsertBlockDevice(config);
@@ -584,6 +585,7 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
         mtu: None,
         rx_rate_limiter: None,
         tx_rate_limiter: None,
+        removable: false,
     });
     verify_load_snap_disallowed_after_boot_resources(req, "InsertNetworkDevice");
 
