@@ -1482,7 +1482,7 @@ and this project adheres to
 - Added new jailer command line argument `--cgroup` which allow the user to
   specify the cgroups that are going to be set by the Jailer.
 - Added full support for AMD CPUs (General Availability). More details
-  [here](README.md#supported-platforms).
+  [here](README.md#tested-platforms).
 
 ### Fixed
 
