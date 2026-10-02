@@ -35,7 +35,9 @@ use std::fmt::Debug;
 use std::io::Read;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::time::{Duration, Instant};
 
+use utils::time::TimerFd;
 use vmm_sys_util::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 
 use super::super::csm::ConnState;
@@ -76,7 +78,12 @@ enum EpollListener {
     HostSock,
     /// A listener interested in reading host `connect <port>` commands from a freshly
     /// connected host socket.
-    LocalStream(UnixStream),
+    LocalStream {
+        stream: UnixStream,
+        deadline: Instant,
+    },
+    /// The timer for host sockets waiting for a CONNECT command.
+    PendingConnectionTimer,
 }
 
 /// The vsock connection multiplexer.
@@ -114,6 +121,9 @@ pub struct VsockMuxer {
     /// This appears to have been a design decision dating back to the initial introduction of the
     /// vsock implementation.
     pub(crate) local_port_last: u32,
+
+    /// Wakes the muxer at the earliest pending host connection deadline.
+    pending_connection_timer: TimerFd,
 }
 
 impl VsockChannel for VsockMuxer {
@@ -305,10 +315,16 @@ impl VsockBackend for VsockMuxer {
     fn activate(&mut self) -> Result<(), VsockError> {
         // Listen on the host-initiated socket, for incoming connections.
         self.add_listener(self.host_sock.as_raw_fd(), EpollListener::HostSock)
-            .map_err(VsockError::VsockUdsBackend)
+            .map_err(VsockError::VsockUdsBackend)?;
+        self.add_listener(
+            self.pending_connection_timer.as_raw_fd(),
+            EpollListener::PendingConnectionTimer,
+        )
+        .map_err(VsockError::VsockUdsBackend)
     }
 
     fn reset(&mut self) {
+        self.pending_connection_timer.arm(Duration::ZERO, None);
         // Remove all connections and their epoll listeners.
         let keys: Vec<ConnMapKey> = self.conn_map.keys().copied().collect();
         for key in keys {
@@ -347,6 +363,7 @@ impl VsockMuxer {
             killq: MuxerKillQ::new(),
             local_port_last: (1u32 << 30) - 1,
             local_port_set: HashSet::with_capacity(defs::MAX_CONNECTIONS),
+            pending_connection_timer: TimerFd::new(),
         };
 
         Ok(muxer)
@@ -384,7 +401,7 @@ impl VsockMuxer {
                 let pending_count = self
                     .listener_map
                     .values()
-                    .filter(|listener| matches!(listener, EpollListener::LocalStream(_)))
+                    .filter(|listener| matches!(listener, EpollListener::LocalStream { .. }))
                     .count();
 
                 if self.conn_map.len() + pending_count >= defs::MAX_CONNECTIONS {
@@ -408,17 +425,32 @@ impl VsockMuxer {
                         // the guest side, we need to know the destination port. We'll read
                         // that port from a "connect" command received on this socket, so the
                         // next step is to ask to be notified the moment we can read from it.
-                        self.add_listener(stream.as_raw_fd(), EpollListener::LocalStream(stream))
+                        let deadline =
+                            Instant::now() + Duration::from_millis(defs::CONNECT_TIMEOUT_MS);
+                        self.add_listener(
+                            stream.as_raw_fd(),
+                            EpollListener::LocalStream { stream, deadline },
+                        )
                     })
                     .unwrap_or_else(|err| {
                         warn!("vsock: unable to accept local connection: {:?}", err);
                     });
+                self.rearm_pending_connection_timer();
             }
 
             // Data is ready to be read from a host-initiated connection. That would be the
             // "connect" command that we're expecting.
-            Some(EpollListener::LocalStream(_)) => {
-                if let Some(EpollListener::LocalStream(mut stream)) = self.remove_listener(fd) {
+            Some(EpollListener::LocalStream { .. }) => {
+                // Only a valid CONNECT command received before the deadline can proceed.
+                if let Some(EpollListener::LocalStream {
+                    mut stream,
+                    deadline,
+                }) = self.remove_listener(fd)
+                {
+                    self.rearm_pending_connection_timer();
+                    if deadline <= Instant::now() {
+                        return;
+                    }
                     Self::read_local_stream_port(&mut stream)
                         .map(|peer_port| (self.allocate_local_port(), peer_port))
                         .and_then(|(local_port, peer_port)| {
@@ -442,6 +474,12 @@ impl VsockMuxer {
                 }
             }
 
+            Some(EpollListener::PendingConnectionTimer) => {
+                self.pending_connection_timer.read();
+                self.remove_expired_pending_connections();
+                self.rearm_pending_connection_timer();
+            }
+
             _ => {
                 info!(
                     "vsock: unexpected event: fd={:?}, evset={:?}",
@@ -450,6 +488,43 @@ impl VsockMuxer {
                 METRICS.muxer_event_fails.inc();
             }
         }
+    }
+
+    /// Close host sockets that have not supplied CONNECT before their deadline.
+    fn remove_expired_pending_connections(&mut self) {
+        let now = Instant::now();
+        let expired_fds: Vec<RawFd> = self
+            .listener_map
+            .iter()
+            .filter_map(|(&fd, listener)| match listener {
+                EpollListener::LocalStream { deadline, .. } if *deadline <= now => Some(fd),
+                _ => None,
+            })
+            .collect();
+
+        for fd in expired_fds {
+            // Unregister from epoll, then drop the owned UnixStream to close the socket.
+            drop(self.remove_listener(fd));
+        }
+    }
+
+    /// Wake at the earliest pending deadline, or disarm when no pending sockets remain.
+    fn rearm_pending_connection_timer(&mut self) {
+        let next_deadline = self
+            .listener_map
+            .values()
+            .filter_map(|listener| match listener {
+                EpollListener::LocalStream { deadline, .. } => Some(*deadline),
+                _ => None,
+            })
+            .min();
+        let duration = next_deadline.map_or(Duration::ZERO, |deadline| {
+            // Zero disarms timerfd; an already-due deadline must still generate an event.
+            deadline
+                .saturating_duration_since(Instant::now())
+                .max(Duration::from_nanos(1))
+        });
+        self.pending_connection_timer.arm(duration, None);
     }
 
     /// Parse a host "connect" command, and extract the destination vsock port.
@@ -579,8 +654,9 @@ impl VsockMuxer {
     ) -> Result<(), VsockUnixBackendError> {
         let evset = match listener {
             EpollListener::Connection { evset, .. } => evset,
-            EpollListener::LocalStream(_) => EventSet::IN,
+            EpollListener::LocalStream { .. } => EventSet::IN,
             EpollListener::HostSock => EventSet::IN,
+            EpollListener::PendingConnectionTimer => EventSet::IN,
         };
 
         self.epoll
@@ -986,7 +1062,7 @@ mod tests {
             let mut conn_lsn_count = 0usize;
             for key in self.muxer.listener_map.values() {
                 match key {
-                    EpollListener::LocalStream(_) => local_lsn_count += 1,
+                    EpollListener::LocalStream { .. } => local_lsn_count += 1,
                     EpollListener::Connection { .. } => conn_lsn_count += 1,
                     _ => (),
                 };
@@ -1787,5 +1863,109 @@ mod tests {
 
         // Check that the connection was removed.
         assert_eq!(METRICS.conns_removed.count(), conns_removed + 1);
+    }
+
+    #[test]
+    fn test_pending_connection_timer_expires_silent_socket() {
+        // Accept a host socket without a CONNECT command. It should remain pending
+        // with an armed timer, without adding a vsock connection.
+        let mut muxer = VsockMuxer::new(PEER_CID, get_file("pending_expiry")).unwrap();
+        muxer.activate().unwrap();
+        let mut client = UnixStream::connect(muxer.host_sock_path()).unwrap();
+        muxer.notify(EventSet::IN);
+        assert!(muxer.pending_connection_timer.is_armed());
+        assert!(muxer.conn_map.is_empty());
+
+        // No client data or new connections: the timer alone must wake the muxer.
+        let mut events = [EpollEvent::new(EventSet::empty(), 0); 4];
+        assert_eq!(muxer.epoll.wait(5000, &mut events).unwrap(), 1);
+        assert_eq!(events[0].fd(), muxer.pending_connection_timer.as_raw_fd());
+        muxer.notify(EventSet::IN);
+        assert!(!muxer.pending_connection_timer.is_armed());
+        assert!(
+            !muxer
+                .listener_map
+                .values()
+                .any(|listener| { matches!(listener, EpollListener::LocalStream { .. }) })
+        );
+        client.set_nonblocking(true).unwrap();
+        // A zero-byte read confirms that expiry closed Firecracker's end of the socket.
+        assert_eq!(client.read(&mut [0u8; 1]).unwrap(), 0);
+        assert_eq!(muxer.epoll.wait(0, &mut events).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_pending_connection_timer_preserves_unexpired_socket_and_resets() {
+        // Register one expired socket and one whose deadline is still in the future.
+        // Cleanup should close only the expired socket and rearm for the remaining one.
+        let mut muxer = VsockMuxer::new(PEER_CID, get_file("pending_rearm")).unwrap();
+        muxer.activate().unwrap();
+        let (expired, mut expired_client) = UnixStream::pair().unwrap();
+        let expired_fd = expired.as_raw_fd();
+        let (live, mut live_client) = UnixStream::pair().unwrap();
+        let live_fd = live.as_raw_fd();
+        muxer
+            .add_listener(
+                expired_fd,
+                EpollListener::LocalStream {
+                    stream: expired,
+                    deadline: Instant::now(),
+                },
+            )
+            .unwrap();
+        muxer
+            .add_listener(
+                live_fd,
+                EpollListener::LocalStream {
+                    stream: live,
+                    deadline: Instant::now() + Duration::from_secs(60),
+                },
+            )
+            .unwrap();
+        muxer.rearm_pending_connection_timer();
+        // Already-due deadlines must fire rather than disarming the timer with zero.
+        let mut events = [EpollEvent::new(EventSet::empty(), 0); 4];
+        assert_eq!(muxer.epoll.wait(1000, &mut events).unwrap(), 1);
+        muxer.notify(EventSet::IN);
+        assert!(!muxer.listener_map.contains_key(&expired_fd));
+        assert!(muxer.listener_map.contains_key(&live_fd));
+        assert!(muxer.pending_connection_timer.is_armed());
+        expired_client.set_nonblocking(true).unwrap();
+        assert_eq!(expired_client.read(&mut [0u8; 1]).unwrap(), 0);
+        live_client.set_nonblocking(true).unwrap();
+        assert_eq!(
+            live_client.read(&mut [0u8; 1]).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+
+        // Reset must close the remaining pending socket and disarm the timer.
+        muxer.reset();
+        assert!(!muxer.pending_connection_timer.is_armed());
+        assert!(muxer.listener_map.is_empty());
+        assert_eq!(live_client.read(&mut [0u8; 1]).unwrap(), 0);
+        // Reactivation must register the timer again so later connections can expire.
+        muxer.activate().unwrap();
+        assert!(matches!(
+            muxer
+                .listener_map
+                .get(&muxer.pending_connection_timer.as_raw_fd()),
+            Some(EpollListener::PendingConnectionTimer)
+        ));
+    }
+
+    #[test]
+    fn test_pending_connection_timer_disarms_after_connect() {
+        // Accept a host socket and verify it is subject to the pending timeout.
+        let mut muxer = VsockMuxer::new(PEER_CID, get_file("pending_connect")).unwrap();
+        muxer.activate().unwrap();
+        let mut client = UnixStream::connect(muxer.host_sock_path()).unwrap();
+        muxer.notify(EventSet::IN);
+        assert!(muxer.pending_connection_timer.is_armed());
+        // A valid CONNECT moves the socket into conn_map. With no pending sockets
+        // left, the timer should be disarmed.
+        client.write_all(b"CONNECT 52\n").unwrap();
+        muxer.notify(EventSet::IN);
+        assert_eq!(muxer.conn_map.len(), 1);
+        assert!(!muxer.pending_connection_timer.is_armed());
     }
 }
