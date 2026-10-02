@@ -60,7 +60,9 @@ Firecracker to the guest software listening on that port, thus establishing the
 requested channel. If the connection has been established, Firecracker will send
 an acknowledgement message to the connecting end (host-side), in the form "OK
 PORT\\n", where `PORT` is the vsock port number assigned to the host end. If no
-one is listening, Firecracker will terminate the host connection.
+one is listening, Firecracker will terminate the host connection. The connect
+command must arrive within 2 seconds of connecting to the Unix socket, otherwise
+Firecracker closes the host connection.
 
 Client A initiates connection to Server A in [figure below](#vsock-connections):
 
