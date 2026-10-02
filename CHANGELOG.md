@@ -46,6 +46,11 @@ and this project adheres to
 
 ### Fixed
 
+- [#6254](https://github.com/firecracker-microvm/firecracker/pull/6254) Fixed
+  pausing a vCPU with an unfinished MMIO or port-I/O instruction. Pending I/O
+  now completes before the vCPU pauses, so snapshots include its effects without
+  executing further guest instructions.
+
 - [#6208](https://github.com/firecracker-microvm/firecracker/pull/6208): Fixed
   the vsock device stalling the VMM thread when the guest connects to a
   host-side Unix socket whose accept backlog is full. Such connection requests

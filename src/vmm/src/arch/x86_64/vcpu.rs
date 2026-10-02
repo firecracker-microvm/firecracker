@@ -897,7 +897,7 @@ impl Debug for VcpuState {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
     use kvm_bindings::kvm_msr_entry;
@@ -939,6 +939,43 @@ mod tests {
         vm.setup_irqchip().unwrap();
         let vcpu = KvmVcpu::new(0, &vm).unwrap();
         (vm, vcpu)
+    }
+
+    /// Size in bytes of the guest's MMIO load instruction (`mov al, [si]`).
+    pub(crate) const MMIO_LOAD_SIZE: u64 = 2;
+
+    /// Builds a real-mode vCPU at 0:0x1000 that loads a byte from MMIO GPA 0x4000, increments
+    /// a marker, then stores the byte back to the same address.
+    pub(crate) fn setup_mmio_load_vcpu() -> (KvmVm, crate::vstate::vcpu::Vcpu) {
+        use crate::vstate::memory::Bytes;
+
+        let code: &[u8] = &[
+            0xbe, 0x00, 0x40, // mov si, 0x4000 (just outside RAM)
+            0xb8, 0xa5, 0x00, // mov ax, 0xa5
+            0x31, 0xdb, // xor bx, bx
+            0x8a, 0x04, // mov al, [si]
+            0x43, // inc bx
+            0x88, 0x04, // mov [si], al
+        ];
+        let (vm, vcpu) = crate::vstate::vcpu::tests::setup_vcpu(0x4000);
+        let entry_addr = GuestAddress(0x1000);
+        vm.guest_memory().write_slice(code, entry_addr).unwrap();
+
+        // Keep the reset real-mode state, but fetch code from CS:IP = 0:0x1000.
+        let mut sregs = vcpu.kvm_vcpu.fd.get_sregs().unwrap();
+        sregs.cs.base = 0;
+        sregs.cs.selector = 0;
+        vcpu.kvm_vcpu.fd.set_sregs(&sregs).unwrap();
+        let mut regs = vcpu.kvm_vcpu.fd.get_regs().unwrap();
+        regs.rip = entry_addr.0;
+        vcpu.kvm_vcpu.fd.set_regs(&regs).unwrap();
+        (vm, vcpu)
+    }
+
+    /// Returns (loaded byte, marker, PC).
+    pub(crate) fn read_mmio_load_regs(vcpu: &crate::vstate::vcpu::Vcpu) -> (u64, u64, u64) {
+        let regs = vcpu.kvm_vcpu.fd.get_regs().unwrap();
+        (regs.rax & 0xff, regs.rbx & 0xffff, regs.rip)
     }
 
     fn configure_vcpu(
