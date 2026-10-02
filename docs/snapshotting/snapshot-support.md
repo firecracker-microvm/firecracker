@@ -528,7 +528,10 @@ When using `kvm-clock` as clock source on `x86_64`, it's possible to optionally
 set the `clock_realtime: true` in the `LoadSnapshot` request to advance the
 clock on the guest at restore time (host Linux >= 5.16 is required to support
 this feature). Note that this may cause issues within the guest as the clock
-will appear to suddenly jump.
+will appear to suddenly jump. The host that creates the snapshot must also use a
+TSC-based clock source (for example `tsc`). Otherwise KVM does not save the
+realtime clock in the snapshot, and loading it with `clock_realtime: true` fails
+with `clock_realtime requested but not present in the snapshot state`.
 
 ## Provisioning host disk space for snapshots
 
