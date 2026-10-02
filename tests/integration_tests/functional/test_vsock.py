@@ -141,6 +141,27 @@ def test_vsock_peer_connection_backlog_full(vsock_uvm_any):
                 assert stream.read(len(payload)) == payload.encode()
 
 
+def test_vsock_host_connect_timeout(vsock_uvm_any):
+    """Close a host connection that never sends CONNECT, then accept a new one."""
+    vm = vsock_uvm_any
+    uds_path = start_guest_echo_server(vm)
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as silent:
+        silent.settimeout(5)
+        start = time.monotonic()
+        silent.connect(uds_path)
+        assert silent.recv(1) == b""
+        elapsed = time.monotonic() - start
+    assert 2 <= elapsed < 5, elapsed
+
+    payload = b"vsock-after-timeout\n"
+    with vsock_connect_to_guest(uds_path, ECHO_SERVER_PORT) as sock:
+        sock.settimeout(5)
+        sock.sendall(payload)
+        with sock.makefile("rb") as stream:
+            assert stream.readline() == payload
+
+
 def negative_test_host_connections(vm, blob_path, blob_hash):
     """Negative test for host-initiated connections.
 

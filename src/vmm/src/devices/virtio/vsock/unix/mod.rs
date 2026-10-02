@@ -19,6 +19,9 @@ mod defs {
     /// Maximum number of established connections that we can handle.
     pub const MAX_CONNECTIONS: usize = 1023;
 
+    /// Host connect command timeout, in millis.
+    pub const CONNECT_TIMEOUT_MS: u64 = 2000;
+
     /// Size of the muxer RX packet queue.
     pub const MUXER_RXQ_SIZE: u32 = 256;
 

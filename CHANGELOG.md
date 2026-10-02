@@ -35,6 +35,10 @@ and this project adheres to
   partial huge pages either failed or kept their old contents. Because zeroing
   allocates huge pages that were not backed yet, use free page reporting or
   hinting instead of the traditional balloon with hugetlbfs.
+- [#6256](https://github.com/firecracker-microvm/firecracker/pull/6256): vsock connections must now send the `CONNECT <port>\n` command
+  within 2 seconds of connecting to the vsock Unix socket, otherwise Firecracker
+  closes the socket. Host sockets still waiting for their `CONNECT` command now
+  count towards the vsock connection limit.
 
 ### Deprecated
 
