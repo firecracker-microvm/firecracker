@@ -59,7 +59,7 @@ enum ControlMsg {
     Start(BlockWorker),
     UpdateDiskImage { path: String, read_only: bool },
     Reset,
-    Pause,
+    Pause(FlushMode),
     GetQueueState,
     MarkQueueMemoryDirty,
     Kick { resume: bool },
@@ -86,7 +86,8 @@ pub(crate) struct WorkerHandle {
     queue_evt: EventFd,
 }
 
-/// Determines how pending I/O is handled during worker teardown.
+/// Determines how pending I/O is handled when a worker pauses or finishes.
+#[derive(Clone, Copy)]
 pub(crate) enum FlushMode {
     Drain,
     DrainAndFlush,
@@ -125,6 +126,10 @@ impl BlockWorker {
 
     /// Device specific function for peaking inside a queue and processing descriptors.
     pub(super) fn process_queue(&mut self) -> Result<(), InvalidAvailIdx> {
+        if !self.resources.queue.config.ready {
+            return Ok(());
+        }
+
         let rate_limiter = &self.rate_limiter;
         let queue = &mut self.resources.queue;
         let mut used_any = false;
@@ -211,6 +216,10 @@ impl BlockWorker {
     }
 
     fn process_async_completion_queue(&mut self) {
+        if !self.resources.queue.config.ready {
+            return;
+        }
+
         let engine = unwrap_async_file_engine_or_return!(&mut self.resources.disk.file_engine);
         let queue = &mut self.resources.queue;
 
@@ -286,9 +295,13 @@ impl BlockWorker {
     }
 
     /// Prepare device for being snapshotted.
-    pub(crate) fn prepare_save(&mut self) {
+    pub(crate) fn prepare_save(&mut self, flush_mode: FlushMode) {
         // Fsync errors are non-fatal; other drain errors are broken invariants.
-        match self.resources.disk.file_engine.drain_and_flush(false) {
+        let result = match flush_mode {
+            FlushMode::Drain => self.resources.disk.file_engine.drain(false),
+            FlushMode::DrainAndFlush => self.resources.disk.file_engine.drain_and_flush(false),
+        };
+        match result {
             Ok(()) => {}
             Err(BlockIoError::Async(async_io::AsyncIoError::SyncAll(err))) => {
                 error!("Failed to flush block data for snapshot: {:?}", err);
@@ -403,8 +416,8 @@ impl WorkerHandle {
     }
 
     /// Pause data-path processing after completing pending I/O.
-    pub(crate) fn pause(&self) {
-        match self.request_response(ControlMsg::Pause) {
+    pub(crate) fn pause(&self, flush_mode: FlushMode) {
+        match self.request_response(ControlMsg::Pause(flush_mode)) {
             ControlResponse::Paused => {}
             response => panic!("Unexpected block worker pause response: {response:?}"),
         }
@@ -511,7 +524,7 @@ impl ThreadedWorker {
                 ControlMsg::UpdateDiskImage { path, read_only } => {
                     self.update_disk_image(path, read_only)
                 }
-                ControlMsg::Pause => self.pause_worker(ops),
+                ControlMsg::Pause(flush_mode) => self.pause_worker(flush_mode, ops),
                 ControlMsg::GetQueueState => self.send_queue_state(),
                 ControlMsg::MarkQueueMemoryDirty => self.mark_queue_memory_dirty(),
                 ControlMsg::Kick { resume } => self.kick_worker(resume, ops),
@@ -574,11 +587,11 @@ impl ThreadedWorker {
         self.reply(ControlResponse::Reset(worker.resources));
     }
 
-    fn pause_worker(&mut self, ops: &mut EventOps) {
+    fn pause_worker(&mut self, flush_mode: FlushMode, ops: &mut EventOps) {
         match std::mem::replace(&mut self.state, WorkerState::Parked) {
             WorkerState::Running(mut worker) => {
                 Self::unregister_runtime_events(&worker.resources, ops);
-                worker.prepare_save();
+                worker.prepare_save(flush_mode);
                 self.state = WorkerState::Paused(worker);
             }
             WorkerState::Paused(worker) => {
@@ -604,7 +617,11 @@ impl ThreadedWorker {
     fn mark_queue_memory_dirty(&mut self) {
         let result = if let WorkerState::Paused(worker) = &mut self.state {
             let mem = worker.active_state.mem.clone();
-            worker.resources.queue.initialize(&mem)
+            if worker.resources.queue.config.ready {
+                worker.resources.queue.initialize(&mem)
+            } else {
+                Ok(())
+            }
         } else {
             warn!("Queue memory dirty requested while block worker is not paused");
             Err(QueueError::NotReady)
@@ -747,11 +764,12 @@ mod tests {
     #[test]
     fn test_control_msg_batch() {
         let mut block = default_block(FileEngineType::Sync);
-        let BlockRuntimeState::Configuring(resources, _) =
+        let BlockRuntimeState::Configuring(mut resources, _) =
             std::mem::replace(&mut block.state, BlockRuntimeState::Placeholder)
         else {
             unreachable!()
         };
+        let resources = resources.pop().unwrap();
         let expected_queue_state = resources.queue.save();
         let queue_evt = resources.queue_evt.try_clone().unwrap();
         let worker = BlockWorker {
@@ -768,7 +786,10 @@ mod tests {
         let handle = WorkerHandle::spawn(Arc::new(vec![]), queue_evt, "fc_test".into()).unwrap();
 
         handle.to_worker.send(ControlMsg::Start(worker)).unwrap();
-        handle.to_worker.send(ControlMsg::Pause).unwrap();
+        handle
+            .to_worker
+            .send(ControlMsg::Pause(FlushMode::DrainAndFlush))
+            .unwrap();
         handle.to_worker.send(ControlMsg::GetQueueState).unwrap();
         handle.control_evt.write(1).unwrap();
 
@@ -797,6 +818,7 @@ mod tests {
         else {
             unreachable!()
         };
+        let mut resources = resources.pop().unwrap();
         resources.queue.initialize(&mem).unwrap();
         let queue_evt = resources.queue_evt.try_clone().unwrap();
         let worker = BlockWorker {
@@ -813,7 +835,10 @@ mod tests {
         let handle = WorkerHandle::spawn(Arc::new(vec![]), queue_evt, "fc_test".into()).unwrap();
 
         let pause = || {
-            handle.to_worker.send(ControlMsg::Pause).unwrap();
+            handle
+                .to_worker
+                .send(ControlMsg::Pause(FlushMode::DrainAndFlush))
+                .unwrap();
             handle.control_evt.write(1).unwrap();
             assert!(matches!(
                 handle.from_worker.recv_timeout(RECV_TIMEOUT_SEC).unwrap(),

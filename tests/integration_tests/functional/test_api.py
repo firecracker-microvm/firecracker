@@ -148,6 +148,35 @@ def test_api_put_update_pre_boot(uvm, io_engine):
         io_engine=io_engine,
     )
 
+    # More queues than vCPUs are not allowed. The microVM has 2 vCPUs here.
+    with pytest.raises(
+        RuntimeError,
+        match="Invalid queue count 3 for device scratch; cannot exceed the configured vCPU count 2",
+    ):
+        test_microvm.api.drive.put(
+            drive_id="scratch",
+            path_on_host=test_microvm.get_jailed_resource(fs2.path),
+            is_read_only=True,
+            is_root_device=False,
+            io_engine=io_engine,
+            num_queues=3,
+        )
+
+    # Two queues fit two vCPUs, and the vCPU count cannot drop below them afterwards.
+    test_microvm.api.drive.put(
+        drive_id="scratch",
+        path_on_host=test_microvm.get_jailed_resource(fs2.path),
+        is_read_only=True,
+        is_root_device=False,
+        io_engine=io_engine,
+        num_queues=2,
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="Invalid queue count 2 for device scratch; cannot exceed the configured vCPU count 1",
+    ):
+        test_microvm.api.machine_config.patch(vcpu_count=1)
+
     # Valid updates to all fields in the machine configuration are allowed.
     # The machine configuration has a default value, so all PUTs are updates.
     microvm_config_json = {
@@ -816,7 +845,7 @@ def test_drive_patch(uvm, io_engine):
         is_root_device=False,
         is_read_only=False,
         io_engine=io_engine,
-        threaded=True,
+        num_queues=1,
     )
 
     fs_vub = drive_tools.FilesystemFile(
@@ -967,7 +996,7 @@ def _drive_patch(test_microvm, io_engine):
             "cache_type": "Unsafe",
             "is_read_only": True,
             "discard": False,
-            "threaded": False,
+            "num_queues": None,
             "path_on_host": "/" + test_microvm.rootfs_file.name,
             "rate_limiter": None,
             "io_engine": "Sync",
@@ -987,7 +1016,7 @@ def _drive_patch(test_microvm, io_engine):
             "cache_type": "Unsafe",
             "is_read_only": False,
             "discard": False,
-            "threaded": True,
+            "num_queues": 1,
             "path_on_host": "/scratch_new.ext4",
             "rate_limiter": {
                 "bandwidth": {"size": 5000, "one_time_burst": None, "refill_time": 100},
@@ -1010,7 +1039,7 @@ def _drive_patch(test_microvm, io_engine):
             "cache_type": "Unsafe",
             "is_read_only": None,
             "discard": None,
-            "threaded": False,
+            "num_queues": None,
             "path_on_host": None,
             "rate_limiter": None,
             "io_engine": None,
@@ -1403,7 +1432,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
             "cache_type": "Unsafe",
             "is_read_only": True,
             "discard": False,
-            "threaded": False,
+            "num_queues": None,
             "path_on_host": f"/{uvm_configured.rootfs_file.name}",
             "rate_limiter": None,
             "io_engine": "Sync",
@@ -1552,7 +1581,7 @@ def test_get_full_config(uvm):
             "cache_type": "Unsafe",
             "is_read_only": True,
             "discard": False,
-            "threaded": False,
+            "num_queues": None,
             "path_on_host": "/" + test_microvm.rootfs_file.name,
             "rate_limiter": None,
             "io_engine": "Sync",

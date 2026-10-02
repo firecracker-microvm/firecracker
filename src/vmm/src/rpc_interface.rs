@@ -532,6 +532,9 @@ impl<'a> PrebootApiController<'a> {
     fn insert_block_device(&mut self, cfg: BlockDeviceConfig) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
+            .machine_config
+            .validate_num_queues(&cfg.drive_id, cfg.num_queues)?;
+        self.vm_resources
             .set_block_device(cfg)
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::DriveConfig)

@@ -297,7 +297,7 @@ def test_patch_drive_snapshot(uvm_configured, microvm_factory, io_engine):
         "scratch",
         scratch_disk1.path,
         io_engine=io_engine,
-        threaded=True,
+        num_queues=1,
     )
     basevm.start()
 

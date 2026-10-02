@@ -716,6 +716,10 @@ impl Vmm {
         event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
         log_dev_preview_warning("PCI device hotplug", None);
+        if let HotplugDeviceConfig::Block(block_config) = &config {
+            self.machine_config
+                .validate_num_queues(&block_config.drive_id, block_config.num_queues)?;
+        }
         let kvm_vm = self
             .vm
             .as_kvm()
