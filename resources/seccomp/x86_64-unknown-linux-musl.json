@@ -23,7 +23,14 @@
                 "syscall": "open"
             },
             {
+                "syscall": "openat"
+            },
+            {
                 "syscall": "read"
+            },
+            {
+                "syscall": "readlink",
+                "comment": "Used to canonicalize VMDK descriptor paths on drive patch"
             },
             {
                 "syscall": "write"
@@ -101,6 +108,10 @@
             {
                 "syscall": "lseek",
                 "comment": "Used by the block device"
+            },
+            {
+                "syscall": "preadv",
+                "comment": "Used by the imago VMDK disk image backend"
             },
             {
                 "syscall": "mremap",
