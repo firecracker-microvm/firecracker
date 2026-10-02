@@ -380,7 +380,14 @@ impl VsockMuxer {
 
             // A new host-initiated connection is ready to be accepted.
             Some(EpollListener::HostSock) => {
-                if self.conn_map.len() == defs::MAX_CONNECTIONS {
+                // Count sockets waiting for CONNECT as well as vsock connections.
+                let pending_count = self
+                    .listener_map
+                    .values()
+                    .filter(|listener| matches!(listener, EpollListener::LocalStream(_)))
+                    .count();
+
+                if self.conn_map.len() + pending_count >= defs::MAX_CONNECTIONS {
                     // If we're already maxed-out on connections, we'll just accept and
                     // immediately discard this potentially new one.
                     warn!("vsock: connection limit reached; refusing new host connection");
