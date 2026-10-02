@@ -187,12 +187,14 @@ has an open RustSec advisory).
 
 Firecracker has some functional A/B-tests (for example, in
 `test_vulnerabilities.py`), which generally compare the state of the pull
-request target branch (e.g. `main`), with the PR head. However, when running
-these locally, pytest does not know anything about potential PRs that the commit
-the tests are being run on are contained in, and as such cannot do this
-A/B-Test. To run functional A/B-Tests locally, you need to create a "fake" PR
-environment by setting the `BUILDKITE_PULL_REQUEST` and
-`BUILDKITE_PULL_REQUEST_BASE_BRANCH` environment variables:
+request target branch (e.g. `main`), with the PR head. In merge queue builds,
+they compare against the queue's base commit
+(`BUILDKITE_MERGE_QUEUE_BASE_COMMIT`) instead. However, when running these
+locally, pytest does not know anything about potential PRs that the commit the
+tests are being run on are contained in, and as such cannot do this A/B-Test. To
+run functional A/B-Tests locally, you need to create a "fake" PR environment by
+setting the `BUILDKITE_PULL_REQUEST` and `BUILDKITE_PULL_REQUEST_BASE_BRANCH`
+environment variables:
 
 ```
 BUILDKITE_PULL_REQUEST=true BUILDKITE_PULL_REQUEST_BASE_BRANCH=main ./tools/devtool test -- integration_tests/security/test_vulnerabilities.py

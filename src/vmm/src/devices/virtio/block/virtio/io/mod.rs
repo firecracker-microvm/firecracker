@@ -245,15 +245,11 @@ pub mod tests {
 
     fn create_mem() -> GuestMemoryMmap {
         GuestMemoryMmap::from_regions(
-            memory::anonymous(
-                [(GuestAddress(0), MEM_LEN)].into_iter(),
-                true,
-                HugePageConfig::None,
-            )
-            .unwrap()
-            .into_iter()
-            .map(|region| GuestRegionMmapExt::dram_from_mmap_region(region, 0))
-            .collect(),
+            memory::anonymous(&[(GuestAddress(0), MEM_LEN)], true, HugePageConfig::None)
+                .unwrap()
+                .into_iter()
+                .map(|region| GuestRegionMmapExt::dram_from_mmap_region(region, 0))
+                .collect(),
         )
         .unwrap()
     }

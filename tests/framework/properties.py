@@ -78,8 +78,16 @@ class GlobalProps:
         # Buildkite/PR information
         self.buildkite_pipeline_slug = os.environ.get("BUILDKITE_PIPELINE_SLUG")
         self.buildkite_build_number = os.environ.get("BUILDKITE_BUILD_NUMBER")
-        self.buildkite_pr = os.environ.get("BUILDKITE_PULL_REQUEST", "false") != "false"
-        self.buildkite_revision_a = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH")
+        self.buildkite_merge_queue_base = os.environ.get(
+            "BUILDKITE_MERGE_QUEUE_BASE_COMMIT"
+        )
+        self.buildkite_pr = (
+            bool(self.buildkite_merge_queue_base)
+            or os.environ.get("BUILDKITE_PULL_REQUEST", "false") != "false"
+        )
+        self.buildkite_revision_a = self.buildkite_merge_queue_base or os.environ.get(
+            "BUILDKITE_PULL_REQUEST_BASE_BRANCH"
+        )
         # Development environment detection
         self.is_dev_env = os.environ.get("FC_TEST_DEVELOPMENT_ENVIRONMENT") == "1"
 

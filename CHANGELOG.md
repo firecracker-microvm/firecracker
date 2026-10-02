@@ -10,6 +10,10 @@ and this project adheres to
 
 ### Added
 
+- [#6237](https://github.com/firecracker-microvm/firecracker/pull/6237): Added
+  balloon and virtio-mem memory reclamation for shared memfd-backed guest
+  memory, such as memory shared with vhost-user devices.
+
 ### Changed
 
 - [#6201](https://github.com/firecracker-microvm/firecracker/pull/6201):
@@ -18,6 +22,19 @@ and this project adheres to
   changes to an active queue's configuration. The MMIO and PCI transports
   already reject queue configuration writes after `DRIVER_OK`, so a guest cannot
   reach this condition.
+- [#6233](https://github.com/firecracker-microvm/firecracker/pull/6233): When
+  guest memory is backed by a memfd (currently, when a vhost-user device is
+  configured), the hotpluggable memory region is now placed in the same memfd as
+  guest DRAM, with the same layout as a memory snapshot file. The memfd is thus
+  as large as DRAM plus the hotpluggable region, and the jailer's `fsize`
+  resource limit, if set, must be at least `mem_size_mib + total_size_mib` (in
+  bytes) for Firecracker to boot.
+- [#6237](https://github.com/firecracker-microvm/firecracker/pull/6237): Balloon
+  discards on hugetlbfs-backed memory now free the whole huge pages inside each
+  range and zero the partial huge pages at either end. Previously, a range with
+  partial huge pages either failed or kept their old contents. Because zeroing
+  allocates huge pages that were not backed yet, use free page reporting or
+  hinting instead of the traditional balloon with hugetlbfs.
 
 ### Deprecated
 
@@ -48,6 +65,13 @@ and this project adheres to
   timerfd while the limiter stayed marked as blocked, so the timer never fired
   and the device I/O hung until the microVM was restarted. The debt is now
   computed in nanoseconds and rounded up.
+
+- [#6200](https://github.com/firecracker-microvm/firecracker/pull/6200): Fixed
+  snapshot restore on x86_64 leaving vCPUs with different TSC offsets, which
+  could make guest clocks using the `tsc` clocksource move backwards when a task
+  migrated between vCPUs. On host kernels supporting `KVM_VCPU_TSC_CTRL` (Linux
+  5.16 and later), the restored TSC offset of vCPU 0 is now applied to all vCPUs
+  before they start running.
 
 ## [1.17.0]
 

@@ -768,14 +768,10 @@ pub(crate) mod test_utils {
         let mut vm = setup_vm_with_memory(0x1000);
         let addr = GuestAddress(512 << 30);
         vm.register_hotpluggable_memory_region(
-            memory::anonymous(
-                std::iter::once((addr, mib_to_bytes(1024))),
-                false,
-                HugePageConfig::None,
-            )
-            .unwrap()
-            .pop()
-            .unwrap(),
+            memory::anonymous(&[(addr, mib_to_bytes(1024))], false, HugePageConfig::None)
+                .unwrap()
+                .pop()
+                .unwrap(),
             mib_to_bytes(128),
         )
         .unwrap();
