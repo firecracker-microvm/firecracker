@@ -292,7 +292,8 @@ Firecracker provides the following guarantees about unplugged memory:
   protected.
 - **Unplugged memory blocks are freed**: When a memory block is unplugged, the
   backing pages are freed, for example using `madvise(MADV_DONTNEED)` for anon
-  memory, returning memory to the host at block granularity.
+  memory or `madvise(MADV_REMOVE)` for shared memfd memory, returning memory to
+  the host at block granularity.
 
 ### Trust Model
 

@@ -133,9 +133,21 @@ def track_cpu_utilization(
 
 
 def get_resident_memory(process: psutil.Process):
-    """Returns current memory utilization in KiB, including used HugeTLBFS"""
+    """Returns current memory utilization in KiB, including used HugeTLBFS and memfds"""
 
     proc_status = Path("/proc", str(process.pid), "status").read_text("utf-8")
+    memfds = [
+        fd
+        for fd in Path("/proc", str(process.pid), "fd").iterdir()
+        if fd.resolve().name.startswith("memfd:guest_mem")
+    ]
+    if memfds:
+        # MADV_DONTNEED unmaps memfd pages without freeing them, so RSS drops while
+        # the memfd still holds the memory. Count what the memfd holds instead.
+        status = dict(line.split(":", 1) for line in proc_status.splitlines())
+        private = sum(int(status[key].split()[0]) for key in ("RssAnon", "RssFile"))
+        return private + sum(fd.stat().st_blocks * 512 for fd in memfds) // 1024
+
     for line in proc_status.splitlines():
         if line.startswith("HugetlbPages:"):  # entry is in KiB
             hugetlbfs_usage = int(line.split()[1])

@@ -10,6 +10,10 @@ and this project adheres to
 
 ### Added
 
+- [#6237](https://github.com/firecracker-microvm/firecracker/pull/6237): Added
+  balloon and virtio-mem memory reclamation for shared memfd-backed guest
+  memory, such as memory shared with vhost-user devices.
+
 ### Changed
 
 - [#6201](https://github.com/firecracker-microvm/firecracker/pull/6201):
@@ -25,6 +29,12 @@ and this project adheres to
   as large as DRAM plus the hotpluggable region, and the jailer's `fsize`
   resource limit, if set, must be at least `mem_size_mib + total_size_mib` (in
   bytes) for Firecracker to boot.
+- [#6237](https://github.com/firecracker-microvm/firecracker/pull/6237): Balloon
+  discards on hugetlbfs-backed memory now free the whole huge pages inside each
+  range and zero the partial huge pages at either end. Previously, a range with
+  partial huge pages either failed or kept their old contents. Because zeroing
+  allocates huge pages that were not backed yet, use free page reporting or
+  hinting instead of the traditional balloon with hugetlbfs.
 
 ### Deprecated
 
