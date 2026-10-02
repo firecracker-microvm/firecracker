@@ -157,8 +157,8 @@ CONFIG_PTP_1588_CLOCK=y
 CONFIG_PTP_1588_CLOCK_KVM=y
 ```
 
-Our [recommended x86_64 guest kernel config](resources/guest_configs) already
-has these included.
+Our [recommended guest kernel configs](resources/guest_configs) already have
+these included.
 
 Now `/dev/ptp0` should be available in the guest. Next you need to configure
 `/dev/ptp0` as a NTP time source.
@@ -172,6 +172,15 @@ For example when using `chrony`:
 You can see more info about the `refclock` parameters
 [here](https://chrony-project.org/doc/3.4/chrony.conf.html#refclock). Adjust
 them according to your needs.
+
+On x86_64, `/dev/ptp0` appears only when the host kernel uses a TSC-based clock
+source. The guest's KVM PTP driver uses the `KVM_HC_CLOCK_PAIRING` hypercall,
+and KVM refuses it when the host clock source is not TSC-based. The driver then
+does not register the device and prints no message. To check the host, run
+`cat /sys/devices/system/clocksource/clocksource0/current_clocksource`. If it
+prints something other than `tsc` (or `hyperv_clocksource_tsc_page` on a Hyper-V
+host), such as `kvm-clock`, use NTP in the guest with a server you control, for
+example the host.
 
 ### Each Firecracker opens 20+ file descriptors. Is this an issue?
 
