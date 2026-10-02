@@ -405,12 +405,8 @@ impl Vcpu {
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
     pub fn run_emulation(&mut self) -> Result<VcpuEmulation, VcpuError> {
-        if self.kvm_vcpu.fd.get_kvm_run().immediate_exit == 1u8 {
-            warn!("Requested a vCPU run with immediate_exit enabled. The operation was skipped");
-            self.kvm_vcpu.fd.set_kvm_immediate_exit(0);
-            return Ok(VcpuEmulation::Interrupted);
-        }
-
+        // KVM_RUN completes pending userspace I/O before honoring immediate_exit.
+        // Keep the flag set so completion cannot execute further guest instructions.
         match self.kvm_vcpu.fd.run() {
             Err(ref err) if err.errno() == libc::EINTR => {
                 self.kvm_vcpu.fd.set_kvm_immediate_exit(0);
@@ -1030,18 +1026,134 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
-    fn test_immediate_exit_shortcircuits_execution() {
-        let (_, mut vcpu) = setup_vcpu(0x1000);
+    #[cfg(target_arch = "x86_64")]
+    fn setup_vcpu_with_guest_code(code: &[u8]) -> (KvmVm, Vcpu) {
+        use crate::cpu_config::x86_64::cpuid::Cpuid;
+        use crate::vstate::memory::Bytes;
 
-        vcpu.kvm_vcpu.fd.set_kvm_immediate_exit(1);
-        // Set a dummy value to be returned by the emulate call
-        let result = vcpu.run_emulation().expect("Failed to run emulation");
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
+        let entry_addr = GuestAddress(0x1000);
+        vm.guest_memory().write_slice(code, entry_addr).unwrap();
+        let cpuid = Cpuid::try_from(vm.kvm().supported_cpuid.clone()).unwrap();
+        let configured_cpuid = vcpu.kvm_vcpu.configure_cpuid(&cpuid, 1, false).unwrap();
+        vcpu.kvm_vcpu
+            .configure_msrs_for_boot(&BTreeMap::new(), &configured_cpuid)
+            .unwrap();
+        vcpu.kvm_vcpu
+            .configure_boot_state(
+                vm.guest_memory(),
+                EntryPoint {
+                    entry_addr,
+                    protocol: BootProtocol::LinuxBoot,
+                    setup_header: None,
+                },
+            )
+            .unwrap();
+        (vm, vcpu)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_immediate_exit_completes_pending_mmio_read() {
+        use crate::vstate::memory::Bytes;
+
+        let (vm, mut vcpu) = setup_vcpu_with_guest_code(&[
+            0xa4, // movsb: copy a byte from [rsi] (MMIO) to [rdi] (RAM)
+            0x48, 0xff, 0xc0, // inc rax: mark execution of the next guest instruction
+            0xe6, 0xe0, // out 0xe0, al: return control to the test through a PIO exit
+        ]);
+        let destination = GuestAddress(0x2000);
+        vm.guest_memory().write_obj(0xa5u8, destination).unwrap();
+        let mut regs = vcpu.kvm_vcpu.fd.get_regs().unwrap();
+        let instruction_address = regs.rip;
+        // Outside the RAM memslot, but inside the boot state's identity mapping.
+        regs.rsi = 0x10000;
+        regs.rdi = destination.0;
+        regs.rax = 1;
+        vcpu.kvm_vcpu.fd.set_regs(&regs).unwrap();
+
+        // Run until movsb needs an MMIO read. Firecracker supplies zero because
+        // no MMIO bus is attached, but KVM has not yet copied that byte into RAM.
+        assert_eq!(vcpu.run_emulation().unwrap(), VcpuEmulation::Handled);
         assert_eq!(
-            result,
-            VcpuEmulation::Interrupted,
-            "The Immediate Exit short-circuit should have prevented the execution of emulate"
+            vcpu.kvm_vcpu.fd.get_kvm_run().exit_reason,
+            kvm_bindings::KVM_EXIT_MMIO
         );
+        assert_eq!(vm.guest_memory().read_obj::<u8>(destination).unwrap(), 0xa5);
+
+        // Request an exit between handling the read and completing movsb, as
+        // a Pause event would. KVM must finish the copy without executing inc rax.
+        vcpu.kvm_vcpu.fd.set_kvm_immediate_exit(1);
+        assert_eq!(vcpu.run_emulation().unwrap(), VcpuEmulation::Interrupted);
+        assert_eq!(
+            vm.guest_memory().read_obj::<u8>(destination).unwrap(),
+            0,
+            "movsb must write the MMIO response to RAM before interruption"
+        );
+        let regs = vcpu.kvm_vcpu.fd.get_regs().unwrap();
+        assert_eq!(regs.rax, 1, "inc rax must not execute before interruption");
+        assert_eq!(regs.rip, instruction_address + 1, "movsb must be complete");
+        assert_eq!(vcpu.kvm_vcpu.fd.get_kvm_run().immediate_exit, 0);
+
+        // The EINTR path cleared immediate_exit. Run again: inc rax must now
+        // execute, followed by out so this call returns rather than waiting on HLT.
+        assert_eq!(vcpu.run_emulation().unwrap(), VcpuEmulation::Handled);
+        assert_eq!(vcpu.kvm_vcpu.fd.get_regs().unwrap().rax, 2);
+        assert_eq!(
+            vcpu.kvm_vcpu.fd.get_kvm_run().exit_reason,
+            kvm_bindings::KVM_EXIT_IO
+        );
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_immediate_exit_completes_pending_pio_input() {
+        let (_vm, mut vcpu) = setup_vcpu_with_guest_code(&[
+            0xe4, 0xe0, // in al, 0xe0: read a byte from an I/O port into AL
+            0x48, 0xff, 0xc3, // inc rbx: mark execution of the next guest instruction
+            0xe6, 0xe0, // out 0xe0, al: return control to the test through a PIO exit
+        ]);
+        let mut regs = vcpu.kvm_vcpu.fd.get_regs().unwrap();
+        let instruction_address = regs.rip;
+        regs.rax = 0xa5;
+        regs.rbx = 1;
+        vcpu.kvm_vcpu.fd.set_regs(&regs).unwrap();
+
+        // Run until the port read exits to Firecracker. With no PIO bus attached,
+        // the response is zero, but KVM still needs to deliver that byte to AL.
+        assert_eq!(vcpu.run_emulation().unwrap(), VcpuEmulation::Handled);
+        assert_eq!(
+            vcpu.kvm_vcpu.fd.get_kvm_run().exit_reason,
+            kvm_bindings::KVM_EXIT_IO
+        );
+
+        // Request an exit before completing the port read. KVM must update AL
+        // without executing inc rbx, which follows the two-byte in instruction.
+        vcpu.kvm_vcpu.fd.set_kvm_immediate_exit(1);
+        assert_eq!(vcpu.run_emulation().unwrap(), VcpuEmulation::Interrupted);
+        let regs = vcpu.kvm_vcpu.fd.get_regs().unwrap();
+        assert_eq!(
+            regs.rax & 0xff,
+            0,
+            "in must deliver the port response to AL before interruption"
+        );
+        assert_eq!(regs.rbx, 1, "inc rbx must not execute before interruption");
+        assert_eq!(regs.rip, instruction_address + 2, "in must be complete");
+        assert_eq!(vcpu.kvm_vcpu.fd.get_kvm_run().immediate_exit, 0);
+
+        // With immediate_exit cleared, the next run must execute inc rbx and
+        // return at out. This also checks that interruption leaves the vCPU runnable.
+        assert_eq!(vcpu.run_emulation().unwrap(), VcpuEmulation::Handled);
+        assert_eq!(vcpu.kvm_vcpu.fd.get_regs().unwrap().rbx, 2);
+        assert_eq!(
+            vcpu.kvm_vcpu.fd.get_kvm_run().exit_reason,
+            kvm_bindings::KVM_EXIT_IO
+        );
+    }
+
+    #[test]
+    fn test_resume_clears_immediate_exit() {
+        let (_, mut vcpu) = setup_vcpu(0x1000);
 
         let event_sender = vcpu.event_sender.take().expect("vCPU already started");
         let _ = event_sender.send(VcpuEvent::Resume);
