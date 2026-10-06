@@ -42,6 +42,7 @@ serde_json = "1.0.150"
 [dev-dependencies]
 cargo_toml = "1.0.0"
 libc = "0.2.186"
+seccompiler = { path = "../seccompiler" }
 semver = "1.0.28"
 
 # Dev-Dependencies for uffd examples

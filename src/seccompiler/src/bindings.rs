@@ -113,6 +113,17 @@ unsafe extern "C" {
     /// returns [`__NR_SCMP_ERROR`] on failure.
     pub fn seccomp_syscall_resolve_name(name: *const c_char) -> c_int;
 
+    /// Resolve a syscall name to a number for a given architecture
+    ///
+    /// - `arch_token`: the architecture token, e.g. `SCMP_ARCH_*`
+    /// - `name`: the syscall name
+    ///
+    /// Resolve the given syscall name to the syscall number for the given
+    /// architecture.  Returns the syscall number on success, including negative
+    /// pseudo syscall numbers (e.g. `__PNR_*`); returns [`__NR_SCMP_ERROR`] on failure.
+    #[cfg(test)]
+    pub fn seccomp_syscall_resolve_name_arch(arch_token: u32, name: *const c_char) -> c_int;
+
     /// Add a new rule to the filter
     ///
     /// - `ctx`: the filter context

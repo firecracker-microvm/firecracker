@@ -107,10 +107,83 @@ fn filter_thread_categories(map: BpfThreadMap) -> Result<BpfThreadMap, FilterErr
 
 #[cfg(test)]
 mod tests {
-    use vmm::seccomp::{BpfThreadMap, SeccompFilter};
+    use std::io::Write;
+    use std::os::fd::AsRawFd;
+
+    use vmm::seccomp::{BpfThreadMap, SeccompFeatures, SeccompFilter, apply_filter};
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
+
+    /// Compile `json` with seccompiler for `arch` and load the result.
+    fn compile_and_load(json: &str, arch: &str) -> BpfThreadMap {
+        let input = TempFile::new().unwrap();
+        input.as_file().write_all(json.as_bytes()).unwrap();
+        let output = TempFile::new().unwrap();
+        seccompiler::compile_bpf(
+            input.as_path().to_str().unwrap(),
+            arch,
+            output.as_path().to_str().unwrap(),
+            false,
+            false,
+        )
+        .unwrap();
+        deserialize_binary(File::open(output.as_path()).unwrap()).unwrap()
+    }
+
+    /// The default filters of both architectures load: every tag in them names a feature this
+    /// Firecracker knows, and every thread category has a filter.
+    #[test]
+    fn test_default_filters() {
+        for arch in ["x86_64", "aarch64"] {
+            let json = std::fs::read_to_string(format!(
+                "{}/../../resources/seccomp/{arch}-unknown-linux-musl.json",
+                env!("CARGO_MANIFEST_DIR")
+            ))
+            .unwrap();
+            let filters = filter_thread_categories(compile_and_load(&json, arch)).unwrap();
+            assert_eq!(filters.len(), THREAD_CATEGORIES.len());
+        }
+    }
+
+    /// Compose a filter with a feature-tagged rule and let the kernel validate and run it.
+    ///
+    /// The filter denies `write` with EPERM only when the `net` feature is enabled, and allows
+    /// everything else so that the test thread can finish normally.
+    #[test]
+    fn test_composed_filter_runtime() {
+        const JSON: &str = r#"{
+            "main": {
+                "default_action": "allow",
+                "filter_action": { "errno": 1 },
+                "filter": [{ "syscall": "write", "feature": "net" }]
+            }
+        }"#;
+        let filters = compile_and_load(JSON, std::env::consts::ARCH);
+        let filter = filters["main"].clone();
+
+        let write_result = |enabled: SeccompFeatures| {
+            let program = filter.compose(enabled);
+            std::thread::spawn(move || {
+                let pipe = TempFile::new().unwrap();
+                apply_filter(&program).unwrap();
+                // SAFETY: writing a static buffer to a file descriptor this thread owns.
+                let written =
+                    unsafe { libc::write(pipe.as_file().as_raw_fd(), c"x".as_ptr().cast(), 1) };
+                (written, std::io::Error::last_os_error().raw_os_error())
+            })
+            .join()
+            .unwrap()
+        };
+
+        assert_eq!(write_result(SeccompFeatures::empty()).0, 1);
+        assert_eq!(write_result(SeccompFeatures::PCI).0, 1);
+        assert_eq!(write_result(SeccompFeatures::NET), (-1, Some(libc::EPERM)));
+        assert_eq!(
+            write_result(SeccompFeatures::all()),
+            (-1, Some(libc::EPERM))
+        );
+    }
 
     #[test]
     fn test_get_filters() {
