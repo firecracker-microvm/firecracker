@@ -100,8 +100,10 @@ pub(crate) mod tests {
     const BPF_JSET_K: u16 = 0x45;
     const BPF_AND_K: u16 = 0x54;
 
-    const AUDIT_ARCH_X86_64: u32 = 0xC000_003E;
-    const AUDIT_ARCH_AARCH64: u32 = 0xC000_00B7;
+    pub(crate) const AUDIT_ARCH_X86_64: u32 = 0xC000_003E;
+    pub(crate) const AUDIT_ARCH_AARCH64: u32 = 0xC000_00B7;
+    /// On x86_64 a syscall number with this bit set uses the x32 ABI.
+    pub(crate) const X32_SYSCALL_BIT: u32 = 0x4000_0000;
 
     const SECCOMP_RET_KILL_THREAD: u32 = 0x0000_0000;
     const SECCOMP_RET_TRAP: u32 = 0x0003_0000;
