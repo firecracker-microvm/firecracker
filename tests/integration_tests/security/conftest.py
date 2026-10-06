@@ -18,13 +18,19 @@ def seccompiler(tmp_path):
     class Seccompiler:
         "A seccompiler helper class"
 
-        def compile(self, data: dict, basic=False, split_output=False) -> Path:
+        def compile(
+            self, data: dict, basic=False, split_output=False, features=None
+        ) -> Path:
             "Use seccompiler-bin to compile a filter from a dict"
             inp = tmp_path / "input.json"
             inp.write_text(json.dumps(data))
             bpf = tmp_path / "output.bpfmap"
             run_seccompiler_bin(
-                bpf_path=bpf, json_path=inp, basic=basic, split_output=split_output
+                bpf_path=bpf,
+                json_path=inp,
+                basic=basic,
+                split_output=split_output,
+                features=features,
             )
             return bpf
 
