@@ -18,10 +18,11 @@ filters to limit the system calls allowed by the host OS to the required
 minimum.
 
 By default, Firecracker uses the most restrictive filters, which is the
-recommended option for production usage.
+recommended option for production usage. Only the rules of the
+[features](seccomp.md#feature-tagged-rules) a microVM uses are installed.
 
-Production usage of the `--seccomp-filter` or `--no-seccomp` parameters is not
-recommended.
+Production usage of the `--seccomp-filter`, `--seccomp-features` or
+`--no-seccomp` parameters is not recommended.
 
 ### 8250 Serial Device
 
