@@ -11,6 +11,8 @@ pub use utils::seccomp::bpf::{BPF_MAX_LEN, SockFilter as BpfInstruction};
 use utils::seccomp::bpf::{BPF_RET_A, BPF_RET_K, BpfPart as SerializedPart};
 pub use utils::seccomp::{SeccompFeatures, UnknownSeccompFeature};
 
+use crate::seccomp_thread::SeccompThread;
+
 // This byte limit is passed to `bitcode` to guard against a potential memory
 // allocation DOS caused by binary filters that are too large.
 // This limit can be safely determined since the maximum length of a BPF
@@ -257,11 +259,10 @@ pub enum DeserializationError {
 
 /// Retrieve empty seccomp filters.
 pub fn get_empty_filters() -> BpfThreadMap {
-    let mut map = BpfThreadMap::new();
-    map.insert("vmm".to_string(), SeccompFilter::default());
-    map.insert("api".to_string(), SeccompFilter::default());
-    map.insert("vcpu".to_string(), SeccompFilter::default());
-    map
+    SeccompThread::ALL
+        .into_iter()
+        .map(|thread| (thread.name().to_owned(), SeccompFilter::default()))
+        .collect()
 }
 
 /// Deserialize binary with bpf filters
@@ -688,6 +689,24 @@ mod tests {
             SeccompFeatures::from_tag("warp-drive"),
             Err(UnknownSeccompFeature("warp-drive".to_string()))
         );
+
+        assert_eq!("all".parse(), Ok(SeccompFeatures::all()));
+        assert_eq!(" none ".parse(), Ok(SeccompFeatures::empty()));
+        assert_eq!(
+            " net, block,hotplug".parse(),
+            Ok(SeccompFeatures::NET | SeccompFeatures::BLOCK | SeccompFeatures::HOTPLUG)
+        );
+        for (list, unknown) in [
+            ("", ""),
+            ("net,,block", ""),
+            ("net,all", "all"),
+            ("none,net", "none"),
+        ] {
+            assert_eq!(
+                list.parse::<SeccompFeatures>(),
+                Err(UnknownSeccompFeature(unknown.to_string()))
+            );
+        }
     }
 
     #[test]

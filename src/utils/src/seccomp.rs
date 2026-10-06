@@ -82,6 +82,22 @@ impl SeccompFeatures {
     }
 }
 
+impl FromStr for SeccompFeatures {
+    type Err = UnknownSeccompFeature;
+
+    /// `all`, `none`, or a comma-separated list of individual tags.
+    fn from_str(list: &str) -> Result<Self, Self::Err> {
+        match list.trim() {
+            "all" => Ok(Self::all()),
+            "none" => Ok(Self::empty()),
+            _ => list
+                .split(',')
+                .map(|name| Self::from_tag(name.trim()))
+                .collect(),
+        }
+    }
+}
+
 impl fmt::Display for SeccompFeatures {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut names = SeccompFeature::ALL

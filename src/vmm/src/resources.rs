@@ -139,10 +139,25 @@ pub struct VmResources {
     /// Whether the API server is running. Only then can the microVM be controlled at runtime
     /// (paused, snapshotted) and, with the PCI transport, have devices hot-plugged.
     pub api_enabled: bool,
+    /// Seccomp features enabled by the command line, in addition to the ones the microVM
+    /// configuration needs.
+    pub seccomp_features: SeccompFeatures,
     /// Where serial console output should be written to
     pub serial_out_path: Option<PathBuf>,
     /// Optional rate limiter config for serial output.
     pub serial_rate_limiter_cfg: Option<TokenBucketConfig>,
+}
+
+/// Keep both sources of the feature selection so the builder can report why rules were enabled.
+pub(crate) struct SeccompFeatureSelection {
+    pub(crate) derived: SeccompFeatures,
+    pub(crate) command_line: SeccompFeatures,
+}
+
+impl SeccompFeatureSelection {
+    pub(crate) fn enabled(self) -> SeccompFeatures {
+        self.derived | self.command_line
+    }
 }
 
 impl VmResources {
@@ -157,12 +172,26 @@ impl VmResources {
         })
     }
 
-    /// The seccomp features the microVM described by these resources needs at runtime, derived
-    /// from the transport, the configured devices and whether the API is running.
+    /// The seccomp features the microVM described by these resources needs at runtime: the ones
+    /// enabled by the command line, plus the ones [`Self::derived_seccomp_features`] derives from
+    /// the configuration.
+    pub fn required_seccomp_features(&self) -> SeccompFeatures {
+        self.seccomp_feature_selection().enabled()
+    }
+
+    pub(crate) fn seccomp_feature_selection(&self) -> SeccompFeatureSelection {
+        SeccompFeatureSelection {
+            derived: self.derived_seccomp_features(),
+            command_line: self.seccomp_features,
+        }
+    }
+
+    /// The seccomp features derived from the transport, the configured devices and whether the API
+    /// is running, without the ones the command line enables.
     ///
     /// With the API running and the PCI transport in use, devices of any hot-pluggable type can be
     /// added after boot, so the rules of all those device types are kept.
-    pub fn required_seccomp_features(&self) -> SeccompFeatures {
+    pub fn derived_seccomp_features(&self) -> SeccompFeatures {
         let mut features = SeccompFeatures::empty();
 
         if self.api_enabled {
@@ -768,6 +797,7 @@ mod tests {
             pmem: Default::default(),
             pci_enabled: false,
             api_enabled: false,
+            seccomp_features: SeccompFeatures::empty(),
             serial_out_path: None,
             serial_rate_limiter_cfg: None,
             memory_hotplug: Default::default(),
@@ -1983,6 +2013,29 @@ mod tests {
             vm_resources.required_seccomp_features(),
             SeccompFeatures::empty()
         );
+
+        // Features enabled on the command line are kept whatever the configuration, but are not
+        // reported as derived from it.
+        vm_resources.seccomp_features = SeccompFeatures::VSOCK;
+        assert_eq!(
+            vm_resources.required_seccomp_features(),
+            SeccompFeatures::VSOCK
+        );
+        assert_eq!(
+            vm_resources.derived_seccomp_features(),
+            SeccompFeatures::empty()
+        );
+        vm_resources.api_enabled = true;
+        assert_eq!(
+            vm_resources.required_seccomp_features(),
+            SeccompFeatures::VSOCK | SeccompFeatures::API
+        );
+        assert_eq!(
+            vm_resources.derived_seccomp_features(),
+            SeccompFeatures::API
+        );
+        vm_resources.api_enabled = false;
+        vm_resources.seccomp_features = SeccompFeatures::empty();
 
         // Runtime control through the API.
         vm_resources.api_enabled = true;

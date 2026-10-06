@@ -44,7 +44,8 @@ use crate::logger::warn;
 use crate::logger::{debug, info};
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
-use crate::seccomp::BpfThreadMap;
+use crate::seccomp::{BpfThreadMap, SeccompFeatures};
+use crate::seccomp_thread::SeccompThread;
 use crate::snapshot::Persist;
 use crate::utils::{u32_mib_to_bytes, u64_to_usize};
 use crate::vmm_config::boot_source::{
@@ -133,6 +134,23 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
     fn from(err: linux_loader::cmdline::Error) -> StartMicrovmError {
         StartMicrovmError::KernelCmdline(err.to_string())
     }
+}
+
+/// Return the seccomp features to compose the filters with, after logging the derived ones and
+/// the ones added by the command line.
+fn select_and_log_seccomp_features(vm_resources: &VmResources) -> SeccompFeatures {
+    let selection = vm_resources.seccomp_feature_selection();
+    info!(
+        "Seccomp features required by the microVM: [{}]",
+        selection.derived
+    );
+    if !selection.command_line.is_empty() {
+        info!(
+            "Seccomp features added by the command line: [{}]",
+            selection.command_line
+        );
+    }
+    selection.enabled()
 }
 
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
@@ -324,8 +342,7 @@ pub fn build_microvm_for_boot(
         boot_cmdline,
     )?;
 
-    let seccomp_features = vm_resources.required_seccomp_features();
-    info!("Seccomp features required by the microVM: [{seccomp_features}]");
+    let seccomp_features = select_and_log_seccomp_features(vm_resources);
 
     let vmm = Vmm {
         instance_info: instance_info.clone(),
@@ -347,10 +364,10 @@ pub fn build_microvm_for_boot(
         .for_each(|vcpu| vcpu.attach_debug_info(gdb_tx.clone()));
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
-    let vcpu_seccomp_filter = seccomp_filters
-        .get("vcpu")
-        .ok_or_else(|| StartMicrovmError::MissingSeccompFilters("vcpu".to_string()))?
-        .compose(seccomp_features);
+    let thread = SeccompThread::Vcpu;
+    let vcpu_seccomp_filter = thread
+        .compose(seccomp_filters, seccomp_features)
+        .ok_or_else(|| StartMicrovmError::MissingSeccompFilters(thread.name().into()))?;
     kvm_vm
         .start_vcpus(vcpus, Arc::new(vcpu_seccomp_filter))
         .map_err(VmmError::VcpuStart)?;
@@ -558,8 +575,7 @@ pub fn build_microvm_from_snapshot(
         DeviceManager::restore(device_ctor_args, &microvm_state.device_states)?;
 
     // The restored devices have been added to `vm_resources` by now.
-    let seccomp_features = vm_resources.required_seccomp_features();
-    info!("Seccomp features required by the microVM: [{seccomp_features}]");
+    let seccomp_features = select_and_log_seccomp_features(vm_resources);
 
     let vmm = Vmm {
         instance_info: instance_info.clone(),
@@ -572,10 +588,9 @@ pub fn build_microvm_from_snapshot(
     };
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
-    let vcpu_seccomp_filter = seccomp_filters
-        .get("vcpu")
-        .ok_or(BuildMicrovmFromSnapshotError::MissingVcpuSeccompFilters)?
-        .compose(seccomp_features);
+    let vcpu_seccomp_filter = SeccompThread::Vcpu
+        .compose(seccomp_filters, seccomp_features)
+        .ok_or(BuildMicrovmFromSnapshotError::MissingVcpuSeccompFilters)?;
     kvm_vm.start_vcpus(vcpus, Arc::new(vcpu_seccomp_filter))?;
 
     let vmm = Arc::new(Mutex::new(vmm));
@@ -831,7 +846,6 @@ pub(crate) mod tests {
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::mmds::data_store::{Mmds, MmdsVersion};
     use crate::mmds::ns::MmdsNetworkStack;
-    use crate::seccomp::SeccompFeatures;
     use crate::utils::mib_to_bytes;
     use crate::vmm_config::balloon::{BALLOON_DEV_ID, BalloonBuilder, BalloonDeviceConfig};
     use crate::vmm_config::boot_source::BootSourceConfig;

@@ -100,6 +100,8 @@ pub mod resources;
 pub mod rpc_interface;
 /// Seccomp filter utilities.
 pub mod seccomp;
+/// Seccomp filter selection for Firecracker threads.
+pub mod seccomp_thread;
 /// Signal handling utilities.
 pub mod signal_handler;
 /// Serialization and deserialization facilities
@@ -310,7 +312,9 @@ pub struct Vmm {
 
     /// VM object.
     pub vm: Vm,
-    /// The seccomp features this microVM needs, derived from its configuration when it was built.
+    /// The seccomp features the filters of this microVM's threads are composed with: the ones
+    /// derived from its configuration when it was built, plus the ones the command line added.
+    /// Changing it afterwards has no effect; an installed seccomp filter cannot be relaxed.
     pub seccomp_features: SeccompFeatures,
     // Device manager
     device_manager: DeviceManager,

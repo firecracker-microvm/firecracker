@@ -6,8 +6,7 @@ use std::io::{BufReader, Read};
 use std::path::Path;
 
 use vmm::seccomp::{BpfThreadMap, DeserializationError, deserialize_binary, get_empty_filters};
-
-const THREAD_CATEGORIES: [&str; 3] = ["vmm", "api", "vcpu"];
+use vmm::seccomp_thread::SeccompThread;
 
 /// Error retrieving seccomp filters.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -80,7 +79,7 @@ fn get_custom_filters<R: Read + Debug>(reader: R) -> Result<BpfThreadMap, Filter
 fn filter_thread_categories(map: BpfThreadMap) -> Result<BpfThreadMap, FilterError> {
     let (filters, invalid_filters): (BpfThreadMap, BpfThreadMap) = map
         .into_iter()
-        .partition(|(k, _)| THREAD_CATEGORIES.contains(&k.as_str()));
+        .partition(|(k, _)| SeccompThread::ALL.iter().any(|thread| thread.name() == k));
     if !invalid_filters.is_empty() {
         // build the error message
         let mut thread_categories_string =
@@ -95,10 +94,10 @@ fn filter_thread_categories(map: BpfThreadMap) -> Result<BpfThreadMap, FilterErr
         return Err(FilterError::ThreadCategories(thread_categories_string));
     }
 
-    for &category in THREAD_CATEGORIES.iter() {
-        let category_string = category.to_string();
-        if !filters.contains_key(&category_string) {
-            return Err(FilterError::MissingThreadCategory(category_string));
+    for thread in SeccompThread::ALL {
+        let name = thread.name();
+        if !filters.contains_key(name) {
+            return Err(FilterError::MissingThreadCategory(name.to_string()));
         }
     }
 
@@ -142,7 +141,7 @@ mod tests {
             ))
             .unwrap();
             let filters = filter_thread_categories(compile_and_load(&json, arch)).unwrap();
-            assert_eq!(filters.len(), THREAD_CATEGORIES.len());
+            assert_eq!(filters.len(), SeccompThread::ALL.len());
         }
     }
 
