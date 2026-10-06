@@ -5,7 +5,7 @@ use std::fs::File;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
-use vmm::seccomp::{apply_filter, deserialize_binary};
+use vmm::seccomp::{SeccompFeatures, apply_filter, deserialize_binary};
 
 fn main() {
     let args: Vec<String> = args().collect();
@@ -15,8 +15,9 @@ fn main() {
     let filter_file = File::open(bpf_path).unwrap();
     let map = deserialize_binary(&filter_file).unwrap();
 
-    // Loads filters.
-    apply_filter(map.get("main").unwrap()).unwrap();
+    // Loads filters, with every feature-gated rule enabled.
+    let filter = map.get("main").unwrap().compose(SeccompFeatures::all());
+    apply_filter(&filter).unwrap();
 
     let _ = Command::new(exec_file)
         .stdin(Stdio::inherit())

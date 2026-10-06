@@ -44,7 +44,7 @@ use crate::logger::debug;
 use crate::logger::warn;
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
-use crate::seccomp::BpfThreadMap;
+use crate::seccomp::{BpfThreadMap, SeccompFeatures};
 use crate::snapshot::Persist;
 use crate::utils::{u32_mib_to_bytes, u64_to_usize};
 use crate::vmm_config::boot_source::{
@@ -343,14 +343,12 @@ pub fn build_microvm_for_boot(
         .for_each(|vcpu| vcpu.attach_debug_info(gdb_tx.clone()));
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
+    let vcpu_seccomp_filter = seccomp_filters
+        .get("vcpu")
+        .ok_or_else(|| StartMicrovmError::MissingSeccompFilters("vcpu".to_string()))?
+        .compose(SeccompFeatures::all());
     kvm_vm
-        .start_vcpus(
-            vcpus,
-            seccomp_filters
-                .get("vcpu")
-                .ok_or_else(|| StartMicrovmError::MissingSeccompFilters("vcpu".to_string()))?
-                .clone(),
-        )
+        .start_vcpus(vcpus, Arc::new(vcpu_seccomp_filter))
         .map_err(VmmError::VcpuStart)?;
     vmm.lock().unwrap().instance_info.state = VmState::Paused;
 
@@ -565,13 +563,11 @@ pub fn build_microvm_from_snapshot(
     };
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
-    kvm_vm.start_vcpus(
-        vcpus,
-        seccomp_filters
-            .get("vcpu")
-            .ok_or(BuildMicrovmFromSnapshotError::MissingVcpuSeccompFilters)?
-            .clone(),
-    )?;
+    let vcpu_seccomp_filter = seccomp_filters
+        .get("vcpu")
+        .ok_or(BuildMicrovmFromSnapshotError::MissingVcpuSeccompFilters)?
+        .compose(SeccompFeatures::all());
+    kvm_vm.start_vcpus(vcpus, Arc::new(vcpu_seccomp_filter))?;
 
     let vmm = Arc::new(Mutex::new(vmm));
     vmm.lock().unwrap().instance_info.state = VmState::Paused;
