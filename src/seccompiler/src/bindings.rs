@@ -91,6 +91,9 @@ unsafe extern "C" {
     /// state is initialized.  Returns a filter context on success, `ptr::null()` on failure.
     pub safe fn seccomp_init(def_action: u32) -> scmp_filter_ctx;
 
+    /// Release a filter context returned by `seccomp_init`.
+    pub fn seccomp_release(ctx: scmp_filter_ctx);
+
     /// Adds an architecture to the filter
     ///
     /// - `ctx`: the filter context
