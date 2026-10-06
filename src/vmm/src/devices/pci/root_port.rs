@@ -496,6 +496,108 @@ mod tests {
     }
 
     #[test]
+    fn test_graceful_removal_reports_the_guest_ack() {
+        let completion = Arc::new(HotplugCompletion::new().unwrap());
+        let mut rp = PciRootPort::new(
+            PciSBDF::new(0, 0, 1, 0),
+            7,
+            new_msix_vectors(),
+            0x1_0000_0000,
+            completion.clone(),
+        );
+        let reg = rp.slot_reg_idx();
+        rp.plug(true);
+
+        // A power-off with no removal pending is the guest's business, not an
+        // acknowledgement of anything.
+        rp.write_config_register(reg, 0, &PCI_EXP_SLTCTL_PWR_IND_OFF.to_le_bytes());
+        assert_eq!(completion.acked_buses.load(Ordering::Relaxed), 0);
+
+        // Once asked, the same write means the device can go, and names the
+        // secondary bus so the VMM can find it.
+        rp.request_unplug();
+        rp.write_config_register(reg, 0, &0u16.to_le_bytes());
+        rp.write_config_register(reg, 0, &PCI_EXP_SLTCTL_PWR_IND_OFF.to_le_bytes());
+        assert_eq!(completion.acked_buses.load(Ordering::Relaxed), 1 << 7);
+        assert_eq!(completion.evt.read().unwrap(), 1);
+
+        // The request is one-shot: a later power-off does not report again.
+        rp.write_config_register(reg, 0, &0u16.to_le_bytes());
+        rp.write_config_register(reg, 0, &PCI_EXP_SLTCTL_PWR_IND_OFF.to_le_bytes());
+        assert_eq!(completion.acked_buses.load(Ordering::Relaxed), 1 << 7);
+    }
+
+    #[test]
+    fn test_forced_removal_expects_no_ack() {
+        let completion = Arc::new(HotplugCompletion::new().unwrap());
+        let mut rp = PciRootPort::new(
+            PciSBDF::new(0, 0, 1, 0),
+            7,
+            new_msix_vectors(),
+            0x1_0000_0000,
+            completion.clone(),
+        );
+        let reg = rp.slot_reg_idx();
+        rp.plug(true);
+        rp.eject();
+
+        // The device is already gone, so a late power-off from the guest must
+        // not ask the VMM to tear it down a second time.
+        rp.write_config_register(reg, 0, &PCI_EXP_SLTCTL_PWR_IND_OFF.to_le_bytes());
+        assert_eq!(completion.acked_buses.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn test_double_attention_button_press() {
+        let completion = Arc::new(HotplugCompletion::new().unwrap());
+        let mut rp = PciRootPort::new(
+            PciSBDF::new(0, 0, 1, 0),
+            7,
+            new_msix_vectors(),
+            0x1_0000_0000,
+            completion.clone(),
+        );
+        let reg = rp.slot_reg_idx();
+        let status = |rp: &mut PciRootPort| (rp.read_config_register(reg) >> 16) as u16;
+        // MSI-X is masked in a fresh port, so an injected hot-plug interrupt
+        // lands in the Pending Bit Array instead of reaching an irqfd.
+        let took_irq = |rp: &PciRootPort| {
+            let mut config = rp.msix_config.lock().unwrap();
+            let pending = config.pba_entries[0] & 1 != 0;
+            config.set_pba_bit(0, true);
+            pending
+        };
+
+        // Arm the Attention Button notification, the way pciehp does once it
+        // has probed the port.
+        let ctl = PCI_EXP_SLTCTL_HPIE | PCI_EXP_SLTCTL_ABPE;
+        rp.write_config_register(reg, 0, &ctl.to_le_bytes());
+        rp.plug(true);
+
+        // The unplug request presses the button: ABP latches and the guest is
+        // notified.
+        rp.request_unplug();
+        assert_ne!(status(&mut rp) & PCI_EXP_SLTSTA_ABP, 0);
+        assert!(took_irq(&rp));
+
+        // pciehp acknowledges the press by clearing ABP, then blinks the power
+        // indicator for five seconds before powering the slot off.
+        rp.write_config_register(reg, 2, &PCI_EXP_SLTSTA_ABP.to_le_bytes());
+        assert_eq!(status(&mut rp) & PCI_EXP_SLTSTA_ABP, 0);
+
+        // A retried request must not press the button a second time: Linux
+        // reads that as a cancellation and the removal never completes.
+        rp.request_unplug();
+        assert_eq!(status(&mut rp) & PCI_EXP_SLTSTA_ABP, 0);
+        assert!(!took_irq(&rp));
+
+        // The pending removal still completes when the guest powers the slot
+        // off.
+        rp.write_config_register(reg, 0, &PCI_EXP_SLTCTL_PWR_IND_OFF.to_le_bytes());
+        assert_eq!(completion.acked_buses.load(Ordering::Relaxed), 1 << 7);
+    }
+
+    #[test]
     fn test_boot_time_plug_is_silent() {
         let mut rp = new_root_port();
         let reg = rp.slot_reg_idx();
