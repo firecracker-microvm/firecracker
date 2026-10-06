@@ -33,6 +33,15 @@ struct Cli {
                 Used for testing purposes."
     )]
     split_output: bool,
+    #[arg(
+        long,
+        requires = "split_output",
+        value_delimiter = ',',
+        default_value = "all",
+        help = "Which feature-tagged rules the individual BPF files include: `all`, `none` or a \
+                comma-separated list of feature names. Used for testing purposes."
+    )]
+    features: Vec<String>,
 }
 
 fn main() -> Result<(), CompilationError> {
@@ -42,6 +51,6 @@ fn main() -> Result<(), CompilationError> {
         &cli.target_arch,
         &cli.output_file,
         cli.basic,
-        cli.split_output,
+        cli.split_output.then_some(cli.features.as_slice()),
     )
 }

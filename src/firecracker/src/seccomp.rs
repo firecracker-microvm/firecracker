@@ -111,6 +111,7 @@ mod tests {
     use std::os::fd::AsRawFd;
 
     use vmm::seccomp::{BpfThreadMap, SeccompFeatures, SeccompFilter, apply_filter};
+    use vmm_sys_util::tempdir::TempDir;
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
@@ -125,7 +126,7 @@ mod tests {
             arch,
             output.as_path().to_str().unwrap(),
             false,
-            false,
+            None,
         )
         .unwrap();
         deserialize_binary(File::open(output.as_path()).unwrap()).unwrap()
@@ -194,6 +195,49 @@ mod tests {
             write_result(SeccompFeatures::all()),
             (-1, Some(libc::EPERM))
         );
+    }
+
+    /// `--split-output` with a feature selection writes, for every thread of the default filters,
+    /// the program Firecracker composes for the same features from the serialized filter.
+    #[test]
+    fn test_split_output_features() {
+        let mut selections = vec![(SeccompFeatures::empty(), vec!["none".to_string()])];
+        selections.extend(
+            SeccompFeatures::all()
+                .iter()
+                .map(|feature| (feature, vec![feature.to_string()])),
+        );
+        selections.push((SeccompFeatures::all(), vec!["all".to_string()]));
+
+        for arch in ["x86_64", "aarch64"] {
+            let json_path = format!(
+                "{}/../../resources/seccomp/{arch}-unknown-linux-musl.json",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let filters = compile_and_load(&std::fs::read_to_string(&json_path).unwrap(), arch);
+            for (features, names) in &selections {
+                let dir = TempDir::new().unwrap();
+                let out = dir.as_path().join("filters");
+                seccompiler::compile_bpf(
+                    &json_path,
+                    arch,
+                    out.to_str().unwrap(),
+                    false,
+                    Some(names),
+                )
+                .unwrap();
+                for (thread, filter) in &filters {
+                    let written =
+                        std::fs::read(dir.as_path().join(format!("{thread}.bpf"))).unwrap();
+                    let expected: Vec<u8> = filter
+                        .compose(*features)
+                        .iter()
+                        .flat_map(|instruction| instruction.to_ne_bytes())
+                        .collect();
+                    assert_eq!(written, expected, "{arch} {thread} {names:?}");
+                }
+            }
+        }
     }
 
     #[test]

@@ -44,6 +44,8 @@ pub enum CompilationError {
     EmptyFeatures(String),
     /// Rule for {0:?} is tagged with the unknown feature {1:?}
     UnknownFeature(String, String),
+    /// Invalid feature selection {0:?}: expected `all`, `none` or a list of known feature names
+    InvalidFeatureSelection(String),
     /// A filter with feature-tagged rules needs distinct default and filter actions
     SameActions,
     /// Cannot chain the programs of feature-tagged rules: {0}
@@ -60,15 +62,21 @@ pub enum CompilationError {
 ///
 /// Rules tagged with features are compiled separately from the other rules of their thread, so that
 /// Firecracker can leave them out at runtime when none of their features is in use (see
-/// [`BpfFilter`]). `basic` drops all argument checks (deprecated) and `split_output` writes one raw
-/// program per thread with every part included instead of the serialized [`BpfMap`].
+/// [`BpfFilter`]). `basic` drops all argument checks (deprecated). With `split_output`, one raw
+/// program per thread, composed with the fragments of the listed features (see [`compose`]), is
+/// written next to `out_path` instead of the serialized [`BpfMap`]; the list must be `all`, `none`
+/// or names from [`FEATURES`].
 pub fn compile_bpf(
     input_path: &str,
     arch: &str,
     out_path: &str,
     basic: bool,
-    split_output: bool,
+    split_output: Option<&[String]>,
 ) -> Result<(), CompilationError> {
+    if let Some(features) = split_output {
+        check_feature_selection(features)?;
+    }
+
     let mut file_content = String::new();
     File::open(input_path)
         .map_err(CompilationError::IntputOpen)?
@@ -84,7 +92,7 @@ pub fn compile_bpf(
         bpf_map.insert(name.clone(), compile_filter(filter, &arch, basic)?);
     }
 
-    if split_output {
+    if let Some(features) = split_output {
         // Output individual files for each thread (for testing)
         let base_path = Path::new(out_path);
         let parent = base_path.parent().unwrap_or_else(|| Path::new("."));
@@ -96,7 +104,7 @@ pub fn compile_bpf(
 
             // Write raw BPF data as bytes
             use zerocopy::IntoBytes;
-            std::io::Write::write_all(&mut thread_file, compose(bpf_filter, &["all"]).as_bytes())
+            std::io::Write::write_all(&mut thread_file, compose(bpf_filter, features).as_bytes())
                 .map_err(CompilationError::OutputCreate)?;
         }
     } else {
@@ -116,6 +124,23 @@ pub fn compile_bpf(
     }
 
     Ok(())
+}
+
+/// Check that a selection of fragments for `split_output` is `all`, `none` or a list of known
+/// feature names, so that a misspelled name cannot silently leave fragments out.
+fn check_feature_selection(features: &[String]) -> Result<(), CompilationError> {
+    let valid = match features {
+        [] => false,
+        [only] if only == "all" || only == "none" => true,
+        names => names.iter().all(|name| FEATURES.contains(&name.as_str())),
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(CompilationError::InvalidFeatureSelection(
+            features.join(","),
+        ))
+    }
 }
 
 /// Compile the filter of one thread category.
@@ -372,7 +397,7 @@ mod tests {
             arch,
             output.as_path().to_str().unwrap(),
             basic,
-            false,
+            None,
         )?;
         let encoded = std::fs::read(output.as_path()).unwrap();
         Ok(bitcode::deserialize(&encoded).unwrap())
@@ -693,6 +718,43 @@ mod tests {
                 CompilationError::EmptyFeatures(name) if name == "write"
             ));
         }
+    }
+
+    #[test]
+    fn test_feature_selection() {
+        let selection =
+            |names: &[&str]| -> Vec<String> { names.iter().map(|name| name.to_string()).collect() };
+        for valid in [
+            &["all"][..],
+            &["none"],
+            &["net"],
+            &["pmem", "memory-hotplug"],
+        ] {
+            check_feature_selection(&selection(valid)).unwrap();
+        }
+        // A misspelled name, `all` or `none` among names, or nothing at all.
+        for invalid in [&["nett"][..], &["net", "all"], &["none", "net"], &[""], &[]] {
+            assert!(matches!(
+                check_feature_selection(&selection(invalid)).unwrap_err(),
+                CompilationError::InvalidFeatureSelection(list) if list == invalid.join(",")
+            ));
+        }
+
+        // compile_bpf refuses an invalid selection before writing anything.
+        let input = TempFile::new().unwrap();
+        input.as_file().write_all(TAGGED_JSON.as_bytes()).unwrap();
+        let output = TempFile::new().unwrap();
+        assert!(matches!(
+            compile_bpf(
+                input.as_path().to_str().unwrap(),
+                "x86_64",
+                output.as_path().to_str().unwrap(),
+                false,
+                Some(&selection(&["nett"])),
+            )
+            .unwrap_err(),
+            CompilationError::InvalidFeatureSelection(list) if list == "nett"
+        ));
     }
 
     /// Every syscall and argument combination the default filters mention, plus the awkward
