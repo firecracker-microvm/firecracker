@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::io::Read;
+use std::str::FromStr;
 
 use utils::seccomp::BpfPart as SerializedPart;
 
@@ -81,6 +82,20 @@ impl SeccompFeatures {
             .iter()
             .find_map(|&(feature, tag)| (tag == name).then_some(feature))
             .ok_or_else(|| UnknownSeccompFeature(name.to_string()))
+    }
+}
+
+impl FromStr for SeccompFeatures {
+    type Err = UnknownSeccompFeature;
+
+    /// `all`, or a comma-separated list of feature names.
+    fn from_str(list: &str) -> Result<Self, Self::Err> {
+        if list.trim() == "all" {
+            return Ok(Self::all());
+        }
+        list.split(',')
+            .map(|name| Self::from_tag(name.trim()))
+            .collect()
     }
 }
 
@@ -363,6 +378,18 @@ mod tests {
             SeccompFeatures::from_tag("warp-drive"),
             Err(UnknownSeccompFeature("warp-drive".to_string()))
         );
+
+        assert_eq!("all".parse(), Ok(SeccompFeatures::all()));
+        assert_eq!(
+            " net, block,hotplug".parse(),
+            Ok(SeccompFeatures::NET | SeccompFeatures::BLOCK | SeccompFeatures::HOTPLUG)
+        );
+        for (list, unknown) in [("", ""), ("net,,block", ""), ("net,all", "all")] {
+            assert_eq!(
+                list.parse::<SeccompFeatures>(),
+                Err(UnknownSeccompFeature(unknown.to_string()))
+            );
+        }
     }
 
     #[test]

@@ -169,6 +169,7 @@ pub(crate) fn run_with_api(
     process_time_reporter: ProcessTimeReporter,
     boot_timer_enabled: bool,
     pci_enabled: bool,
+    additional_seccomp_features: SeccompFeatures,
     api_payload_limit: usize,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
@@ -187,10 +188,12 @@ pub(crate) fn run_with_api(
     let to_vmm_event_fd = api_event_fd
         .try_clone()
         .expect("Failed to clone API event FD");
+    // The API thread knows nothing about the microVM yet, so its filter only gets the features the
+    // command line enables, plus the API-only operations it exists for.
     let api_seccomp_filter = seccomp_filters
         .remove("api")
         .expect("Missing seccomp filter for API thread.")
-        .compose(SeccompFeatures::API);
+        .compose(additional_seccomp_features | SeccompFeatures::API);
 
     let mut server = match HttpServer::new(&bind_path) {
         Ok(s) => s,
@@ -241,6 +244,7 @@ pub(crate) fn run_with_api(
             boot_timer_enabled,
             pci_enabled,
             true,
+            additional_seccomp_features,
             mmds_size_limit,
             metadata_json,
         )
@@ -254,6 +258,7 @@ pub(crate) fn run_with_api(
             &api_event_fd,
             boot_timer_enabled,
             pci_enabled,
+            additional_seccomp_features,
             mmds_size_limit,
             metadata_json,
         )

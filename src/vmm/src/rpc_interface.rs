@@ -22,7 +22,7 @@ use crate::logger::{LoggerConfig, info, warn, *};
 use crate::mmds::data_store::{self, Mmds, MmdsDatastoreError};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
-use crate::seccomp::BpfThreadMap;
+use crate::seccomp::{BpfThreadMap, SeccompFeatures};
 use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::{
     BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
@@ -378,6 +378,7 @@ impl<'a> PrebootApiController<'a> {
         api_event_fd: &vmm_sys_util::eventfd::EventFd,
         boot_timer_enabled: bool,
         pci_enabled: bool,
+        additional_seccomp_features: SeccompFeatures,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
     ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromRequestsError> {
@@ -385,6 +386,7 @@ impl<'a> PrebootApiController<'a> {
             boot_timer: boot_timer_enabled,
             mmds_size_limit,
             pci_enabled,
+            additional_seccomp_features,
             ..Default::default()
         };
 
@@ -1090,13 +1092,12 @@ mod tests {
 
     #[test]
     fn test_preboot_new_enables_api_seccomp_features() {
-        use crate::seccomp::SeccompFeatures;
-
         for api_enabled in [false, true] {
             for pci_enabled in [false, true] {
                 let mut vm_resources = VmResources {
                     api_enabled,
                     pci_enabled,
+                    additional_seccomp_features: SeccompFeatures::VSOCK,
                     ..Default::default()
                 };
                 let mut event_manager = EventManager::new().unwrap();
@@ -1109,7 +1110,7 @@ mod tests {
                 );
 
                 assert!(preboot.vm_resources.api_enabled);
-                let mut expected = SeccompFeatures::API;
+                let mut expected = SeccompFeatures::API | SeccompFeatures::VSOCK;
                 if pci_enabled {
                     expected |= SeccompFeatures::PCI
                         | SeccompFeatures::HOTPLUG
@@ -1119,6 +1120,10 @@ mod tests {
                         | SeccompFeatures::PMEM;
                 }
                 assert_eq!(preboot.vm_resources.required_seccomp_features(), expected);
+                assert_eq!(
+                    preboot.vm_resources.additional_seccomp_features,
+                    SeccompFeatures::VSOCK
+                );
             }
         }
     }
