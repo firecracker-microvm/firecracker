@@ -91,6 +91,14 @@ unsafe extern "C" {
     /// state is initialized.  Returns a filter context on success, `ptr::null()` on failure.
     pub safe fn seccomp_init(def_action: u32) -> scmp_filter_ctx;
 
+    /// Release a filter context and its resources.
+    ///
+    /// # Safety
+    ///
+    /// `ctx` must be a live context returned by [`seccomp_init`]. It must not be used or released
+    /// again after this call.
+    pub fn seccomp_release(ctx: scmp_filter_ctx);
+
     /// Adds an architecture to the filter
     ///
     /// - `ctx`: the filter context
@@ -112,6 +120,17 @@ unsafe extern "C" {
     /// number on success, including negative pseudo syscall numbers (e.g. `__PNR_*`);
     /// returns [`__NR_SCMP_ERROR`] on failure.
     pub fn seccomp_syscall_resolve_name(name: *const c_char) -> c_int;
+
+    /// Resolve a syscall name to a number for a given architecture
+    ///
+    /// - `arch_token`: the architecture token, e.g. `SCMP_ARCH_*`
+    /// - `name`: the syscall name
+    ///
+    /// Resolve the given syscall name to the syscall number for the given
+    /// architecture.  Returns the syscall number on success, including negative
+    /// pseudo syscall numbers (e.g. `__PNR_*`); returns [`__NR_SCMP_ERROR`] on failure.
+    #[cfg(test)]
+    pub fn seccomp_syscall_resolve_name_arch(arch_token: u32, name: *const c_char) -> c_int;
 
     /// Add a new rule to the filter
     ///
