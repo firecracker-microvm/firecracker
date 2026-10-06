@@ -139,6 +139,9 @@ pub struct VmResources {
     /// Whether the API server is running. Only then can the microVM be controlled at runtime
     /// (paused, snapshotted) and, with the PCI transport, have devices hot-plugged.
     pub api_enabled: bool,
+    /// Seccomp features enabled by the command line, in addition to the ones the microVM
+    /// configuration needs.
+    pub seccomp_features: SeccompFeatures,
     /// Where serial console output should be written to
     pub serial_out_path: Option<PathBuf>,
     /// Optional rate limiter config for serial output.
@@ -157,13 +160,14 @@ impl VmResources {
         })
     }
 
-    /// The seccomp features the microVM described by these resources needs at runtime, derived
-    /// from the transport, the configured devices and whether the API is running.
+    /// The seccomp features the microVM described by these resources needs at runtime: the ones
+    /// enabled by the command line, plus those derived from the transport, the configured devices
+    /// and whether the API is running.
     ///
     /// With the API running and the PCI transport in use, devices of any hot-pluggable type can be
     /// added after boot, so the rules of all those device types are kept.
     pub fn required_seccomp_features(&self) -> SeccompFeatures {
-        let mut features = SeccompFeatures::empty();
+        let mut features = self.seccomp_features;
 
         if self.api_enabled {
             features |= SeccompFeature::Api;
@@ -768,6 +772,7 @@ mod tests {
             pmem: Default::default(),
             pci_enabled: false,
             api_enabled: false,
+            seccomp_features: SeccompFeatures::empty(),
             serial_out_path: None,
             serial_rate_limiter_cfg: None,
             memory_hotplug: Default::default(),
@@ -1983,6 +1988,14 @@ mod tests {
             vm_resources.required_seccomp_features(),
             SeccompFeatures::empty()
         );
+
+        // Features enabled on the command line are kept whatever the configuration.
+        vm_resources.seccomp_features = SeccompFeature::Vsock.into();
+        assert_eq!(
+            vm_resources.required_seccomp_features(),
+            SeccompFeature::Vsock.into()
+        );
+        vm_resources.seccomp_features = SeccompFeatures::empty();
 
         // Runtime control through the API.
         vm_resources.api_enabled = true;
