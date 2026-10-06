@@ -32,6 +32,9 @@ Example usage:
     --basic # Optional, creates basic filters, discarding any parameter checks.
             # (Deprecated).
     --split-output # Optional, creates individual BPF files for each thread.
+    --features "net,block" # Optional, with --split-output: the feature-tagged
+                           # rules to include (`all`, `none` or a list).
+                           # [default: all]
 ```
 
 ### Seccompiler library
@@ -60,8 +63,9 @@ enabled features are determined. A filter without tagged rules is just its
 libseccomp program, exactly as before tags existed.
 
 When using the `--split-output` flag, seccompiler-bin will generate individual
-`.bpf` files for each thread containing raw BPF bytecode, with every fragment
-included (useful for testing).
+`.bpf` files for each thread containing raw BPF bytecode, composed with the
+fragments `--features` selects: `all` (the default), `none`, or a
+comma-separated list of feature names (useful for testing).
 
 The individual thread files are named `<thread_name>.bpf` and placed in the same
 directory as the main output file.

@@ -127,7 +127,7 @@ mod tests {
             arch,
             output.as_path().to_str().unwrap(),
             false,
-            false,
+            None,
         )
         .unwrap();
         deserialize_binary(File::open(output.as_path()).unwrap()).unwrap()

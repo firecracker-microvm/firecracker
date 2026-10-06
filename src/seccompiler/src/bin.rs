@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use clap::Parser;
-use seccompiler::{CompilationError, compile_bpf};
+use seccompiler::{CompilationError, FeatureSelection, compile_bpf};
 
 const DEFAULT_OUTPUT_FILENAME: &str = "seccomp_binary_filter.out";
 
@@ -33,6 +33,14 @@ struct Cli {
                 Used for testing purposes."
     )]
     split_output: bool,
+    #[arg(
+        long,
+        requires = "split_output",
+        default_value = "all",
+        help = "Which feature-tagged rules the individual BPF files include: `all`, `none` or a \
+                comma-separated list of feature names. Used for testing purposes."
+    )]
+    features: FeatureSelection,
 }
 
 fn main() -> Result<(), CompilationError> {
@@ -42,6 +50,6 @@ fn main() -> Result<(), CompilationError> {
         &cli.target_arch,
         &cli.output_file,
         cli.basic,
-        cli.split_output,
+        cli.split_output.then_some(&cli.features),
     )
 }

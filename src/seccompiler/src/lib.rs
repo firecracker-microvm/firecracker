@@ -62,14 +62,15 @@ pub enum CompilationError {
 /// Untagged rules are compiled with libseccomp into the base program of their thread. Rules tagged
 /// with features are compiled into separate, position independent BPF fragments that Firecracker
 /// appends to the base program at runtime when one of their features is in use (see
-/// [`BpfFilter`]). `basic` drops all argument checks (deprecated) and `split_output` writes one raw
-/// program per thread with every fragment included instead of the serialized [`BpfMap`].
+/// [`BpfFilter`]). `basic` drops all argument checks (deprecated). With `split_output`, one raw
+/// program per thread composed with the selected fragments is written next to `out_path` instead
+/// of the serialized [`BpfMap`].
 pub fn compile_bpf(
     input_path: &str,
     arch: &str,
     out_path: &str,
     basic: bool,
-    split_output: bool,
+    split_output: Option<&FeatureSelection>,
 ) -> Result<(), CompilationError> {
     let mut file_content = String::new();
     File::open(input_path)
@@ -86,7 +87,7 @@ pub fn compile_bpf(
         bpf_map.insert(name.clone(), compile_filter(filter, &arch, basic)?);
     }
 
-    if split_output {
+    if let Some(selection) = split_output {
         // Output individual files for each thread (for testing)
         let base_path = Path::new(out_path);
         let parent = base_path.parent().unwrap_or_else(|| Path::new("."));
@@ -98,7 +99,7 @@ pub fn compile_bpf(
 
             // Write raw BPF data as bytes
             use zerocopy::IntoBytes;
-            std::io::Write::write_all(&mut thread_file, bpf_filter.compose_all().as_bytes())
+            std::io::Write::write_all(&mut thread_file, bpf_filter.compose(selection).as_bytes())
                 .map_err(CompilationError::OutputCreate)?;
         }
     } else {
@@ -390,7 +391,7 @@ mod tests {
             arch,
             output.as_path().to_str().unwrap(),
             basic,
-            false,
+            None,
         )?;
         let encoded = std::fs::read(output.as_path()).unwrap();
         assert_eq!(&encoded[..4], &BPF_FILTER_MAGIC);
@@ -595,6 +596,80 @@ mod tests {
         assert_eq!(map["main"].fragments[0].code.len(), 3);
     }
 
+    #[test]
+    fn test_feature_selection() {
+        assert_eq!(
+            "all".parse::<FeatureSelection>().unwrap(),
+            FeatureSelection::All
+        );
+        assert_eq!(
+            " none ".parse::<FeatureSelection>().unwrap(),
+            FeatureSelection::None
+        );
+        assert_eq!(
+            "net, pmem".parse::<FeatureSelection>().unwrap(),
+            FeatureSelection::Only(vec!["net".to_string(), "pmem".to_string()])
+        );
+        "".parse::<FeatureSelection>().unwrap_err();
+        "net,,pmem".parse::<FeatureSelection>().unwrap_err();
+    }
+
+    #[test]
+    fn test_split_output_selects_fragments() {
+        let input = TempFile::new().unwrap();
+        input.as_file().write_all(TAGGED_JSON.as_bytes()).unwrap();
+        let dir = vmm_sys_util::tempdir::TempDir::new().unwrap();
+        let output = dir.as_path().join("out.bpf");
+        let read_main = || {
+            let bytes = std::fs::read(dir.as_path().join("main.bpf")).unwrap();
+            bytes
+                .chunks_exact(8)
+                .map(|chunk| u64::from_le_bytes(chunk.try_into().unwrap()))
+                .collect::<Vec<_>>()
+        };
+
+        for (selection, net, getpid) in [
+            (FeatureSelection::All, SECCOMP_RET_ALLOW, SECCOMP_RET_ALLOW),
+            (FeatureSelection::None, SECCOMP_RET_TRAP, SECCOMP_RET_TRAP),
+            (
+                FeatureSelection::Only(vec!["net".to_string()]),
+                SECCOMP_RET_ALLOW,
+                SECCOMP_RET_TRAP,
+            ),
+            (
+                FeatureSelection::Only(vec!["memory-hotplug".to_string(), "pci".to_string()]),
+                SECCOMP_RET_TRAP,
+                SECCOMP_RET_ALLOW,
+            ),
+        ] {
+            compile_bpf(
+                input.as_path().to_str().unwrap(),
+                "x86_64",
+                output.to_str().unwrap(),
+                false,
+                Some(&selection),
+            )
+            .unwrap();
+            let program = read_main();
+            bpf::validate(&program).unwrap();
+            // Untagged rules are always there.
+            assert_eq!(simulate(&program, &syscall(NR_WRITE)), SECCOMP_RET_ALLOW);
+            assert_eq!(
+                simulate(&program, &ioctl(NR_IOCTL, KVM_RUN)),
+                SECCOMP_RET_ALLOW
+            );
+            assert_eq!(
+                simulate(&program, &ioctl(NR_IOCTL, TUNSETOFFLOAD)),
+                net,
+                "{selection:?}"
+            );
+            assert_eq!(
+                simulate(&program, &syscall(NR_GETPID)),
+                getpid,
+                "{selection:?}"
+            );
+        }
+    }
     #[test]
     fn test_compile_errors() {
         let same_actions = r#"{ "main": { "default_action": "allow", "filter_action": "allow",

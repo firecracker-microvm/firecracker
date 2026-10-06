@@ -229,14 +229,59 @@ pub struct BpfFilter {
 }
 
 impl BpfFilter {
-    /// The program with every fragment included.
-    pub fn compose_all(&self) -> Vec<u64> {
+    /// The program with the fragments `selection` picks included.
+    pub fn compose(&self, selection: &FeatureSelection) -> Vec<u64> {
         let mut program = self.base.clone();
         for fragment in &self.fragments {
-            program.extend_from_slice(&fragment.code);
+            let included = match selection {
+                FeatureSelection::All => true,
+                FeatureSelection::None => false,
+                FeatureSelection::Only(features) => fragment
+                    .features
+                    .iter()
+                    .any(|feature| features.contains(feature)),
+            };
+            if included {
+                program.extend_from_slice(&fragment.code);
+            }
         }
         program.extend_from_slice(&self.epilogue);
         program
+    }
+
+    /// The program with every fragment included.
+    pub fn compose_all(&self) -> Vec<u64> {
+        self.compose(&FeatureSelection::All)
+    }
+}
+
+/// Which fragments to include when composing a thread's program.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FeatureSelection {
+    /// Every fragment.
+    All,
+    /// No fragment: only the base program and the epilogue.
+    None,
+    /// The fragments tagged with at least one of these features.
+    Only(Vec<String>),
+}
+
+impl FromStr for FeatureSelection {
+    type Err = String;
+
+    /// `all`, `none`, or a comma-separated list of feature names.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim() {
+            "all" => Ok(FeatureSelection::All),
+            "none" => Ok(FeatureSelection::None),
+            list => {
+                let features: Vec<String> = list.split(',').map(|f| f.trim().to_string()).collect();
+                if features.iter().any(String::is_empty) {
+                    return Err(format!("empty feature name in {s:?}"));
+                }
+                Ok(FeatureSelection::Only(features))
+            }
+        }
     }
 }
 
