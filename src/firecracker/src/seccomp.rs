@@ -107,9 +107,7 @@ fn filter_thread_categories(map: BpfThreadMap) -> Result<BpfThreadMap, FilterErr
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use vmm::seccomp::BpfThreadMap;
+    use vmm::seccomp::{BpfThreadMap, SeccompFilter};
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
@@ -124,9 +122,9 @@ mod tests {
 
         let mut filters = get_empty_filters();
         assert_eq!(filters.len(), 3);
-        assert_eq!(filters.remove("vmm").unwrap().len(), 0);
-        assert_eq!(filters.remove("api").unwrap().len(), 0);
-        assert_eq!(filters.remove("vcpu").unwrap().len(), 0);
+        assert!(filters.remove("vmm").unwrap().is_empty());
+        assert!(filters.remove("api").unwrap().is_empty());
+        assert!(filters.remove("vcpu").unwrap().is_empty());
 
         let file = TempFile::new().unwrap().into_file();
 
@@ -137,18 +135,18 @@ mod tests {
     fn test_filter_thread_categories() {
         // correct categories
         let mut map = BpfThreadMap::new();
-        map.insert("vcpu".to_string(), Arc::new(vec![]));
-        map.insert("vmm".to_string(), Arc::new(vec![]));
-        map.insert("api".to_string(), Arc::new(vec![]));
+        map.insert("vcpu".to_string(), SeccompFilter::default());
+        map.insert("vmm".to_string(), SeccompFilter::default());
+        map.insert("api".to_string(), SeccompFilter::default());
 
         assert_eq!(filter_thread_categories(map).unwrap().len(), 3);
 
         // invalid categories
         let mut map = BpfThreadMap::new();
-        map.insert("vcpu".to_string(), Arc::new(vec![]));
-        map.insert("vmm".to_string(), Arc::new(vec![]));
-        map.insert("thread1".to_string(), Arc::new(vec![]));
-        map.insert("thread2".to_string(), Arc::new(vec![]));
+        map.insert("vcpu".to_string(), SeccompFilter::default());
+        map.insert("vmm".to_string(), SeccompFilter::default());
+        map.insert("thread1".to_string(), SeccompFilter::default());
+        map.insert("thread2".to_string(), SeccompFilter::default());
 
         match filter_thread_categories(map).unwrap_err() {
             FilterError::ThreadCategories(err) => {
@@ -159,8 +157,8 @@ mod tests {
 
         // missing category
         let mut map = BpfThreadMap::new();
-        map.insert("vcpu".to_string(), Arc::new(vec![]));
-        map.insert("vmm".to_string(), Arc::new(vec![]));
+        map.insert("vcpu".to_string(), SeccompFilter::default());
+        map.insert("vmm".to_string(), SeccompFilter::default());
 
         match filter_thread_categories(map).unwrap_err() {
             FilterError::MissingThreadCategory(name) => assert_eq!(name, "api"),

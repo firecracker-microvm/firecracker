@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
+use std::fmt;
 use std::io::Read;
-use std::sync::Arc;
+use std::ops::{BitOr, BitOrAssign};
+use std::str::FromStr;
 
 // This byte limit is passed to `bitcode` to guard against a potential memory
 // allocation DOS caused by binary filters that are too large.
@@ -22,8 +24,280 @@ pub type BpfProgram = Vec<BpfInstruction>;
 /// Reference to program made up of a sequence of BPF instructions.
 pub type BpfProgramRef<'a> = &'a [BpfInstruction];
 
-/// Type that associates a thread category to a BPF program.
-pub type BpfThreadMap = HashMap<String, Arc<BpfProgram>>;
+/// A capability of the microVM that some syscall rules are only needed for.
+///
+/// Syscall rules in the JSON filters can be tagged with one or more features. seccompiler compiles
+/// tagged rules into separate BPF fragments which are only included in a thread's filter when one
+/// of their features is enabled for the running microVM, see [`SeccompFilter::compose`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum SeccompFeature {
+    /// Runtime control of the microVM through the API: pausing and resuming it, and saving its
+    /// state for a snapshot.
+    Api = 0,
+    /// VirtIO devices attached over the PCI transport (MSI-X, BAR relocation, teardown).
+    Pci,
+    /// Hot-plugging and unplugging devices through the API after boot, which is possible when the
+    /// API is enabled and the PCI transport is used.
+    Hotplug,
+    /// virtio-block devices.
+    Block,
+    /// virtio-block devices using the asynchronous (io_uring) file engine.
+    AsyncIo,
+    /// virtio-net devices.
+    Net,
+    /// The virtio-vsock device.
+    Vsock,
+    /// virtio-pmem devices.
+    Pmem,
+    /// virtio-mem memory hotplug.
+    MemoryHotplug,
+}
+
+impl SeccompFeature {
+    /// Every feature, in bit order.
+    pub const ALL: [SeccompFeature; 9] = [
+        SeccompFeature::Api,
+        SeccompFeature::Pci,
+        SeccompFeature::Hotplug,
+        SeccompFeature::Block,
+        SeccompFeature::AsyncIo,
+        SeccompFeature::Net,
+        SeccompFeature::Vsock,
+        SeccompFeature::Pmem,
+        SeccompFeature::MemoryHotplug,
+    ];
+
+    /// The name used to tag rules with this feature in the JSON filters.
+    pub const fn name(self) -> &'static str {
+        match self {
+            SeccompFeature::Api => "api",
+            SeccompFeature::Pci => "pci",
+            SeccompFeature::Hotplug => "hotplug",
+            SeccompFeature::Block => "block",
+            SeccompFeature::AsyncIo => "async-io",
+            SeccompFeature::Net => "net",
+            SeccompFeature::Vsock => "vsock",
+            SeccompFeature::Pmem => "pmem",
+            SeccompFeature::MemoryHotplug => "memory-hotplug",
+        }
+    }
+
+    const fn bit(self) -> u32 {
+        1 << (self as u32)
+    }
+}
+
+impl fmt::Display for SeccompFeature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// Unknown seccomp feature: {0}
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
+pub struct UnknownSeccompFeature(pub String);
+
+impl FromStr for SeccompFeature {
+    type Err = UnknownSeccompFeature;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        SeccompFeature::ALL
+            .into_iter()
+            .find(|feature| feature.name() == name)
+            .ok_or_else(|| UnknownSeccompFeature(name.to_string()))
+    }
+}
+
+/// A set of [`SeccompFeature`]s.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct SeccompFeatures(u32);
+
+impl SeccompFeatures {
+    /// The empty set.
+    pub const fn empty() -> Self {
+        SeccompFeatures(0)
+    }
+
+    /// The set of all features.
+    pub const fn all() -> Self {
+        SeccompFeatures((1 << SeccompFeature::ALL.len()) - 1)
+    }
+
+    /// Whether `feature` is in the set.
+    pub const fn contains(self, feature: SeccompFeature) -> bool {
+        self.0 & feature.bit() != 0
+    }
+
+    /// Whether the two sets have a feature in common.
+    pub const fn intersects(self, other: SeccompFeatures) -> bool {
+        self.0 & other.0 != 0
+    }
+
+    /// Whether the set is empty.
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Add `feature` to the set.
+    pub fn insert(&mut self, feature: SeccompFeature) {
+        self.0 |= feature.bit();
+    }
+
+    /// The features in the set, in bit order.
+    pub fn iter(self) -> impl Iterator<Item = SeccompFeature> {
+        SeccompFeature::ALL
+            .into_iter()
+            .filter(move |feature| self.contains(*feature))
+    }
+}
+
+impl From<SeccompFeature> for SeccompFeatures {
+    fn from(feature: SeccompFeature) -> Self {
+        SeccompFeatures(feature.bit())
+    }
+}
+
+impl FromIterator<SeccompFeature> for SeccompFeatures {
+    fn from_iter<I: IntoIterator<Item = SeccompFeature>>(iter: I) -> Self {
+        let mut set = SeccompFeatures::empty();
+        for feature in iter {
+            set.insert(feature);
+        }
+        set
+    }
+}
+
+impl BitOr for SeccompFeatures {
+    type Output = SeccompFeatures;
+
+    fn bitor(self, rhs: SeccompFeatures) -> SeccompFeatures {
+        SeccompFeatures(self.0 | rhs.0)
+    }
+}
+
+impl BitOr<SeccompFeature> for SeccompFeatures {
+    type Output = SeccompFeatures;
+
+    fn bitor(self, rhs: SeccompFeature) -> SeccompFeatures {
+        SeccompFeatures(self.0 | rhs.bit())
+    }
+}
+
+impl BitOrAssign for SeccompFeatures {
+    fn bitor_assign(&mut self, rhs: SeccompFeatures) {
+        self.0 |= rhs.0;
+    }
+}
+
+impl BitOrAssign<SeccompFeature> for SeccompFeatures {
+    fn bitor_assign(&mut self, rhs: SeccompFeature) {
+        self.insert(rhs);
+    }
+}
+
+impl fmt::Debug for SeccompFeatures {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_set().entries(self.iter()).finish()
+    }
+}
+
+impl fmt::Display for SeccompFeatures {
+    /// Comma separated feature names.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (i, feature) in self.iter().enumerate() {
+            if i > 0 {
+                f.write_str(",")?;
+            }
+            f.write_str(feature.name())?;
+        }
+        Ok(())
+    }
+}
+
+/// Part of a seccomp filter that is only needed when one of its features is enabled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FilterFragment {
+    /// Features that enable this fragment; any one of them is sufficient.
+    pub features: SeccompFeatures,
+    /// Position independent BPF code. It falls through to the next fragment when its rule does
+    /// not match the syscall being filtered.
+    pub code: BpfProgram,
+}
+
+/// The seccomp filter of one thread category, as compiled by seccompiler.
+///
+/// `base` holds the rules that are always needed. When the filter has feature-gated parts, the
+/// base does not return the default action itself but falls through to the code appended after it:
+/// the `fragments` of the enabled features followed by the `epilogue`, which returns the default
+/// action. [`SeccompFilter::compose`] assembles the program that gets installed on a thread.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SeccompFilter {
+    base: BpfProgram,
+    fragments: Vec<FilterFragment>,
+    epilogue: BpfProgram,
+}
+
+impl SeccompFilter {
+    /// Create a filter from its parts.
+    pub fn new(base: BpfProgram, fragments: Vec<FilterFragment>, epilogue: BpfProgram) -> Self {
+        SeccompFilter {
+            base,
+            fragments,
+            epilogue,
+        }
+    }
+
+    /// Create a filter from a complete program that has no feature-gated parts.
+    pub fn from_program(program: BpfProgram) -> Self {
+        SeccompFilter::new(program, Vec::new(), Vec::new())
+    }
+
+    /// Whether composing this filter yields an empty program, i.e. no filter gets installed.
+    pub fn is_empty(&self) -> bool {
+        self.base.is_empty()
+            && self.epilogue.is_empty()
+            && self
+                .fragments
+                .iter()
+                .all(|fragment| fragment.code.is_empty())
+    }
+
+    /// The features for which this filter has fragments.
+    pub fn features(&self) -> SeccompFeatures {
+        self.fragments
+            .iter()
+            .fold(SeccompFeatures::empty(), |set, fragment| {
+                set | fragment.features
+            })
+    }
+
+    /// Assemble the program for a microVM with `enabled` features: the base, the fragments that
+    /// have at least one enabled feature and the epilogue.
+    pub fn compose(&self, enabled: SeccompFeatures) -> BpfProgram {
+        let fragments = self
+            .fragments
+            .iter()
+            .filter(|fragment| fragment.features.intersects(enabled));
+        let mut program = Vec::with_capacity(
+            self.base.len()
+                + self.epilogue.len()
+                + fragments
+                    .clone()
+                    .map(|fragment| fragment.code.len())
+                    .sum::<usize>(),
+        );
+        program.extend_from_slice(&self.base);
+        for fragment in fragments {
+            program.extend_from_slice(&fragment.code);
+        }
+        program.extend_from_slice(&self.epilogue);
+        program
+    }
+}
+
+/// Type that associates a thread category to its seccomp filter.
+pub type BpfThreadMap = HashMap<String, SeccompFilter>;
 
 /// Binary filter deserialization errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -39,9 +313,9 @@ pub enum DeserializationError {
 /// Retrieve empty seccomp filters.
 pub fn get_empty_filters() -> BpfThreadMap {
     let mut map = BpfThreadMap::new();
-    map.insert("vmm".to_string(), Arc::new(vec![]));
-    map.insert("api".to_string(), Arc::new(vec![]));
-    map.insert("vcpu".to_string(), Arc::new(vec![]));
+    map.insert("vmm".to_string(), SeccompFilter::default());
+    map.insert("api".to_string(), SeccompFilter::default());
+    map.insert("vcpu".to_string(), SeccompFilter::default());
     map
 }
 
@@ -61,11 +335,11 @@ pub fn deserialize_binary<R: Read>(reader: R) -> Result<BpfThreadMap, Deserializ
         ));
     }
 
-    let result: HashMap<String, _> = bitcode::deserialize(&buf)?;
+    let result: HashMap<String, BpfProgram> = bitcode::deserialize(&buf)?;
 
     Ok(result
         .into_iter()
-        .map(|(k, v)| (k.to_lowercase(), Arc::new(v)))
+        .map(|(k, v)| (k.to_lowercase(), SeccompFilter::from_program(v)))
         .collect())
 }
 
@@ -141,7 +415,6 @@ mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
     use std::collections::HashMap;
-    use std::sync::Arc;
     use std::thread;
 
     use super::*;
@@ -160,13 +433,115 @@ mod tests {
         let bytes = bitcode::serialize(&filter_map).unwrap();
 
         let mut expected_res = BpfThreadMap::new();
-        expected_res.insert("vcpu".to_string(), Arc::new(bpf_prog));
+        expected_res.insert("vcpu".to_string(), SeccompFilter::from_program(bpf_prog));
         assert_eq!(deserialize_binary(&bytes[..]).unwrap(), expected_res);
 
         // Test filter too large - create data that will exceed the deserialization limit
         // Create a large buffer that when serialized will exceed DESERIALIZATION_BYTES_LIMIT
         let large_data = vec![0u8; DESERIALIZATION_BYTES_LIMIT + 1000];
         deserialize_binary(&large_data[..]).unwrap_err();
+    }
+
+    #[test]
+    fn test_seccomp_features() {
+        assert!(SeccompFeatures::empty().is_empty());
+        assert!(!SeccompFeatures::all().is_empty());
+        for feature in SeccompFeature::ALL {
+            assert!(SeccompFeatures::all().contains(feature));
+            assert!(!SeccompFeatures::empty().contains(feature));
+            // Names round-trip and are stable identifiers.
+            assert_eq!(feature.name().parse::<SeccompFeature>().unwrap(), feature);
+            assert_eq!(feature.to_string(), feature.name());
+        }
+        assert_eq!(
+            "no-such-feature".parse::<SeccompFeature>().unwrap_err(),
+            UnknownSeccompFeature("no-such-feature".to_string())
+        );
+        assert_eq!(
+            SeccompFeatures::all().iter().collect::<Vec<_>>(),
+            SeccompFeature::ALL.to_vec()
+        );
+
+        let mut set = SeccompFeatures::from(SeccompFeature::Net);
+        set |= SeccompFeature::Block;
+        set |= SeccompFeatures::from(SeccompFeature::Pci);
+        assert!(set.contains(SeccompFeature::Net));
+        assert!(set.contains(SeccompFeature::Block));
+        assert!(set.contains(SeccompFeature::Pci));
+        assert!(!set.contains(SeccompFeature::Vsock));
+        assert!(set.intersects(SeccompFeature::Pci.into()));
+        assert!(!set.intersects(SeccompFeature::Vsock.into()));
+        assert_eq!(set.to_string(), "pci,block,net");
+        assert_eq!(format!("{set:?}"), "{Pci, Block, Net}");
+        assert_eq!(
+            set,
+            [
+                SeccompFeature::Pci,
+                SeccompFeature::Block,
+                SeccompFeature::Net
+            ]
+            .into_iter()
+            .collect()
+        );
+        assert_eq!(
+            set | SeccompFeature::Vsock,
+            set | SeccompFeatures::from(SeccompFeature::Vsock)
+        );
+    }
+
+    #[test]
+    fn test_compose() {
+        let empty = SeccompFilter::default();
+        assert!(empty.is_empty());
+        assert!(empty.compose(SeccompFeatures::all()).is_empty());
+
+        let plain = SeccompFilter::from_program(vec![1, 2, 3]);
+        assert!(!plain.is_empty());
+        assert_eq!(plain.features(), SeccompFeatures::empty());
+        assert_eq!(plain.compose(SeccompFeatures::empty()), vec![1, 2, 3]);
+        assert_eq!(plain.compose(SeccompFeatures::all()), vec![1, 2, 3]);
+
+        let filter = SeccompFilter::new(
+            vec![1, 2],
+            vec![
+                FilterFragment {
+                    features: SeccompFeature::Net.into(),
+                    code: vec![10, 11],
+                },
+                FilterFragment {
+                    features: SeccompFeatures::from(SeccompFeature::Pmem)
+                        | SeccompFeature::MemoryHotplug,
+                    code: vec![20],
+                },
+            ],
+            vec![3],
+        );
+        assert!(!filter.is_empty());
+        assert_eq!(
+            filter.features(),
+            SeccompFeatures::from(SeccompFeature::Net)
+                | SeccompFeature::Pmem
+                | SeccompFeature::MemoryHotplug
+        );
+        assert_eq!(filter.compose(SeccompFeatures::empty()), vec![1, 2, 3]);
+        assert_eq!(
+            filter.compose(SeccompFeature::Net.into()),
+            vec![1, 2, 10, 11, 3]
+        );
+        // Any one of a fragment's features enables it.
+        assert_eq!(
+            filter.compose(SeccompFeature::Pmem.into()),
+            vec![1, 2, 20, 3]
+        );
+        assert_eq!(
+            filter.compose(SeccompFeature::MemoryHotplug.into()),
+            vec![1, 2, 20, 3]
+        );
+        assert_eq!(filter.compose(SeccompFeature::Block.into()), vec![1, 2, 3]);
+        assert_eq!(
+            filter.compose(SeccompFeatures::all()),
+            vec![1, 2, 10, 11, 20, 3]
+        );
     }
 
     #[test]
