@@ -35,7 +35,7 @@ use vmm::logger::{
 };
 use vmm::persist::SNAPSHOT_VERSION;
 use vmm::resources::VmResources;
-use vmm::seccomp::{BpfThreadMap, SeccompFeatures};
+use vmm::seccomp::BpfThreadMap;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::snapshot::{SnapshotError, get_format_version};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
@@ -591,6 +591,7 @@ fn build_microvm_from_json(
     instance_info: InstanceInfo,
     boot_timer_enabled: bool,
     pci_enabled: bool,
+    api_enabled: bool,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
 ) -> Result<Arc<Mutex<vmm::Vmm>>, BuildFromJsonError> {
@@ -603,6 +604,7 @@ fn build_microvm_from_json(
     )
     .map_err(BuildFromJsonError::ParseFromJson)?;
     vm_resources.boot_timer = boot_timer_enabled;
+    vm_resources.api_enabled = api_enabled;
     let vmm = vmm::builder::build_and_boot_microvm(
         &instance_info,
         &vm_resources,
@@ -652,16 +654,18 @@ fn run_without_api(
         instance_info,
         bool_timer_enabled,
         pci_enabled,
+        false,
         mmds_size_limit,
         metadata_json,
     )
     .map_err(RunWithoutApiError::BuildMicroVMFromJson)?;
 
     // INVARIANT: seccomp must be applied before entering the event loop.
+    let seccomp_features = vmm.lock().expect("Poisoned lock").seccomp_features;
     let vmm_seccomp_filter = seccomp_filters
         .get("vmm")
         .ok_or(RunWithoutApiError::MissingSeccompFilter)?
-        .compose(SeccompFeatures::all());
+        .compose(seccomp_features);
     vmm::seccomp::apply_filter(&vmm_seccomp_filter).map_err(RunWithoutApiError::SeccompFilter)?;
 
     // Start the metrics.

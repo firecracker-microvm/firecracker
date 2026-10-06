@@ -9,11 +9,13 @@ use serde::{Deserialize, Serialize};
 use vm_memory::GuestAddress;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
+use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::logger::{LoggerConfig, info};
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
 use crate::mmds::ns::MmdsNetworkStack;
+use crate::seccomp::{SeccompFeature, SeccompFeatures};
 use crate::utils::net::ipv4addr::is_link_local_valid;
 use crate::utils::{mib_to_bytes, u32_mib_to_bytes};
 use crate::vmm_config::TokenBucketConfig;
@@ -134,6 +136,9 @@ pub struct VmResources {
     pub boot_timer: bool,
     /// Whether or not to use PCIe transport for VirtIO devices.
     pub pci_enabled: bool,
+    /// Whether the API server is running. Only then can the microVM be controlled at runtime
+    /// (paused, snapshotted) and, with the PCI transport, have devices hot-plugged.
+    pub api_enabled: bool,
     /// Where serial console output should be written to
     pub serial_out_path: Option<PathBuf>,
     /// Optional rate limiter config for serial output.
@@ -150,6 +155,58 @@ impl VmResources {
                 cfg.refill_time,
             )
         })
+    }
+
+    /// The seccomp features the microVM described by these resources needs at runtime, derived
+    /// from the transport, the configured devices and whether the API is running.
+    ///
+    /// With the API running and the PCI transport in use, devices of any hot-pluggable type can be
+    /// added after boot, so the rules of all those device types are kept.
+    pub fn required_seccomp_features(&self) -> SeccompFeatures {
+        let mut features = SeccompFeatures::empty();
+
+        if self.api_enabled {
+            features |= SeccompFeature::Api;
+        }
+        if self.pci_enabled {
+            features |= SeccompFeature::Pci;
+        }
+        if self.api_enabled && self.pci_enabled {
+            features |= SeccompFeature::Hotplug;
+            features |= SeccompFeature::Block;
+            features |= SeccompFeature::AsyncIo;
+            features |= SeccompFeature::Net;
+            features |= SeccompFeature::Pmem;
+        }
+
+        for block in &self.block.devices {
+            features |= SeccompFeature::Block;
+            if let Block::Virtio(virtio_block) = &*block.lock().expect("Poisoned lock")
+                && virtio_block.file_engine_type() == FileEngineType::Async
+            {
+                features |= SeccompFeature::AsyncIo;
+            }
+        }
+        if self.net_builder.iter().next().is_some() {
+            features |= SeccompFeature::Net;
+        }
+        if self.vsock.get().is_some() {
+            features |= SeccompFeature::Vsock;
+        }
+        if !self.pmem.configs.is_empty() {
+            features |= SeccompFeature::Pmem;
+        }
+        if self.memory_hotplug.is_some() {
+            features |= SeccompFeature::MemoryHotplug;
+        }
+
+        // The gdb stub pauses the vCPUs, which issues the same ioctls as pausing through the API.
+        #[cfg(feature = "gdb")]
+        if self.machine_config.gdb_socket_path.is_some() {
+            features |= SeccompFeature::Api;
+        }
+
+        features
     }
 
     /// Configures Vmm resources as described by the `config_json` param.
@@ -710,6 +767,7 @@ mod tests {
             entropy: Default::default(),
             pmem: Default::default(),
             pci_enabled: false,
+            api_enabled: false,
             serial_out_path: None,
             serial_rate_limiter_cfg: None,
             memory_hotplug: Default::default(),
@@ -1916,5 +1974,85 @@ mod tests {
         assert_eq!(vm_resources.pmem.configs.len(), 0);
         vm_resources.build_pmem_device(cfg).unwrap();
         assert_eq!(vm_resources.pmem.configs.len(), 1);
+    }
+
+    #[test]
+    fn test_required_seccomp_features() {
+        let mut vm_resources = VmResources::default();
+        assert_eq!(
+            vm_resources.required_seccomp_features(),
+            SeccompFeatures::empty()
+        );
+
+        // Runtime control through the API.
+        vm_resources.api_enabled = true;
+        assert_eq!(
+            vm_resources.required_seccomp_features(),
+            SeccompFeature::Api.into()
+        );
+
+        // PCI without the API: no hotplug is possible.
+        vm_resources.api_enabled = false;
+        vm_resources.pci_enabled = true;
+        assert_eq!(
+            vm_resources.required_seccomp_features(),
+            SeccompFeature::Pci.into()
+        );
+
+        // PCI with the API: any hot-pluggable device type may show up later.
+        vm_resources.api_enabled = true;
+        assert_eq!(
+            vm_resources.required_seccomp_features(),
+            SeccompFeatures::from(SeccompFeature::Api)
+                | SeccompFeature::Pci
+                | SeccompFeature::Hotplug
+                | SeccompFeature::Block
+                | SeccompFeature::AsyncIo
+                | SeccompFeature::Net
+                | SeccompFeature::Pmem
+        );
+
+        // Devices configured for the MMIO transport.
+        let mut vm_resources = default_vm_resources();
+        assert_eq!(
+            vm_resources.required_seccomp_features(),
+            SeccompFeatures::from(SeccompFeature::Block) | SeccompFeature::Net
+        );
+        let mut tmp_sock_file = TempFile::new().unwrap();
+        tmp_sock_file.remove().unwrap();
+        vm_resources
+            .set_vsock_device(default_config(&tmp_sock_file))
+            .unwrap();
+        vm_resources.memory_hotplug = Some(HOTPLUG_CONFIG);
+        vm_resources.pmem.configs.push(PmemConfig {
+            id: "pmem0".to_string(),
+            path_on_host: "/dev/null".to_string(),
+            root_device: false,
+            read_only: false,
+            rate_limiter: None,
+        });
+        assert_eq!(
+            vm_resources.required_seccomp_features(),
+            SeccompFeatures::from(SeccompFeature::Block)
+                | SeccompFeature::Net
+                | SeccompFeature::Vsock
+                | SeccompFeature::Pmem
+                | SeccompFeature::MemoryHotplug
+        );
+
+        // A block device using the asynchronous file engine.
+        let (mut block_cfg, _file) = default_block_cfg();
+        block_cfg.drive_id = "async_block".to_string();
+        block_cfg.file_engine_type = Some(FileEngineType::Async);
+        let mut vm_resources = VmResources::default();
+        match vm_resources.set_block_device(block_cfg) {
+            Ok(()) => assert_eq!(
+                vm_resources.required_seccomp_features(),
+                SeccompFeatures::from(SeccompFeature::Block) | SeccompFeature::AsyncIo
+            ),
+            // Hosts without io_uring support cannot create the device at all.
+            Err(DriveError::CreateBlockDevice(_)) => {}
+            Err(err) => panic!("unexpected error: {err}"),
+        }
     }
 }
