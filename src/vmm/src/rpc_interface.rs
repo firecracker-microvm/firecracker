@@ -22,7 +22,7 @@ use crate::logger::{LoggerConfig, info, warn, *};
 use crate::mmds::data_store::{self, Mmds, MmdsDatastoreError};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
-use crate::seccomp::BpfThreadMap;
+use crate::seccomp::{BpfThreadMap, SeccompFeatures};
 use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::{
     BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
@@ -375,6 +375,7 @@ impl<'a> PrebootApiController<'a> {
         api_event_fd: &vmm_sys_util::eventfd::EventFd,
         boot_timer_enabled: bool,
         pci_enabled: bool,
+        seccomp_features: SeccompFeatures,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
     ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromRequestsError> {
@@ -383,6 +384,7 @@ impl<'a> PrebootApiController<'a> {
             mmds_size_limit,
             pci_enabled,
             api_enabled: true,
+            seccomp_features,
             ..Default::default()
         };
 

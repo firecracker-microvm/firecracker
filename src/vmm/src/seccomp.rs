@@ -4,10 +4,13 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::io::Read;
+use std::str::FromStr;
 
 use serde::Deserialize;
 #[cfg(test)]
 use serde::Serialize;
+
+use crate::logger::{info, warn};
 
 // This byte limit is passed to `bitcode` to guard against a potential memory
 // allocation DOS caused by binary filters that are too large.
@@ -69,6 +72,22 @@ impl SeccompFeatures {
             .iter()
             .find(|feature| feature.to_string() == name)
             .ok_or_else(|| UnknownSeccompFeature(name.to_string()))
+    }
+}
+
+impl FromStr for SeccompFeatures {
+    type Err = UnknownSeccompFeature;
+
+    /// `all`, `none`, or a comma-separated list of feature names.
+    fn from_str(list: &str) -> Result<Self, Self::Err> {
+        match list.trim() {
+            "all" => Ok(Self::all()),
+            "none" => Ok(Self::empty()),
+            _ => list
+                .split(',')
+                .map(|name| Self::from_tag(name.trim()))
+                .collect(),
+        }
     }
 }
 
@@ -252,6 +271,25 @@ fn check_jumps(
 
 /// Type that associates a thread category to its seccomp filter.
 pub type BpfThreadMap = HashMap<String, SeccompFilter>;
+
+/// Compose the program the `thread` threads install for a microVM with `features`, and log what
+/// they get, so that a syscall they later trip over can be traced back to the composed filter.
+pub fn compose_for_thread(
+    filter: &SeccompFilter,
+    thread: &str,
+    features: SeccompFeatures,
+) -> BpfProgram {
+    let program = filter.compose(features);
+    if program.is_empty() {
+        warn!("No seccomp filter is installed on the {thread} thread");
+    } else {
+        info!(
+            "Seccomp filter of the {thread} thread: {} instructions, features [{features}]",
+            program.len()
+        );
+    }
+    program
+}
 
 /// Binary filter deserialization errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -696,6 +734,24 @@ mod tests {
             SeccompFeatures::from_tag("warp-drive"),
             Err(UnknownSeccompFeature("warp-drive".to_string()))
         );
+
+        assert_eq!("all".parse(), Ok(SeccompFeatures::all()));
+        assert_eq!(" none ".parse(), Ok(SeccompFeatures::empty()));
+        assert_eq!(
+            " net, block,hotplug".parse(),
+            Ok(SeccompFeatures::NET | SeccompFeatures::BLOCK | SeccompFeatures::HOTPLUG)
+        );
+        for (list, unknown) in [
+            ("", ""),
+            ("net,,block", ""),
+            ("net,all", "all"),
+            ("none,net", "none"),
+        ] {
+            assert_eq!(
+                list.parse::<SeccompFeatures>(),
+                Err(UnknownSeccompFeature(unknown.to_string()))
+            );
+        }
     }
 
     #[test]

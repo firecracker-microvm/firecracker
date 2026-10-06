@@ -160,6 +160,7 @@ pub(crate) fn run_with_api(
     process_time_reporter: ProcessTimeReporter,
     boot_timer_enabled: bool,
     pci_enabled: bool,
+    seccomp_features: SeccompFeatures,
     api_payload_limit: usize,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
@@ -178,10 +179,16 @@ pub(crate) fn run_with_api(
     let to_vmm_event_fd = api_event_fd
         .try_clone()
         .expect("Failed to clone API event FD");
+    // The API thread knows nothing about the microVM yet, so its filter only gets the features the
+    // command line enables, plus the API-only operations it exists for.
     let api_seccomp_filter = seccomp_filters
         .remove("api")
-        .expect("Missing seccomp filter for API thread.")
-        .compose(SeccompFeatures::API);
+        .expect("Missing seccomp filter for API thread.");
+    let api_seccomp_filter = vmm::seccomp::compose_for_thread(
+        &api_seccomp_filter,
+        "api",
+        seccomp_features | SeccompFeatures::API,
+    );
 
     let mut server = match HttpServer::new(&bind_path) {
         Ok(s) => s,
@@ -232,6 +239,7 @@ pub(crate) fn run_with_api(
             boot_timer_enabled,
             pci_enabled,
             true,
+            seccomp_features,
             mmds_size_limit,
             metadata_json,
         )
@@ -245,6 +253,7 @@ pub(crate) fn run_with_api(
             &api_event_fd,
             boot_timer_enabled,
             pci_enabled,
+            seccomp_features,
             mmds_size_limit,
             metadata_json,
         )
@@ -257,8 +266,9 @@ pub(crate) fn run_with_api(
         let seccomp_features = vmm.lock().expect("Poisoned lock").seccomp_features;
         let vmm_seccomp_filter = seccomp_filters
             .get("vmm")
-            .ok_or(ApiServerError::MissingSeccompFilter)?
-            .compose(seccomp_features);
+            .ok_or(ApiServerError::MissingSeccompFilter)?;
+        let vmm_seccomp_filter =
+            vmm::seccomp::compose_for_thread(vmm_seccomp_filter, "vmm", seccomp_features);
         vmm::seccomp::apply_filter(&vmm_seccomp_filter).map_err(ApiServerError::SeccompFilter)?;
 
         firecracker_metrics
