@@ -26,5 +26,8 @@ thiserror = "2.0.18"
 utils = { path = "../utils", features = ["seccomp"] }
 zerocopy = { version = "0.8.50" }
 
+[dev-dependencies]
+vmm-sys-util = "0.15.0"
+
 [lints]
 workspace = true

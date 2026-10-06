@@ -4,6 +4,8 @@
 use std::collections::HashMap;
 use std::io::Read;
 
+use utils::seccomp::bpf::BpfPart as SerializedPart;
+pub use utils::seccomp::bpf::{BPF_MAX_LEN, SockFilter as BpfInstruction};
 pub use utils::seccomp::{SeccompFeatures, UnknownSeccompFeature};
 
 // This byte limit is passed to `bitcode` to guard against a potential memory
@@ -11,11 +13,6 @@ pub use utils::seccomp::{SeccompFeatures, UnknownSeccompFeature};
 // This limit can be safely determined since the maximum length of a BPF
 // filter is 4096 instructions and Firecracker has a finite number of threads.
 const DESERIALIZATION_BYTES_LIMIT: usize = 100_000;
-
-/// Each BPF instruction is 8 bytes long and 4 byte aligned.
-/// This alignment needs to be satisfied in order for a BPF code to be accepted
-/// by the syscalls. Using u64 here is is safe as it has same size and even bigger alignment.
-pub type BpfInstruction = u64;
 
 /// Program made up of a sequence of BPF instructions.
 pub type BpfProgram = Vec<BpfInstruction>;
@@ -67,6 +64,10 @@ pub enum DeserializationError {
     SizeLimitExceeded(usize, usize),
     /// Bitcode deserialization failed: {0}
     Bitcode(#[from] bitcode::Error),
+    /// Filter in the format of an older seccompiler-bin, recompile it with the one of this release
+    OlderFormat,
+    /// Filter part tagged with an unknown feature: {0}
+    UnknownFeature(#[from] UnknownSeccompFeature),
 }
 
 /// Retrieve empty seccomp filters.
@@ -94,18 +95,34 @@ pub fn deserialize_binary<R: Read>(reader: R) -> Result<BpfThreadMap, Deserializ
         ));
     }
 
-    let result: HashMap<String, BpfProgram> = bitcode::deserialize(&buf)?;
+    let result: HashMap<String, Vec<SerializedPart>> = match bitcode::deserialize(&buf) {
+        Ok(result) => result,
+        // Earlier releases wrote a single complete program per thread.
+        Err(_) if bitcode::deserialize::<HashMap<String, BpfProgram>>(&buf).is_ok() => {
+            return Err(DeserializationError::OlderFormat);
+        }
+        Err(err) => return Err(err.into()),
+    };
 
-    Ok(result
-        .into_iter()
-        .map(|(k, code)| {
-            let features = SeccompFeatures::empty();
-            (
-                k.to_lowercase(),
-                SeccompFilter(vec![FilterPart { features, code }]),
-            )
+    // A typo in a feature tag fails here rather than silently leaving a rule out.
+    let part = |part: SerializedPart| {
+        let features = part
+            .features
+            .iter()
+            .map(|name| SeccompFeatures::from_tag(name))
+            .collect::<Result<_, _>>()?;
+        Ok::<_, DeserializationError>(FilterPart {
+            features,
+            code: part.code,
         })
-        .collect())
+    };
+    result
+        .into_iter()
+        .map(|(k, parts)| {
+            let parts = parts.into_iter().map(part).collect::<Result<_, _>>()?;
+            Ok((k.to_lowercase(), SeccompFilter(parts)))
+        })
+        .collect()
 }
 
 /// Filter installation errors.
@@ -116,9 +133,6 @@ pub enum InstallationError {
     /// prctl` syscall failed with error code: {0}
     Prctl(std::io::Error),
 }
-
-/// The maximum seccomp-BPF program length allowed by the linux kernel.
-pub const BPF_MAX_LEN: usize = 4096;
 
 /// BPF structure definition for filter array.
 /// See /usr/include/linux/filter.h .
@@ -184,33 +198,82 @@ mod tests {
 
     use super::*;
 
+    fn program(values: &[u32]) -> BpfProgram {
+        values.iter().map(|&k| BpfInstruction::stmt(0, k)).collect()
+    }
+
+    /// Serialize `filters` the way seccompiler writes a compiled filter file.
+    fn encode(filters: Vec<(&str, Vec<SerializedPart>)>) -> Vec<u8> {
+        let filters: HashMap<_, _> = filters.into_iter().collect();
+        bitcode::serialize(&filters).unwrap()
+    }
+
+    fn serialized(features: &[&str], code: BpfProgram) -> SerializedPart {
+        let features = features.iter().map(|name| name.to_string()).collect();
+        SerializedPart { features, code }
+    }
+
     #[test]
     fn test_deserialize_binary() {
-        // Malformed bitcode binary.
-        let data = "adassafvc".to_string();
-        deserialize_binary(data.as_bytes()).unwrap_err();
+        assert!(matches!(
+            deserialize_binary(&b"adassafvc"[..]).unwrap_err(),
+            DeserializationError::Bitcode(_)
+        ));
+
+        // The map of complete programs an older seccompiler wrote is told apart.
+        let older = bitcode::serialize(&HashMap::from([("vmm", vec![0u64; 3])])).unwrap();
+        assert!(matches!(
+            deserialize_binary(&older[..]).unwrap_err(),
+            DeserializationError::OlderFormat
+        ));
 
         // Test that the binary deserialization is correct, and that the thread keys
         // have been lowercased.
-        let bpf_prog = vec![0; 2];
-        let mut filter_map: HashMap<String, BpfProgram> = HashMap::new();
-        filter_map.insert("VcpU".to_string(), bpf_prog.clone());
-        let bytes = bitcode::serialize(&filter_map).unwrap();
+        let bytes = encode(vec![
+            (
+                "VcpU",
+                vec![
+                    serialized(&[], program(&[0; 2])),
+                    serialized(&["net", "hotplug"], program(&[1; 3])),
+                    serialized(&[], program(&[2])),
+                ],
+            ),
+            ("vmm", vec![]),
+        ]);
+        let part = |features, code| FilterPart { features, code };
+        let expected = BpfThreadMap::from([
+            (
+                "vcpu".to_string(),
+                SeccompFilter(vec![
+                    part(SeccompFeatures::empty(), program(&[0; 2])),
+                    part(
+                        SeccompFeatures::NET | SeccompFeatures::HOTPLUG,
+                        program(&[1; 3]),
+                    ),
+                    part(SeccompFeatures::empty(), program(&[2])),
+                ]),
+            ),
+            ("vmm".to_string(), SeccompFilter::default()),
+        ]);
+        assert_eq!(deserialize_binary(&bytes[..]).unwrap(), expected);
 
-        let mut expected_res = BpfThreadMap::new();
-        expected_res.insert(
-            "vcpu".to_string(),
-            SeccompFilter(vec![FilterPart {
-                features: SeccompFeatures::empty(),
-                code: bpf_prog,
-            }]),
-        );
-        assert_eq!(deserialize_binary(&bytes[..]).unwrap(), expected_res);
+        // Parts tagged with a feature this Firecracker does not know are rejected.
+        let bytes = encode(vec![(
+            "vmm",
+            vec![serialized(&["warp-drive"], program(&[1]))],
+        )]);
+        assert!(matches!(
+            deserialize_binary(&bytes[..]).unwrap_err(),
+            DeserializationError::UnknownFeature(UnknownSeccompFeature(name)) if name == "warp-drive"
+        ));
 
         // Test filter too large - create data that will exceed the deserialization limit
         // Create a large buffer that when serialized will exceed DESERIALIZATION_BYTES_LIMIT
         let large_data = vec![0u8; DESERIALIZATION_BYTES_LIMIT + 1000];
-        deserialize_binary(&large_data[..]).unwrap_err();
+        assert!(matches!(
+            deserialize_binary(&large_data[..]).unwrap_err(),
+            DeserializationError::SizeLimitExceeded(..)
+        ));
     }
 
     #[test]
@@ -239,13 +302,13 @@ mod tests {
         );
 
         let filter = SeccompFilter(vec![
-            part(SeccompFeatures::empty(), vec![1, 2]),
-            part(SeccompFeatures::NET, vec![10, 11]),
+            part(SeccompFeatures::empty(), program(&[1, 2])),
+            part(SeccompFeatures::NET, program(&[10, 11])),
             part(
                 SeccompFeatures::PMEM | SeccompFeatures::MEMORY_HOTPLUG,
-                vec![20],
+                program(&[20]),
             ),
-            part(SeccompFeatures::empty(), vec![3]),
+            part(SeccompFeatures::empty(), program(&[3])),
         ]);
         for (enabled, expected) in [
             (SeccompFeatures::empty(), vec![1, 2, 3]),
@@ -256,7 +319,7 @@ mod tests {
             (SeccompFeatures::BLOCK, vec![1, 2, 3]),
             (SeccompFeatures::all(), vec![1, 2, 10, 11, 20, 3]),
         ] {
-            assert_eq!(filter.compose(enabled), expected, "{enabled}");
+            assert_eq!(filter.compose(enabled), program(&expected), "{enabled}");
         }
     }
 
@@ -264,7 +327,7 @@ mod tests {
     fn test_filter_apply() {
         // Test filter too large.
         thread::spawn(|| {
-            let filter: BpfProgram = vec![0; 5000];
+            let filter: BpfProgram = vec![BpfInstruction::default(); 5000];
 
             // Apply seccomp filter.
             assert!(matches!(
@@ -295,7 +358,7 @@ mod tests {
 
         // Test invalid BPF code.
         thread::spawn(|| {
-            let filter = vec![0xFF; 1];
+            let filter = vec![BpfInstruction::stmt(0xff, 0)];
 
             let seccomp_level = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
             assert_eq!(seccomp_level, 0);

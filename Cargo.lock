@@ -1243,6 +1243,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "utils",
+ "vmm-sys-util",
  "zerocopy",
 ]
 
@@ -1533,6 +1534,7 @@ dependencies = [
  "displaydoc",
  "libc",
  "log-instrument",
+ "serde",
  "thiserror 2.0.21",
  "zerocopy",
 ]

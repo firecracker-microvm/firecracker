@@ -6,6 +6,8 @@ use std::ffi::CString;
 use std::str::FromStr;
 
 use serde::*;
+pub use utils::seccomp::SeccompFeature;
+pub use utils::seccomp::bpf::{BpfPart, SockFilter};
 
 // use libseccomp::{ScmpAction, ScmpArch, ScmpCompareOp};
 use crate::bindings::*;
@@ -34,13 +36,19 @@ pub enum SeccompCmpArgLen {
 }
 
 /// Condition that syscall must match in order to satisfy a rule.
+///
+/// Unknown keys are rejected, so that a misspelled key cannot silently drop a condition.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SeccompCondition {
     pub index: u8,
     pub op: SeccompCmpOp,
     pub val: u64,
     #[serde(rename = "type")]
     pub val_len: SeccompCmpArgLen,
+    /// Free-form documentation of the condition, ignored by the compiler.
+    #[serde(default)]
+    pub comment: Option<String>,
 }
 
 impl SeccompCondition {
@@ -146,14 +154,55 @@ impl SeccompAction {
 /// If all conditions match then rule gets matched.
 /// The action of the first rule that matches will be applied to the calling process.
 /// If no rule matches the default action is applied.
+///
+/// A rule can be tagged with the features of the microVM it is needed for, either as
+/// `"feature": "net"` or as `"features": ["pmem", "memory-hotplug"]`. Tagged rules are compiled
+/// into separate BPF fragments which Firecracker only installs when one of the features is in use;
+/// untagged rules are always installed. Unknown keys are rejected, so that a misspelled tag key
+/// cannot silently turn a tagged rule into an always installed one.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SyscallRule {
     pub syscall: CString,
     pub args: Option<Vec<SeccompCondition>>,
+    #[serde(default, alias = "feature", deserialize_with = "deserialize_features")]
+    pub features: Option<Vec<SeccompFeature>>,
+    /// Free-form documentation of the rule, ignored by the compiler.
+    #[serde(default)]
+    pub comment: Option<String>,
+}
+
+/// Accept a single feature name as well as a list of them.
+fn deserialize_features<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Vec<SeccompFeature>>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Features {
+        One(String),
+        Many(Vec<String>),
+    }
+
+    let names = match Features::deserialize(deserializer)? {
+        Features::One(feature) => vec![feature],
+        Features::Many(features) => features,
+    };
+    if names.is_empty() || names.iter().any(String::is_empty) {
+        return Err(de::Error::custom("empty feature tag"));
+    }
+    let mut features = names
+        .iter()
+        .map(|name| name.parse())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(de::Error::custom)?;
+    features.sort_unstable();
+    features.dedup();
+    Ok(Some(features))
 }
 
 /// Filter containing rules assigned to syscall numbers.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Filter {
     pub default_action: SeccompAction,
     pub filter_action: SeccompAction,
@@ -163,6 +212,85 @@ pub struct Filter {
 /// Deserializable object that represents the Json filter file.
 #[derive(Debug, Deserialize)]
 pub struct BpfJson(pub BTreeMap<String, Filter>);
+
+/// A compiled filter before conversion to the on-disk sequence of parts.
+pub(crate) enum BpfFilter {
+    Complete(Vec<SockFilter>),
+    Composed {
+        base: Vec<SockFilter>,
+        fragments: Vec<BpfPart>,
+        epilogue: SockFilter,
+    },
+}
+
+impl BpfFilter {
+    pub(crate) fn new(
+        mut base: Vec<SockFilter>,
+        mut fragments: Vec<BpfPart>,
+        default_action: u32,
+    ) -> Result<Self, crate::bpf::BpfError> {
+        use crate::bpf::{BPF_MAX_LEN, BpfError, epilogue, redirect_default_returns};
+        let len = base.len()
+            + fragments.iter().map(|part| part.code.len()).sum::<usize>()
+            + usize::from(!fragments.is_empty());
+        if len > BPF_MAX_LEN {
+            return Err(BpfError::TooLong(len));
+        }
+        if fragments.is_empty() {
+            return Ok(Self::Complete(base));
+        }
+        redirect_default_returns(&mut base, default_action)?;
+        for fragment in &mut fragments {
+            redirect_default_returns(&mut fragment.code, default_action)?;
+        }
+        Ok(Self::Composed {
+            base,
+            fragments,
+            epilogue: epilogue(default_action),
+        })
+    }
+
+    pub(crate) fn into_parts(self) -> Vec<BpfPart> {
+        let untagged = |code| BpfPart {
+            features: vec![],
+            code,
+        };
+        match self {
+            Self::Complete(program) => vec![untagged(program)],
+            Self::Composed {
+                base,
+                fragments,
+                epilogue,
+            } => {
+                let mut parts = Vec::with_capacity(fragments.len() + 2);
+                parts.push(untagged(base));
+                parts.extend(fragments);
+                parts.push(untagged(vec![epilogue]));
+                parts
+            }
+        }
+    }
+}
+
+/// The program of `filter` with the untagged parts and the ones tagged with one of `features`.
+/// `all` selects every part, and a name no part is tagged with, such as `none`, selects none.
+pub fn compose<S: AsRef<str>>(filter: &[BpfPart], features: &[S]) -> Vec<SockFilter> {
+    let selected = |part: &BpfPart| {
+        part.features.is_empty()
+            || features.iter().any(|feature| {
+                let feature = feature.as_ref();
+                feature == "all" || part.features.iter().any(|tag| tag == feature)
+            })
+    };
+    filter
+        .iter()
+        .filter(|part| selected(part))
+        .flat_map(|part| part.code.iter().copied())
+        .collect()
+}
+
+/// The compiled filters of all thread categories, keyed by thread name.
+pub type BpfMap = BTreeMap<String, Vec<BpfPart>>;
 
 /// Supported target architectures.
 #[derive(Debug)]
