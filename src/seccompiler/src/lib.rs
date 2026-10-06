@@ -67,98 +67,14 @@ pub fn compile_bpf(
 
     let mut bpf_map: BTreeMap<String, Vec<u64>> = BTreeMap::new();
     for (name, filter) in bpf_map_json.0.iter() {
-        let default_action = filter.default_action.to_scmp_type();
-        let filter_action = filter.filter_action.to_scmp_type();
-
-        // SAFETY: Safe as all args are correct.
-        let bpf_filter = {
-            let r = seccomp_init(default_action);
-            if r.is_null() {
-                return Err(CompilationError::LibSeccompContext);
-            }
-            r
-        };
-
-        // SAFETY: Safe as all args are correct.
-        unsafe {
-            let r = seccomp_arch_add(bpf_filter, arch.to_scmp_type());
-            if r != 0 && r != MINUS_EEXIST {
-                return Err(CompilationError::LibSeccompArch);
-            }
-        }
-
-        for rule in filter.filter.iter() {
-            // SAFETY: Safe as all args are correct.
-            let syscall = unsafe {
-                let r = seccomp_syscall_resolve_name(rule.syscall.as_ptr());
-                if r == __NR_SCMP_ERROR {
-                    return Err(CompilationError::LibSeccompSycall);
-                }
-                r
-            };
-
-            // TODO remove when we drop deprecated "basic" arg from cli.
-            // "basic" bpf means it ignores condition checks.
-            if basic {
-                // SAFETY: Safe as all args are correct.
-                unsafe {
-                    if seccomp_rule_add(bpf_filter, filter_action, syscall, 0) != 0 {
-                        return Err(CompilationError::LibSeccompRule);
-                    }
-                }
-            } else if let Some(rules) = &rule.args {
-                let comparators = rules
-                    .iter()
-                    .map(|rule| rule.to_scmp_type())
-                    .collect::<Vec<scmp_arg_cmp>>();
-
-                // SAFETY: Safe as all args are correct.
-                // We can assume no one will define u32::MAX
-                // filters for a syscall.
-                #[allow(clippy::cast_possible_truncation)]
-                unsafe {
-                    if seccomp_rule_add_array(
-                        bpf_filter,
-                        filter_action,
-                        syscall,
-                        comparators.len() as u32,
-                        comparators.as_ptr(),
-                    ) != 0
-                    {
-                        return Err(CompilationError::LibSeccompRule);
-                    }
-                }
-            } else {
-                // SAFETY: Safe as all args are correct.
-                unsafe {
-                    if seccomp_rule_add(bpf_filter, filter_action, syscall, 0) != 0 {
-                        return Err(CompilationError::LibSeccompRule);
-                    }
-                }
-            }
-        }
-
-        let mut len: usize = 0;
-        // First call obtains the size of the buffer we need to give
-        // SAFETY: safe as all args are correct
-        unsafe {
-            if seccomp_export_bpf_mem(bpf_filter, std::ptr::null_mut(), &mut len) != 0 {
-                return Err(CompilationError::LibSeccompExport);
-            }
-        }
-        // If this is not true, we found a bug in libseccomp.
-        assert!(len.is_multiple_of(std::mem::size_of::<u64>()));
-        // Bpf instructions are 8 byte values and 4 byte alignment.
-        // We use u64 to satisfy these requirements.
-        let mut bpf = vec![0_u64; len / std::mem::size_of::<u64>()];
-        // SAFETY: safe as all args are correct
-        unsafe {
-            if seccomp_export_bpf_mem(bpf_filter, bpf.as_mut_ptr().cast(), &mut len) != 0 {
-                return Err(CompilationError::LibSeccompExport);
-            }
-        }
-
-        bpf_map.insert(name.clone(), bpf);
+        let program = libseccomp_program(
+            &filter.filter,
+            &arch,
+            filter.default_action.to_scmp_type(),
+            filter.filter_action.to_scmp_type(),
+            basic,
+        )?;
+        bpf_map.insert(name.clone(), program);
     }
 
     if split_output {
@@ -193,4 +109,103 @@ pub fn compile_bpf(
     }
 
     Ok(())
+}
+
+/// Compile `rules` with libseccomp into a complete program.
+fn libseccomp_program(
+    rules: &[SyscallRule],
+    arch: &TargetArch,
+    default_action: u32,
+    filter_action: u32,
+    basic: bool,
+) -> Result<Vec<u64>, CompilationError> {
+    // SAFETY: Safe as all args are correct.
+    let bpf_filter = {
+        let r = seccomp_init(default_action);
+        if r.is_null() {
+            return Err(CompilationError::LibSeccompContext);
+        }
+        r
+    };
+
+    // SAFETY: Safe as all args are correct.
+    unsafe {
+        let r = seccomp_arch_add(bpf_filter, arch.to_scmp_type());
+        if r != 0 && r != MINUS_EEXIST {
+            return Err(CompilationError::LibSeccompArch);
+        }
+    }
+
+    for rule in rules {
+        // SAFETY: Safe as all args are correct.
+        let syscall = unsafe {
+            let r = seccomp_syscall_resolve_name(rule.syscall.as_ptr());
+            if r == __NR_SCMP_ERROR {
+                return Err(CompilationError::LibSeccompSycall);
+            }
+            r
+        };
+
+        // TODO remove when we drop deprecated "basic" arg from cli.
+        // "basic" bpf means it ignores condition checks.
+        if basic {
+            // SAFETY: Safe as all args are correct.
+            unsafe {
+                if seccomp_rule_add(bpf_filter, filter_action, syscall, 0) != 0 {
+                    return Err(CompilationError::LibSeccompRule);
+                }
+            }
+        } else if let Some(rules) = &rule.args {
+            let comparators = rules
+                .iter()
+                .map(|rule| rule.to_scmp_type())
+                .collect::<Vec<scmp_arg_cmp>>();
+
+            // SAFETY: Safe as all args are correct.
+            // We can assume no one will define u32::MAX
+            // filters for a syscall.
+            #[allow(clippy::cast_possible_truncation)]
+            unsafe {
+                if seccomp_rule_add_array(
+                    bpf_filter,
+                    filter_action,
+                    syscall,
+                    comparators.len() as u32,
+                    comparators.as_ptr(),
+                ) != 0
+                {
+                    return Err(CompilationError::LibSeccompRule);
+                }
+            }
+        } else {
+            // SAFETY: Safe as all args are correct.
+            unsafe {
+                if seccomp_rule_add(bpf_filter, filter_action, syscall, 0) != 0 {
+                    return Err(CompilationError::LibSeccompRule);
+                }
+            }
+        }
+    }
+
+    let mut len: usize = 0;
+    // First call obtains the size of the buffer we need to give
+    // SAFETY: safe as all args are correct
+    unsafe {
+        if seccomp_export_bpf_mem(bpf_filter, std::ptr::null_mut(), &mut len) != 0 {
+            return Err(CompilationError::LibSeccompExport);
+        }
+    }
+    // If this is not true, we found a bug in libseccomp.
+    assert!(len.is_multiple_of(std::mem::size_of::<u64>()));
+    // Bpf instructions are 8 byte values and 4 byte alignment.
+    // We use u64 to satisfy these requirements.
+    let mut bpf = vec![0_u64; len / std::mem::size_of::<u64>()];
+    // SAFETY: safe as all args are correct
+    unsafe {
+        if seccomp_export_bpf_mem(bpf_filter, bpf.as_mut_ptr().cast(), &mut len) != 0 {
+            return Err(CompilationError::LibSeccompExport);
+        }
+    }
+
+    Ok(bpf)
 }
