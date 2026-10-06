@@ -5,6 +5,8 @@
 
 use std::{fmt, str::FromStr};
 
+pub mod bpf;
+
 /// Unknown seccomp feature: {0}
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub struct UnknownSeccompFeature(pub String);

@@ -1242,6 +1242,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "utils",
  "zerocopy",
 ]
 
@@ -1533,6 +1534,7 @@ dependencies = [
  "libc",
  "log-instrument",
  "thiserror 2.0.21",
+ "zerocopy",
 ]
 
 [[package]]

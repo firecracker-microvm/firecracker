@@ -221,6 +221,11 @@ pub enum TimerFd {
     Mock(MockTimer),
 }
 
+// Without mock timers the match on the timer backend has only its real-file arm.
+#[cfg_attr(
+    not(any(test, feature = "test-utils")),
+    allow(clippy::infallible_destructuring_match)
+)]
 #[allow(clippy::new_without_default)]
 impl TimerFd {
     /// Creates new MONOTONIC and NONBLOCK timerfd
