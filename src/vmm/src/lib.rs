@@ -150,6 +150,7 @@ use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::resources::VmmConfig;
 use crate::rpc_interface::VmmActionError;
+use crate::seccomp::SeccompFeatures;
 use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::BalloonDeviceConfig;
 use crate::vmm_config::boot_source::BootSourceConfig;
@@ -309,6 +310,8 @@ pub struct Vmm {
 
     /// VM object.
     pub vm: Vm,
+    /// The seccomp features this microVM needs, derived from its configuration when it was built.
+    pub seccomp_features: SeccompFeatures,
     // Device manager
     device_manager: DeviceManager,
 }
