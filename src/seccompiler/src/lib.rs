@@ -10,6 +10,7 @@ use std::str::FromStr;
 mod bindings;
 use bindings::*;
 
+pub mod bpf;
 pub mod types;
 pub use types::*;
 
