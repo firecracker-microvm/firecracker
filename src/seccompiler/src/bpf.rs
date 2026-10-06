@@ -380,7 +380,7 @@ pub fn validate(program: &[u64]) -> Result<(), BpfError> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     const SECCOMP_RET_KILL_THREAD: u32 = 0x0000_0000;
@@ -397,18 +397,22 @@ mod tests {
     const KVM_CHECK_EXTENSION: u64 = 44547;
 
     /// `struct seccomp_data` as the kernel hands it to the filter.
-    struct SeccompData {
-        nr: i32,
-        arch: u32,
-        instruction_pointer: u64,
-        args: [u64; 6],
+    pub(crate) struct SeccompData {
+        pub(crate) nr: i32,
+        pub(crate) arch: u32,
+        pub(crate) instruction_pointer: u64,
+        pub(crate) args: [u64; 6],
     }
 
     impl SeccompData {
-        fn x86_64(nr: i32, args: [u64; 6]) -> Self {
+        pub(crate) fn x86_64(nr: i32, args: [u64; 6]) -> Self {
+            Self::new(AUDIT_ARCH_X86_64, nr, args)
+        }
+
+        pub(crate) fn new(arch: u32, nr: i32, args: [u64; 6]) -> Self {
             Self {
                 nr,
-                arch: AUDIT_ARCH_X86_64,
+                arch,
                 instruction_pointer: 0xdead_0000_beef,
                 args,
             }
@@ -429,7 +433,7 @@ mod tests {
     }
 
     /// Run `program` on `data` and return the value of the `ret` that ends it.
-    fn simulate(program: &[u64], data: &SeccompData) -> u32 {
+    pub(crate) fn simulate(program: &[u64], data: &SeccompData) -> u32 {
         let mut pc = 0;
         let mut acc = 0u32;
         loop {
@@ -467,6 +471,7 @@ mod tests {
             op,
             val,
             val_len,
+            comment: None,
         }
     }
 
