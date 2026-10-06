@@ -382,6 +382,7 @@ impl<'a> PrebootApiController<'a> {
             boot_timer: boot_timer_enabled,
             mmds_size_limit,
             pci_enabled,
+            api_enabled: true,
             ..Default::default()
         };
 

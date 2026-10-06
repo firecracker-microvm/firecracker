@@ -181,7 +181,7 @@ pub(crate) fn run_with_api(
     let api_seccomp_filter = seccomp_filters
         .remove("api")
         .expect("Missing seccomp filter for API thread.")
-        .compose(SeccompFeatures::all());
+        .compose(SeccompFeatures::API);
 
     let mut server = match HttpServer::new(&bind_path) {
         Ok(s) => s,
@@ -231,6 +231,7 @@ pub(crate) fn run_with_api(
             instance_info,
             boot_timer_enabled,
             pci_enabled,
+            true,
             mmds_size_limit,
             metadata_json,
         )
@@ -253,10 +254,11 @@ pub(crate) fn run_with_api(
     // INVARIANT: seccomp must be applied before entering the event loop.
     // No guest-facing operations may occur between builder return and filter installation.
     let result = build_result.and_then(|vmm| {
+        let seccomp_features = vmm.lock().expect("Poisoned lock").seccomp_features;
         let vmm_seccomp_filter = seccomp_filters
             .get("vmm")
             .ok_or(ApiServerError::MissingSeccompFilter)?
-            .compose(SeccompFeatures::all());
+            .compose(seccomp_features);
         vmm::seccomp::apply_filter(&vmm_seccomp_filter).map_err(ApiServerError::SeccompFilter)?;
 
         firecracker_metrics
