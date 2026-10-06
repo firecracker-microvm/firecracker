@@ -2,5 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod arg_parser;
+#[cfg(feature = "seccomp")]
+pub mod seccomp;
 pub mod time;
 pub mod validators;

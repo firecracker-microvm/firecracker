@@ -3,7 +3,8 @@
 
 use std::collections::HashMap;
 use std::io::Read;
-use std::sync::Arc;
+
+pub use utils::seccomp::{SeccompFeatures, UnknownSeccompFeature};
 
 // This byte limit is passed to `bitcode` to guard against a potential memory
 // allocation DOS caused by binary filters that are too large.
@@ -22,8 +23,40 @@ pub type BpfProgram = Vec<BpfInstruction>;
 /// Reference to program made up of a sequence of BPF instructions.
 pub type BpfProgramRef<'a> = &'a [BpfInstruction];
 
-/// Type that associates a thread category to a BPF program.
-pub type BpfThreadMap = HashMap<String, Arc<BpfProgram>>;
+/// Part of the seccomp filter of a thread category.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FilterPart {
+    /// Features that enable this part, any one of them is sufficient. A part without features is
+    /// always included.
+    features: SeccompFeatures,
+    /// BPF code. Every part but the last falls through to the next one when none of its rules
+    /// match the syscall being filtered.
+    code: BpfProgram,
+}
+
+/// The seccomp filter of one thread category, as compiled by seccompiler: a sequence of parts that
+/// [`SeccompFilter::compose`] assembles into the program that gets installed on a thread.
+///
+/// A filter without feature-gated rules is a single complete program. Otherwise the first part
+/// holds the rules that are always needed and falls through instead of returning the default
+/// action, the feature-gated fragments follow, and an epilogue returns the default action.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SeccompFilter(Vec<FilterPart>);
+
+impl SeccompFilter {
+    /// Assemble the program for a microVM with `enabled` features: the parts without features
+    /// and the ones with at least one enabled feature, in order.
+    pub fn compose(&self, enabled: SeccompFeatures) -> BpfProgram {
+        self.0
+            .iter()
+            .filter(|part| part.features.is_empty() || part.features.intersects(enabled))
+            .flat_map(|part| part.code.iter().copied())
+            .collect()
+    }
+}
+
+/// Type that associates a thread category to its seccomp filter.
+pub type BpfThreadMap = HashMap<String, SeccompFilter>;
 
 /// Binary filter deserialization errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -39,9 +72,9 @@ pub enum DeserializationError {
 /// Retrieve empty seccomp filters.
 pub fn get_empty_filters() -> BpfThreadMap {
     let mut map = BpfThreadMap::new();
-    map.insert("vmm".to_string(), Arc::new(vec![]));
-    map.insert("api".to_string(), Arc::new(vec![]));
-    map.insert("vcpu".to_string(), Arc::new(vec![]));
+    map.insert("vmm".to_string(), SeccompFilter::default());
+    map.insert("api".to_string(), SeccompFilter::default());
+    map.insert("vcpu".to_string(), SeccompFilter::default());
     map
 }
 
@@ -61,11 +94,17 @@ pub fn deserialize_binary<R: Read>(reader: R) -> Result<BpfThreadMap, Deserializ
         ));
     }
 
-    let result: HashMap<String, _> = bitcode::deserialize(&buf)?;
+    let result: HashMap<String, BpfProgram> = bitcode::deserialize(&buf)?;
 
     Ok(result
         .into_iter()
-        .map(|(k, v)| (k.to_lowercase(), Arc::new(v)))
+        .map(|(k, code)| {
+            let features = SeccompFeatures::empty();
+            (
+                k.to_lowercase(),
+                SeccompFilter(vec![FilterPart { features, code }]),
+            )
+        })
         .collect())
 }
 
@@ -141,7 +180,6 @@ mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
     use std::collections::HashMap;
-    use std::sync::Arc;
     use std::thread;
 
     use super::*;
@@ -160,13 +198,66 @@ mod tests {
         let bytes = bitcode::serialize(&filter_map).unwrap();
 
         let mut expected_res = BpfThreadMap::new();
-        expected_res.insert("vcpu".to_string(), Arc::new(bpf_prog));
+        expected_res.insert(
+            "vcpu".to_string(),
+            SeccompFilter(vec![FilterPart {
+                features: SeccompFeatures::empty(),
+                code: bpf_prog,
+            }]),
+        );
         assert_eq!(deserialize_binary(&bytes[..]).unwrap(), expected_res);
 
         // Test filter too large - create data that will exceed the deserialization limit
         // Create a large buffer that when serialized will exceed DESERIALIZATION_BYTES_LIMIT
         let large_data = vec![0u8; DESERIALIZATION_BYTES_LIMIT + 1000];
         deserialize_binary(&large_data[..]).unwrap_err();
+    }
+
+    #[test]
+    fn test_seccomp_features() {
+        for feature in SeccompFeatures::all().iter() {
+            assert_eq!(SeccompFeatures::from_tag(&feature.to_string()), Ok(feature));
+        }
+        assert_eq!(
+            SeccompFeatures::all().to_string(),
+            "api,pci,hotplug,block,async-io,net,vsock,pmem,memory-hotplug"
+        );
+        assert_eq!(SeccompFeatures::empty().to_string(), "");
+        assert_eq!(
+            SeccompFeatures::from_tag("warp-drive"),
+            Err(UnknownSeccompFeature("warp-drive".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_compose() {
+        let part = |features, code| FilterPart { features, code };
+        assert!(
+            SeccompFilter::default()
+                .compose(SeccompFeatures::all())
+                .is_empty()
+        );
+
+        let filter = SeccompFilter(vec![
+            part(SeccompFeatures::empty(), vec![1, 2]),
+            part(SeccompFeatures::NET, vec![10, 11]),
+            part(
+                SeccompFeatures::PMEM | SeccompFeatures::MEMORY_HOTPLUG,
+                vec![20],
+            ),
+            part(SeccompFeatures::empty(), vec![3]),
+        ]);
+        for (enabled, expected) in [
+            (SeccompFeatures::empty(), vec![1, 2, 3]),
+            (SeccompFeatures::NET, vec![1, 2, 10, 11, 3]),
+            // Any one of a part's features enables it.
+            (SeccompFeatures::PMEM, vec![1, 2, 20, 3]),
+            (SeccompFeatures::MEMORY_HOTPLUG, vec![1, 2, 20, 3]),
+            (SeccompFeatures::BLOCK, vec![1, 2, 3]),
+            (SeccompFeatures::all(), vec![1, 2, 10, 11, 20, 3]),
+        ] {
+            assert_eq!(filter.compose(enabled), expected, "{enabled}");
+        }
     }
 
     #[test]

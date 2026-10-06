@@ -9,10 +9,12 @@ license = "Apache-2.0"
 bench = false
 
 [features]
+seccomp = ["dep:bitflags"]
 tracing = ["log-instrument"]
 test-utils = []
 
 [dependencies]
+bitflags = { version = "2.12.1", optional = true }
 displaydoc = "0.2.6"
 libc = "0.2.186"
 log-instrument = { path = "../log-instrument", optional = true }

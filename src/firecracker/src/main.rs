@@ -35,7 +35,7 @@ use vmm::logger::{
 };
 use vmm::persist::SNAPSHOT_VERSION;
 use vmm::resources::VmResources;
-use vmm::seccomp::BpfThreadMap;
+use vmm::seccomp::{BpfThreadMap, SeccompFeatures};
 use vmm::signal_handler::register_signal_handlers;
 use vmm::snapshot::{SnapshotError, get_format_version};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
@@ -658,12 +658,11 @@ fn run_without_api(
     .map_err(RunWithoutApiError::BuildMicroVMFromJson)?;
 
     // INVARIANT: seccomp must be applied before entering the event loop.
-    vmm::seccomp::apply_filter(
-        seccomp_filters
-            .get("vmm")
-            .ok_or(RunWithoutApiError::MissingSeccompFilter)?,
-    )
-    .map_err(RunWithoutApiError::SeccompFilter)?;
+    let vmm_seccomp_filter = seccomp_filters
+        .get("vmm")
+        .ok_or(RunWithoutApiError::MissingSeccompFilter)?
+        .compose(SeccompFeatures::all());
+    vmm::seccomp::apply_filter(&vmm_seccomp_filter).map_err(RunWithoutApiError::SeccompFilter)?;
 
     // Start the metrics.
     firecracker_metrics
