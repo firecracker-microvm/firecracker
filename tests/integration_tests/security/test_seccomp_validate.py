@@ -83,3 +83,114 @@ def test_validate_filter(seccompiler, bin_test_syscall, monkeypatch, tmp_path, t
                 # if we call it with unallowed args, it should exit 159
                 # 159 = 128 (abnormal termination) + 31 (SIGSYS)
                 assert outcome.returncode == 159
+
+
+def _rule_features(rule):
+    """The feature tags of a rule, empty for an always-on rule."""
+    features = rule.get("features", rule.get("feature", []))
+    return [features] if isinstance(features, str) else features
+
+
+def _rule_args(rule):
+    """Seed a syscall probe with the values mentioned by its argument conditions."""
+    args = [0] * 4
+    for arg in rule.get("args", []):
+        args[arg["index"]] = arg["val"]
+    return args
+
+
+def _selected_rules(rules, enabled):
+    """Select rules for a monolithic reference filter, removing their feature tags."""
+    return [
+        {
+            key: value
+            for key, value in rule.items()
+            if key not in ("feature", "features")
+        }
+        for rule in rules
+        if not _rule_features(rule) or enabled.intersection(_rule_features(rule))
+    ]
+
+
+@pytest.mark.parametrize("thread", [*FILTER_THREADS, "overlapping"])
+def test_validate_feature_gating(
+    seccompiler, bin_test_syscall, monkeypatch, tmp_path, thread
+):
+    """
+    Compare composed filters with monolithic filters of the selected rules.
+
+    The kernel evaluates argument conditions and overlapping rules in both
+    programs, including rules enabled by different features.
+    """
+
+    fc_filter = json.loads(FC_FILTER_PATH.read_text(encoding="ascii"))
+    fc_filter["overlapping"] = {
+        "default_action": "trap",
+        "filter_action": "allow",
+        "filter": [
+            {"syscall": "exit_group"},
+            {"syscall": "write"},
+            {"syscall": "getpid", "feature": "net"},
+            {"syscall": "getpid", "features": ["block"]},
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": {"masked_eq": 0xFF},
+                        "val": 0x12,
+                    }
+                ],
+            },
+            {
+                "syscall": "ioctl",
+                "feature": "pmem",
+                "args": [{"index": 1, "type": "dword", "op": "eq", "val": 0x112}],
+            },
+        ],
+    }
+    filter_data = fc_filter[thread]
+    fc_filter = {thread: filter_data}
+
+    # cd to a tmp dir because we may generate a bunch of intermediate files
+    monkeypatch.chdir(tmp_path)
+    # prevent coredumps
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+
+    arch = seccomp.Arch.X86_64 if ARCH == "x86_64" else seccomp.Arch.AARCH64
+    # this one cannot be called directly
+    rules = [
+        rule
+        for rule in filter_data["filter"]
+        if rule["syscall"] not in ["rt_sigreturn"]
+    ]
+    features = sorted({feature for rule in rules for feature in _rule_features(rule)})
+    filter_path = Path(f"{thread}.bpf")
+    reference_path = tmp_path / f"{thread}-monolithic.bpf"
+
+    def run(path, rule):
+        syscall_id = seccomp.resolve_syscall(arch, rule["syscall"])
+        args = " ".join(str(x) for x in _rule_args(rule))
+        return utils.run_cmd(f"{bin_test_syscall} {path} {syscall_id} {args}")
+
+    def check(enabled):
+        reference = {
+            **filter_data,
+            "filter": _selected_rules(filter_data["filter"], enabled),
+        }
+        seccompiler.compile({thread: reference}, split_output=True)
+        filter_path.rename(reference_path)
+        selected = ",".join(sorted(enabled)) or "none"
+        seccompiler.compile(fc_filter, split_output=True, features=selected)
+        for rule in rules:
+            expected = run(reference_path, rule).returncode
+            # 159 = 128 (abnormal termination) + 31 (SIGSYS)
+            assert expected in (0, 159), (selected, rule)
+            assert run(filter_path, rule).returncode == expected, (selected, rule)
+
+    check(set())
+    for feature in features:
+        check({feature})
+    if len(features) > 1:
+        check(set(features))

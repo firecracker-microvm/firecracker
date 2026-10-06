@@ -5,6 +5,7 @@
 import json
 import os
 import platform
+import time
 from pathlib import Path
 
 from framework import utils
@@ -218,3 +219,60 @@ def test_seccomp_rust_panic(bin_seccomp_paths, seccompiler):
         assert (
             code == -6
         ), f"Panic binary failed with exit code {code} on {thread} filters."
+
+
+ALL_SECCOMP_FEATURES = "api,pci,hotplug,block,async-io,net,vsock,pmem,memory-hotplug"
+
+
+def _seccomp_features_log_line(features):
+    """The log line reporting the seccomp features a microVM gets."""
+    return f"Seccomp features required by the microVM: [{features}]"
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_seccomp_features_derived(uvm):
+    """
+    Test that Firecracker only enables the seccomp features a microVM uses.
+
+    A microVM with just a root drive gets the API and block rules. With the
+    PCI transport, devices can be hot-plugged, so every hot-pluggable device
+    type is kept as well.
+    """
+    uvm.spawn()
+    uvm.basic_config()
+    uvm.start()
+    if uvm.pci_enabled:
+        expected = "api,pci,hotplug,block,async-io,net,pmem"
+    else:
+        expected = "api,block"
+    uvm.check_log_message(_seccomp_features_log_line(expected))
+    utils.assert_seccomp_level(uvm.firecracker_pid, "2")
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_seccomp_features_all(uvm):
+    """
+    Test that --seccomp-features all enables every feature.
+    """
+    uvm.jailer.extra_args.update({"seccomp-features": "all"})
+    uvm.spawn()
+    uvm.basic_config()
+    uvm.start()
+    uvm.check_log_message(_seccomp_features_log_line(ALL_SECCOMP_FEATURES))
+    utils.assert_seccomp_level(uvm.firecracker_pid, "2")
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_seccomp_features_invalid(uvm):
+    """
+    Test that Firecracker refuses to start with an unknown seccomp feature.
+    """
+    uvm.jailer.extra_args.update({"seccomp-features": "net,warp-drive"})
+    uvm.spawn(expect_failure=True)
+    # give time for the process to exit
+    time.sleep(1)
+    assert (
+        "Invalid value for seccomp-features: Unknown seccomp feature: warp-drive"
+        in uvm.log_data
+    )
+    uvm.mark_killed()
