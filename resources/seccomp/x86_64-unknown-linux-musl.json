@@ -65,15 +65,18 @@
             },
             {
                 "syscall": "io_uring_enter",
-                "comment": "Used for submitting io_uring requests"
+                "comment": "Used for submitting io_uring requests",
+                "feature": "async-io"
             },
             {
                 "syscall": "io_uring_setup",
-                "comment": "Used on drive patch"
+                "comment": "Used on drive patch",
+                "feature": "async-io"
             },
             {
                 "syscall": "io_uring_register",
-                "comment": "Used on drive patch"
+                "comment": "Used on drive patch",
+                "feature": "async-io"
             },
             {
                 "syscall": "brk",
@@ -1160,7 +1163,8 @@
             },
             {
                 "syscall": "io_uring_enter",
-                "comment": "Needed to drain the async block IO engine's io_uring when the device is reset by the guest (from the vCPU thread)"
+                "comment": "Needed to drain the async block IO engine's io_uring when the device is reset by the guest (from the vCPU thread)",
+                "feature": "async-io"
             },
             {
                 "syscall": "epoll_ctl",
