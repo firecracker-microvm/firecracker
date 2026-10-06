@@ -33,15 +33,27 @@ struct Cli {
                 Used for testing purposes."
     )]
     split_output: bool,
+    #[arg(
+        long,
+        requires = "split_output",
+        default_value = "all",
+        help = "Which feature-tagged rules the individual BPF files include: `all`, `none` or a \
+                comma-separated list of feature names. Repeated options extend the list."
+    )]
+    features: Vec<String>,
 }
 
 fn main() -> Result<(), CompilationError> {
     let cli = Cli::parse();
+    let list = cli.features.join(",");
+    let features = list
+        .parse()
+        .map_err(|_| CompilationError::InvalidFeatureSelection(list))?;
     compile_bpf(
         &cli.input_file,
         &cli.target_arch,
         &cli.output_file,
         cli.basic,
-        cli.split_output,
+        cli.split_output.then_some(features),
     )
 }

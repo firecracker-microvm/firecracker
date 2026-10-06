@@ -44,6 +44,7 @@ cargo_toml = "1.0.0"
 libc = "0.2.186"
 seccompiler = { path = "../seccompiler" }
 semver = "1.0.28"
+zerocopy = "0.8.50"
 
 # Dev-Dependencies for uffd examples
 serde = { version = "1.0.228", features = ["derive"] }

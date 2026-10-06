@@ -8,7 +8,7 @@ use std::io::Read;
 
 use serde::de::{Deserialize, Deserializer, MapAccess, Visitor};
 pub use utils::seccomp::bpf::{BPF_MAX_LEN, SockFilter as BpfInstruction};
-use utils::seccomp::bpf::{BPF_RET_A, BPF_RET_K, BpfPart as SerializedPart};
+use utils::seccomp::bpf::{BPF_RET_A, BPF_RET_K, BpfPart as FilterPart, compose};
 pub use utils::seccomp::{SeccompFeatures, UnknownSeccompFeature};
 
 use crate::seccomp_thread::SeccompThread;
@@ -29,17 +29,6 @@ pub type BpfProgram = Vec<BpfInstruction>;
 /// Reference to program made up of a sequence of BPF instructions.
 pub type BpfProgramRef<'a> = &'a [BpfInstruction];
 
-/// Part of the seccomp filter of a thread category.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct FilterPart {
-    /// Features that enable this part, any one of them is sufficient. A part without features is
-    /// always included.
-    features: SeccompFeatures,
-    /// BPF code. Every part but the last falls through to the next one when none of its rules
-    /// match the syscall being filtered.
-    code: BpfProgram,
-}
-
 /// The seccomp filter of one thread category, as compiled by seccompiler: a sequence of parts that
 /// [`SeccompFilter::compose`] assembles into the program that gets installed on a thread.
 ///
@@ -47,40 +36,13 @@ struct FilterPart {
 /// holds the rules that are always needed and falls through instead of returning the default
 /// action, the feature-gated fragments follow, and an epilogue returns the default action.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SeccompFilter(FilterLayout);
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-enum FilterLayout {
-    #[default]
-    Disabled,
-    Complete(BpfProgram),
-    Composed {
-        base: BpfProgram,
-        fragments: Vec<FilterPart>,
-        epilogue: BpfInstruction,
-    },
-}
+pub struct SeccompFilter(Vec<FilterPart>);
 
 impl SeccompFilter {
     /// Assemble the program for a microVM with `enabled` features: the parts without features
     /// and the ones with at least one enabled feature, in order.
     pub fn compose(&self, enabled: SeccompFeatures) -> BpfProgram {
-        match &self.0 {
-            FilterLayout::Disabled => Vec::new(),
-            FilterLayout::Complete(program) => program.clone(),
-            FilterLayout::Composed {
-                base,
-                fragments,
-                epilogue,
-            } => {
-                let mut program = base.clone();
-                for fragment in fragments.iter().filter(|f| f.features.intersects(enabled)) {
-                    program.extend_from_slice(&fragment.code);
-                }
-                program.push(*epilogue);
-                program
-            }
-        }
+        compose(&self.0, enabled)
     }
 
     /// Check that the filter has the layout seccompiler gives it, so that every composition of
@@ -99,20 +61,19 @@ impl SeccompFilter {
         if let Some(index) = parts.iter().position(|part| part.code.is_empty()) {
             return Err(FilterLayoutError::EmptyPart(index));
         }
-        let mut parts = parts.into_iter();
-        let Some(base) = parts.next() else {
-            return Ok(Self::default());
+        let Some((base, tail)) = parts.split_first() else {
+            return Ok(Self(parts));
         };
         if !base.features.is_empty() {
             return Err(FilterLayoutError::TaggedBase);
         }
-        let Some(epilogue) = parts.next_back() else {
+        let Some((epilogue, fragments)) = tail.split_last() else {
             let last = base.code.len() - 1;
             if u32::from(base.code[last].code) & BPF_CLASS_MASK != libc::BPF_RET {
                 return Err(FilterLayoutError::NoFinalReturn);
             }
             check_jumps(0, &base.code, last)?;
-            return Ok(Self(FilterLayout::Complete(base.code)));
+            return Ok(Self(parts));
         };
 
         if !epilogue.features.is_empty() {
@@ -123,7 +84,6 @@ impl SeccompFilter {
             _ => return Err(FilterLayoutError::InvalidEpilogue),
         };
         check_body(0, &base.code, epilogue.k)?;
-        let fragments: Vec<_> = parts.collect();
         for (i, part) in fragments.iter().enumerate() {
             let index = i + 1;
             if part.features.is_empty() {
@@ -131,11 +91,7 @@ impl SeccompFilter {
             }
             check_body(index, &part.code, epilogue.k)?;
         }
-        Ok(Self(FilterLayout::Composed {
-            base: base.code,
-            fragments,
-            epilogue,
-        }))
+        Ok(Self(parts))
     }
 }
 
@@ -209,6 +165,8 @@ fn check_jumps(
 
 /// Type that associates a thread category to its seccomp filter.
 pub type BpfThreadMap = HashMap<String, SeccompFilter>;
+
+type SerializedPart = FilterPart<Vec<String>>;
 
 // Read map entries without collecting them into a HashMap first: that would discard
 // repeated keys before the decoder can check the normalized names.
@@ -290,18 +248,6 @@ pub fn deserialize_binary<R: Read>(reader: R) -> Result<BpfThreadMap, Deserializ
         Err(err) => return Err(err.into()),
     };
 
-    // A typo in a feature tag fails here rather than silently leaving a rule out.
-    let part = |part: SerializedPart| {
-        let features = part
-            .features
-            .iter()
-            .map(|name| SeccompFeatures::from_tag(name))
-            .collect::<Result<_, _>>()?;
-        Ok::<_, DeserializationError>(FilterPart {
-            features,
-            code: part.code,
-        })
-    };
     let mut filters = BpfThreadMap::with_capacity(entries.len());
     for (name, parts) in entries {
         match filters.entry(name.to_lowercase()) {
@@ -309,7 +255,10 @@ pub fn deserialize_binary<R: Read>(reader: R) -> Result<BpfThreadMap, Deserializ
                 return Err(DeserializationError::DuplicateThread(entry.key().clone()));
             }
             Entry::Vacant(entry) => {
-                let parts = parts.into_iter().map(part).collect::<Result<_, _>>()?;
+                let parts = parts
+                    .into_iter()
+                    .map(FilterPart::try_from)
+                    .collect::<Result<_, _>>()?;
                 let filter = SeccompFilter::from_parts(parts)
                     .map_err(|err| DeserializationError::Layout(entry.key().clone(), err))?;
                 entry.insert(filter);
@@ -469,18 +418,18 @@ mod tests {
         let expected = BpfThreadMap::from([
             (
                 "vcpu".to_string(),
-                SeccompFilter(FilterLayout::Composed {
-                    base: allow(1),
-                    fragments: vec![part(
-                        SeccompFeatures::NET | SeccompFeatures::HOTPLUG,
-                        allow(2),
-                    )],
-                    epilogue: trap()[0],
-                }),
+                SeccompFilter(vec![
+                    part(SeccompFeatures::empty(), allow(1)),
+                    part(SeccompFeatures::NET | SeccompFeatures::HOTPLUG, allow(2)),
+                    part(SeccompFeatures::empty(), trap()),
+                ]),
             ),
             (
                 "api".to_string(),
-                SeccompFilter(FilterLayout::Complete([allow(3), trap()].concat())),
+                SeccompFilter(vec![part(
+                    SeccompFeatures::empty(),
+                    [allow(3), trap()].concat(),
+                )]),
             ),
             ("main".to_string(), SeccompFilter::default()),
         ]);
@@ -718,17 +667,15 @@ mod tests {
                 .is_empty()
         );
 
-        let filter = SeccompFilter(FilterLayout::Composed {
-            base: program(&[1, 2]),
-            fragments: vec![
-                part(SeccompFeatures::NET, program(&[10, 11])),
-                part(
-                    SeccompFeatures::PMEM | SeccompFeatures::MEMORY_HOTPLUG,
-                    program(&[20]),
-                ),
-            ],
-            epilogue: BpfInstruction::stmt(0, 3),
-        });
+        let filter = SeccompFilter(vec![
+            part(SeccompFeatures::empty(), program(&[1, 2])),
+            part(SeccompFeatures::NET, program(&[10, 11])),
+            part(
+                SeccompFeatures::PMEM | SeccompFeatures::MEMORY_HOTPLUG,
+                program(&[20]),
+            ),
+            part(SeccompFeatures::empty(), program(&[3])),
+        ]);
         for (enabled, expected) in [
             (SeccompFeatures::empty(), vec![1, 2, 3]),
             (SeccompFeatures::NET, vec![1, 2, 10, 11, 3]),

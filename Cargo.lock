@@ -627,6 +627,7 @@ dependencies = [
  "utils",
  "vmm",
  "vmm-sys-util",
+ "zerocopy",
 ]
 
 [[package]]

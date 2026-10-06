@@ -6,6 +6,8 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
+use super::{SeccompFeatures, UnknownSeccompFeature};
+
 /// Fit libc's opcode constants to the kernel's 16-bit instruction field.
 pub const fn opcode(value: u32) -> u16 {
     assert!(value <= u16::MAX as u32);
@@ -70,9 +72,31 @@ impl<'de> Deserialize<'de> for SockFilter {
     }
 }
 
-/// One record in the compiled filter file. Untagged records are always installed.
+/// One part of a compiled filter. The loader can retain raw tags to report unknown names.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BpfPart {
-    pub features: Vec<String>,
+pub struct BpfPart<F = SeccompFeatures> {
+    pub features: F,
     pub code: Vec<SockFilter>,
+}
+
+impl TryFrom<BpfPart<Vec<String>>> for BpfPart {
+    type Error = UnknownSeccompFeature;
+
+    fn try_from(part: BpfPart<Vec<String>>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            features: SeccompFeatures::from_tags(&part.features)?,
+            code: part.code,
+        })
+    }
+}
+
+/// Concatenate untagged parts and parts matching any enabled feature, in policy order.
+pub fn compose(parts: &[BpfPart], enabled: SeccompFeatures) -> Vec<SockFilter> {
+    let mut program = Vec::new();
+    for part in parts {
+        if part.features.is_empty() || part.features.intersects(enabled) {
+            program.extend_from_slice(&part.code);
+        }
+    }
+    program
 }

@@ -7,8 +7,8 @@ use std::fmt;
 use std::str::FromStr;
 
 use serde::*;
-pub use utils::seccomp::SeccompFeature;
-pub use utils::seccomp::bpf::{BpfPart, SockFilter};
+pub use utils::seccomp::bpf::{BpfPart, SockFilter, compose};
+pub use utils::seccomp::{SeccompFeature, SeccompFeatures};
 
 // use libseccomp::{ScmpAction, ScmpArch, ScmpCompareOp};
 use crate::bindings::*;
@@ -281,7 +281,7 @@ impl BpfFilter {
 
     pub(crate) fn into_parts(self) -> Vec<BpfPart> {
         let untagged = |code| BpfPart {
-            features: vec![],
+            features: SeccompFeatures::empty(),
             code,
         };
         match self {
@@ -299,23 +299,6 @@ impl BpfFilter {
             }
         }
     }
-}
-
-/// The program of `filter` with the untagged parts and the ones tagged with one of `features`.
-/// `all` selects every part, and a name no part is tagged with, such as `none`, selects none.
-pub fn compose<S: AsRef<str>>(filter: &[BpfPart], features: &[S]) -> Vec<SockFilter> {
-    let selected = |part: &BpfPart| {
-        part.features.is_empty()
-            || features.iter().any(|feature| {
-                let feature = feature.as_ref();
-                feature == "all" || part.features.iter().any(|tag| tag == feature)
-            })
-    };
-    filter
-        .iter()
-        .filter(|part| selected(part))
-        .flat_map(|part| part.code.iter().copied())
-        .collect()
 }
 
 /// The compiled filters of all thread categories, keyed by thread name.

@@ -40,6 +40,8 @@ pub enum CompilationError {
     LibSeccompRule,
     /// Cannot export libseccomp bpf
     LibSeccompExport,
+    /// Invalid feature selection {0:?}: expected `all`, `none` or a list of known feature names
+    InvalidFeatureSelection(String),
     /// A filter with feature-tagged rules needs distinct default and filter actions
     SameActions,
     /// Cannot chain the programs of feature-tagged rules: {0}
@@ -56,14 +58,15 @@ pub enum CompilationError {
 ///
 /// Rules tagged with features are compiled separately from the other rules of their thread, so that
 /// Firecracker can leave them out at runtime when none of their features is in use (see
-/// [`BpfPart`]). `basic` drops all argument checks (deprecated) and `split_output` writes one raw
-/// program per thread with every part included instead of the serialized [`BpfMap`].
+/// [`BpfPart`]). `basic` drops all argument checks (deprecated). With `split_output`, one raw
+/// program per thread, composed with the fragments of the selected features (see [`compose`]), is
+/// written next to `out_path` instead of the serialized [`BpfMap`].
 pub fn compile_bpf(
     input_path: &str,
     arch: &str,
     out_path: &str,
     basic: bool,
-    split_output: bool,
+    split_output: Option<SeccompFeatures>,
 ) -> Result<(), CompilationError> {
     let mut file_content = String::new();
     File::open(input_path)
@@ -83,7 +86,7 @@ pub fn compile_bpf(
         );
     }
 
-    if split_output {
+    if let Some(features) = split_output {
         // Output individual files for each thread (for testing)
         let base_path = Path::new(out_path);
         let parent = base_path.parent().unwrap_or_else(|| Path::new("."));
@@ -95,7 +98,7 @@ pub fn compile_bpf(
 
             // Write raw BPF data as bytes
             use zerocopy::IntoBytes;
-            std::io::Write::write_all(&mut thread_file, compose(bpf_filter, &["all"]).as_bytes())
+            std::io::Write::write_all(&mut thread_file, compose(bpf_filter, features).as_bytes())
                 .map_err(CompilationError::OutputCreate)?;
         }
     } else {
@@ -158,7 +161,11 @@ fn compile_filter(
     let mut fragments = Vec::with_capacity(tagged.len());
     for (features, rules) in tagged {
         fragments.push(BpfPart {
-            features: features.iter().map(|f| f.name().to_owned()).collect(),
+            features: features
+                .iter()
+                .copied()
+                .map(SeccompFeatures::from)
+                .collect(),
             code: program(&rules)?,
         });
     }
@@ -334,7 +341,7 @@ mod tests {
             arch,
             output.as_path().to_str().unwrap(),
             basic,
-            false,
+            None,
         )?;
         let encoded = std::fs::read(output.as_path()).unwrap();
         Ok(bitcode::deserialize(&encoded).unwrap())
@@ -388,7 +395,10 @@ mod tests {
         let map = compile(TAGGED_JSON, "x86_64", false).unwrap();
         let filter = &map["main"];
 
-        let features: Vec<_> = filter.iter().map(|part| part.features.join(",")).collect();
+        let features: Vec<_> = filter
+            .iter()
+            .map(|part| part.features.to_string())
+            .collect();
         assert_eq!(features, ["", "net", "pmem,memory-hotplug", ""]);
         assert_eq!(filter[3].code, [bpf::epilogue(SECCOMP_RET_TRAP)]);
         // A filter without tagged rules stays a single libseccomp program.
@@ -396,10 +406,10 @@ mod tests {
         assert!(map["untagged"][0].features.is_empty());
 
         for enabled in [
-            &["none"][..],
-            &["net"],
-            &["pmem"],
-            &["memory-hotplug", "net"],
+            SeccompFeatures::empty(),
+            SeccompFeatures::NET,
+            SeccompFeatures::PMEM,
+            SeccompFeatures::MEMORY_HOTPLUG | SeccompFeatures::NET,
         ] {
             let program = compose(filter, enabled);
 
@@ -428,7 +438,7 @@ mod tests {
             );
 
             // The tagged rules are only there when one of their features is enabled.
-            let net = if enabled.contains(&"net") {
+            let net = if enabled.contains(SeccompFeatures::NET) {
                 SECCOMP_RET_ALLOW
             } else {
                 SECCOMP_RET_TRAP
@@ -439,11 +449,12 @@ mod tests {
                 simulate(&program, &ioctl(NR_IOCTL, TUNSETOFFLOAD | 0xdead << 32)),
                 net
             );
-            let getpid = if enabled.contains(&"pmem") || enabled.contains(&"memory-hotplug") {
-                SECCOMP_RET_ALLOW
-            } else {
-                SECCOMP_RET_TRAP
-            };
+            let getpid =
+                if enabled.intersects(SeccompFeatures::PMEM | SeccompFeatures::MEMORY_HOTPLUG) {
+                    SECCOMP_RET_ALLOW
+                } else {
+                    SECCOMP_RET_TRAP
+                };
             assert_eq!(simulate(&program, &syscall(NR_GETPID)), getpid);
         }
     }
@@ -470,13 +481,16 @@ mod tests {
         }"#;
         let map = compile(json, "x86_64", false).unwrap();
         let filter = &map["main"];
-        let features: Vec<_> = filter.iter().map(|part| part.features.join(",")).collect();
+        let features: Vec<_> = filter
+            .iter()
+            .map(|part| part.features.to_string())
+            .collect();
         assert_eq!(features, ["", "pmem,memory-hotplug", "net", ""]);
 
         for (enabled, allowed) in [
-            (&["none"][..], false),
-            (&["pmem"], true),
-            (&["memory-hotplug"], true),
+            (SeccompFeatures::empty(), false),
+            (SeccompFeatures::PMEM, true),
+            (SeccompFeatures::MEMORY_HOTPLUG, true),
         ] {
             let program = compose(filter, enabled);
             let expected = if allowed {
@@ -505,7 +519,8 @@ mod tests {
         let json = TAGGED_JSON.replace(r#""trap""#, r#""kill_thread""#);
         let map = compile(&json, "x86_64", false).unwrap();
         let filter = &map["main"];
-        for program in [compose(filter, &["none"]), compose(filter, &["all"])] {
+        for features in [SeccompFeatures::empty(), SeccompFeatures::all()] {
+            let program = compose(filter, features);
             assert_eq!(simulate(&program, &syscall(NR_WRITE)), SECCOMP_RET_ALLOW);
             assert_eq!(
                 simulate(&program, &syscall(NR_OPEN)),
@@ -519,7 +534,10 @@ mod tests {
             }
         }
         assert_eq!(
-            simulate(&compose(filter, &["all"]), &syscall(NR_GETPID)),
+            simulate(
+                &compose(filter, SeccompFeatures::all()),
+                &syscall(NR_GETPID)
+            ),
             SECCOMP_RET_ALLOW
         );
     }
@@ -528,7 +546,7 @@ mod tests {
     fn test_compile_tagged_filter_aarch64() {
         let map = compile(TAGGED_JSON, "aarch64", false).unwrap();
         let filter = &map["main"];
-        let program = compose(filter, &["all"]);
+        let program = compose(filter, SeccompFeatures::all());
 
         // Syscalls are resolved for the target architecture, not the host.
         let data = |nr, args| SeccompData::new(AUDIT_ARCH_AARCH64, nr, args);
@@ -548,7 +566,7 @@ mod tests {
             SECCOMP_RET_TRAP
         );
         // A foreign architecture is killed by libseccomp's own check, with or without fragments.
-        for program in [program, compose(filter, &["none"])] {
+        for program in [program, compose(filter, SeccompFeatures::empty())] {
             assert_eq!(
                 simulate(
                     &program,
@@ -562,7 +580,7 @@ mod tests {
     #[test]
     fn test_compile_basic_drops_conditions() {
         let map = compile(TAGGED_JSON, "x86_64", true).unwrap();
-        let program = compose(&map["main"], &["all"]);
+        let program = compose(&map["main"], SeccompFeatures::all());
         assert_eq!(simulate(&program, &ioctl(NR_IOCTL, 7)), SECCOMP_RET_ALLOW);
     }
 
@@ -584,6 +602,7 @@ mod tests {
 
         for (tag, unknown) in [
             (r#""feature": "nett""#, "nett"),
+            (r#""feature": " net ""#, " net "),
             (r#""features": ["net", "warp-drive"]"#, "warp-drive"),
         ] {
             let json = format!(
@@ -626,13 +645,12 @@ mod tests {
             features: Vec<String>,
             code: Vec<u64>,
         }
-        let features = vec!["net".to_owned()];
         let words = vec![WirePart {
-            features: features.clone(),
+            features: vec!["net".to_owned(), "vsock".to_owned()],
             code: vec![0xc000_003e_0703_0015, 0x0003_0000_0000_0006],
         }];
         let parts = vec![BpfPart {
-            features,
+            features: SeccompFeatures::VSOCK | SeccompFeatures::NET,
             code: vec![
                 SockFilter {
                     code: 0x15,
@@ -655,7 +673,7 @@ mod tests {
     fn test_total_program_limit() {
         let ret = bpf::epilogue(SECCOMP_RET_TRAP);
         let fragment = BpfPart {
-            features: vec!["net".to_owned()],
+            features: SeccompFeatures::NET,
             code: vec![ret],
         };
         BpfFilter::new(
@@ -785,8 +803,8 @@ mod tests {
                 let [monolithic] = &monolithic[thread][..] else {
                     panic!("{arch_name}/{thread}: more than one part without tags");
                 };
-                let everything = compose(filter, &["all"]);
-                let nothing = compose(filter, &["none"]);
+                let everything = compose(filter, SeccompFeatures::all());
+                let nothing = compose(filter, SeccompFeatures::empty());
 
                 for data in &corpus {
                     let expected = simulate(&monolithic.code, data);

@@ -110,7 +110,9 @@ mod tests {
     use std::os::fd::AsRawFd;
 
     use vmm::seccomp::{BpfThreadMap, SeccompFeatures, SeccompFilter, apply_filter};
+    use vmm_sys_util::tempdir::TempDir;
     use vmm_sys_util::tempfile::TempFile;
+    use zerocopy::IntoBytes;
 
     use super::*;
 
@@ -124,7 +126,7 @@ mod tests {
             arch,
             output.as_path().to_str().unwrap(),
             false,
-            false,
+            None,
         )
         .unwrap();
         deserialize_binary(File::open(output.as_path()).unwrap()).unwrap()
@@ -182,6 +184,40 @@ mod tests {
             write_result(SeccompFeatures::all()),
             (-1, Some(libc::EPERM))
         );
+    }
+
+    /// `--split-output` with a feature selection writes, for every thread of the default filters,
+    /// the program Firecracker composes for the same features from the serialized filter.
+    #[test]
+    fn test_split_output_features() {
+        for arch in ["x86_64", "aarch64"] {
+            let json_path = format!(
+                "{}/../../resources/seccomp/{arch}-unknown-linux-musl.json",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let filters = compile_and_load(&std::fs::read_to_string(&json_path).unwrap(), arch);
+            for features in SeccompFeatures::all()
+                .iter()
+                .chain([SeccompFeatures::empty(), SeccompFeatures::all()])
+            {
+                let dir = TempDir::new().unwrap();
+                let out = dir.as_path().join("filters");
+                seccompiler::compile_bpf(
+                    &json_path,
+                    arch,
+                    out.to_str().unwrap(),
+                    false,
+                    Some(features),
+                )
+                .unwrap();
+                for (thread, filter) in &filters {
+                    let written =
+                        std::fs::read(dir.as_path().join(format!("{thread}.bpf"))).unwrap();
+                    let expected = filter.compose(features);
+                    assert_eq!(written, expected.as_bytes(), "{arch} {thread} {features:?}");
+                }
+            }
+        }
     }
 
     #[test]

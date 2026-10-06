@@ -5,6 +5,8 @@
 
 use std::{fmt, str::FromStr};
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
+
 pub mod bpf;
 
 /// Unknown seccomp feature: {0}
@@ -80,6 +82,32 @@ impl SeccompFeatures {
     pub fn from_tag(name: &str) -> Result<Self, UnknownSeccompFeature> {
         name.parse::<SeccompFeature>().map(Self::from)
     }
+
+    fn from_tags(tags: &[String]) -> Result<Self, UnknownSeccompFeature> {
+        tags.iter().map(|tag| Self::from_tag(tag)).collect()
+    }
+
+    fn names(self) -> impl Iterator<Item = &'static str> {
+        SeccompFeature::ALL
+            .iter()
+            .copied()
+            .filter(move |&feature| self.contains(feature.into()))
+            .map(SeccompFeature::name)
+    }
+}
+
+// The filter file stores a list of canonical tag names, not the in-memory bit mask.
+impl Serialize for SeccompFeatures {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Bitcode needs the sequence length before it writes the first name.
+        self.names().collect::<Vec<_>>().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SeccompFeatures {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::from_tags(&Vec::<String>::deserialize(deserializer)?).map_err(de::Error::custom)
+    }
 }
 
 impl FromStr for SeccompFeatures {
@@ -100,14 +128,11 @@ impl FromStr for SeccompFeatures {
 
 impl fmt::Display for SeccompFeatures {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut names = SeccompFeature::ALL
-            .iter()
-            .copied()
-            .filter(|&feature| self.contains(feature.into()));
+        let mut names = self.names();
         if let Some(first) = names.next() {
-            f.write_str(first.name())?;
+            f.write_str(first)?;
             for feature in names {
-                write!(f, ",{}", feature.name())?;
+                write!(f, ",{feature}")?;
             }
         }
         Ok(())
