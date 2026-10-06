@@ -353,6 +353,7 @@ impl<'a> PrebootApiController<'a> {
         vm_resources: &'a mut VmResources,
         event_manager: &'a mut EventManager,
     ) -> Self {
+        vm_resources.api_enabled = true;
         Self {
             seccomp_filters,
             instance_info,
@@ -1085,6 +1086,41 @@ mod tests {
         let seccomp_filters = BpfThreadMap::new();
         let mut preboot = default_preboot(&mut vm_resources, &mut evmgr, &seccomp_filters);
         preboot.handle_preboot_request(request)
+    }
+
+    #[test]
+    fn test_preboot_new_enables_api_seccomp_features() {
+        use crate::seccomp::SeccompFeatures;
+
+        for api_enabled in [false, true] {
+            for pci_enabled in [false, true] {
+                let mut vm_resources = VmResources {
+                    api_enabled,
+                    pci_enabled,
+                    ..Default::default()
+                };
+                let mut event_manager = EventManager::new().unwrap();
+                let seccomp_filters = BpfThreadMap::new();
+                let preboot = PrebootApiController::new(
+                    &seccomp_filters,
+                    InstanceInfo::default(),
+                    &mut vm_resources,
+                    &mut event_manager,
+                );
+
+                assert!(preboot.vm_resources.api_enabled);
+                let mut expected = SeccompFeatures::API;
+                if pci_enabled {
+                    expected |= SeccompFeatures::PCI
+                        | SeccompFeatures::HOTPLUG
+                        | SeccompFeatures::BLOCK
+                        | SeccompFeatures::ASYNC_IO
+                        | SeccompFeatures::NET
+                        | SeccompFeatures::PMEM;
+                }
+                assert_eq!(preboot.vm_resources.required_seccomp_features(), expected);
+            }
+        }
     }
 
     #[test]
