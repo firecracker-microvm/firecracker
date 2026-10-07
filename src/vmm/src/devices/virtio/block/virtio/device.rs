@@ -711,7 +711,7 @@ impl VirtioBlock {
     }
 
     /// Spawn a parked worker thread for the next activation.
-    pub(crate) fn spawn_worker(
+    pub fn spawn_worker(
         &mut self,
         seccomp_filter: Arc<BpfProgram>,
     ) -> Result<(), VirtioBlockError> {
