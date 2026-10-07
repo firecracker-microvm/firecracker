@@ -97,6 +97,11 @@ impl IfReqBuilder {
         self
     }
 
+    pub(crate) fn mtu(mut self, mtu: i32) -> Self {
+        self.0.ifr_ifru.ifru_mtu = mtu;
+        self
+    }
+
     pub(crate) fn execute<F: AsRawFd + Debug>(
         mut self,
         socket: &F,

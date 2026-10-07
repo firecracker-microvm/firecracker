@@ -250,13 +250,31 @@ pub fn enable(tap: &Tap) {
             c_ulong::from(super::generated::sockios::SIOCSIFFLAGS),
         )
         .unwrap();
+
+    // Raise the MTU to the maximum the tap driver accepts (`MAX_MTU - hard_header_len`), so
+    // that tests can inject frames of up to `ETH_MAX_MTU` bytes (plus the virtio-net header)
+    // and not just the default 1500 bytes.
+    IfReqBuilder::new()
+        .if_name(&tap.if_name)
+        .mtu(i32::try_from(super::generated::ETH_MAX_MTU - super::generated::ETH_HLEN).unwrap())
+        .execute(&sock, c_ulong::from(super::generated::sockios::SIOCSIFMTU))
+        .unwrap();
 }
 
+/// The largest frame (including the virtio-net header) that [`inject_tap_tx_frame`] can push
+/// through the tap: the tap's maximum MTU plus the Ethernet and virtio-net headers.
+#[cfg(test)]
+pub(crate) const MAX_TAP_TX_FRAME_LEN: usize =
+    super::generated::ETH_MAX_MTU as usize + vnet_hdr_len();
+
+/// Push a frame of `len` bytes (including the virtio-net header) to the tap, so that the
+/// device can read it. `len` cannot exceed [`MAX_TAP_TX_FRAME_LEN`].
 #[cfg(test)]
 pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
     use std::os::unix::ffi::OsStrExt;
 
     assert!(len >= vnet_hdr_len());
+    assert!(len <= MAX_TAP_TX_FRAME_LEN);
     let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&net.tap));
     let mut frame = vmm_sys_util::rand::rand_alphanumerics(len - vnet_hdr_len())
         .as_bytes()
