@@ -51,7 +51,7 @@ fn main() {
         // SAFETY: This is safe as long as `header` is valid as `KernelHeader`.
         let header_bytes = unsafe {
             std::slice::from_raw_parts(
-                (&header as *const KernelHeader).cast::<u8>(),
+                std::ptr::from_ref::<KernelHeader>(&header).cast::<u8>(),
                 std::mem::size_of::<KernelHeader>(),
             )
         };

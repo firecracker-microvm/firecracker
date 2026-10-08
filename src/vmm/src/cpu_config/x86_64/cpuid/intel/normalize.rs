@@ -388,11 +388,7 @@ fn default_brand_string(
 
 #[cfg(test)]
 mod tests {
-    #![allow(
-        clippy::undocumented_unsafe_blocks,
-        clippy::unwrap_used,
-        clippy::as_conversions
-    )]
+    #![allow(clippy::undocumented_unsafe_blocks, clippy::unwrap_used)]
 
     use std::collections::BTreeMap;
     use std::ffi::CStr;
