@@ -46,6 +46,11 @@ and this project adheres to
   files of block devices when loading a snapshot. See
   [Overriding host resources](docs/snapshotting/snapshot-support.md#overriding-host-resources)
   for more information.
+- [#6402](https://github.com/firecracker-microvm/firecracker/pull/6402): Added
+  `pmem_overrides` to the `PUT /snapshot/load` API, which overrides the backing
+  files of pmem devices when loading a snapshot. See
+  [Overriding host resources](docs/snapshotting/snapshot-support.md#overriding-host-resources)
+  for more information.
 
 ### Changed
 

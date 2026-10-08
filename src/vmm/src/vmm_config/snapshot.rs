@@ -84,6 +84,16 @@ pub struct DriveOverride {
     pub path_on_host: String,
 }
 
+/// Allows for changing the backing file of a pmem device during snapshot restore
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PmemOverride {
+    /// The ID of the pmem device to modify
+    pub id: String,
+    /// The new path of the pmem device's backing file
+    pub path_on_host: String,
+}
+
 /// Selects the huge-page configuration to use when loading a snapshot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
 pub enum SnapshotLoadHugePageConfig {
@@ -130,6 +140,8 @@ pub struct LoadSnapshotParams {
     pub vsock_override: Option<VsockOverride>,
     /// The block devices whose backing files to override on load.
     pub drive_overrides: Vec<DriveOverride>,
+    /// The pmem devices whose backing files to override on load.
+    pub pmem_overrides: Vec<PmemOverride>,
     /// [x86_64 only] When set to true, passes `KVM_CLOCK_REALTIME` to `KVM_SET_CLOCK` on restore,
     /// advancing kvmclock by the wall-clock time elapsed since the snapshot was taken. When false
     /// (default), kvmclock resumes from where it was at snapshot time.
@@ -171,6 +183,9 @@ pub struct LoadSnapshotConfig {
     /// The block devices whose backing files to override on load.
     #[serde(default)]
     pub drive_overrides: Vec<DriveOverride>,
+    /// The pmem devices whose backing files to override on load.
+    #[serde(default)]
+    pub pmem_overrides: Vec<PmemOverride>,
     /// [x86_64 only] When set to true, passes `KVM_CLOCK_REALTIME` to `KVM_SET_CLOCK` on restore.
     #[serde(default)]
     pub clock_realtime: bool,

@@ -121,6 +121,7 @@ specification:
 |                           | network_overrides        |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
 |                           | vsock_override           |    O     |       O        |      O       |        O         |     O      |    **R**     |     O      |      O      |     O      |       O        |
 |                           | drive_overrides          |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | pmem_overrides           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
 | `Logger`                  | level                    |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | log_path                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | show_level               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
@@ -179,6 +180,8 @@ specification:
 |                           | root_device              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
 |                           | read_only                |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
 |                           | rate_limiter             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
+| `PmemOverride`            | id                       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
+|                           | path_on_host             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
 | `PartialPmem`             | id                       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
 |                           | rate_limiter             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |
 | `SerialDevice`            | serial_out_path          |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
