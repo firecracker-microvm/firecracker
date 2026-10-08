@@ -7,7 +7,7 @@
 
 use std::io;
 use std::num::Wrapping;
-use std::sync::{Arc, Barrier};
+use std::sync::{Arc, Barrier, RwLock};
 
 use serde::Serialize;
 use vmm_sys_util::eventfd::EventFd;
@@ -27,7 +27,7 @@ pub enum I8042Error {
 }
 
 /// Metrics specific to the i8042 device.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub(super) struct I8042DeviceMetrics {
     /// Errors triggered while using the i8042 device.
     error_count: SharedIncMetric,
@@ -42,22 +42,14 @@ pub(super) struct I8042DeviceMetrics {
     /// Bytes written by this device.
     write_count: SharedIncMetric,
 }
-impl I8042DeviceMetrics {
-    /// Const default construction.
-    const fn new() -> Self {
-        Self {
-            error_count: SharedIncMetric::new(),
-            missed_read_count: SharedIncMetric::new(),
-            missed_write_count: SharedIncMetric::new(),
-            read_count: SharedIncMetric::new(),
-            reset_count: SharedIncMetric::new(),
-            write_count: SharedIncMetric::new(),
-        }
-    }
-}
 
-/// Stores aggregated metrics
-pub(super) static METRICS: I8042DeviceMetrics = I8042DeviceMetrics::new();
+/// Stores the metrics of the (single) i8042 device.
+///
+/// The device owns its `Arc<I8042DeviceMetrics>` and registers a clone here on construction, so
+/// that `flush_metrics` can serialize them without reaching into the device. Keeping the metrics
+/// off a process-wide global lets unit tests, which each build their own device, run in parallel
+/// without clobbering each other's counters.
+pub(super) static METRICS: RwLock<Option<Arc<I8042DeviceMetrics>>> = RwLock::new(None);
 
 /// Offset of the status port (port 0x64)
 const OFS_STATUS: u64 = 4;
@@ -115,11 +107,17 @@ pub struct I8042Device {
     buf: [u8; BUF_SIZE],
     bhead: Wrapping<usize>,
     btail: Wrapping<usize>,
+
+    /// Metrics for this device, also registered in the module-level `METRICS`.
+    metrics: Arc<I8042DeviceMetrics>,
 }
 
 impl I8042Device {
     /// Constructs an i8042 device that will signal the given event when the guest requests it.
     pub fn new(reset_evt: EventFd) -> Result<I8042Device, std::io::Error> {
+        let metrics = Arc::new(I8042DeviceMetrics::default());
+        // A microVM only ever has one i8042 device, so replacing the slot is fine.
+        let _ = METRICS.write().unwrap().replace(metrics.clone());
         Ok(I8042Device {
             reset_evt,
             kbd_interrupt_evt: EventFd::new(libc::EFD_NONBLOCK)?,
@@ -130,6 +128,7 @@ impl I8042Device {
             buf: [0; BUF_SIZE],
             bhead: Wrapping(0),
             btail: Wrapping(0),
+            metrics,
         })
     }
 
@@ -214,7 +213,7 @@ impl BusDevice for I8042Device {
     fn read(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
         // All our ports are byte-wide. We don't know how to handle any wider data.
         if data.len() != 1 {
-            METRICS.missed_read_count.inc();
+            self.metrics.missed_read_count.inc();
             return;
         }
 
@@ -239,16 +238,16 @@ impl BusDevice for I8042Device {
             _ => read_ok = false,
         }
         if read_ok {
-            METRICS.read_count.add(data.len() as u64);
+            self.metrics.read_count.add(data.len() as u64);
         } else {
-            METRICS.missed_read_count.inc();
+            self.metrics.missed_read_count.inc();
         }
     }
 
     fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
         // All our ports are byte-wide. We don't know how to handle any wider data.
         if data.len() != 1 {
-            METRICS.missed_write_count.inc();
+            self.metrics.missed_write_count.inc();
             return None;
         }
 
@@ -261,9 +260,9 @@ impl BusDevice for I8042Device {
                 // thread wakes up to handle this event.
                 if let Err(err) = self.reset_evt.write(1) {
                     error!("Failed to trigger i8042 reset event: {:?}", err);
-                    METRICS.error_count.inc();
+                    self.metrics.error_count.inc();
                 }
-                METRICS.reset_count.inc();
+                self.metrics.reset_count.inc();
             }
             OFS_STATUS if data[0] == CMD_READ_CTR => {
                 // The guest wants to read the control register.
@@ -331,9 +330,9 @@ impl BusDevice for I8042Device {
         }
 
         if write_ok {
-            METRICS.write_count.inc();
+            self.metrics.write_count.inc();
         } else {
-            METRICS.missed_write_count.inc();
+            self.metrics.missed_write_count.inc();
         }
 
         None
@@ -375,8 +374,7 @@ mod tests {
         i8042.read(0x0, 1, &mut data);
         assert_eq!(data[0], CMD_RESET_CPU);
 
-        // Check invalid `write`s.
-        let before = METRICS.missed_write_count.count();
+        // Check invalid `write`s. The device is freshly built, so the counter starts at 0.
         // offset != 0.
         i8042.write(0x0, 1, &data);
         // data != CMD_RESET_CPU
@@ -385,7 +383,7 @@ mod tests {
         // data.len() != 1
         let data = [CMD_RESET_CPU; 2];
         i8042.write(0x0, 1, &data);
-        assert_eq!(METRICS.missed_write_count.count(), before + 3);
+        assert_eq!(i8042.metrics.missed_write_count.count(), 3);
     }
 
     #[test]
@@ -529,5 +527,20 @@ mod tests {
             i8042.trigger_kbd_interrupt().unwrap_err(),
             I8042Error::KbdInterruptDisabled
         )
+    }
+
+    #[test]
+    fn test_i8042_metrics() {
+        let metrics = I8042DeviceMetrics::default();
+        metrics.read_count.add(2);
+        metrics.write_count.inc();
+        metrics.error_count.inc();
+
+        let serialized = serde_json::to_string(&metrics).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("read_count").and_then(|v| v.as_u64()), Some(2));
+        assert_eq!(obj.get("write_count").and_then(|v| v.as_u64()), Some(1));
+        assert_eq!(obj.get("error_count").and_then(|v| v.as_u64()), Some(1));
     }
 }

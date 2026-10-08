@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::TryInto;
+use std::sync::{Arc, RwLock};
 
 use serde::Serialize;
 use vm_superio::Rtc;
@@ -20,17 +21,6 @@ pub struct RTCDeviceMetrics {
     pub missed_write_count: SharedIncMetric,
 }
 
-impl RTCDeviceMetrics {
-    /// Const default construction.
-    pub const fn new() -> Self {
-        Self {
-            error_count: SharedIncMetric::new(),
-            missed_read_count: SharedIncMetric::new(),
-            missed_write_count: SharedIncMetric::new(),
-        }
-    }
-}
-
 impl RtcEvents for RTCDeviceMetrics {
     fn invalid_read(&self) {
         self.missed_read_count.inc();
@@ -45,26 +35,24 @@ impl RtcEvents for RTCDeviceMetrics {
     }
 }
 
-impl RtcEvents for &'static RTCDeviceMetrics {
-    fn invalid_read(&self) {
-        RTCDeviceMetrics::invalid_read(self);
-    }
-
-    fn invalid_write(&self) {
-        RTCDeviceMetrics::invalid_write(self);
-    }
-}
-
-/// Stores aggregated metrics
-pub static METRICS: RTCDeviceMetrics = RTCDeviceMetrics::new();
+/// Stores the metrics of the (single) RTC device.
+///
+/// The device owns its `Arc<RTCDeviceMetrics>` (via the inner `Rtc`, which `vm-superio` implements
+/// `RtcEvents` for `Arc<EV>`) and registers a clone here on construction, so that `flush_metrics`
+/// can serialize them. Keeping the metrics off a process-wide global lets unit tests, which each
+/// build their own device, run in parallel without clobbering each other's counters.
+pub static METRICS: RwLock<Option<Arc<RTCDeviceMetrics>>> = RwLock::new(None);
 
 /// Wrapper over vm_superio's RTC implementation.
 #[derive(Debug)]
-pub struct RTCDevice(vm_superio::Rtc<&'static RTCDeviceMetrics>);
+pub struct RTCDevice(vm_superio::Rtc<Arc<RTCDeviceMetrics>>);
 
 impl Default for RTCDevice {
     fn default() -> Self {
-        RTCDevice(Rtc::with_events(&METRICS))
+        let metrics = Arc::new(RTCDeviceMetrics::default());
+        // A microVM only ever has one RTC device, so replacing the slot is fine.
+        let _ = METRICS.write().unwrap().replace(metrics.clone());
+        RTCDevice(Rtc::with_events(metrics))
     }
 }
 
@@ -75,7 +63,7 @@ impl RTCDevice {
 }
 
 impl std::ops::Deref for RTCDevice {
-    type Target = vm_superio::Rtc<&'static RTCDeviceMetrics>;
+    type Target = vm_superio::Rtc<Arc<RTCDeviceMetrics>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -101,7 +89,7 @@ impl RTCDevice {
                 offset,
                 data.len()
             );
-            METRICS.error_count.inc();
+            self.0.events().error_count.inc();
         }
     }
 
@@ -116,7 +104,7 @@ impl RTCDevice {
                 offset,
                 data.len()
             );
-            METRICS.error_count.inc();
+            self.0.events().error_count.inc();
         }
     }
 }
@@ -145,27 +133,29 @@ mod tests {
     use super::*;
     use crate::logger::IncMetric;
 
+    /// Build an `RTCDevice` backed by a caller-owned metrics instance, bypassing the module-level
+    /// `METRICS` registration so each test observes only its own counters.
+    fn build_test_rtc(metrics: Arc<RTCDeviceMetrics>) -> RTCDevice {
+        RTCDevice(Rtc::with_events(metrics))
+    }
+
     #[test]
-    fn test_rtc_device() {
-        static TEST_RTC_DEVICE_METRICS: RTCDeviceMetrics = RTCDeviceMetrics::new();
-        let mut rtc_pl031 = RTCDevice(Rtc::with_events(&TEST_RTC_DEVICE_METRICS));
+    fn test_rtc_device_invalid_write() {
+        let metrics = Arc::new(RTCDeviceMetrics::default());
+        let mut rtc_pl031 = build_test_rtc(metrics.clone());
         let data = [0; 4];
 
         // Write to the DR register. Since this is a RO register, the write
-        // function should fail.
-        let invalid_writes_before = TEST_RTC_DEVICE_METRICS.missed_write_count.count();
-        let error_count_before = TEST_RTC_DEVICE_METRICS.error_count.count();
+        // function should fail. The device is freshly built, so the counters start at 0.
         rtc_pl031.bus_write(0x000, &data);
-        let invalid_writes_after = TEST_RTC_DEVICE_METRICS.missed_write_count.count();
-        let error_count_after = TEST_RTC_DEVICE_METRICS.error_count.count();
-        assert_eq!(invalid_writes_after - invalid_writes_before, 1);
-        assert_eq!(error_count_after - error_count_before, 1);
+        assert_eq!(metrics.missed_write_count.count(), 1);
+        assert_eq!(metrics.error_count.count(), 1);
     }
 
     #[test]
     fn test_rtc_invalid_buf_len() {
-        static TEST_RTC_INVALID_BUF_LEN_METRICS: RTCDeviceMetrics = RTCDeviceMetrics::new();
-        let mut rtc_pl031 = RTCDevice(Rtc::with_events(&TEST_RTC_INVALID_BUF_LEN_METRICS));
+        let metrics = Arc::new(RTCDeviceMetrics::default());
+        let mut rtc_pl031 = build_test_rtc(metrics);
         let write_data_good = 123u32.to_le_bytes();
         let mut data_bad = [0; 2];
         let mut read_data_good = [0; 4];
@@ -176,5 +166,21 @@ mod tests {
         rtc_pl031.bus_read(0x008, &mut data_bad);
         assert_eq!(u32::from_le_bytes(read_data_good), 123);
         assert_eq!(u16::from_le_bytes(data_bad), 0);
+    }
+
+    #[test]
+    fn test_rtc_dev_metrics() {
+        let metrics = RTCDeviceMetrics::default();
+        metrics.error_count.inc();
+        metrics.missed_read_count.add(2);
+
+        let serialized = serde_json::to_string(&metrics).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("error_count").and_then(|v| v.as_u64()), Some(1));
+        assert_eq!(
+            obj.get("missed_read_count").and_then(|v| v.as_u64()),
+            Some(2)
+        );
     }
 }
