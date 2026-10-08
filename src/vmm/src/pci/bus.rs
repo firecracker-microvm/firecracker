@@ -15,9 +15,9 @@ use crate::pci::{PciBridgeSubclass, PciClassCode, PciDevice};
 use crate::utils::u64_to_usize;
 use crate::vstate::bus::BusDevice;
 
-/// Errors for device manager.
+/// Errors for the PCI bus.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum PciRootError {
+pub enum PciBusError {
     /// Could not find an available device slot on the PCI bus.
     NoPciDeviceSlotAvailable,
     /// PCI device ID {0} is already in use.
@@ -29,19 +29,19 @@ const DEVICE_ID_INTEL_VIRT_PCIE_HOST: u16 = 0x0d57;
 const NUM_DEVICE_IDS: usize = 32;
 
 #[derive(Debug)]
-/// Emulates the PCI Root bridge device.
-pub struct PciRoot {
+/// Emulates the PCI host bridge device.
+pub struct PciHostBridge {
     /// Configuration space.
     config: PciConfiguration,
 }
 
-impl PciRoot {
-    /// Create an empty PCI root bridge.
+impl PciHostBridge {
+    /// Create an empty PCI host bridge.
     pub fn new(config: Option<PciConfiguration>) -> Self {
         if let Some(config) = config {
-            PciRoot { config }
+            PciHostBridge { config }
         } else {
-            PciRoot {
+            PciHostBridge {
                 config: PciConfiguration::new_type0(
                     VENDOR_ID_INTEL,
                     DEVICE_ID_INTEL_VIRT_PCIE_HOST,
@@ -56,9 +56,9 @@ impl PciRoot {
     }
 }
 
-impl BusDevice for PciRoot {}
+impl BusDevice for PciHostBridge {}
 
-impl PciDevice for PciRoot {
+impl PciDevice for PciHostBridge {
     fn write_config_register(
         &mut self,
         reg_idx: u16,
@@ -92,9 +92,9 @@ impl Debug for PciBus {
 
 impl PciBus {
     /// Create a new PCI bus
-    pub fn new(pci_root: PciRoot) -> Self {
+    pub fn new(host_bridge: PciHostBridge) -> Self {
         let mut bus: Self = Default::default();
-        bus.devices[0] = Some(Arc::new(Mutex::new(pci_root)));
+        bus.devices[0] = Some(Arc::new(Mutex::new(host_bridge)));
         bus
     }
 
@@ -108,10 +108,10 @@ impl PciBus {
         &mut self,
         device_id: u8,
         device: Arc<Mutex<dyn PciDevice>>,
-    ) -> Result<(), PciRootError> {
+    ) -> Result<(), PciBusError> {
         let slot = &mut self.devices[device_id as usize];
         if slot.is_some() {
-            return Err(PciRootError::DuplicateDeviceId(device_id));
+            return Err(PciBusError::DuplicateDeviceId(device_id));
         }
         *slot = Some(device);
         Ok(())
@@ -127,11 +127,11 @@ impl PciBus {
     /// Note: this is non-reserving — repeated calls without an intervening `add_device` will
     /// return the same ID.
     #[allow(clippy::cast_possible_truncation)]
-    pub fn next_device_id(&self) -> Result<u8, PciRootError> {
+    pub fn next_device_id(&self) -> Result<u8, PciBusError> {
         if let Some(position) = self.devices.iter().position(Option::is_none) {
             Ok(position as u8)
         } else {
-            Err(PciRootError::NoPciDeviceSlotAvailable)
+            Err(PciBusError::NoPciDeviceSlotAvailable)
         }
     }
 }
@@ -447,7 +447,7 @@ fn parse_io_config_address(config_address: u32) -> (u8, u8, u8, u16) {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use super::{PciBus, PciConfigIo, PciConfigMmio, PciRoot};
+    use super::{PciBus, PciConfigIo, PciConfigMmio, PciHostBridge};
     use crate::pci::bus::{DEVICE_ID_INTEL_VIRT_PCIE_HOST, VENDOR_ID_INTEL};
     use crate::pci::configuration::PciConfiguration;
     use crate::pci::{PciClassCode, PciDevice, PciMassStorageSubclass};
@@ -488,8 +488,8 @@ mod tests {
 
     #[test]
     fn test_writing_io_config_address() {
-        let root = PciRoot::new(None);
-        let mut bus = PciConfigIo::new(Arc::new(Mutex::new(PciBus::new(root))));
+        let host_bridge = PciHostBridge::new(None);
+        let mut bus = PciConfigIo::new(Arc::new(Mutex::new(PciBus::new(host_bridge))));
 
         assert_eq!(bus.config_address, 0);
         // Writing more than 32 bits will should fail
@@ -529,8 +529,8 @@ mod tests {
 
     #[test]
     fn test_reading_io_config_address() {
-        let root = PciRoot::new(None);
-        let mut bus = PciConfigIo::new(Arc::new(Mutex::new(PciBus::new(root))));
+        let host_bridge = PciHostBridge::new(None);
+        let mut bus = PciConfigIo::new(Arc::new(Mutex::new(PciBus::new(host_bridge))));
 
         let mut buffer = [0u8; 4];
 
@@ -576,8 +576,8 @@ mod tests {
     }
 
     fn initialize_bus() -> (PciConfigMmio, PciConfigIo) {
-        let root = PciRoot::new(None);
-        let mut bus = PciBus::new(root);
+        let host_bridge = PciHostBridge::new(None);
+        let mut bus = PciBus::new(host_bridge);
         bus.add_device(1, Arc::new(Mutex::new(PciDevMock::new())))
             .unwrap();
 

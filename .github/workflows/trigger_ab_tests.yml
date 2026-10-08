@@ -33,7 +33,8 @@ jobs:
             fi
           done
           if [[ $should_schedule_ab_test -eq 1 ]]; then
-            curl -X POST https://api.buildkite.com/v2/organizations/firecracker/pipelines/performance-a-b-tests/builds \
+            curl --fail-with-body --silent --show-error \
+                 -X POST https://api.buildkite.com/v2/organizations/firecracker/pipelines/performance-a-b-tests/builds \
                  -H 'Content-Type: application/json' \
                  -H 'Authorization: Bearer ${{ secrets.BUILDKITE_TOKEN }}' \
                  -d "{

@@ -20,7 +20,6 @@ from typing import Dict
 
 import psutil
 import semver
-from packaging import version
 from tenacity import (
     Retrying,
     retry,
@@ -134,9 +133,21 @@ def track_cpu_utilization(
 
 
 def get_resident_memory(process: psutil.Process):
-    """Returns current memory utilization in KiB, including used HugeTLBFS"""
+    """Returns current memory utilization in KiB, including used HugeTLBFS and memfds"""
 
     proc_status = Path("/proc", str(process.pid), "status").read_text("utf-8")
+    memfds = [
+        fd
+        for fd in Path("/proc", str(process.pid), "fd").iterdir()
+        if fd.resolve().name.startswith("memfd:guest_mem")
+    ]
+    if memfds:
+        # MADV_DONTNEED unmaps memfd pages without freeing them, so RSS drops while
+        # the memfd still holds the memory. Count what the memfd holds instead.
+        status = dict(line.split(":", 1) for line in proc_status.splitlines())
+        private = sum(int(status[key].split()[0]) for key in ("RssAnon", "RssFile"))
+        return private + sum(fd.stat().st_blocks * 512 for fd in memfds) // 1024
+
     for line in proc_status.splitlines():
         if line.startswith("HugetlbPages:"):  # entry is in KiB
             hugetlbfs_usage = int(line.split()[1])
@@ -283,6 +294,114 @@ def get_stable_rss_mem(uvm, percentage_delta=1):
 
     print("WARNING: RSS readings did not stabilize")
     return second_rss
+
+
+FILLMEM_OUTPUT_PATH = "/tmp/fillmem_output.txt"
+FILLMEM_SUCCESS = "Memory filling was successful"
+OOM_SETTLE_S = 5
+
+
+def wait_for_fillmem(ssh_connection, timeout_s=30):
+    """Poll fillmem's status file until the guest reports the run finished."""
+    status = ""
+    for attempt in Retrying(
+        stop=stop_after_delay(timeout_s),
+        wait=wait_fixed(0.5),
+        retry=retry_if_exception_type(AssertionError),
+        reraise=True,
+    ):
+        with attempt:
+            exit_code, stdout, stderr = ssh_connection.run(f"cat {FILLMEM_OUTPUT_PATH}")
+            # fillmem writes a trailing NUL byte.
+            status = stdout.replace("\x00", "").strip()
+            assert (
+                status
+            ), f"fillmem did not report a result (cat exit {exit_code}: {stderr.strip()})"
+    return status
+
+
+def lower_ssh_oom_chance(ssh_connection):
+    """Lure OOM away from ssh process"""
+    logger = logging.getLogger("lower_ssh_oom_chance")
+
+    cmd = "pidof sshd"
+    exit_code, stdout, stderr = ssh_connection.run(cmd)
+    # add something to the logs for troubleshooting
+    if exit_code != 0:
+        logger.error("while running: %s", cmd)
+        logger.error("stdout: %s", stdout)
+        logger.error("stderr: %s", stderr)
+        return
+
+    for pid in stdout.split():
+        cmd = f"choom -n -1000 -p {pid}"
+        exit_code, stdout, stderr = ssh_connection.run(cmd)
+        if exit_code != 0:
+            logger.error("while running: %s", cmd)
+            logger.error("stdout: %s", stdout)
+            logger.error("stderr: %s", stderr)
+
+
+def make_guest_dirty_memory(ssh_connection, amount_mib=32, oom_expected=False):
+    """Tell the guest, over ssh, to dirty `amount` pages of memory."""
+    lower_ssh_oom_chance(ssh_connection)
+
+    # Start fillmem detached so that an OOM kill of the ssh session cannot
+    # abort it. It truncates the status file when done, so remove any
+    # output from a previous run.
+    ssh_connection.check_output(
+        f"rm -f {FILLMEM_OUTPUT_PATH}; "
+        f"nohup /usr/local/bin/fillmem {amount_mib} >/dev/null 2>&1 </dev/null &"
+    )
+
+    if oom_expected:
+        # The guest is meant to come under memory pressure and may stop
+        # responding altogether, so there is no status worth waiting for.
+        # Give the guest kernel time to react instead.
+        time.sleep(OOM_SETTLE_S)
+        return
+
+    status = wait_for_fillmem(ssh_connection)
+    assert (
+        status == FILLMEM_SUCCESS
+    ), f"fillmem failed to dirty {amount_mib} MiB: {status}"
+
+
+FAST_PAGE_FAULT_HELPER_BIN = "/usr/local/bin/fast_page_fault_helper"
+FAST_PAGE_FAULT_HELPER_OUTPUT_PATH = "/tmp/fast_page_fault_helper.out"
+
+
+def wait_for_fast_page_fault_helper_ready(ssh_connection, pid, timeout_s=10):
+    """Poll until fast_page_fault_helper (pid) is blocked in sigwait."""
+    for attempt in Retrying(
+        stop=stop_after_delay(timeout_s),
+        wait=wait_fixed(0.1),
+        retry=retry_if_exception_type(AssertionError),
+        reraise=True,
+    ):
+        with attempt:
+            _, wchan, _ = ssh_connection.run(f"cat /proc/{pid}/wchan")
+            assert (
+                "sigtimedwait" in wchan
+            ), f"fast_page_fault_helper not blocked in sigwait (wchan={wchan!r})"
+
+
+def start_fast_page_fault_helper(ssh_connection, timeout_s=10) -> str:
+    """Start fast_page_fault_helper detached in the guest, wait until it has
+    touched its memory and is blocked in sigwait, and return its pid.
+
+    Callers can then snapshot the VM and/or send SIGUSR1 to the returned pid.
+    """
+    # The helper truncates its output file when it finishes; remove any
+    # leftover from a previous run (e.g. inside a restored snapshot).
+    ssh_connection.check_output(
+        f"rm -f {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH}; "
+        f"nohup {FAST_PAGE_FAULT_HELPER_BIN} >/dev/null 2>&1 </dev/null &"
+    )
+    _, pid, _ = ssh_connection.check_output("pidof fast_page_fault_helper")
+    pid = pid.strip()
+    wait_for_fast_page_fault_helper_ready(ssh_connection, pid, timeout_s)
+    return pid
 
 
 def _format_output_message(proc, stdout, stderr):
@@ -525,7 +644,9 @@ def wait_process_termination(p_pid, timeout=10.0):
             return
         if time.time() >= deadline:
             raise TimeoutError(f"Process {p_pid} did not exit within {timeout}s")
-        time.sleep(0.05)
+        # Processes normally die within a few ms of SIGKILL; poll finely so we
+        # do not pay a coarse sleep on every VM teardown.
+        time.sleep(0.01)
 
 
 def get_firecracker_version_from_toml():
@@ -551,11 +672,6 @@ def get_kernel_version(level=2):
             linux_version = linux_version[0:idx]
             break
     return linux_version
-
-
-def supports_hugetlbfs_discard():
-    """Returns True if the kernel supports hugetlbfs discard"""
-    return version.parse(get_kernel_version()) >= version.parse("5.18.0")
 
 
 def generate_mmds_session_token(
@@ -642,9 +758,12 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
 
     # Run 'screen -ls' in a retry loop, 30 times with a 1s delay between calls.
     # If the output of 'screen -ls' matches the regex object, it will return the
-    # PID. Otherwise, a RuntimeError will be raised.
+    # PID. Retry both the RuntimeError raised when the output does not match
+    # and the ChildProcessError raised when 'screen -ls' exits non-zero: right
+    # after 'screen -dmS' returns, the session socket may not exist yet, and
+    # 'screen -ls' then fails with "No Sockets found" until it does.
     for attempt in Retrying(
-        retry=retry_if_exception_type(RuntimeError),
+        retry=retry_if_exception_type((RuntimeError, ChildProcessError)),
         stop=stop_after_attempt(30),
         wait=wait_fixed(1),
         reraise=True,

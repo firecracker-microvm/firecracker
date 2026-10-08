@@ -10,6 +10,89 @@ and this project adheres to
 
 ### Added
 
+- [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
+  `SendCtrlAltDel` action is now supported on aarch64. It injects a virtual
+  power-button press through a new PL061 GPIO controller exposed to the guest as
+  a `gpio-keys` power button, enabling external graceful shutdown (aarch64
+  previously rejected the action with a 400). The controller's register state is
+  saved and restored with the microVM, which bumps the snapshot version to
+  `13.0.0`.
+- [#6237](https://github.com/firecracker-microvm/firecracker/pull/6237): Added
+  balloon and virtio-mem memory reclamation for shared memfd-backed guest
+  memory, such as memory shared with vhost-user devices.
+
+### Changed
+
+- [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
+  PL061 GPIO controller backing the new aarch64 power button is always attached
+  and uses one extra GSI, which reduces the GSIs left for VirtIO devices. The
+  new maximum is 91 devices on aarch64; x86_64 is unaffected at 17.
+- [#6201](https://github.com/firecracker-microvm/firecracker/pull/6201):
+  Bounds-check every virtio queue access against the ranges validated at
+  activation, adding defense in depth against out-of-bounds accesses caused by
+  changes to an active queue's configuration. The MMIO and PCI transports
+  already reject queue configuration writes after `DRIVER_OK`, so a guest cannot
+  reach this condition.
+- [#6233](https://github.com/firecracker-microvm/firecracker/pull/6233): When
+  guest memory is backed by a memfd (currently, when a vhost-user device is
+  configured), the hotpluggable memory region is now placed in the same memfd as
+  guest DRAM, with the same layout as a memory snapshot file. The memfd is thus
+  as large as DRAM plus the hotpluggable region, and the jailer's `fsize`
+  resource limit, if set, must be at least `mem_size_mib + total_size_mib` (in
+  bytes) for Firecracker to boot.
+- [#6237](https://github.com/firecracker-microvm/firecracker/pull/6237): Balloon
+  discards on hugetlbfs-backed memory now free the whole huge pages inside each
+  range and zero the partial huge pages at either end. Previously, a range with
+  partial huge pages either failed or kept their old contents. Because zeroing
+  allocates huge pages that were not backed yet, use free page reporting or
+  hinting instead of the traditional balloon with hugetlbfs.
+
+### Deprecated
+
+### Removed
+
+- [#6223](https://github.com/firecracker-microvm/firecracker/pull/6223): Custom
+  CPU template JSON files are no longer included in release artifacts. The
+  template definitions remain available in `tests/data/custom_cpu_templates`.
+
+### Fixed
+
+- [#6254](https://github.com/firecracker-microvm/firecracker/pull/6254) Fixed
+  pausing a vCPU with an unfinished MMIO or port-I/O instruction. Pending I/O
+  now completes before the vCPU pauses, so snapshots include its effects without
+  executing further guest instructions.
+
+- [#6208](https://github.com/firecracker-microvm/firecracker/pull/6208): Fixed
+  the vsock device stalling the VMM thread when the guest connects to a
+  host-side Unix socket whose accept backlog is full. Such connection requests
+  are now refused instead.
+
+- [#6218](https://github.com/firecracker-microvm/firecracker/pull/6218): Bumped
+  `vm-superio` to 0.8.2, fixing serial console input being dropped while the
+  guest has the UART interrupts masked. The Linux 8250 console masks IER for the
+  duration of every `printk` and expects the RX interrupt to be re-asserted once
+  it restores IER, so input that arrived meanwhile stayed in the FIFO and was
+  never delivered to the guest.
+
+- [#6211](https://github.com/firecracker-microvm/firecracker/pull/6211): Fixed
+  the rate limiter permanently throttling a device when a single request
+  exceeded the bucket size by less than one millisecond's worth of tokens. The
+  overconsumption debt was truncated to `0ms`, which disarmed the underlying
+  timerfd while the limiter stayed marked as blocked, so the timer never fired
+  and the device I/O hung until the microVM was restarted. The debt is now
+  computed in nanoseconds and rounded up.
+
+- [#6200](https://github.com/firecracker-microvm/firecracker/pull/6200): Fixed
+  snapshot restore on x86_64 leaving vCPUs with different TSC offsets, which
+  could make guest clocks using the `tsc` clocksource move backwards when a task
+  migrated between vCPUs. On host kernels supporting `KVM_VCPU_TSC_CTRL` (Linux
+  5.16 and later), the restored TSC offset of vCPU 0 is now applied to all vCPUs
+  before they start running.
+
+## [1.17.0]
+
+### Added
+
 - [#5891](https://github.com/firecracker-microvm/firecracker/pull/5891): Added
   support for virtio device reset.
 - [#5983](https://github.com/firecracker-microvm/firecracker/pull/5983): Add two
@@ -56,6 +139,10 @@ and this project adheres to
   new VIRTIO_BLK_F_BLK_SIZE and VIRTIO_BLK_F_TOPOLOGY features to the
   virtio-block device. More information is in the new [block](docs/block.md)
   documentation.
+- [#6142](https://github.com/firecracker-microvm/firecracker/pull/6142): Add
+  opt-in virtio-blk discard support for writable `Sync` IO engine drives through
+  the `discard` drive configuration field. See the
+  [block discard documentation](docs/api_requests/block-discard.md).
 
 ### Changed
 
@@ -64,6 +151,11 @@ and this project adheres to
   to 1. This lets guest kernels recognize that the `VERW` instruction clears
   fill buffers, including on host kernels before v6.4 that cannot expose
   `FLUSH_L1D`.
+- [#6172](https://github.com/firecracker-microvm/firecracker/pull/6172): Gate
+  CLIRD_EL1 override to only happen on host kernels equal or newer than 6.10
+  release. This aliviates the guest performance regression seen on host kernels
+  in range \[6.3..6.10) correlated to incorrect cpu cache topology presented to
+  the guest.
 
 ### Deprecated
 
@@ -79,6 +171,21 @@ and this project adheres to
   new host-initiated connection made after the resume hung forever. The gate is
   now part of the persisted device state and the resume kick respects it instead
   of arming it.
+- [#6174](https://github.com/firecracker-microvm/firecracker/pull/6174): Fixed
+  `virtio-mem` leaving unplugged memory writable by the VMM, and potentially
+  unmapped, on microVMs restored from a snapshot memory file. Firecracker now
+  maps each slot straight to the protection it should have, with the
+  `MAP_NORESERVE` flag, and aborts if the re-map fails.
+- [#6174](https://github.com/firecracker-microvm/firecracker/pull/6174): Fixed
+  `virtio-mem` discarding the whole hotpluggable region on every `UNPLUG_ALL`
+  request, even when nothing was plugged. The discard is now skipped when the
+  range has no plugged blocks.
+- [#6176](https://github.com/firecracker-microvm/firecracker/pull/6176): Fixed
+  `virtio-mem` leaving its block accounting inconsistent with the KVM memory
+  slots if a plug or unplug request failed part way through. Firecracker now
+  commits each slot's state only after its KVM update succeeds, so a partial
+  failure leaves the block state and the KVM slots reflecting exactly the slots
+  that were updated.
 - [#5956](https://github.com/firecracker-microvm/firecracker/pull/5956): Fixed a
   TOCTOU race in the aarch64 jailer when setting ownership of the CPU cache and
   `MIDR_EL1` information files copied into the chroot.
@@ -104,6 +211,11 @@ and this project adheres to
   Terminating a connection now also discards its TX buffer, so the device stops
   advertising `EPOLLOUT` for a host stream it will never write to again, which
   could otherwise busy-spin the event thread indefinitely.
+- [#6083](https://github.com/firecracker-microvm/firecracker/pull/6083): Fixed a
+  vhost-user-block device backed by a readonly backend not being treated as
+  readonly. The `VIRTIO_BLK_F_RO` check read the acked feature set after it had
+  been narrowed to the vhost-user protocol bit, so it never matched, and a
+  readonly vhost-user root device was given `rw` on the guest kernel cmdline.
 - [#6086](https://github.com/firecracker-microvm/firecracker/pull/6086),
   [#6143](https://github.com/firecracker-microvm/firecracker/pull/6143): Fixed a
   deadlock in the logger: a signal handler that logs while the interrupted

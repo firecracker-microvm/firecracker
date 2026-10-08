@@ -156,6 +156,29 @@ impl FileEngine {
         }
     }
 
+    pub fn discard(
+        &mut self,
+        range: (u64, u32),
+        req: PendingRequest,
+    ) -> Result<FileEngineOk, RequestError<BlockIoError>> {
+        match self {
+            FileEngine::Async(engine) => match engine.discard(range) {
+                Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
+                Err(err) => Err(RequestError {
+                    req,
+                    error: BlockIoError::Async(err),
+                }),
+            },
+            FileEngine::Sync(engine) => match engine.discard(range) {
+                Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
+                Err(err) => Err(RequestError {
+                    req,
+                    error: BlockIoError::Sync(err),
+                }),
+            },
+        }
+    }
+
     pub fn drain(&mut self, discard: bool) -> Result<(), BlockIoError> {
         match self {
             FileEngine::Async(engine) => engine.drain(discard).map_err(BlockIoError::Async),
@@ -222,15 +245,11 @@ pub mod tests {
 
     fn create_mem() -> GuestMemoryMmap {
         GuestMemoryMmap::from_regions(
-            memory::anonymous(
-                [(GuestAddress(0), MEM_LEN)].into_iter(),
-                true,
-                HugePageConfig::None,
-            )
-            .unwrap()
-            .into_iter()
-            .map(|region| GuestRegionMmapExt::dram_from_mmap_region(region, 0))
-            .collect(),
+            memory::anonymous(&[(GuestAddress(0), MEM_LEN)], true, HugePageConfig::None)
+                .unwrap()
+                .into_iter()
+                .map(|region| GuestRegionMmapExt::dram_from_mmap_region(region, 0))
+                .collect(),
         )
         .unwrap()
     }

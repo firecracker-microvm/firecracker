@@ -81,7 +81,7 @@ def _find_virtio_blk_bar(vm):
     Example (BAR0 line)::
 
         # cat /sys/bus/pci/devices/0000:00:01.0/resource | head -1
-        0x0000004000000000 0x000000400007ffff 0x0000000000140204
+        0x00000000c0080000 0x00000000c00fffff 0x0000000000140204
     """
     stdout = vm.ssh.check_output("lspci -n").stdout.strip()
     slot = None
@@ -224,10 +224,10 @@ def test_bar_relocation(uvm_configured, devmem_bin):
     vm = uvm_configured
     slot, old_base, num_queues = _setup_scratch_blk_vm(vm, devmem_bin)
 
-    # Relocate the BAR 4 GiB higher. This stays inside the 64-bit MMIO aperture
-    # ([256 GiB, 512 GiB)) and is naturally aligned to the BAR size, so it does
-    # not collide with any other device.
-    new_base = old_base + 0x1_0000_0000
+    # Relocate the BAR 16 MiB higher. This stays inside the 32-bit MMIO
+    # aperture and is naturally aligned to the BAR size, so it does not collide
+    # with any other device.
+    new_base = old_base + (16 << 20)
     assert new_base % CAPABILITY_BAR_SIZE == 0
 
     # Nothing is mapped at the new base yet: an unmapped MMIO read returns 0.
@@ -263,15 +263,16 @@ def test_bar_relocation(uvm_configured, devmem_bin):
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_bar_relocation_refused(uvm_configured, devmem_bin):
     """
-    Test that Firecracker refuses to relocate a BAR outside the 64-bit MMIO
+    Test that Firecracker refuses to relocate a BAR outside the 32-bit MMIO
     aperture and leaves the device where it is.
     """
     vm = uvm_configured
     slot, base, num_queues = _setup_scratch_blk_vm(vm, devmem_bin)
 
-    # The 64-bit MMIO aperture is [256 GiB, 512 GiB), so the resource
-    # allocator has no range to give us at 1 TiB.
-    invalid_base = 0x100_0000_0000  # 1 TiB
+    # The capability BAR is non-prefetchable so it must live within the 32-bit
+    # MMIO aperture. Relocating to 256 GiB (which falls within the prefetchable
+    # window) must fail.
+    invalid_base = 256 << 30
     assert invalid_base % CAPABILITY_BAR_SIZE == 0
 
     _reprogram_bar(vm, slot, invalid_base)
@@ -298,7 +299,7 @@ def test_bar_relocation_snapshot(uvm_configured, microvm_factory, devmem_bin):
     vm = uvm_configured
     slot, old_base, num_queues = _setup_scratch_blk_vm(vm, devmem_bin)
 
-    new_base = old_base + 0x1_0000_0000
+    new_base = old_base + (16 << 20)
     assert new_base % CAPABILITY_BAR_SIZE == 0
     _reprogram_bar(vm, slot, new_base)
 

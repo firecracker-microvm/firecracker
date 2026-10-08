@@ -5,7 +5,7 @@ info:
     The API is accessible through HTTP calls on specific URLs
     carrying JSON modeled data.
     The transport medium is a Unix Domain Socket.
-  version: 1.17.0-dev
+  version: 1.18.0-dev
   termsOfService: ""
   contact:
     email: "firecracker-maintainers@amazon.com"
@@ -833,7 +833,9 @@ paths:
     patch:
       summary: Updates the microVM state.
       description:
-        Sets the desired state (Paused or Resumed) for the microVM.
+        Sets the desired state (Paused or Resumed) for the microVM. While Paused, the
+        vCPUs are paused and the VMM thread only serves API requests, so no device
+        emulation runs.
       operationId: patchVm
       parameters:
         - name: body
@@ -1238,6 +1240,14 @@ definitions:
         description:
           Is block read only.
           This field is required for virtio-block config and should be omitted for vhost-user-block configuration.
+      discard:
+        type: boolean
+        description:
+          Enables virtio-blk discard support. When enabled, the guest can issue
+          discard/TRIM requests for this drive. Only supported for writable
+          virtio-block devices using the Sync IO engine.
+          This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
+        default: false
       path_on_host:
         type: string
         description:

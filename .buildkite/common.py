@@ -102,15 +102,17 @@ def group(label, command, instances, platforms, **kwargs):
 
 def get_changed_files():
     """
-    Get all files changed since `branch`
+    Get all files changed since the merge queue base commit or the PR base branch
     """
-    # Files are changed only in context of a PR
-    if os.environ.get("BUILDKITE_PULL_REQUEST", "false") == "false":
-        return []
+    base = os.environ.get("BUILDKITE_MERGE_QUEUE_BASE_COMMIT")
+    if not base:
+        # Files are changed only in context of a PR or a merge queue entry
+        if os.environ.get("BUILDKITE_PULL_REQUEST", "false") == "false":
+            return []
+        branch = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH", "main")
+        base = f"origin/{branch}"
 
-    branch = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH", "main")
-
-    stdout = subprocess.check_output(f"git diff --name-only origin/{branch}".split(" "))
+    stdout = subprocess.check_output(f"git diff --name-only {base}".split(" "))
 
     return [Path(line) for line in stdout.decode().splitlines()]
 
@@ -273,7 +275,7 @@ def shared_build():
 
     # We need to support 3 scenarios here:
     # 1. We are running in the nightly pipeline - only compile the HEAD of main.
-    # 2. We are running in a PR pipeline - compile HEAD of main as revision A and HEAD of PR branch as revision B.
+    # 2. We are running in a PR or merge queue pipeline - compile the PR base branch or the merge queue base commit as revision A and HEAD as revision B.
     # 3. We are running in an A/B-test pipeline - compile what is passed via REVISION_{A,B} environment variables.
     rev_a = os.environ.get("REVISION_A")
     if rev_a is not None:
@@ -282,6 +284,10 @@ def shared_build():
         build_cmds = ab_revision_build(rev_a)
         if rev_a != rev_b:
             build_cmds += ab_revision_build(rev_b)
+    elif os.environ.get("BUILDKITE_MERGE_QUEUE_BASE_COMMIT"):
+        build_cmds = ab_revision_build(
+            os.environ["BUILDKITE_MERGE_QUEUE_BASE_COMMIT"]
+        ) + ["./tools/devtool -y build --release"]
     elif os.environ.get("BUILDKITE_PULL_REQUEST", "false") != "false":
         build_cmds = ab_revision_build(
             os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH", "main")
@@ -309,10 +315,13 @@ class BKPipeline:
     def __init__(self, with_build_step=True, **kwargs):
         self.steps = []
         self.args = args = self.parser.parse_args()
-        # Retry one time if agent was lost. This can happen if we terminate the
-        # instance or the agent gets disconnected for whatever reason
         retry = {
-            "automatic": [{"exit_status": -1, "limit": 1}],
+            "automatic": [
+                # Not retrying automatically in case of timeouts, regardless of exit status
+                {"signal_reason": "cancel", "limit": 0},
+                # Retrying once if Buildkite lost contact with the agent, or it stopped reporting
+                {"exit_status": -1, "limit": 1},
+            ],
         }
         retry = overlay_dict(retry, kwargs.pop("retry", {}))
         # Calculate step defaults with parameters and kwargs

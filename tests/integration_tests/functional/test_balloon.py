@@ -2,22 +2,25 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for guest-side operations on /balloon resources."""
 
-import logging
 import signal
 import time
-from subprocess import TimeoutExpired
 
 import pytest
 import requests
 from tenacity import Retrying, stop_after_delay, wait_fixed
 
 from framework.guest_stats import MeminfoGuest
-from framework.utils import get_stable_rss_mem
+from framework.utils import (
+    get_stable_rss_mem,
+    make_guest_dirty_memory,
+    start_fast_page_fault_helper,
+)
 
 STATS_POLLING_INTERVAL_S = 1
+RSS_TEST_BALLOON_SIZE_MIB = 128
 
 
-def wait_for_balloon_actual(vm, target_mib, timeout_s=5):
+def wait_for_balloon_actual(vm, target_mib, timeout_s=10):
     """
     Poll the balloon device's reported ``actual_mib`` until it reaches target_mib.
     """
@@ -33,6 +36,27 @@ def wait_for_balloon_actual(vm, target_mib, timeout_s=5):
     return actual_mib
 
 
+def wait_for_changed_available_memory(vm, previous_stats, timeout_s=10):
+    """
+    Poll the balloon stats until the guest reports different available memory.
+
+    The guest refreshes its statistics asynchronously, so a reading taken right
+    after a balloon resize can still describe the state before it.
+    """
+    stats = previous_stats
+    for attempt in Retrying(
+        stop=stop_after_delay(timeout_s),
+        wait=wait_fixed(STATS_POLLING_INTERVAL_S),
+        reraise=True,
+    ):
+        with attempt:
+            stats = vm.api.balloon_stats.get().json()
+            assert (
+                stats["available_memory"] != previous_stats["available_memory"]
+            ), "guest did not report new available memory"
+    return stats
+
+
 def check_guest_dmesg_for_stalls(ssh_connection):
     """Check guest dmesg for RCU stalls and soft lockups."""
     _, stdout, _ = ssh_connection.check_output("dmesg")
@@ -41,62 +65,29 @@ def check_guest_dmesg_for_stalls(ssh_connection):
     assert "BUG: soft lockup -" not in stdout
 
 
-def lower_ssh_oom_chance(ssh_connection):
-    """Lure OOM away from ssh process"""
-    logger = logging.getLogger("lower_ssh_oom_chance")
-
-    cmd = "cat /run/sshd.pid"
-    exit_code, stdout, stderr = ssh_connection.run(cmd)
-    # add something to the logs for troubleshooting
-    if exit_code != 0:
-        logger.error("while running: %s", cmd)
-        logger.error("stdout: %s", stdout)
-        logger.error("stderr: %s", stderr)
-
-    for pid in stdout.split(" "):
-        cmd = f"choom -n -1000 -p {pid}"
-        exit_code, stdout, stderr = ssh_connection.run(cmd)
-        if exit_code != 0:
-            logger.error("while running: %s", cmd)
-            logger.error("stdout: %s", stdout)
-            logger.error("stderr: %s", stderr)
-
-
-def make_guest_dirty_memory(ssh_connection, amount_mib=32):
-    """Tell the guest, over ssh, to dirty `amount` pages of memory."""
-    lower_ssh_oom_chance(ssh_connection)
-
-    try:
-        _ = ssh_connection.run(f"/usr/local/bin/fillmem {amount_mib}", timeout=1.0)
-    except TimeoutExpired:
-        # It's ok if this expires. Sometimes the SSH connection
-        # gets killed by the OOM killer *after* the fillmem program
-        # started. As a result, we can ignore timeouts here.
-        pass
-
-    time.sleep(5)
-
-
 def _test_rss_memory_lower(test_microvm):
     """Check inflating the balloon makes guest use less rss memory."""
     # Get the firecracker pid, and open an ssh connection.
     ssh_connection = test_microvm.ssh
 
-    # Using deflate_on_oom, get the RSS as low as possible
-    test_microvm.api.balloon.patch(amount_mib=200)
+    # Get the RSS as low as possible at a deterministic balloon size.
+    test_microvm.api.balloon.patch(amount_mib=RSS_TEST_BALLOON_SIZE_MIB)
+    wait_for_balloon_actual(test_microvm, RSS_TEST_BALLOON_SIZE_MIB)
 
     # Get initial rss consumption.
     init_rss = get_stable_rss_mem(test_microvm)
 
     # Get the balloon back to 0.
     test_microvm.api.balloon.patch(amount_mib=0)
+    wait_for_balloon_actual(test_microvm, 0)
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem(test_microvm)
 
     # Dirty memory, then inflate balloon and get ballooned rss consumption.
     make_guest_dirty_memory(ssh_connection, amount_mib=32)
 
-    test_microvm.api.balloon.patch(amount_mib=200)
+    test_microvm.api.balloon.patch(amount_mib=RSS_TEST_BALLOON_SIZE_MIB)
+    wait_for_balloon_actual(test_microvm, RSS_TEST_BALLOON_SIZE_MIB)
     balloon_rss = get_stable_rss_mem(test_microvm)
 
     # Check that the ballooning reclaimed the memory.
@@ -104,6 +95,7 @@ def _test_rss_memory_lower(test_microvm):
 
     # Deflate the balloon and check we didn't see any stall messages
     test_microvm.api.balloon.patch(amount_mib=0)
+    wait_for_balloon_actual(test_microvm, 0)
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem(test_microvm)
     check_guest_dmesg_for_stalls(ssh_connection)
@@ -121,7 +113,9 @@ def test_rss_memory_lower(uvm):
 
     # Add a memory balloon.
     test_microvm.api.balloon.put(
-        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=0
+        amount_mib=0,
+        deflate_on_oom=False,
+        stats_polling_interval_s=STATS_POLLING_INTERVAL_S,
     )
 
     # Start the microvm.
@@ -204,13 +198,14 @@ def test_deflate_on_oom(uvm, deflate_on_oom):
 
     # Inflate the balloon
     test_microvm.api.balloon.patch(amount_mib=inflate_size)
+    wait_for_balloon_actual(test_microvm, inflate_size)
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem(test_microvm)
 
     # Check that using memory leads to the balloon device automatically
     # deflate (or not).
     balloon_size_before = test_microvm.api.balloon_stats.get().json()["actual_mib"]
-    make_guest_dirty_memory(test_microvm.ssh, 128)
+    make_guest_dirty_memory(test_microvm.ssh, 128, oom_expected=True)
 
     try:
         balloon_size_after = test_microvm.api.balloon_stats.get().json()["actual_mib"]
@@ -243,7 +238,9 @@ def test_reinflate_balloon(uvm):
 
     # Add a deflated memory balloon.
     test_microvm.api.balloon.put(
-        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=0
+        amount_mib=0,
+        deflate_on_oom=False,
+        stats_polling_interval_s=STATS_POLLING_INTERVAL_S,
     )
 
     # Start the microvm.
@@ -252,11 +249,13 @@ def test_reinflate_balloon(uvm):
     # First inflate the balloon to free up the uncertain amount of memory
     # used by the kernel at boot and establish a baseline, then give back
     # the memory.
-    test_microvm.api.balloon.patch(amount_mib=200)
+    test_microvm.api.balloon.patch(amount_mib=RSS_TEST_BALLOON_SIZE_MIB)
+    wait_for_balloon_actual(test_microvm, RSS_TEST_BALLOON_SIZE_MIB)
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem(test_microvm)
 
     test_microvm.api.balloon.patch(amount_mib=0)
+    wait_for_balloon_actual(test_microvm, 0)
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem(test_microvm)
 
@@ -265,11 +264,13 @@ def test_reinflate_balloon(uvm):
     first_reading = get_stable_rss_mem(test_microvm)
 
     # Now inflate the balloon.
-    test_microvm.api.balloon.patch(amount_mib=200)
+    test_microvm.api.balloon.patch(amount_mib=RSS_TEST_BALLOON_SIZE_MIB)
+    wait_for_balloon_actual(test_microvm, RSS_TEST_BALLOON_SIZE_MIB)
     second_reading = get_stable_rss_mem(test_microvm)
 
     # Now deflate the balloon.
     test_microvm.api.balloon.patch(amount_mib=0)
+    wait_for_balloon_actual(test_microvm, 0)
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem(test_microvm)
 
@@ -278,7 +279,8 @@ def test_reinflate_balloon(uvm):
     third_reading = get_stable_rss_mem(test_microvm)
 
     # Now inflate the balloon again.
-    test_microvm.api.balloon.patch(amount_mib=200)
+    test_microvm.api.balloon.patch(amount_mib=RSS_TEST_BALLOON_SIZE_MIB)
+    wait_for_balloon_actual(test_microvm, RSS_TEST_BALLOON_SIZE_MIB)
     fourth_reading = get_stable_rss_mem(test_microvm)
 
     # Check that the memory used is the same after regardless of the previous
@@ -290,6 +292,7 @@ def test_reinflate_balloon(uvm):
 
     # Deflate the balloon and check we didn't see any stall messages
     test_microvm.api.balloon.patch(amount_mib=0)
+    wait_for_balloon_actual(test_microvm, 0)
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem(test_microvm)
 
@@ -330,18 +333,18 @@ def test_stats(uvm):
 
     # Dirty 10MB of pages.
     make_guest_dirty_memory(test_microvm.ssh, amount_mib=10)
-    time.sleep(1)
-    # This call will internally wait for rss to become stable.
-    _ = get_stable_rss_mem(test_microvm)
+    # Wait for a fresh statistics update.
+    time.sleep(STATS_POLLING_INTERVAL_S * 2)
 
     # Make sure that the stats catch the page faults.
     after_workload_stats = test_microvm.api.balloon_stats.get().json()
     assert initial_stats.get("minor_faults", 0) < after_workload_stats["minor_faults"]
 
-    # Now inflate the balloon with 10MB of pages.
-    test_microvm.api.balloon.patch(amount_mib=10)
-    # This call will internally wait for rss to become stable.
-    _ = get_stable_rss_mem(test_microvm)
+    # Now inflate the balloon with 64MB of pages.
+    balloon_size_mib = 64
+    test_microvm.api.balloon.patch(amount_mib=balloon_size_mib)
+    wait_for_balloon_actual(test_microvm, balloon_size_mib)
+    time.sleep(STATS_POLLING_INTERVAL_S * 2)
 
     # Get another reading of the stats after the polling interval has passed.
     inflated_stats = test_microvm.api.balloon_stats.get().json()
@@ -353,8 +356,8 @@ def test_stats(uvm):
     # Deflate the balloon.check that the stats show the increase in
     # available memory.
     test_microvm.api.balloon.patch(amount_mib=0)
-    # This call will internally wait for rss to become stable.
-    _ = get_stable_rss_mem(test_microvm)
+    wait_for_balloon_actual(test_microvm, 0)
+    time.sleep(STATS_POLLING_INTERVAL_S * 2)
 
     # Get another reading of the stats after the polling interval has passed.
     deflated_stats = test_microvm.api.balloon_stats.get().json()
@@ -396,24 +399,51 @@ def test_stats_update(uvm):
     # Get an initial reading of the stats.
     initial_stats = test_microvm.api.balloon_stats.get().json()
 
-    # Inflate the balloon to trigger a change in the stats.
-    test_microvm.api.balloon.patch(amount_mib=10)
+    # Inflate the balloon to trigger a change in the stats. Use a target large
+    # enough that a refreshed guest payload cannot report the same amount of
+    # available memory.
+    test_microvm.api.balloon.patch(amount_mib=64)
+    wait_for_balloon_actual(test_microvm, 64)
+    _ = wait_for_changed_available_memory(test_microvm, initial_stats)
 
-    # Wait out the polling interval, then get the updated stats.
-    time.sleep(STATS_POLLING_INTERVAL_S * 2)
-    next_stats = test_microvm.api.balloon_stats.get().json()
-    assert initial_stats["available_memory"] != next_stats["available_memory"]
+    # Inflate the balloon more, then verify that changing the polling interval
+    # makes the device request fresh stats right away. Stay well below the
+    # memory the guest has available, because deflate_on_oom lets it give
+    # pages back and then the target is never reached.
+    test_microvm.api.balloon.patch(amount_mib=96)
+    wait_for_balloon_actual(test_microvm, 96)
 
-    # Inflate the balloon more to trigger a change in the stats.
-    test_microvm.api.balloon.patch(amount_mib=30)
-    time.sleep(1)
+    # The device can only request stats while it holds the stats buffer, which
+    # the driver hands back right after answering a request. Each flush resets
+    # the counter, so zero it first and then wait for the next answer: once one
+    # lands, the buffer is on the device side and the next timer request is
+    # almost a full interval away.
+    test_microvm.flush_metrics()
+    for attempt in Retrying(
+        stop=stop_after_delay(5), wait=wait_fixed(0.1), reraise=True
+    ):
+        with attempt:
+            metrics = test_microvm.flush_metrics()["balloon"]
+            assert metrics["stats_updates_count"] >= 1
+    missing_before = test_microvm.log_data.count("missing descriptor")
 
-    # Change the polling interval.
+    # Move the timer a minute out, so that any update seen in the next few
+    # seconds can only come from the interval change itself.
     test_microvm.api.balloon_stats.patch(stats_polling_interval_s=60)
+    assert test_microvm.api.balloon.get().json()["stats_polling_interval_s"] == 60
 
-    # The polling interval change should update the stats.
-    final_stats = test_microvm.api.balloon_stats.get().json()
-    assert next_stats["available_memory"] != final_stats["available_memory"]
+    for attempt in Retrying(
+        stop=stop_after_delay(5), wait=wait_fixed(0.5), reraise=True
+    ):
+        with attempt:
+            metrics = test_microvm.flush_metrics()["balloon"]
+            assert (
+                metrics["stats_updates_count"] >= 1
+            ), "changing the polling interval did not refresh the stats"
+
+    # If the device had nothing to hand back, the request was skipped and the
+    # update above came from the timer instead.
+    assert test_microvm.log_data.count("missing descriptor") == missing_before
 
     # Ensure that stats don't have unknown balloon stats fields
     assert "balloon: unknown stats update tag:" not in test_microvm.log_data
@@ -534,16 +564,12 @@ def test_hinting_reporting_snapshot(uvm, microvm_factory, method):
 
     vm.start()
 
-    vm.ssh.check_output(
-        "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
-    )
-
-    time.sleep(1)
+    # Blocks until the helper has touched its 128 MiB and is waiting in sigwait.
+    pid = start_fast_page_fault_helper(vm.ssh)
 
     # Check memory usage.
     first_reading = get_stable_rss_mem(vm)
 
-    _, pid, _ = vm.ssh.check_output("pidof fast_page_fault_helper")
     # Kill the application which will free the held memory
     vm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
     time.sleep(2)
@@ -565,16 +591,12 @@ def test_hinting_reporting_snapshot(uvm, microvm_factory, method):
     # making it harder to identify them in the memory monitor.
     microvm.memory_monitor = None
 
-    microvm.ssh.check_output(
-        "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
-    )
-
-    time.sleep(1)
+    # Blocks until the helper has touched its 128 MiB and is waiting in sigwait.
+    pid = start_fast_page_fault_helper(microvm.ssh)
 
     # Check memory usage.
     third_reading = get_stable_rss_mem(microvm)
 
-    _, pid, _ = microvm.ssh.check_output("pidof fast_page_fault_helper")
     # Kill the application which will free the held memory
     microvm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
     time.sleep(2)

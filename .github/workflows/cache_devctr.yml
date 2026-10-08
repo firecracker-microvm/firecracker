@@ -1,0 +1,75 @@
+name: Cache dev container
+
+# Keep a copy of the dev container image in the workflow cache so that
+# pull request checks load it from there instead of pulling it from the
+# registry, which rate limits anonymous pulls. The job is idempotent: it
+# exits early when the image for the current tag is already cached, so
+# running it on every devtool change is cheap. The weekly schedule keeps
+# the entry from being evicted for inactivity.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - tools/devtool
+      - .github/workflows/cache_devctr.yml
+  schedule:
+    - cron: "0 1 * * 6"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  cache_devctr:
+    name: Cache dev container
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: "Resolve dev container image"
+        id: image
+        run: |
+          image=$(./tools/devtool -y devctr_image)
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "key=fcuvm-${RUNNER_OS}-${RUNNER_ARCH}-${image##*:}" >> "$GITHUB_OUTPUT"
+
+      # A real restore rather than a lookup, so that the entry counts as
+      # accessed and is not evicted after a quiet week.
+      - name: "Restore cached image"
+        id: restore
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/fcuvm.tar.zst
+          key: ${{ steps.image.outputs.key }}
+
+      - name: "Pull dev container"
+        if: steps.restore.outputs.cache-hit != 'true'
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: docker pull "$IMAGE"
+
+      - name: "Save image"
+        if: steps.restore.outputs.cache-hit != 'true'
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        # `shell: bash` enables pipefail, so a failed `docker save` fails
+        # the step instead of caching a truncated archive.
+        shell: bash
+        run: docker save "$IMAGE" | zstd -T0 -o "$RUNNER_TEMP/fcuvm.tar.zst"
+
+      - name: "Cache image"
+        if: steps.restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/fcuvm.tar.zst
+          key: ${{ steps.image.outputs.key }}

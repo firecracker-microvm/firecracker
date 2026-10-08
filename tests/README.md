@@ -187,12 +187,14 @@ has an open RustSec advisory).
 
 Firecracker has some functional A/B-tests (for example, in
 `test_vulnerabilities.py`), which generally compare the state of the pull
-request target branch (e.g. `main`), with the PR head. However, when running
-these locally, pytest does not know anything about potential PRs that the commit
-the tests are being run on are contained in, and as such cannot do this
-A/B-Test. To run functional A/B-Tests locally, you need to create a "fake" PR
-environment by setting the `BUILDKITE_PULL_REQUEST` and
-`BUILDKITE_PULL_REQUEST_BASE_BRANCH` environment variables:
+request target branch (e.g. `main`), with the PR head. In merge queue builds,
+they compare against the queue's base commit
+(`BUILDKITE_MERGE_QUEUE_BASE_COMMIT`) instead. However, when running these
+locally, pytest does not know anything about potential PRs that the commit the
+tests are being run on are contained in, and as such cannot do this A/B-Test. To
+run functional A/B-Tests locally, you need to create a "fake" PR environment by
+setting the `BUILDKITE_PULL_REQUEST` and `BUILDKITE_PULL_REQUEST_BASE_BRANCH`
+environment variables:
 
 ```
 BUILDKITE_PULL_REQUEST=true BUILDKITE_PULL_REQUEST_BASE_BRANCH=main ./tools/devtool test -- integration_tests/security/test_vulnerabilities.py
@@ -397,9 +399,21 @@ of Firecracker processes. There are two layers:
   - `rootfs` — the rootfs disk path, composed from `guest_kernel` +
     `rootfs_mode` (Ubuntu 24.04 for 5.10, Amazon Linux 2023 otherwise).
   - `pci_enabled` — auto-parametrized over `True`/`False`.
+  - `vm_backend` — auto-parametrized over `"kvm"`.
   - `cpu_template` — `None` by default.
   - `huge_pages` — `HugePagesConfig.NONE` by default. See note below.
   - `vcpu_count`, `mem_size_mib` — `2` and `256` by default.
+
+`guest_kernel` describes the logical kernel; `uvm.kernel_file` is the read-only
+image selected by the backend. Tests that exercise another image format can set
+`uvm.boot_image` before calling `basic_config()`. For x86 bzImage direct boot,
+assert that `uvm.guest_kernel.bzimage` exists and select it as the override.
+This also covers no-ACPI kernels and keeps debug images paired with debug
+kernels; bzImage direct boot does not imply EFI boot. Changing the override
+after `basic_config()` does not update Firecracker's boot-source configuration.
+
+Snapshot metadata preserves the logical `vmlinux` identity, not the boot-image
+override: restoring a snapshot resumes guest state without loading a kernel.
 
 To restrict a dimension to a specific value or subset, use the helpers from
 `framework.artifacts` and `framework.utils_cpu_templates`:

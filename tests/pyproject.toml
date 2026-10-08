@@ -58,3 +58,11 @@ disable = [
     "too-many-branches",
     "too-many-statements",
 ]
+
+[tool.pylint.typecheck]
+
+# astroid builds a full AST for every imported module, and these are large
+# enough to dominate the run: tools/ab_plot.py alone took 15.4s. pylint
+# parallelises per file, so that one file set the floor for everything else.
+# They resolve too dynamically for the checks to fire anyway.
+ignored-modules = ["matplotlib", "numpy", "pandas", "scipy", "seaborn"]

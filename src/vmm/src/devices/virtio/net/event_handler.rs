@@ -115,6 +115,9 @@ impl MutEventSubscriber for Net {
                 source
             );
             match source {
+                Self::PROCESS_ACTIVATE => {
+                    let _ = self.activate_evt.read();
+                }
                 Self::PROCESS_VIRTQ_RX | Self::PROCESS_VIRTQ_TX => self.drain_queue_events(),
                 Self::PROCESS_RX_RATE_LIMITER => {
                     let _ = self.rx_rate_limiter.event_handler();

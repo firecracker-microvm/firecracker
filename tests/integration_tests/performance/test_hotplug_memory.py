@@ -13,9 +13,10 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_f
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.guest_stats import MeminfoGuest
-from framework.microvm import HugePagesConfig, SnapshotType
+from framework.microvm import SnapshotType
 from framework.properties import global_props
-from framework.utils import get_resident_memory, supports_hugetlbfs_discard
+from framework.utils import get_resident_memory, make_guest_dirty_memory
+from framework.utils_hugepages import HugePagesConfig, supports_hugetlbfs_discard
 
 MEMHP_BOOTARGS = "console=ttyS0 reboot=k panic=1 memhp_default_state=online_movable"
 DEFAULT_CONFIG = {"total_size_mib": 1024, "slot_size_mib": 128, "block_size_mib": 2}
@@ -212,9 +213,7 @@ def check_memory_usable(uvm):
     # try to allocate 95% of available memory
     amount_mib = int(mem_available * 95 / 100)
 
-    _ = uvm.ssh.check_output(f"/usr/local/bin/fillmem {amount_mib}", timeout=30)
-    # verify the allocation was successful
-    _ = uvm.ssh.check_output("cat /tmp/fillmem_output.txt | grep successful")
+    make_guest_dirty_memory(uvm.ssh, amount_mib)
 
 
 def check_hotplug(uvm, requested_size_mib):
@@ -262,6 +261,24 @@ def check_hotunplug(uvm, requested_size_mib):
         assert rss_after < rss_before, "RSS didn't decrease"
 
 
+def writable_anon_vmas(uvm, min_size):
+    """Address ranges of writable anonymous VMAs of at least `min_size` bytes in the VMM process"""
+    ranges = set()
+    # /proc/<pid>/maps lists host virtual addresses, so we can't find the guest region by its guest
+    # physical address; callers diff this set across a plug/unplug cycle instead.
+    with open(f"/proc/{uvm.firecracker_pid}/maps", encoding="utf-8") as f:
+        for line in f:
+            fields = line.split()
+            addr_range, perms = fields[0], fields[1]
+            pathname = fields[5] if len(fields) >= 6 else ""
+            if perms != "rw-p" or pathname:
+                continue
+            start, end = (int(x, 16) for x in addr_range.split("-"))
+            if end - start >= min_size:
+                ranges.add(addr_range)
+    return ranges
+
+
 def test_virtio_mem_hotplug_hotunplug(uvm_any_memhp):
     """
     Check that memory can be hotplugged into the VM.
@@ -277,6 +294,27 @@ def test_virtio_mem_hotplug_hotunplug(uvm_any_memhp):
     # Check it works again
     check_hotplug(uvm, 1024)
     check_memory_usable(uvm)
+
+    validate_metrics(uvm)
+
+
+def test_unplug_keeps_region_protected(uvm_any_memhp):
+    """
+    Check that a plug/unplug cycle leaves unplugged memory PROT_NONE, not writable anonymous.
+    """
+    uvm = uvm_any_memhp
+    total_mib = uvm.api.memory_hotplug.get().json()["total_size_mib"]
+    slot_bytes = uvm.api.memory_hotplug.get().json()["slot_size_mib"] << 20
+
+    before = writable_anon_vmas(uvm, slot_bytes)
+    uvm.hotplug_memory(total_mib)
+    uvm.hotplug_memory(0)
+    after = writable_anon_vmas(uvm, slot_bytes)
+
+    assert after <= before, (
+        f"plug/unplug left new writable anonymous mapping(s): {after - before}; "
+        "PROT_NONE was not restored on unplugged slots"
+    )
 
     validate_metrics(uvm)
 

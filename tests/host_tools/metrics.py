@@ -87,14 +87,21 @@ class MetricsWrapper:
         if self.logger:
             asyncio.run(self.logger.flush())
 
-    def store_data(self, dir_path):
-        """Store data into a file"""
+    def store_data(self, dir_path, nodeid=None):
+        """Store data into a file
+
+        `nodeid` is the pytest node id of the test that produced these metrics.
+        It is written as a standalone field (not as a CloudWatch dimension), so
+        it does not affect the emitted CloudWatch metrics. It lets consumers
+        (e.g. the A/B test runner) map a metric back to a runnable pytest test.
+        """
         metrics_path = Path(dir_path / "metrics.json")
         with open(metrics_path, "w", encoding="utf-8") as f:
             json.dump(
                 {
                     "metrics": self.metrics,
                     "dimensions": self.dimensions,
+                    "nodeid": nodeid,
                 },
                 f,
             )

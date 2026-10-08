@@ -9,12 +9,12 @@ import time
 import pytest
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
-from framework.microvm import HugePagesConfig
 from framework.utils import (
     get_stable_rss_mem,
-    supports_hugetlbfs_discard,
+    start_fast_page_fault_helper,
     track_cpu_utilization,
 )
+from framework.utils_hugepages import HugePagesConfig, supports_hugetlbfs_discard
 
 # Every test in this module exercises all huge_pages variants.
 pytestmark = pytest.mark.parametrize(
@@ -92,13 +92,8 @@ def test_hinting_reporting_cpu(
         }
     )
 
-    test_microvm.ssh.check_output(
-        "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
-    )
-
-    # Give helper time to initialize
-    time.sleep(5)
-    _, pid, _ = test_microvm.ssh.check_output("pidof fast_page_fault_helper")
+    # Blocks until the helper has touched its memory and is waiting in sigwait.
+    pid = start_fast_page_fault_helper(test_microvm.ssh)
     test_microvm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
 
     cpu_util = None
@@ -182,17 +177,19 @@ def test_hinting_fault_latency(
 
 
 # pylint: disable=C0103
+@pytest.mark.parametrize("backing", ["anonymous", "memfd"])
 @pytest.mark.parametrize("method", ["traditional", "hinting", "reporting"])
-def test_size_reduction(uvm, method, huge_pages):
+def test_size_reduction(uvm, rootfs, method, backing, huge_pages):
     """
     Verify that ballooning reduces RSS usage on a newly booted guest.
     """
     traditional_balloon = method == "traditional"
     free_page_reporting = method == "reporting"
     free_page_hinting = method == "hinting"
+    memfd_backing = backing == "memfd"
 
     if huge_pages != HugePagesConfig.NONE:
-        if not supports_hugetlbfs_discard():
+        if not memfd_backing and not supports_hugetlbfs_discard():
             pytest.skip("Host does not support hugetlb discard")
 
         if traditional_balloon:
@@ -200,7 +197,12 @@ def test_size_reduction(uvm, method, huge_pages):
 
     test_microvm = uvm
     test_microvm.spawn()
-    test_microvm.basic_config(huge_pages=huge_pages)
+    test_microvm.basic_config(huge_pages=huge_pages, add_root_device=not memfd_backing)
+    if memfd_backing:
+        # Guest memory is only backed by a memfd when a vhost-user device is attached.
+        test_microvm.add_vhost_user_drive(
+            "rootfs", rootfs, is_root_device=True, is_read_only=True
+        )
     test_microvm.add_net_iface()
 
     # Add a memory balloon.
@@ -217,15 +219,11 @@ def test_size_reduction(uvm, method, huge_pages):
 
     get_stable_rss_mem(test_microvm)
 
-    test_microvm.ssh.check_output(
-        "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
-    )
-
-    time.sleep(1)
+    # Blocks until the helper has touched its 128 MiB and is waiting in sigwait.
+    pid = start_fast_page_fault_helper(test_microvm.ssh)
 
     first_reading = get_stable_rss_mem(test_microvm)
 
-    _, pid, _ = test_microvm.ssh.check_output("pidof fast_page_fault_helper")
     # Kill the application which will free the held memory
     test_microvm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
 

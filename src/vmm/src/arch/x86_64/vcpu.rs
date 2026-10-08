@@ -10,12 +10,16 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use kvm_bindings::{
-    CpuId, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES, Msrs, Xsave, kvm_debugregs, kvm_lapic_state,
-    kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs, kvm_xsave, kvm_xsave2,
+    CpuId, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES, KVM_VCPU_TSC_CTRL, KVM_VCPU_TSC_OFFSET,
+    KVMIO, Msrs, Xsave, kvm_debugregs, kvm_device_attr, kvm_lapic_state, kvm_mp_state, kvm_regs,
+    kvm_sregs, kvm_vcpu_events, kvm_xcrs, kvm_xsave, kvm_xsave2,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use serde::{Deserialize, Serialize};
+use vmm_sys_util::errno;
 use vmm_sys_util::fam::{self, FamStruct};
+use vmm_sys_util::ioctl::ioctl_with_ref;
+use vmm_sys_util::ioctl_iow_nr;
 
 use crate::arch::EntryPoint;
 use crate::arch::x86_64::generated::msr_index::{MSR_IA32_TSC, MSR_IA32_TSC_DEADLINE};
@@ -35,6 +39,15 @@ use crate::vstate::vm::KvmVm;
 // https://bugzilla.redhat.com/show_bug.cgi?id=1839095
 const TSC_KHZ_TOL_NUMERATOR: i64 = 250;
 const TSC_KHZ_TOL_DENOMINATOR: i64 = 1_000_000;
+
+// kvm-ioctls only exposes vCPU device-attribute accessors on aarch64.
+#[allow(missing_docs)]
+mod ioctls {
+    use super::*;
+    ioctl_iow_nr!(KVM_SET_DEVICE_ATTR, KVMIO, 0xe1, kvm_device_attr);
+    ioctl_iow_nr!(KVM_GET_DEVICE_ATTR, KVMIO, 0xe2, kvm_device_attr);
+    ioctl_iow_nr!(KVM_HAS_DEVICE_ATTR, KVMIO, 0xe3, kvm_device_attr);
+}
 
 /// A set of MSRs that should be restored separately after all other MSRs have already been restored
 const DEFERRED_MSRS: [u32; 1] = [
@@ -388,6 +401,50 @@ impl KvmVcpu {
     pub fn get_tsc_khz(&self) -> Result<u32, GetTscError> {
         let res = self.fd.get_tsc_khz()?;
         Ok(res)
+    }
+
+    /// Whether KVM supports directly accessing this vCPU's TSC offset.
+    pub fn supports_tsc_offset_attr(&self) -> bool {
+        let attr = kvm_device_attr {
+            group: KVM_VCPU_TSC_CTRL,
+            attr: u64::from(KVM_VCPU_TSC_OFFSET),
+            ..Default::default()
+        };
+        // SAFETY: The vCPU fd and attribute are valid, and HAS_DEVICE_ATTR ignores addr.
+        unsafe { ioctl_with_ref(&self.fd, ioctls::KVM_HAS_DEVICE_ATTR(), &attr) == 0 }
+    }
+
+    /// Read this vCPU's TSC offset relative to the host TSC.
+    pub fn get_tsc_offset(&self) -> Result<i64, errno::Error> {
+        let mut offset = 0_i64;
+        let attr = kvm_device_attr {
+            group: KVM_VCPU_TSC_CTRL,
+            attr: u64::from(KVM_VCPU_TSC_OFFSET),
+            addr: std::ptr::from_mut(&mut offset) as u64,
+            ..Default::default()
+        };
+        // SAFETY: The attribute points to a writable i64 that lives through the ioctl.
+        let ret = unsafe { ioctl_with_ref(&self.fd, ioctls::KVM_GET_DEVICE_ATTR(), &attr) };
+        if ret != 0 {
+            return Err(errno::Error::last());
+        }
+        Ok(offset)
+    }
+
+    /// Set this vCPU's TSC offset while the vCPU is not running.
+    pub fn set_tsc_offset(&self, offset: i64) -> Result<(), errno::Error> {
+        let attr = kvm_device_attr {
+            group: KVM_VCPU_TSC_CTRL,
+            attr: u64::from(KVM_VCPU_TSC_OFFSET),
+            addr: std::ptr::from_ref(&offset) as u64,
+            ..Default::default()
+        };
+        // SAFETY: The attribute points to a readable i64 that lives through the ioctl.
+        let ret = unsafe { ioctl_with_ref(&self.fd, ioctls::KVM_SET_DEVICE_ATTR(), &attr) };
+        if ret != 0 {
+            return Err(errno::Error::last());
+        }
+        Ok(())
     }
 
     /// Get CPUID for this vCPU.
@@ -840,7 +897,7 @@ impl Debug for VcpuState {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
     use kvm_bindings::kvm_msr_entry;
@@ -882,6 +939,43 @@ mod tests {
         vm.setup_irqchip().unwrap();
         let vcpu = KvmVcpu::new(0, &vm).unwrap();
         (vm, vcpu)
+    }
+
+    /// Size in bytes of the guest's MMIO load instruction (`mov al, [si]`).
+    pub(crate) const MMIO_LOAD_SIZE: u64 = 2;
+
+    /// Builds a real-mode vCPU at 0:0x1000 that loads a byte from MMIO GPA 0x4000, increments
+    /// a marker, then stores the byte back to the same address.
+    pub(crate) fn setup_mmio_load_vcpu() -> (KvmVm, crate::vstate::vcpu::Vcpu) {
+        use crate::vstate::memory::Bytes;
+
+        let code: &[u8] = &[
+            0xbe, 0x00, 0x40, // mov si, 0x4000 (just outside RAM)
+            0xb8, 0xa5, 0x00, // mov ax, 0xa5
+            0x31, 0xdb, // xor bx, bx
+            0x8a, 0x04, // mov al, [si]
+            0x43, // inc bx
+            0x88, 0x04, // mov [si], al
+        ];
+        let (vm, vcpu) = crate::vstate::vcpu::tests::setup_vcpu(0x4000);
+        let entry_addr = GuestAddress(0x1000);
+        vm.guest_memory().write_slice(code, entry_addr).unwrap();
+
+        // Keep the reset real-mode state, but fetch code from CS:IP = 0:0x1000.
+        let mut sregs = vcpu.kvm_vcpu.fd.get_sregs().unwrap();
+        sregs.cs.base = 0;
+        sregs.cs.selector = 0;
+        vcpu.kvm_vcpu.fd.set_sregs(&sregs).unwrap();
+        let mut regs = vcpu.kvm_vcpu.fd.get_regs().unwrap();
+        regs.rip = entry_addr.0;
+        vcpu.kvm_vcpu.fd.set_regs(&regs).unwrap();
+        (vm, vcpu)
+    }
+
+    /// Returns (loaded byte, marker, PC).
+    pub(crate) fn read_mmio_load_regs(vcpu: &crate::vstate::vcpu::Vcpu) -> (u64, u64, u64) {
+        let regs = vcpu.kvm_vcpu.fd.get_regs().unwrap();
+        (regs.rax & 0xff, regs.rbx & 0xffff, regs.rip)
     }
 
     fn configure_vcpu(

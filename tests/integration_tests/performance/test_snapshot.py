@@ -13,7 +13,9 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
-from framework.microvm import HugePagesConfig, Microvm, SnapshotType
+from framework.microvm import Microvm, SnapshotType
+from framework.utils import start_fast_page_fault_helper
+from framework.utils_hugepages import HugePagesConfig
 
 USEC_IN_MSEC = 1000
 NS_IN_MSEC = 1_000_000
@@ -177,12 +179,9 @@ def test_post_restore_latency(
         }
     )
 
-    vm.ssh.check_output(
-        "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
-    )
-
-    # Give helper time to initialize
-    time.sleep(5)
+    # Starts the helper and blocks until it has touched its memory and is
+    # waiting in sigwait, so the snapshot below captures it in that state.
+    start_fast_page_fault_helper(vm.ssh)
 
     snapshot = vm.snapshot_full()
     vm.kill()

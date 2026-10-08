@@ -20,9 +20,9 @@ def max_devices(uvm):
     match platform.machine():
         case "aarch64":
             # On aarch64, IRQs are available from 32 to 127. We always use one IRQ each for
-            # the VMGenID, VMClock, RTC and serial devices, so the maximum number of devices
-            # supported at the same time is 92.
-            return 92
+            # the VMGenID, VMClock, RTC, serial and PL061 GPIO devices, so the maximum number
+            # of devices supported at the same time is 91.
+            return 91
         case "x86_64":
             # IRQs are available from 5 to 23. We always use one IRQ for VMGenID and VMClock
             # devices, so the maximum number of devices supported at the same time is 17.

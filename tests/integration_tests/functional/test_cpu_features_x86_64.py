@@ -329,7 +329,7 @@ def test_cpu_rdmsr(
     # Load baseline
     host_cpu = global_props.cpu_codename
     host_kv = global_props.host_linux_version
-    guest_kv = re.search(r"vmlinux-(\d+\.\d+)", guest_kernel.name).group(1)
+    guest_kv = ".".join(guest_kernel.version.split(".")[:2])
     baseline_file_name = (
         f"msr_list_{cpu_template_name}_{host_cpu}_{host_kv}host_{guest_kv}guest.csv"
     )
@@ -597,7 +597,7 @@ def test_cpu_wrmsr_snapshot(
     # Dump MSR state to a file that will be published to S3 for the 2nd part of the test
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
-        / guest_kernel.name
+        / guest_kernel.pytest_id
         / get_cpu_template_name(cpu_template, with_type=True)
     )
     clean_and_mkdir(snapshot_artifacts_dir)
@@ -667,7 +667,7 @@ def test_cpu_wrmsr_restore(msr_reader_bin, microvm_factory, cpu_template, guest_
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
-        / guest_kernel.name
+        / guest_kernel.pytest_id
         / get_cpu_template_name(cpu_template, with_type=True)
     )
 
@@ -739,7 +739,7 @@ def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, cpu_template)
     # Dump CPUID to a file that will be published to S3 for the 2nd part of the test
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_cpuid"])
-        / guest_kernel.name
+        / guest_kernel.pytest_id
         / get_cpu_template_name(cpu_template, with_type=True)
     )
     clean_and_mkdir(snapshot_artifacts_dir)
@@ -794,7 +794,7 @@ def test_cpu_cpuid_restore(microvm_factory, guest_kernel, cpu_template):
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_cpuid"])
-        / guest_kernel.name
+        / guest_kernel.pytest_id
         / get_cpu_template_name(cpu_template, with_type=True)
     )
 

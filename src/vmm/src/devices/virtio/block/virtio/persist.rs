@@ -63,6 +63,7 @@ pub struct VirtioBlockState {
     file_engine_type: FileEngineTypeState,
     blk_size: u32,
     topology: VirtioBlkTopology,
+    discard_sector_alignment: u32,
 }
 
 impl Persist<'_> for VirtioBlock {
@@ -83,6 +84,7 @@ impl Persist<'_> for VirtioBlock {
             file_engine_type: FileEngineTypeState::from(self.file_engine_type()),
             blk_size: self.config_space.blk_size,
             topology: self.config_space.topology,
+            discard_sector_alignment: self.config_space.discard_sector_alignment,
         }
     }
 
@@ -119,6 +121,7 @@ impl Persist<'_> for VirtioBlock {
             capacity: disk_properties.nsectors.to_le(),
             blk_size: state.blk_size,
             topology: state.topology,
+            discard_sector_alignment: state.discard_sector_alignment,
             ..Default::default()
         };
 
@@ -167,6 +170,7 @@ mod tests {
             is_root_device: false,
             partuuid: None,
             is_read_only: false,
+            discard: false,
             cache_type: CacheType::Writeback,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
@@ -210,6 +214,7 @@ mod tests {
             is_root_device: false,
             partuuid: None,
             is_read_only: false,
+            discard: false,
             cache_type: CacheType::Unsafe,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),

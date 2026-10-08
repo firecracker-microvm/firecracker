@@ -9,6 +9,7 @@ import os
 import platform
 import re
 import shutil
+import textwrap
 import time
 import uuid
 from pathlib import Path
@@ -20,10 +21,11 @@ import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_rootfs_mode
-from framework.microvm import HugePagesConfig, SnapshotType
+from framework.microvm import SnapshotType
 from framework.properties import global_props
 from framework.utils import check_filesystem, check_output
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
+from framework.utils_hugepages import HugePagesConfig
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -742,6 +744,32 @@ def read_guest_clocksource(vm):
     return stdout.strip()
 
 
+def check_guest_monotonic_across_vcpus(vm):
+    """Check clock monotonicity as a task migrates between restored vCPUs."""
+    _, stdout, _ = vm.ssh.check_output(
+        textwrap.dedent("""\
+            python3 - <<'PY'
+            import os
+            import time
+
+            cpus = sorted(os.sched_getaffinity(0))
+            assert len(cpus) == 2, cpus
+            previous = time.monotonic_ns()
+            for _ in range(10_000):
+                for cpu in cpus:
+                    os.sched_setaffinity(0, {cpu})
+                    current = time.monotonic_ns()
+                    assert current >= previous, (cpu, previous, current)
+                    previous = current
+
+            print("20,000 clock samples across vCPU migrations: no regressions")
+            PY
+            """),
+        timeout=30,
+    )
+    print(stdout.strip())
+
+
 @pytest.mark.parametrize("clocksource", CLOCK_SOURCES)
 @pytest.mark.parametrize("clock_realtime", [False, True])
 def test_clocksource_snapshot_restore(
@@ -819,3 +847,9 @@ def test_clocksource_snapshot_restore(
     assert (
         jumped == clock_realtime
     ), f"Clock {jumped_str} but clock_realtime was {"not" if clock_realtime else ""} set."
+    if not clock_realtime:
+        assert 0 <= guest_delta < 5.0, f"Unexpected clock delta: {guest_delta:.6f}s"
+
+    if clocksource == "tsc":
+        check_guest_monotonic_across_vcpus(restored_vm)
+        assert read_guest_clocksource(restored_vm) == "tsc"

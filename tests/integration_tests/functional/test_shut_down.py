@@ -8,7 +8,7 @@ import pytest
 from packaging import version
 
 from framework import utils
-from framework.microvm import HugePagesConfig
+from framework.utils_hugepages import HugePagesConfig
 
 
 @pytest.mark.parametrize(
@@ -39,7 +39,11 @@ def test_reboot(uvm, huge_pages):
     # the instance.
     vm.ssh.run("reboot")
 
-    vm.mark_killed()
+    # `reboot` is handled by systemd, which stops all units before asking the
+    # kernel to reboot; a unit stuck on stop is only killed after
+    # DefaultTimeoutStopSec (90s). Firecracker exits only once the kernel
+    # actually reboots (reboot=k), so allow 120s like test_send_ctrl_alt_del.
+    vm.mark_killed(timeout=120)
 
     # Consume existing metrics
     datapoints = vm.get_all_metrics()

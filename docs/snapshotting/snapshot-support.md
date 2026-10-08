@@ -200,6 +200,13 @@ the microVM in the `Paused` state. **Effects**:
 - _on success_: microVM is guaranteed to be `Paused`.
 - _on failure_: no side-effects.
 
+**What `Paused` means**: all vCPU threads are paused, and all device emulation
+stops. API requests are still served, but no virtio device, tap, rate limiter,
+or timer is polled (including the automatic periodic metric flushing).
+Effectively, the guest memory gets frozen in time, except for in-flight async
+block I/O that the kernel completes after the pause (drained by
+`snapshot/create`) and for changes made by external vhost-user backends.
+
 ### Creating snapshots
 
 > [!WARNING]

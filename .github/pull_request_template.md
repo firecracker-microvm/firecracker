@@ -18,8 +18,8 @@ Certificate of Origin and signing off your commits, please check
 - [ ] I have read and understand [CONTRIBUTING.md][3].
 - [ ] I have run `tools/devtool checkbuild --all` to verify that the PR passes
   build checks on all supported architectures.
-- [ ] I have run `tools/devtool checkstyle` to verify that the PR passes the
-  automated style checks.
+- [ ] I have run `tools/devtool checkstyle --no-clippy` to verify that the PR
+  passes the automated style checks.
 - [ ] I have described what is done in these changes, why they are needed, and
   how they are solving the problem in a clear and encompassing way.
 - [ ] I have updated any relevant documentation (both in code and in the docs)

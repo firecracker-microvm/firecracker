@@ -155,7 +155,7 @@ pub fn build_microvm_for_boot(
         .as_ref()
         .ok_or(StartMicrovmError::MissingKernelConfig)?;
 
-    let guest_memory = vm_resources
+    let (guest_memory, mut memfd_backing) = vm_resources
         .allocate_guest_memory()
         .map_err(StartMicrovmError::GuestMemory)?;
 
@@ -187,6 +187,7 @@ pub fn build_microvm_for_boot(
             .allocate_memory_region(
                 addr,
                 u64_to_usize(u32_mib_to_bytes(memory_hotplug.total_size_mib)),
+                memfd_backing.as_mut(),
             )
             .map_err(StartMicrovmError::GuestMemory)?;
         vm.register_hotpluggable_memory_region(
@@ -419,6 +420,41 @@ pub enum BuildMicrovmFromSnapshotError {
     UnsupportedClockRealtime,
 }
 
+/// Align restored TSC offsets before starting any vCPU threads.
+#[cfg(target_arch = "x86_64")]
+fn synchronize_tsc_offsets(vcpus: &[crate::Vcpu]) {
+    let reference = vcpus
+        .first()
+        .expect("TSC synchronization requires at least one vCPU");
+    // KVM_VCPU_TSC_OFFSET is supported since Linux 5.16 (commit 828ca89628bf).
+    // Probe the attribute to keep restore best-effort on older hosts.
+    if !reference.kvm_vcpu.supports_tsc_offset_attr() {
+        crate::logger::debug!("KVM does not support TSC offset synchronization");
+        return;
+    }
+    let offset = match reference.kvm_vcpu.get_tsc_offset() {
+        Ok(offset) => offset,
+        Err(err) => {
+            crate::logger::warn!("Failed to read vCPU 0 TSC offset: {err}");
+            return;
+        }
+    };
+
+    let mut synchronized = true;
+    for vcpu in vcpus {
+        if let Err(err) = vcpu.kvm_vcpu.set_tsc_offset(offset) {
+            crate::logger::warn!(
+                "Failed to synchronize vCPU {} TSC offset: {err}",
+                vcpu.kvm_vcpu.index
+            );
+            synchronized = false;
+        }
+    }
+    if synchronized {
+        crate::logger::debug!("Synchronized all vCPU TSC offsets to {offset}");
+    }
+}
+
 /// Builds and starts a microVM based on the provided MicrovmState.
 ///
 /// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
@@ -471,6 +507,12 @@ pub fn build_microvm_from_snapshot(
             .map_err(VcpuError::VcpuResponse)
             .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
     }
+
+    // Restoring TSC MSRs separately can leave different offsets on each vCPU.
+    // Preserve vCPU0's restored timeline while preventing time from going backwards
+    // when the guest migrates between vCPUs.
+    #[cfg(target_arch = "x86_64")]
+    synchronize_tsc_offsets(&vcpus);
 
     #[cfg(target_arch = "aarch64")]
     {
@@ -821,6 +863,49 @@ pub(crate) mod tests {
         }
     }
 
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_synchronize_tsc_offsets() {
+        for offsets in [
+            &[-5_000_000_000_i64][..],
+            &[-5_000_000_000, 5_000_000_000][..],
+            &[5_000_000_000, 5_000_000_000][..],
+        ] {
+            let count = u8::try_from(offsets.len()).unwrap();
+            let mut source_vm = setup_vm_with_memory(0x1000);
+            let source_vcpus = source_vm.create_vcpus(count).unwrap();
+            if !source_vcpus[0].kvm_vcpu.supports_tsc_offset_attr() {
+                eprintln!("Skipping TSC offset synchronization: KVM attribute unavailable");
+                return;
+            }
+            let vm_state = source_vm.save_state().unwrap();
+            let states: Vec<_> = source_vcpus
+                .iter()
+                .map(|vcpu| vcpu.kvm_vcpu.save_state().unwrap())
+                .collect();
+
+            let mut vm = setup_vm_with_memory(0x1000);
+            let vcpus = vm.create_vcpus(count).unwrap();
+            for ((vcpu, state), &offset) in vcpus.iter().zip(&states).zip(offsets) {
+                vcpu.kvm_vcpu.restore_state(state).unwrap();
+                // Establish exact offsets without depending on KVM's MSR-write heuristics.
+                vcpu.kvm_vcpu.set_tsc_offset(offset).unwrap();
+                assert_eq!(vcpu.kvm_vcpu.get_tsc_offset().unwrap(), offset);
+            }
+
+            synchronize_tsc_offsets(&vcpus);
+            for vcpu in &vcpus {
+                assert_eq!(vcpu.kvm_vcpu.get_tsc_offset().unwrap(), offsets[0]);
+            }
+
+            // The subsequent VM clock restore must preserve the synchronized offsets.
+            vm.restore_state(&vm_state, false).unwrap();
+            for vcpu in &vcpus {
+                assert_eq!(vcpu.kvm_vcpu.get_tsc_offset().unwrap(), offsets[0]);
+            }
+        }
+    }
+
     fn cmdline_contains(cmdline: &Cmdline, slug: &str) -> bool {
         // The following unwraps can never fail; the only way any of these methods
         // would return an `Err` is if one of the following conditions is met:
@@ -894,6 +979,7 @@ pub(crate) mod tests {
                 cache_type: custom_block_cfg.cache_type,
 
                 is_read_only: Some(custom_block_cfg.is_read_only),
+                discard: None,
                 path_on_host: Some(
                     block_files
                         .last()

@@ -3,10 +3,8 @@
 
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{Read, Seek};
+use std::io::Read;
 use std::num::TryFromIntError;
-use std::os::fd::{AsRawFd, FromRawFd};
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::str::FromStr;
 
@@ -15,7 +13,6 @@ use bindings::*;
 
 pub mod types;
 pub use types::*;
-use zerocopy::IntoBytes;
 
 // This byte limit is passed to `bitcode` to guard against a potential memory
 // allocation DOS caused by binary filters that are too large.
@@ -44,14 +41,6 @@ pub enum CompilationError {
     LibSeccompRule,
     /// Cannot export libseccomp bpf
     LibSeccompExport,
-    /// Cannot create memfd: {0}
-    MemfdCreate(std::io::Error),
-    /// Cannot rewind memfd: {0}
-    MemfdRewind(std::io::Error),
-    /// Cannot get memfd metadata: {0}
-    MemfdMetadata(std::io::Error),
-    /// Cannot read from memfd: {0}
-    MemfdRead(std::io::Error),
     /// Integer conversion failed: {0}
     IntConversion(#[from] TryFromIntError),
     /// Cannot create output file: {0}
@@ -78,17 +67,6 @@ pub fn compile_bpf(
         serde_json::from_str(&file_content).map_err(CompilationError::JsonDeserialize)?;
 
     let arch = TargetArch::from_str(arch).map_err(CompilationError::ArchParse)?;
-
-    // SAFETY: Safe because the parameters are valid.
-    let memfd_fd = unsafe { libc::memfd_create(c"bpf".as_ptr().cast(), 0) };
-    if memfd_fd < 0 {
-        return Err(CompilationError::MemfdCreate(
-            std::io::Error::last_os_error(),
-        ));
-    }
-
-    // SAFETY: Safe because the parameters are valid.
-    let mut memfd = unsafe { File::from_raw_fd(memfd_fd) };
 
     let mut bpf_map: BTreeMap<String, Vec<u64>> = BTreeMap::new();
     for (name, filter) in bpf_map_json.0.iter() {
@@ -162,29 +140,25 @@ pub fn compile_bpf(
             }
         }
 
-        // SAFETY: Safe as all args are correect.
+        let mut len: usize = 0;
+        // First call obtains the size of the buffer we need to give
+        // SAFETY: safe as all args are correct
         unsafe {
-            if seccomp_export_bpf(bpf_filter, memfd.as_raw_fd()) != 0 {
+            if seccomp_export_bpf_mem(bpf_filter, std::ptr::null_mut(), &mut len) != 0 {
                 return Err(CompilationError::LibSeccompExport);
             }
         }
-        memfd.rewind().map_err(CompilationError::MemfdRewind)?;
-
-        let size = usize::try_from(
-            memfd
-                .metadata()
-                .map_err(CompilationError::MemfdMetadata)?
-                .size(),
-        )?;
+        // If this is not true, we found a bug in libseccomp.
+        assert!(len.is_multiple_of(std::mem::size_of::<u64>()));
         // Bpf instructions are 8 byte values and 4 byte alignment.
         // We use u64 to satisfy these requirements.
-        let instructions = size / std::mem::size_of::<u64>();
-        let mut bpf = vec![0_u64; instructions];
-
-        memfd
-            .read_exact(bpf.as_mut_bytes())
-            .map_err(CompilationError::MemfdRead)?;
-        memfd.rewind().map_err(CompilationError::MemfdRewind)?;
+        let mut bpf = vec![0_u64; len / std::mem::size_of::<u64>()];
+        // SAFETY: safe as all args are correct
+        unsafe {
+            if seccomp_export_bpf_mem(bpf_filter, bpf.as_mut_ptr().cast(), &mut len) != 0 {
+                return Err(CompilationError::LibSeccompExport);
+            }
+        }
 
         bpf_map.insert(name.clone(), bpf);
     }

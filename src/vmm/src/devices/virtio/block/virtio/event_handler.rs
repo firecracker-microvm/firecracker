@@ -96,6 +96,9 @@ impl MutEventSubscriber for VirtioBlock {
                 source
             );
             match source {
+                Self::PROCESS_ACTIVATE => {
+                    let _ = self.activate_evt.read();
+                }
                 Self::PROCESS_QUEUE => self.drain_queue_events(),
                 Self::PROCESS_RATE_LIMITER => {
                     let _ = self.rate_limiter.event_handler();
