@@ -1263,6 +1263,14 @@ definitions:
           This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
         enum: ["Sync", "Async"]
         default: "Sync"
+      image_format:
+        type: string
+        description:
+          Format of the file at path_on_host. "Vmdk" images must be opened
+          read-only and use the Sync IO engine.
+          This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
+        enum: ["Raw", "Vmdk"]
+        default: "Raw"
       blk_size:
         type: integer
         description:
