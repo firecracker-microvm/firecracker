@@ -13,6 +13,13 @@ and this project adheres to
 - [#6237](https://github.com/firecracker-microvm/firecracker/pull/6237): Added
   balloon and virtio-mem memory reclamation for shared memfd-backed guest
   memory, such as memory shared with vhost-user devices.
+- [#5687](https://github.com/firecracker-microvm/firecracker/issues/5687): Added
+  developer preview support for a generic vhost-user frontend device. This
+  allows attaching any virtio device type (e.g. virtio-fs, virtio-scsi) via the
+  vhost-user protocol without requiring a dedicated Firecracker frontend for
+  each device type, configured via the `PUT /vhost-user-devices/{id}` API
+  endpoint. Config space is owned by the backend via the mandatory CONFIG
+  protocol feature. Snapshotting is not supported.
 
 ### Changed
 
