@@ -1088,13 +1088,15 @@ class Microvm:
         clock_realtime: bool = False,
         *,
         drive_overrides: Optional[dict] = None,
+        pmem_overrides: Optional[dict] = None,
         huge_pages: Optional[HugePagesConfig] = None,
         uffd_handler_name: str = None,
     ):
         """Restore a snapshot
 
-        `drive_overrides` maps drive IDs to the host paths of the files that
-        back them instead of the files recorded in the snapshot.
+        `drive_overrides` and `pmem_overrides` map drive and pmem device IDs to
+        the host paths of the files that back them instead of the files recorded
+        in the snapshot.
         """
 
         jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
@@ -1112,7 +1114,8 @@ class Microvm:
         # Jail overridden disks only from their new paths, so that the restored
         # microVM cannot fall back on the paths recorded in the snapshot.
         drive_overrides = drive_overrides or {}
-        self.disks = jailed_snapshot.disks | drive_overrides
+        pmem_overrides = pmem_overrides or {}
+        self.disks = jailed_snapshot.disks | drive_overrides | pmem_overrides
         assert len(self.disks) > 0, "Snapshot requires at least one disk."
         jailed_disks = {
             disk_id: self.create_jailed_resource(path)
@@ -1169,6 +1172,12 @@ class Microvm:
             optional_kwargs["drive_overrides"] = [
                 {"drive_id": drive_id, "path_on_host": jailed_disks[drive_id]}
                 for drive_id in drive_overrides
+            ]
+
+        if pmem_overrides:
+            optional_kwargs["pmem_overrides"] = [
+                {"id": pmem_id, "path_on_host": jailed_disks[pmem_id]}
+                for pmem_id in pmem_overrides
             ]
 
         if clock_realtime:

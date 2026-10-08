@@ -1352,6 +1352,7 @@ mod tests {
                 network_overrides: vec![],
                 vsock_override: None,
                 drive_overrides: vec![],
+                pmem_overrides: vec![],
                 clock_realtime: false,
                 huge_pages: SnapshotLoadHugePageConfig::Snapshot,
             },
