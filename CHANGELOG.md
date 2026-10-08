@@ -41,6 +41,11 @@ and this project adheres to
   exceed the vCPU count. Custom seccomp filters must include the new
   `blk_worker` thread category. See
   [block documentation](docs/block.md#threaded-mode-and-multiqueue).
+- [#4014](https://github.com/firecracker-microvm/firecracker/issues/4014): Added
+  `drive_overrides` to the `PUT /snapshot/load` API, which overrides the backing
+  files of block devices when loading a snapshot. See
+  [Overriding host resources](docs/snapshotting/snapshot-support.md#overriding-host-resources)
+  for more information.
 
 ### Changed
 

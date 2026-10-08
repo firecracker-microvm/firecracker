@@ -30,6 +30,7 @@ use crate::device_manager::{DevicePersistError, DevicesState};
 // Re-exported so external crates inspecting a `MicrovmState` snapshot can match on the
 // serialised virtio transport variant.
 pub use crate::device_manager::VirtioDevicesState;
+use crate::devices::virtio::block::persist::BlockState;
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
@@ -497,6 +498,15 @@ fn apply_device_overrides<Tr>(
             .uds_path
             .clone_from(&entry.uds_path);
     }
+    for entry in &params.drive_overrides {
+        match device_state_mut(&mut devices.block_devices, &entry.drive_id)
+            .ok_or(SnapshotStateFromFileError::UnknownBlockDevice)?
+        {
+            BlockState::Virtio(state) => state.disk_path.clone_from(&entry.path_on_host),
+            // vhost-user-block devices cannot be snapshotted; only a crafted snapshot gets here.
+            BlockState::VhostUser(_) => return Err(SnapshotStateFromFileError::VhostUserDrive),
+        }
+    }
     Ok(())
 }
 
@@ -522,6 +532,10 @@ pub enum SnapshotStateFromFileError {
     UnknownNetworkDevice,
     /// Unknown Vsock Device.
     UnknownVsockDevice,
+    /// Unknown Block Device.
+    UnknownBlockDevice,
+    /// Cannot override the backing file of a vhost-user block device.
+    VhostUserDrive,
 }
 
 fn snapshot_state_from_file(
@@ -709,7 +723,7 @@ mod tests {
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::snapshot::{
-        MemBackendConfig, NetworkOverride, SnapshotLoadHugePageConfig, VsockOverride,
+        DriveOverride, MemBackendConfig, NetworkOverride, SnapshotLoadHugePageConfig, VsockOverride,
     };
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vstate::memory::{GuestMemoryRegionState, GuestRegionType};
@@ -827,6 +841,7 @@ mod tests {
             resume_vm: false,
             network_overrides: vec![],
             vsock_override: None,
+            drive_overrides: vec![],
             clock_realtime: false,
             huge_pages: SnapshotLoadHugePageConfig::Snapshot,
         }
@@ -843,6 +858,10 @@ mod tests {
                 vsock_override: Some(VsockOverride {
                     uds_path: String::from("/vsock_override"),
                 }),
+                drive_overrides: vec![DriveOverride {
+                    drive_id: String::from("root"),
+                    path_on_host: String::from("/root_override"),
+                }],
                 ..default_load_snapshot_params()
             };
             apply_device_overrides(devices, &params).unwrap();
@@ -851,6 +870,12 @@ mod tests {
             assert_eq!(net.tap_if_name, "tap_override");
             let vsock = &devices.vsock_device.as_ref().unwrap().device_state;
             assert_eq!(vsock.backend.uds_path, "/vsock_override");
+            let Some(BlockState::Virtio(block)) =
+                device_state_mut(&mut devices.block_devices, "root")
+            else {
+                panic!("expected virtio-block device state");
+            };
+            assert_eq!(block.disk_path, "/root_override");
         }
 
         for (vmm, is_pci) in [(default_vmm(), false), (default_vmm_with_pci(), true)] {
@@ -880,6 +905,15 @@ mod tests {
             ));
 
             params.network_overrides.clear();
+            params.drive_overrides = vec![DriveOverride {
+                drive_id: String::from("netif"),
+                path_on_host: String::from("/netif_override"),
+            }];
+            assert!(matches!(
+                apply_device_overrides(devices, &params),
+                Err(SnapshotStateFromFileError::UnknownBlockDevice)
+            ));
+            params.drive_overrides.clear();
             params.vsock_override = Some(VsockOverride {
                 uds_path: String::from("/vsock_override"),
             });
