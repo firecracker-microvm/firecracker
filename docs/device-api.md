@@ -97,6 +97,8 @@ specification:
 |                           | blk_size                 |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | topology                 |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | dmb_size_mib \*\*\*      |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+| `DriveOverride`           | drive_id                 |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | path_on_host             |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 | `EnclaveConfig` \*\*\*\*  | cpu_accounting           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | cpu_ids                  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | cpu_overcommit           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
@@ -118,6 +120,7 @@ specification:
 |                           | huge_pages               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | network_overrides        |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |
 |                           | vsock_override           |    O     |       O        |      O       |        O         |     O      |    **R**     |     O      |      O      |     O      |       O        |
+|                           | drive_overrides          |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 | `Logger`                  | level                    |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | log_path                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | show_level               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
