@@ -112,6 +112,7 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
         network_overrides: snapshot_config.network_overrides,
         vsock_override: snapshot_config.vsock_override,
         drive_overrides: snapshot_config.drive_overrides,
+        pmem_overrides: snapshot_config.pmem_overrides,
         clock_realtime: snapshot_config.clock_realtime,
         huge_pages: snapshot_config.huge_pages,
     };
@@ -130,7 +131,7 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
 #[cfg(test)]
 mod tests {
     use vmm::vmm_config::snapshot::{
-        DriveOverride, MemBackendConfig, MemBackendType, NetworkOverride,
+        DriveOverride, MemBackendConfig, MemBackendType, NetworkOverride, PmemOverride,
         SnapshotLoadHugePageConfig,
     };
 
@@ -216,6 +217,7 @@ mod tests {
             network_overrides: vec![],
             vsock_override: None,
             drive_overrides: vec![],
+            pmem_overrides: vec![],
             clock_realtime: false,
             huge_pages: SnapshotLoadHugePageConfig::Hugetlbfs2M,
         };
@@ -250,6 +252,7 @@ mod tests {
             network_overrides: vec![],
             vsock_override: None,
             drive_overrides: vec![],
+            pmem_overrides: vec![],
             clock_realtime: false,
             huge_pages: SnapshotLoadHugePageConfig::Snapshot,
         };
@@ -285,6 +288,7 @@ mod tests {
             network_overrides: vec![],
             vsock_override: None,
             drive_overrides: vec![],
+            pmem_overrides: vec![],
             clock_realtime: false,
             huge_pages: SnapshotLoadHugePageConfig::Snapshot,
         };
@@ -328,6 +332,7 @@ mod tests {
             }],
             vsock_override: None,
             drive_overrides: vec![],
+            pmem_overrides: vec![],
             clock_realtime: false,
             huge_pages: SnapshotLoadHugePageConfig::Snapshot,
         };
@@ -358,6 +363,12 @@ mod tests {
                     "drive_id": "scratch",
                     "path_on_host": "/new/scratch.ext4"
                 }
+            ],
+            "pmem_overrides": [
+                {
+                    "id": "pmem0",
+                    "path_on_host": "/new/pmem0.img"
+                }
             ]
         }"#;
         let expected_config = LoadSnapshotParams {
@@ -380,6 +391,10 @@ mod tests {
                     path_on_host: String::from("/new/scratch.ext4"),
                 },
             ],
+            pmem_overrides: vec![PmemOverride {
+                id: String::from("pmem0"),
+                path_on_host: String::from("/new/pmem0.img"),
+            }],
             clock_realtime: false,
             huge_pages: SnapshotLoadHugePageConfig::Snapshot,
         };
@@ -405,6 +420,7 @@ mod tests {
             network_overrides: vec![],
             vsock_override: None,
             drive_overrides: vec![],
+            pmem_overrides: vec![],
             clock_realtime: false,
             huge_pages: SnapshotLoadHugePageConfig::Snapshot,
         };

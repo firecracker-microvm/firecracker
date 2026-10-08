@@ -545,6 +545,13 @@ fn apply_device_overrides<Tr>(
             BlockState::VhostUser(_) => return Err(SnapshotStateFromFileError::VhostUserDrive),
         }
     }
+    for entry in &params.pmem_overrides {
+        device_state_mut(&mut devices.pmem_devices, &entry.id)
+            .ok_or(SnapshotStateFromFileError::UnknownPmemDevice)?
+            .config
+            .path_on_host
+            .clone_from(&entry.path_on_host);
+    }
     Ok(())
 }
 
@@ -574,6 +581,8 @@ pub enum SnapshotStateFromFileError {
     UnknownBlockDevice,
     /// Cannot override the backing file of a vhost-user block device.
     VhostUserDrive,
+    /// Unknown Pmem Device.
+    UnknownPmemDevice,
 }
 
 fn snapshot_state_from_file(
@@ -752,8 +761,8 @@ mod tests {
     use crate::builder::tests::insert_vmgenid_device;
     use crate::builder::tests::{
         CustomBlockConfig, default_kernel_cmdline, default_vmm, default_vmm_with_pci,
-        insert_balloon_device, insert_block_devices, insert_net_device, insert_virtio_mem_device,
-        insert_vsock_device,
+        insert_balloon_device, insert_block_devices, insert_net_device, insert_pmem_devices,
+        insert_virtio_mem_device, insert_vsock_device,
     };
     #[cfg(target_arch = "aarch64")]
     use crate::construct_kvm_mpidrs;
@@ -763,8 +772,10 @@ mod tests {
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
+    use crate::vmm_config::pmem::PmemConfig;
     use crate::vmm_config::snapshot::{
-        DriveOverride, MemBackendConfig, NetworkOverride, SnapshotLoadHugePageConfig, VsockOverride,
+        DriveOverride, MemBackendConfig, NetworkOverride, PmemOverride, SnapshotLoadHugePageConfig,
+        VsockOverride,
     };
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vstate::memory::{GuestMemoryRegionState, GuestRegionType};
@@ -817,6 +828,22 @@ mod tests {
         let vsock_config = default_config(&tmp_sock_file);
 
         insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
+
+        // Add pmem device. Its saved state only records the backing file path, so the file
+        // does not need to outlive this function.
+        let pmem_config = PmemConfig {
+            id: String::from("pmem"),
+            path_on_host: String::new(),
+            root_device: false,
+            read_only: false,
+            rate_limiter: None,
+        };
+        insert_pmem_devices(
+            &mut vmm,
+            &mut cmdline,
+            &mut event_manager,
+            vec![pmem_config],
+        );
 
         #[cfg(target_arch = "x86_64")]
         insert_vmgenid_device(&mut vmm);
@@ -884,6 +911,7 @@ mod tests {
             network_overrides: vec![],
             vsock_override: None,
             drive_overrides: vec![],
+            pmem_overrides: vec![],
             clock_realtime: false,
             huge_pages: SnapshotLoadHugePageConfig::Snapshot,
         }
@@ -904,6 +932,10 @@ mod tests {
                     drive_id: String::from("root"),
                     path_on_host: String::from("/root_override"),
                 }],
+                pmem_overrides: vec![PmemOverride {
+                    id: String::from("pmem"),
+                    path_on_host: String::from("/pmem_override"),
+                }],
                 ..default_load_snapshot_params()
             };
             apply_device_overrides(devices, &params).unwrap();
@@ -918,6 +950,8 @@ mod tests {
                 panic!("expected virtio-block device state");
             };
             assert_eq!(block.disk_path, "/root_override");
+            let pmem = device_state_mut(&mut devices.pmem_devices, "pmem").unwrap();
+            assert_eq!(pmem.config.path_on_host, "/pmem_override");
         }
 
         for (vmm, is_pci) in [(default_vmm(), false), (default_vmm_with_pci(), true)] {
@@ -956,6 +990,15 @@ mod tests {
                 Err(SnapshotStateFromFileError::UnknownBlockDevice)
             ));
             params.drive_overrides.clear();
+            params.pmem_overrides = vec![PmemOverride {
+                id: String::from("root"),
+                path_on_host: String::from("/root_override"),
+            }];
+            assert!(matches!(
+                apply_device_overrides(devices, &params),
+                Err(SnapshotStateFromFileError::UnknownPmemDevice)
+            ));
+            params.pmem_overrides.clear();
             params.vsock_override = Some(VsockOverride {
                 uds_path: String::from("/vsock_override"),
             });

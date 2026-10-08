@@ -556,6 +556,8 @@ snapshot:
   [Unix Domain Socket Renaming](../vsock.md#unix-domain-socket-renaming).
 - `drive_overrides` sets the backing file of block devices, each identified by
   its `drive_id`.
+- `pmem_overrides` sets the backing file of [pmem devices](../pmem.md), each
+  identified by its `id`.
 
 For example, to load a snapshot whose drive `rootfs` is now backed by
 `./rootfs_moved.ext4`:
