@@ -23,6 +23,12 @@ and this project adheres to
 
 ### Changed
 
+- [#6261](https://github.com/firecracker-microvm/firecracker/pull/6261):
+  Firecracker now preallocates its file descriptor table for at most 2048
+  descriptors instead of the full `RLIMIT_NOFILE`. With a high inherited limit
+  (e.g. 1,048,576) this saves ~8.4 MiB of unreclaimable kernel memory per
+  microVM.
+
 - [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
   PL061 GPIO controller backing the new aarch64 power button is always attached
   and uses one extra GSI, which reduces the GSIs left for VirtIO devices. The
