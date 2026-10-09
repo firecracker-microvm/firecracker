@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::VecDeque;
-use std::io::ErrorKind;
+use std::io::{Error as IoError, ErrorKind};
+use std::os::fd::AsRawFd;
 
-use libc::{c_void, iovec, size_t};
+use libc::{c_int, c_void, iovec, size_t};
 use vm_memory::bitmap::Bitmap;
 use vm_memory::{
     GuestMemoryBackend, GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice,
@@ -115,14 +116,22 @@ impl IoVecBuffer {
         self.len
     }
 
-    /// Returns a pointer to the memory keeping the `iovec` structs
-    pub fn as_iovec_ptr(&self) -> *const iovec {
-        self.vecs.as_ptr()
-    }
-
-    /// Returns the length of the `iovec` array.
-    pub fn iovec_count(&self) -> usize {
-        self.vecs.len()
+    /// Writes the whole buffer to `fd` with a single `writev`, returning how many bytes were
+    /// written.
+    pub fn writev_to<F: AsRawFd>(&self, fd: &F) -> Result<usize, IoError> {
+        // SAFETY: `writev` is called with a valid fd and `iovec`s that the constructors checked
+        // point into valid guest memory; the return value is checked.
+        let ret = unsafe {
+            libc::writev(
+                fd.as_raw_fd(),
+                self.vecs.as_ptr(),
+                c_int::try_from(self.vecs.len()).unwrap(),
+            )
+        };
+        if ret == -1 {
+            return Err(IoError::last_os_error());
+        }
+        Ok(usize::try_from(ret).unwrap())
     }
 
     /// Clears the `iovec` array
@@ -239,7 +248,7 @@ pub struct ParsedDescriptorChain {
 #[derive(Debug)]
 pub struct IoVecBufferMut<const L: u16 = FIRECRACKER_MAX_QUEUE_SIZE> {
     // container of the memory regions included in this IO vector
-    pub vecs: IovDeque<L>,
+    vecs: IovDeque<L>,
     // The descriptor chains in `vecs`, front to back. The `nr_iovecs` of the chains sum up to
     // `vecs.len()` and their `length`s to `len`.
     pub chains: VecDeque<ParsedDescriptorChain>,
@@ -247,7 +256,7 @@ pub struct IoVecBufferMut<const L: u16 = FIRECRACKER_MAX_QUEUE_SIZE> {
     // We use `u32` here because we use this type in devices which
     // should not give us huge buffers. In any case this
     // value will not overflow as we explicitly check for this case.
-    pub len: u32,
+    len: u32,
 }
 
 // SAFETY: `IoVecBufferMut` doesn't allow for interior mutability and no shared ownership is
@@ -370,6 +379,35 @@ impl<const L: u16> IoVecBufferMut<L> {
         self.len -= chain.length;
     }
 
+    /// Reads from `fd` with a single `readv` into the first descriptor chain of the buffer, or
+    /// into all of them if `all_chains`, returning how many bytes were read.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffer holds no chain.
+    pub fn readv_from<F: AsRawFd>(&mut self, fd: &F, all_chains: bool) -> Result<usize, IoError> {
+        let iovs = if all_chains {
+            self.vecs.as_slice()
+        } else {
+            let first = self.chains.front().expect("no chain to read into");
+            &self.vecs.as_slice()[..usize::from(first.nr_iovecs)]
+        };
+
+        // SAFETY: `readv` is called with a valid fd and `iovec`s that the constructors checked
+        // point into valid guest memory; the return value is checked.
+        let ret = unsafe {
+            libc::readv(
+                fd.as_raw_fd(),
+                iovs.as_ptr(),
+                c_int::try_from(iovs.len()).unwrap(),
+            )
+        };
+        if ret == -1 {
+            return Err(IoError::last_os_error());
+        }
+        Ok(usize::try_from(ret).unwrap())
+    }
+
     /// Create an `IoVecBuffer` from a `DescriptorChain`
     ///
     /// # Safety
@@ -397,11 +435,6 @@ impl<const L: u16> IoVecBufferMut<L> {
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.len == 0
-    }
-
-    /// Returns a pointer to the memory keeping the `iovec` structs
-    pub fn as_iovec_mut_slice(&mut self) -> &mut [iovec] {
-        self.vecs.as_mut_slice()
     }
 
     /// Clears the `iovec` array and the descriptor chains

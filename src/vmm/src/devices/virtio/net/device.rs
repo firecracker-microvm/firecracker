@@ -11,7 +11,7 @@ use std::num::Wrapping;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
-use libc::{EAGAIN, iovec};
+use libc::EAGAIN;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::NET_QUEUE_MAX_SIZE;
@@ -192,18 +192,6 @@ impl RxBuffers {
         rx_queue.advance_next_used(self.used_descriptors);
         self.used_descriptors = 0;
         self.used_bytes = 0;
-    }
-
-    /// Return a slice of iovecs for the first slice in the buffer.
-    /// Panics if there are no parsed descriptors.
-    fn single_chain_slice_mut(&mut self) -> &mut [iovec] {
-        let nr_iovecs = usize::from(self.iovec.chains.front().unwrap().nr_iovecs);
-        &mut self.iovec.as_iovec_mut_slice()[..nr_iovecs]
-    }
-
-    /// Return a slice of iovecs for all descriptor chains in the buffer.
-    fn all_chains_slice_mut(&mut self) -> &mut [iovec] {
-        self.iovec.as_iovec_mut_slice()
     }
 }
 
@@ -577,7 +565,7 @@ impl Net {
         }
 
         let _metric = net_metrics.tap_write_agg.record_latency_metrics();
-        match tap.write_iovec(frame_iovec) {
+        match frame_iovec.writev_to(tap) {
             Ok(_) => {
                 let len = u64::from(frame_iovec.len());
                 net_metrics.tx_bytes_count.add(len);
@@ -628,12 +616,12 @@ impl Net {
             // Read the frame into the first descriptor chain, or into as many as needed when
             // VIRTIO_NET_F_MRG_RXBUF is negotiated. We ensured above that `self.rx_buffer` has at
             // least one `DescriptorChain` parsed in it.
-            let slice = if self.has_feature(VIRTIO_NET_F_MRG_RXBUF as u64) {
-                self.rx_buffer.all_chains_slice_mut()
-            } else {
-                self.rx_buffer.single_chain_slice_mut()
-            };
-            let len = self.tap.read_iovec(slice).map_err(NetError::IO)?;
+            let mrg_rxbuf = self.has_feature(VIRTIO_NET_F_MRG_RXBUF as u64);
+            let len = self
+                .rx_buffer
+                .iovec
+                .readv_from(&self.tap, mrg_rxbuf)
+                .map_err(NetError::IO)?;
             // SAFETY:
             // * len will never be bigger that u32::MAX
             len.try_into().unwrap()
