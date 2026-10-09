@@ -148,8 +148,6 @@ impl GuestMemorySlice {
 const GUEST_MEMORY_ALIGNMENT: usize = mib_to_bytes(2);
 /// A mask to extract mmap's flags related to HUGETLB
 const HUGETLB_FLAG_MASK: libc::c_int = libc::MAP_HUGETLB | (0x3F << libc::MAP_HUGE_SHIFT);
-/// Source for zeroing guest memory, kept small so that it stays in cache while copying.
-static ZEROS: [u8; 4096] = [0; 4096];
 
 /// Errors associated with dumping guest memory to file.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -896,10 +894,10 @@ impl GuestRegionMmapExt {
             if edge_len == 0 || self.check_range_plugged(edge_addr, edge_len).is_err() {
                 continue;
             }
-            assert!(edge_len.is_multiple_of(ZEROS.len()));
-            for offset in (edge_start..edge_end).step_by(ZEROS.len()) {
-                self.write_slice(&ZEROS, MemoryRegionAddress(offset))?;
-            }
+            let edge = self.get_slice(edge_addr, edge_len)?;
+            // SAFETY: `get_slice` bounds `edge` within this region's mapping,
+            // and plugged memory is writable.
+            unsafe { std::ptr::write_bytes(edge.ptr_guard_mut().as_ptr(), 0, edge.len()) };
         }
         Ok(())
     }
