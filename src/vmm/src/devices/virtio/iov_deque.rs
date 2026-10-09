@@ -308,6 +308,9 @@ impl<const L: u16> IovDeque<L> {
     }
 
     /// Get a mutable slice of the iovec objects currently in the buffer.
+    ///
+    /// Only for tests: `IoVecBufferMut` does not hand out its `iovec`s for writing.
+    #[cfg(test)]
     pub fn as_mut_slice(&mut self) -> &mut [iovec] {
         // SAFETY: Here we create a slice out of the existing elements in the buffer (not the whole
         // allocated memory). That means that we can:
