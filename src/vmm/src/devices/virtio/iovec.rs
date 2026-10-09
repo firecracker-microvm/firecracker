@@ -1,10 +1,10 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::VecDeque;
 use std::io::ErrorKind;
 
 use libc::{c_void, iovec, size_t};
-use serde::{Deserialize, Serialize};
 use vm_memory::bitmap::Bitmap;
 use vm_memory::{
     GuestMemoryBackend, GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice,
@@ -218,7 +218,7 @@ impl IoVecBuffer {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ParsedDescriptorChain {
     pub head_index: u16,
     pub length: u32,
@@ -231,10 +231,16 @@ pub struct ParsedDescriptorChain {
 /// memory regions. Additionally, this wrapper provides methods that allow reading arbitrary ranges
 /// of data from that buffer.
 /// `L` const generic value must be a multiple of 256 as required by the `IovDeque` requirements.
+///
+/// The buffer can hold several descriptor chains at once, appended at the back and consumed from
+/// the front; it remembers which `iovec`s belong to which chain.
 #[derive(Debug)]
 pub struct IoVecBufferMut<const L: u16 = FIRECRACKER_MAX_QUEUE_SIZE> {
     // container of the memory regions included in this IO vector
     pub vecs: IovDeque<L>,
+    // The descriptor chains in `vecs`, front to back. The `nr_iovecs` of the chains sum up to
+    // `vecs.len()` and their `length`s to `len`.
+    pub chains: VecDeque<ParsedDescriptorChain>,
     // Total length of the IoVecBufferMut
     // We use `u32` here because we use this type in devices which
     // should not give us huge buffers. In any case this
@@ -247,7 +253,8 @@ pub struct IoVecBufferMut<const L: u16 = FIRECRACKER_MAX_QUEUE_SIZE> {
 unsafe impl<const L: u16> Send for IoVecBufferMut<L> {}
 
 impl<const L: u16> IoVecBufferMut<L> {
-    /// Append a `DescriptorChain` in this `IoVecBufferMut`
+    /// Append a `DescriptorChain` in this `IoVecBufferMut`, returning a view of the chain that
+    /// was added.
     ///
     /// # Safety
     ///
@@ -256,7 +263,7 @@ impl<const L: u16> IoVecBufferMut<L> {
         &mut self,
         mem: &GuestMemoryMmap,
         head: DescriptorChain,
-    ) -> Result<ParsedDescriptorChain, IoVecError> {
+    ) -> Result<&ParsedDescriptorChain, IoVecError> {
         let head_index = head.index;
         let mut next_descriptor = Some(head);
         let mut length = 0u32;
@@ -307,17 +314,22 @@ impl<const L: u16> IoVecBufferMut<L> {
             IoVecError::OverflowedDescriptor
         })?;
 
-        Ok(ParsedDescriptorChain {
+        self.chains.push_back(ParsedDescriptorChain {
             head_index,
             length,
             nr_iovecs,
-        })
+        });
+        Ok(self.chains.back().unwrap())
     }
 
     /// Create an empty `IoVecBufferMut`.
     pub fn new() -> Result<Self, IovDequeError> {
         let vecs = IovDeque::new()?;
-        Ok(Self { vecs, len: 0 })
+        Ok(Self {
+            vecs,
+            chains: VecDeque::with_capacity(usize::from(L)),
+            len: 0,
+        })
     }
 
     /// Create an `IoVecBufferMut` from a `DescriptorChain`
@@ -335,24 +347,30 @@ impl<const L: u16> IoVecBufferMut<L> {
     ) -> Result<(), IoVecError> {
         self.clear();
         // SAFETY: descriptor chain cannot be referencing the same memory location as another chain
-        let _ = unsafe { self.append_descriptor_chain(mem, head)? };
+        unsafe { self.append_descriptor_chain(mem, head)? };
         Ok(())
     }
 
-    /// Drop descriptor chain from the `IoVecBufferMut` front
+    /// Drop the first descriptor chain from the `IoVecBufferMut`.
     ///
-    /// This will drop memory described by the `IoVecBufferMut` from the beginning.
-    pub fn drop_chain_front(&mut self, parse_descriptor: &ParsedDescriptorChain) {
-        self.vecs.pop_front(parse_descriptor.nr_iovecs);
-        self.len -= parse_descriptor.length;
+    /// # Panics
+    ///
+    /// Panics if the buffer holds no chain.
+    pub fn drop_chain_front(&mut self) {
+        let chain = self.chains.pop_front().expect("no chain to drop");
+        self.vecs.pop_front(chain.nr_iovecs);
+        self.len -= chain.length;
     }
 
-    /// Drop descriptor chain from the `IoVecBufferMut` back
+    /// Drop the last descriptor chain from the `IoVecBufferMut`.
     ///
-    /// This will drop memory described by the `IoVecBufferMut` from the beginning.
-    pub fn drop_chain_back(&mut self, parse_descriptor: &ParsedDescriptorChain) {
-        self.vecs.pop_back(parse_descriptor.nr_iovecs);
-        self.len -= parse_descriptor.length;
+    /// # Panics
+    ///
+    /// Panics if the buffer holds no chain.
+    pub fn drop_chain_back(&mut self) {
+        let chain = self.chains.pop_back().expect("no chain to drop");
+        self.vecs.pop_back(chain.nr_iovecs);
+        self.len -= chain.length;
     }
 
     /// Create an `IoVecBuffer` from a `DescriptorChain`
@@ -389,9 +407,10 @@ impl<const L: u16> IoVecBufferMut<L> {
         self.vecs.as_mut_slice()
     }
 
-    /// Clears the `iovec` array
+    /// Clears the `iovec` array and the descriptor chains
     pub fn clear(&mut self) {
         self.vecs.clear();
+        self.chains.clear();
         self.len = 0;
     }
 
@@ -488,10 +507,12 @@ impl<const L: u16> IoVecBufferMut<L> {
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod tests {
+    use std::collections::VecDeque;
+
     use libc::{c_void, iovec};
     use vm_memory::VolatileMemoryError;
 
-    use super::IoVecBuffer;
+    use super::{IoVecBuffer, ParsedDescriptorChain};
     // Redefine `IoVecBufferMut` with specific length. Otherwise
     // Rust will not know what to do.
     type IoVecBufferMutDefault = super::IoVecBufferMut<FIRECRACKER_MAX_QUEUE_SIZE>;
@@ -536,33 +557,31 @@ mod tests {
 
     impl<const L: u16> From<&mut [u8]> for super::IoVecBufferMut<L> {
         fn from(buf: &mut [u8]) -> Self {
-            let mut vecs = IovDeque::new().unwrap();
-            vecs.push_back(iovec {
-                iov_base: buf.as_mut_ptr().cast::<c_void>(),
-                iov_len: buf.len(),
-            });
-
-            Self {
-                vecs,
-                len: buf.len() as u32,
-            }
+            Self::from(vec![buf])
         }
     }
 
+    // Each slice becomes its own descriptor chain, with head indices 0, 1, 2, ...
     impl<const L: u16> From<Vec<&mut [u8]>> for super::IoVecBufferMut<L> {
         fn from(buffer: Vec<&mut [u8]>) -> Self {
             let mut len = 0;
             let mut vecs = IovDeque::new().unwrap();
-            for slice in buffer {
+            let mut chains = VecDeque::with_capacity(buffer.len());
+            for (head_index, slice) in buffer.into_iter().enumerate() {
                 len += slice.len() as u32;
 
                 vecs.push_back(iovec {
                     iov_base: slice.as_ptr() as *mut c_void,
                     iov_len: slice.len(),
                 });
+                chains.push_back(ParsedDescriptorChain {
+                    head_index: head_index.try_into().unwrap(),
+                    length: slice.len() as u32,
+                    nr_iovecs: 1,
+                });
             }
 
-            Self { vecs, len }
+            Self { vecs, chains, len }
         }
     }
 
@@ -666,7 +685,7 @@ mod tests {
         let head = q.pop().unwrap().unwrap();
         // SAFETY: it is actually unsafe, but we just want to check the length of the
         // `IoVecBufferMut` after appending.
-        let _ = unsafe { iovec.append_descriptor_chain(&mem, head).unwrap() };
+        unsafe { iovec.append_descriptor_chain(&mem, head).unwrap() };
         assert_eq!(iovec.len(), 8 * 64);
     }
 
@@ -820,6 +839,7 @@ mod tests {
 #[cfg(kani)]
 #[allow(dead_code)] // Avoid warning when using stubs
 mod verification {
+    use std::collections::VecDeque;
     use std::mem::ManuallyDrop;
 
     use libc::{c_void, iovec};
@@ -970,6 +990,8 @@ mod verification {
             let (vecs, len) = create_iovecs_mut(mem, GUEST_MEMORY_SIZE, nr_descs);
             Self {
                 vecs,
+                // The harnesses never look at the chains, so leave them out of the model.
+                chains: VecDeque::new(),
                 len: len.try_into().unwrap(),
             }
         }
