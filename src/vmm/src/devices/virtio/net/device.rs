@@ -5,7 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::collections::VecDeque;
 use std::mem::{self};
 use std::net::Ipv4Addr;
 use std::num::Wrapping;
@@ -25,9 +24,7 @@ use crate::devices::virtio::generated::virtio_net::{
     VIRTIO_NET_F_MAC, VIRTIO_NET_F_MRG_RXBUF, VIRTIO_NET_F_MTU, virtio_net_hdr_v1,
 };
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use crate::devices::virtio::iovec::{
-    IoVecBuffer, IoVecBufferMut, IoVecError, ParsedDescriptorChain,
-};
+use crate::devices::virtio::iovec::{IoVecBuffer, IoVecBufferMut, IoVecError};
 use crate::devices::virtio::net::metrics::{NetDeviceMetrics, NetMetricsPerDevice};
 use crate::devices::virtio::net::tap::Tap;
 use crate::devices::virtio::net::{
@@ -113,10 +110,8 @@ pub struct RxBuffers {
     // minimum size of a usable buffer for doing RX
     pub min_buffer_size: u32,
     // An [`IoVecBufferMut`] covering all the memory we have available for receiving network
-    // frames.
+    // frames, and the `DescriptorChain`s it is made of.
     pub iovec: IoVecBufferMut<NET_QUEUE_MAX_SIZE>,
-    // A map of which part of the memory belongs to which `DescriptorChain` object
-    pub parsed_descriptors: VecDeque<ParsedDescriptorChain>,
     // Buffers that we have used and they are ready to be given back to the guest.
     pub used_descriptors: u16,
     pub used_bytes: u32,
@@ -128,7 +123,6 @@ impl RxBuffers {
         Ok(Self {
             min_buffer_size: 0,
             iovec: IoVecBufferMut::new()?,
-            parsed_descriptors: VecDeque::with_capacity(NET_QUEUE_MAX_SIZE.into()),
             used_descriptors: 0,
             used_bytes: 0,
         })
@@ -137,7 +131,6 @@ impl RxBuffers {
     /// Reset the RX buffers to their initial state.
     fn clear(&mut self) {
         self.iovec.clear();
-        self.parsed_descriptors.clear();
         self.used_descriptors = 0;
         self.used_bytes = 0;
         self.min_buffer_size = 0;
@@ -156,10 +149,9 @@ impl RxBuffers {
         // SAFETY: descriptor chain cannot be referencing the same memory location as another chain
         let parsed_dc = unsafe { self.iovec.append_descriptor_chain(mem, head)? };
         if parsed_dc.length < self.min_buffer_size {
-            self.iovec.drop_chain_back(&parsed_dc);
+            self.iovec.drop_chain_back();
             return Err(AddRxBufferError::BufferTooSmall);
         }
-        self.parsed_descriptors.push_back(parsed_dc);
         Ok(())
     }
 
@@ -169,18 +161,20 @@ impl RxBuffers {
         self.iovec.len()
     }
 
-    /// Mark the first `size` bytes of available memory as used.
+    /// Hands the first `bytes_written` bytes of the buffer back to the guest as one frame.
     ///
-    /// # Safety:
+    /// The frame fills the chains front to back; each chain it spans gets a used ring entry with
+    /// its share of the bytes, the first one gets the number of chains in its header, and they
+    /// all leave the buffer.
     ///
-    /// * The `RxBuffers` should include at least one parsed `DescriptorChain`.
-    /// * `size` needs to be smaller or equal to total length of the first `DescriptorChain` stored
-    ///   in the `RxBuffers`.
-    unsafe fn mark_used(&mut self, mut bytes_written: u32, rx_queue: &mut Queue) {
+    /// # Panics
+    ///
+    /// Panics if the buffer holds no chain, or fewer than `bytes_written` bytes.
+    fn mark_used(&mut self, mut bytes_written: u32, rx_queue: &mut Queue) {
         self.used_bytes = bytes_written;
 
         let mut used_heads: u16 = 0;
-        for parsed_dc in self.parsed_descriptors.iter() {
+        for parsed_dc in self.iovec.chains.iter() {
             let used_bytes = bytes_written.min(parsed_dc.length);
             // Safe because we know head_index isn't out of bounds
             rx_queue
@@ -194,17 +188,14 @@ impl RxBuffers {
                 break;
             }
         }
+        assert_eq!(bytes_written, 0, "fewer bytes in the chains than written");
 
         // We need to set num_buffers before dropping chains from `self.iovec`. Otherwise
         // when we set headers, we will iterate over new, yet unused chains instead of the ones
         // we need.
         self.header_set_num_buffers(used_heads);
         for _ in 0..used_heads {
-            let parsed_dc = self
-                .parsed_descriptors
-                .pop_front()
-                .expect("This should never happen if write to the buffer succeeded.");
-            self.iovec.drop_chain_front(&parsed_dc);
+            self.iovec.drop_chain_front();
         }
     }
 
@@ -233,7 +224,7 @@ impl RxBuffers {
     /// Return a slice of iovecs for the first slice in the buffer.
     /// Panics if there are no parsed descriptors.
     fn single_chain_slice_mut(&mut self) -> &mut [iovec] {
-        let nr_iovecs = self.parsed_descriptors[0].nr_iovecs as usize;
+        let nr_iovecs = usize::from(self.iovec.chains.front().unwrap().nr_iovecs);
         &mut self.iovec.as_iovec_mut_slice()[..nr_iovecs]
     }
 
@@ -668,14 +659,7 @@ impl Net {
             len.try_into().unwrap()
         };
 
-        // SAFETY:
-        // * `rx_buffer` has at least one `DescriptorChain`
-        // * MMDS frames fit in `rx_frame_buf`, which is `MAX_BUFFER_SIZE` bytes, and every
-        //   `DescriptorChain` is at least that big; the TAP read passes the first
-        //   `DescriptorChain` to `readv` so we can't have read more bytes than its capacity.
-        unsafe {
-            self.rx_buffer.mark_used(len, &mut self.queues[RX_INDEX]);
-        }
+        self.rx_buffer.mark_used(len, &mut self.queues[RX_INDEX]);
         Ok(Some(len))
     }
 
@@ -1083,8 +1067,7 @@ impl VirtioDevice for Net {
         self.rx_buffer.finish_frame(&mut self.queues[RX_INDEX]);
         // Reset the parsed available descriptors, so we will re-parse them
         self.queues[RX_INDEX].next_avail -=
-            Wrapping(u16::try_from(self.rx_buffer.parsed_descriptors.len()).unwrap());
-        self.rx_buffer.parsed_descriptors.clear();
+            Wrapping(u16::try_from(self.rx_buffer.iovec.chains.len()).unwrap());
         self.rx_buffer.iovec.clear();
         self.rx_buffer.used_bytes = 0;
         self.rx_buffer.used_descriptors = 0;
@@ -2031,17 +2014,9 @@ pub mod tests {
         net.queues[RX_INDEX] = rxq.create_queue();
 
         // Inject a fake buffer in the devices buffers, otherwise we won't be able to receive the
-        // MMDS frame. One iovec will be just fine.
+        // MMDS frame. One iovec, i.e. one descriptor chain, will be just fine.
         let mut fake_buffer = vec![0u8; MAX_BUFFER_SIZE];
-        let iov_buffer = IoVecBufferMut::from(fake_buffer.as_mut_slice());
-        net.rx_buffer.iovec = iov_buffer;
-        net.rx_buffer
-            .parsed_descriptors
-            .push_back(ParsedDescriptorChain {
-                head_index: 1,
-                length: 1024,
-                nr_iovecs: 1,
-            });
+        net.rx_buffer.iovec = IoVecBufferMut::from(fake_buffer.as_mut_slice());
 
         let src_mac = MacAddr::from_str("11:11:11:11:11:11").unwrap();
         let src_ip = Ipv4Addr::new(10, 1, 2, 3);
