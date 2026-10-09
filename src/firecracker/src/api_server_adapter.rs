@@ -75,7 +75,10 @@ impl ApiServerAdapter {
                 .expect("Poisoned lock")
                 .handle_request(event_manager);
 
-            match vmm.lock().unwrap().shutdown_exit_code() {
+            let mut locked_vmm = vmm.lock().expect("Poisoned lock");
+            locked_vmm.complete_hotplug_removals(event_manager);
+
+            match locked_vmm.shutdown_exit_code() {
                 Some(FcExitCode::Ok) => break,
                 Some(exit_code) => return Err(ApiServerError::MicroVMStoppedWithError(exit_code)),
                 None => continue,
@@ -85,6 +88,12 @@ impl ApiServerAdapter {
     }
 
     fn _handle_request(&mut self, req_action: VmmAction, event_manager: &mut EventManager) {
+        // This is called in the main event loop, but also needs to be called
+        // here due to the inner loop in handle_request() when the VM is
+        // paused. Without it a CreateSnapshot request might arrive while
+        // removals are still pending corrupting the snapshot state.
+        self.controller.complete_hotplug_removals(event_manager);
+
         let response = self.controller.handle_request(req_action, event_manager);
         // Send back the result.
         self.to_api

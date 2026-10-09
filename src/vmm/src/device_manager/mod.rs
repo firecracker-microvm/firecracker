@@ -7,6 +7,7 @@
 
 use std::fmt::Debug;
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use acpi::ACPIDeviceManager;
@@ -17,7 +18,7 @@ use event_manager::{MutEventSubscriber, SubscriberOps};
 use legacy::{LegacyDeviceError, PortIODeviceManager};
 use linux_loader::loader::Cmdline;
 use mmio::{MMIOPlatformDevices, MMIOVirtioDevices, MmioError};
-use pci_mngr::{PciDevices, PciDevicesConstructorArgs, PciManagerError};
+use pci_mngr::{PciDevices, PciDevicesConstructorArgs, PciManagerError, PciPlacement};
 use persist::{
     MMIODevManagerConstructorArgs, MMIOPlatformDevicesConstructorArgs, MMIOPlatformDevicesState,
 };
@@ -47,7 +48,8 @@ use crate::devices::virtio::pmem::device::Pmem;
 use crate::devices::virtio::pmem::persist::PmemPersistError;
 use crate::devices::virtio::rng::persist::EntropyPersistError;
 use crate::devices::virtio::vsock::{VsockError, VsockUnixBackendError};
-use crate::logger::{error, info};
+use crate::logger::{error, info, warn};
+use crate::pci::bus::MAX_PCI_BUSES;
 use crate::rate_limiter::TokenBucket;
 use crate::resources::VmResources;
 use crate::rpc_interface::VmmActionError;
@@ -302,7 +304,7 @@ impl DeviceManager {
                 .attach_mmio_virtio_device(vm, id, device, cmdline, event_manager, is_vhost_user)
                 .map_err(AttachDeviceError::from),
             VirtioDevices::Pci(pci_devices) => pci_devices
-                .attach_pci_virtio_device(vm, id, device, event_manager)
+                .attach_pci_virtio_device(vm, id, device, event_manager, PciPlacement::RootBus)
                 .map_err(AttachDeviceError::from),
         }
     }
@@ -498,9 +500,32 @@ impl DeviceManager {
         };
 
         match &mut self.virtio_devices {
-            VirtioDevices::Pci(pci_devices) => pci_devices
-                .attach_pci_virtio_device(&vm, dev_id, device, event_manager)
-                .map_err(VmmActionError::PciManager),
+            VirtioDevices::Pci(pci_devices) => {
+                pci_devices
+                    .attach_pci_virtio_device(
+                        &vm,
+                        dev_id,
+                        device,
+                        event_manager,
+                        PciPlacement::RootPort,
+                    )
+                    .map_err(VmmActionError::PciManager)?;
+
+                let bus = pci_devices
+                    .get_virtio_device(device_id.0, &device_id.1)
+                    .expect("device was just attached")
+                    .lock()
+                    .expect("Poisoned lock")
+                    .sbdf
+                    .bus();
+
+                // Notify the guest that a device has been attached
+                if let Some(port) = pci_devices.pci_segment().root_port_for_bus(bus) {
+                    port.lock().expect("Poisoned lock").plug(true);
+                }
+
+                Ok(())
+            }
             VirtioDevices::Mmio(_) => Err(VmmActionError::PciNotEnabled),
         }
     }
@@ -556,6 +581,7 @@ impl DeviceManager {
         vm: Arc<KvmVm>,
         device_id: VirtioDeviceId,
         event_manager: &mut EventManager,
+        force: bool,
     ) -> Result<(), VmmActionError> {
         match &mut self.virtio_devices {
             VirtioDevices::Pci(pci_devices) => {
@@ -567,11 +593,60 @@ impl DeviceManager {
                     return Err(VmmActionError::CannotUnplugRootDevice);
                 }
 
-                pci_devices
-                    .detach_pci_virtio_device(&vm, device_id, event_manager)
-                    .map_err(VmmActionError::PciManager)
+                if !pci_devices.is_removable(device_id.0, &device_id.1) {
+                    return Err(VmmActionError::DeviceNotRemovable(device_id.1));
+                }
+
+                if force {
+                    pci_devices
+                        .detach_pci_virtio_device(&vm, device_id, event_manager)
+                        .map_err(VmmActionError::PciManager)
+                } else {
+                    pci_devices.request_unplug(&device_id);
+                    Ok(())
+                }
             }
             VirtioDevices::Mmio(_) => Err(VmmActionError::PciNotEnabled),
+        }
+    }
+
+    /// Returns the eventfd root ports signal upon hotplug completion.
+    pub fn hotplug_completion_evt(&self) -> Option<&EventFd> {
+        match &self.virtio_devices {
+            VirtioDevices::Pci(pci_devices) => {
+                Some(&pci_devices.pci_segment.hotplug_completion.evt)
+            }
+            VirtioDevices::Mmio(_) => None,
+        }
+    }
+
+    /// Tear down the devices whose guests have acknowledged a graceful removal.
+    pub fn complete_hotplug_removals(&mut self, vm: &KvmVm, event_manager: &mut EventManager) {
+        let VirtioDevices::Pci(pci_devices) = &mut self.virtio_devices else {
+            return;
+        };
+
+        let acked_buses = &pci_devices.pci_segment.hotplug_completion.acked_buses;
+        // Fast path
+        if acked_buses.load(Ordering::Relaxed) == 0 {
+            return;
+        }
+
+        let acked = acked_buses.swap(0, Ordering::Acquire);
+
+        for bus in (0..MAX_PCI_BUSES).filter(|&bus| acked & (1 << bus) != 0) {
+            let Some(device_id) = pci_devices.virtio_devices.iter().find_map(|(id, device)| {
+                (device.lock().expect("Poisoned lock").sbdf.bus() == bus).then(|| id.clone())
+            }) else {
+                continue;
+            };
+
+            info!("Completing hot-unplug of {device_id:?}");
+            if let Err(err) =
+                pci_devices.detach_pci_virtio_device(vm, device_id.clone(), event_manager)
+            {
+                warn!("Failed to complete hot-unplug of {device_id:?}: {err}");
+            }
         }
     }
 
@@ -802,8 +877,8 @@ pub(crate) mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use crate::builder::tests::{
-        CustomBlockConfig, default_kernel_cmdline, default_vmm, default_vmm_with_pci,
-        insert_block_devices,
+        CustomBlockConfig, default_kernel_cmdline, default_vmm, default_vmm_with_hotplug_ports,
+        default_vmm_with_pci, insert_block_devices,
     };
     use crate::devices::acpi::vmclock::VmClock;
     use crate::devices::acpi::vmgenid::VmGenId;
@@ -947,7 +1022,11 @@ pub(crate) mod tests {
         );
     }
 
-    fn make_hotplug_block_cfg(drive_id: &str, f: &TempFile, is_root: bool) -> BlockDeviceConfig {
+    pub(crate) fn make_hotplug_block_cfg(
+        drive_id: &str,
+        f: &TempFile,
+        is_root: bool,
+    ) -> BlockDeviceConfig {
         BlockDeviceConfig {
             drive_id: drive_id.to_string(),
             partuuid: None,
@@ -967,7 +1046,7 @@ pub(crate) mod tests {
     #[test]
     fn test_hotplug_block() {
         let mut evt_manager = EventManager::new().unwrap();
-        let mut vmm = default_vmm_with_pci();
+        let mut vmm = default_vmm_with_hotplug_ports(2);
         let f = TempFile::new().unwrap();
 
         // Successful case
@@ -998,13 +1077,13 @@ pub(crate) mod tests {
         // Unplugging a non-existent device fails
         let device_id = (VirtioDeviceType::Block, "block9".to_string());
         assert!(matches!(
-            vmm.hot_unplug_device(device_id, &mut evt_manager),
+            vmm.hot_unplug_device(device_id, &mut evt_manager, true),
             Err(VmmActionError::DeviceNotFound)
         ));
 
         // Successful unplug
         let device_id = (VirtioDeviceType::Block, "block0".to_string());
-        vmm.hot_unplug_device(device_id.clone(), &mut evt_manager)
+        vmm.hot_unplug_device(device_id.clone(), &mut evt_manager, true)
             .unwrap();
         assert!(
             !pci_devices(&vmm.device_manager)
@@ -1016,7 +1095,7 @@ pub(crate) mod tests {
     #[test]
     fn test_pci_bar_is_freed_on_unplug() {
         let mut evt_manager = EventManager::new().unwrap();
-        let mut vmm = default_vmm_with_pci();
+        let mut vmm = default_vmm_with_hotplug_ports(2);
         let f = TempFile::new().unwrap();
 
         let bar_addr = |vmm: &crate::Vmm, id: &str| {
@@ -1035,6 +1114,7 @@ pub(crate) mod tests {
         vmm.hot_unplug_device(
             (VirtioDeviceType::Block, "block0".to_string()),
             &mut evt_manager,
+            true,
         )
         .unwrap();
 
@@ -1077,14 +1157,14 @@ pub(crate) mod tests {
         // Unplugging MMIO devices must be rejected
         let device_id = (VirtioDeviceType::Block, "root".to_string());
         assert!(matches!(
-            vmm.hot_unplug_device(device_id, &mut evt_manager),
+            vmm.hot_unplug_device(device_id, &mut evt_manager, true),
             Err(VmmActionError::PciNotEnabled)
         ));
     }
 
     #[test]
     fn test_hotplug_pmem() {
-        let mut vmm = default_vmm_with_pci();
+        let mut vmm = default_vmm_with_hotplug_ports(2);
         let mut evt_manager = EventManager::new().unwrap();
         let f = TempFile::new().unwrap();
         f.as_file().set_len(0x1000).unwrap();
@@ -1123,13 +1203,13 @@ pub(crate) mod tests {
         // Unplugging a non-existent device fails
         let device_id = (VirtioDeviceType::Pmem, "pmem9".to_string());
         assert!(matches!(
-            vmm.hot_unplug_device(device_id, &mut evt_manager),
+            vmm.hot_unplug_device(device_id, &mut evt_manager, true),
             Err(VmmActionError::DeviceNotFound)
         ));
 
         // Successful unplug
         let device_id = (VirtioDeviceType::Pmem, "pmem0".to_string());
-        vmm.hot_unplug_device(device_id.clone(), &mut evt_manager)
+        vmm.hot_unplug_device(device_id.clone(), &mut evt_manager, true)
             .unwrap();
         assert!(
             !pci_devices(&vmm.device_manager)
@@ -1140,7 +1220,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_hotplug_net() {
-        let mut vmm = default_vmm_with_pci();
+        let mut vmm = default_vmm_with_hotplug_ports(2);
         let mut evt_manager = EventManager::new().unwrap();
 
         let mac = "AA:FC:00:00:00:01";
@@ -1180,13 +1260,13 @@ pub(crate) mod tests {
         // Unplugging a non-existent device fails
         let device_id = (VirtioDeviceType::Net, "eth9".to_string());
         assert!(matches!(
-            vmm.hot_unplug_device(device_id, &mut evt_manager),
+            vmm.hot_unplug_device(device_id, &mut evt_manager, true),
             Err(VmmActionError::DeviceNotFound)
         ));
 
         // Successful unplug
         let device_id = (VirtioDeviceType::Net, "eth0".to_string());
-        vmm.hot_unplug_device(device_id.clone(), &mut evt_manager)
+        vmm.hot_unplug_device(device_id.clone(), &mut evt_manager, true)
             .unwrap();
         assert!(
             !pci_devices(&vmm.device_manager)
@@ -1212,15 +1292,86 @@ pub(crate) mod tests {
                 "rootfs".to_string(),
                 Arc::new(Mutex::new(block)),
                 &mut evt_manager,
+                PciPlacement::RootBus,
             )
             .unwrap();
 
         // Hot-unplugging the root block device must be rejected
         let device_id = (VirtioDeviceType::Block, "rootfs".to_string());
         assert!(matches!(
-            vmm.hot_unplug_device(device_id, &mut evt_manager),
+            vmm.hot_unplug_device(device_id, &mut evt_manager, true),
             Err(VmmActionError::CannotUnplugRootDevice)
         ));
+    }
+
+    #[test]
+    fn test_graceful_unplug_waits_for_the_guest() {
+        let mut evt_manager = EventManager::new().unwrap();
+        let mut vmm = default_vmm_with_hotplug_ports(1);
+        let f = TempFile::new().unwrap();
+
+        let cfg = HotplugDeviceConfig::Block(make_hotplug_block_cfg("block0", &f, false));
+        vmm.hotplug_device(cfg, &mut evt_manager).unwrap();
+        let device_id = (VirtioDeviceType::Block, "block0".to_string());
+
+        // Initiate a graceful detach request. The device stays attached until
+        // the guest acknowledges the removal.
+        vmm.hot_unplug_device(device_id.clone(), &mut evt_manager, false)
+            .unwrap();
+        assert!(
+            pci_devices(&vmm.device_manager)
+                .virtio_devices
+                .contains_key(&device_id)
+        );
+
+        // Nothing has been acknowledged, so completing removals is a no-op.
+        vmm.complete_hotplug_removals(&mut evt_manager);
+        assert!(
+            pci_devices(&vmm.device_manager)
+                .virtio_devices
+                .contains_key(&device_id)
+        );
+
+        // Once the port reports the guest's acknowledgement, the device goes.
+        pci_devices(&vmm.device_manager)
+            .pci_segment
+            .hotplug_completion
+            .acked_buses
+            .store(1 << 1, Ordering::Relaxed);
+        vmm.complete_hotplug_removals(&mut evt_manager);
+        assert!(
+            !pci_devices(&vmm.device_manager)
+                .virtio_devices
+                .contains_key(&device_id)
+        );
+    }
+
+    #[test]
+    fn test_unplug_device_on_root_bus() {
+        let mut evt_manager = EventManager::new().unwrap();
+        let mut vmm = default_vmm_with_pci();
+        let f = TempFile::new().unwrap();
+
+        let cfg = make_hotplug_block_cfg("block0", &f, false);
+        let block = Block::new(cfg).unwrap();
+        pci_devices_mut(&mut vmm.device_manager)
+            .attach_pci_virtio_device(
+                vmm.vm.as_kvm().unwrap(),
+                "block0".to_string(),
+                Arc::new(Mutex::new(block)),
+                &mut evt_manager,
+                PciPlacement::RootBus,
+            )
+            .unwrap();
+
+        let device_id = (VirtioDeviceType::Block, "block0".to_string());
+        let err = vmm
+            .hot_unplug_device(device_id, &mut evt_manager, true)
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Device 'block0' is not removable because it's not plugged to a PCIe root port."
+        );
     }
 
     #[test]
@@ -1246,13 +1397,14 @@ pub(crate) mod tests {
                 "pmem_root".to_string(),
                 Arc::new(Mutex::new(pmem)),
                 &mut evt_manager,
+                PciPlacement::RootBus,
             )
             .unwrap();
 
         // Hot-unplugging the root pmem device must be rejected
         let device_id = (VirtioDeviceType::Pmem, "pmem_root".to_string());
         assert!(matches!(
-            vmm.hot_unplug_device(device_id, &mut evt_manager),
+            vmm.hot_unplug_device(device_id, &mut evt_manager, true),
             Err(VmmActionError::CannotUnplugRootDevice)
         ));
     }
