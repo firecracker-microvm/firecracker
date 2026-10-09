@@ -481,6 +481,11 @@ fn main_exec() -> Result<(), MainError> {
 /// the table fills up. This was happening for some larger microVMs, and reallocating the
 /// fdtable while a lot of file descriptors are active (due to being eventfds/timerfds registered
 /// to epoll) incurs a penalty of 30ms-70ms on the snapshot restore path.
+/// File descriptors to preallocate the fd table for. The jailer's default
+/// RLIMIT_NOFILE, far more than a microVM uses. Not a limit: the kernel still
+/// grows the table on demand.
+const PREALLOCATED_FDS: libc::c_int = 2048;
+
 fn resize_fdtable() -> Result<(), ResizeFdTableError> {
     let mut rlimit = libc::rlimit {
         rlim_cur: 0,
@@ -492,12 +497,19 @@ fn resize_fdtable() -> Result<(), ResizeFdTableError> {
         return Err(ResizeFdTableError::GetRlimit);
     }
 
-    // If no jailer is used, there might not be an NOFILE limit set. In this case, resize
-    // the table to the default that the jailer would usually impose (2048)
+    // Preallocate for RLIMIT_NOFILE descriptors, but at most PREALLOCATED_FDS. The
+    // table is allocated eagerly, so a high inherited limit (common when a manager
+    // running many microVMs raises its own limit) would cost every microVM kernel
+    // memory for descriptors it never opens: ~8.5 MiB at a limit of 1,048,576.
+    // Without a limit (no jailer), use the same default the jailer imposes.
     let limit: libc::c_int = if rlimit.rlim_cur == libc::RLIM_INFINITY {
-        2048
+        PREALLOCATED_FDS
     } else {
-        rlimit.rlim_cur.try_into().unwrap_or(2048)
+        rlimit
+            .rlim_cur
+            .try_into()
+            .unwrap_or(PREALLOCATED_FDS)
+            .min(PREALLOCATED_FDS)
     };
 
     // Resize the file descriptor table to its maximal possible size, to ensure that
