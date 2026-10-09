@@ -49,6 +49,7 @@ def kvm_basic_config(
     rootfs_io_engine=None,
     cpu_template=None,
     enable_entropy_device=False,
+    pcie_hotplug_ports: int = None,
 ):
     """Shortcut for quickly configuring a microVM.
 
@@ -72,6 +73,7 @@ def kvm_basic_config(
         mem_size_mib=mem_size_mib,
         track_dirty_pages=track_dirty_pages,
         huge_pages=huge_pages,
+        pcie_hotplug_ports=pcie_hotplug_ports,
     )
     vm.huge_pages = huge_pages
     vm.vcpus_count = vcpu_count
