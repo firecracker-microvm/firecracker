@@ -99,6 +99,13 @@ and this project adheres to
   `backend_path`. Since v1.14.0 the memory file size was read with `fstat`,
   which reports 0 for block devices; it is now read with `lseek`.
 
+- [#6282](https://github.com/firecracker-microvm/firecracker/pull/6282): Fixed
+  free page reporting on guests booted with `init_on_free=1` or
+  `page_poison=on`. The balloon now offers `VIRTIO_BALLOON_F_PAGE_POISON` with
+  `free_page_reporting`; previously such guests declined reporting and the
+  device failed to activate. Only poison value 0 is honoured; for any other
+  value reported pages are not discarded.
+
 - [#6254](https://github.com/firecracker-microvm/firecracker/pull/6254) Fixed
   pausing a vCPU with an unfinished MMIO or port-I/O instruction. Pending I/O
   now completes before the vCPU pauses, so snapshots include its effects without
