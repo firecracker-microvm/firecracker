@@ -10,11 +10,11 @@ pub mod static_cpu_templates;
 /// Module with test utils for custom CPU templates
 pub mod test_utils;
 
-use std::collections::BTreeMap;
+use kvm_bindings::Msrs;
 
 use self::custom_cpu_template::CpuidRegister;
 use super::templates::CustomCpuTemplate;
-use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidKey};
+use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidKey, CpuidTrait};
 
 /// Errors thrown while configuring templates.
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
@@ -30,14 +30,18 @@ pub enum CpuConfigurationError {
 }
 
 /// CPU configuration for x86_64 CPUs
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct CpuConfiguration {
     /// CPUID configuration
     pub cpuid: Cpuid,
-    /// Register values as a key pair for model specific registers
-    /// Key: MSR address
-    /// Value: MSR value
-    pub msrs: BTreeMap<u32, u64>,
+    /// Model specific registers
+    pub msrs: Msrs,
+}
+
+impl PartialEq for CpuConfiguration {
+    fn eq(&self, other: &Self) -> bool {
+        self.cpuid == other.cpuid && self.msrs.as_slice() == other.msrs.as_slice()
+    }
 }
 
 /// Applies the CPUID modifiers from a CPU template.
@@ -45,14 +49,12 @@ pub(crate) fn apply_template_to_cpuid(
     mut cpuid: Cpuid,
     template: &CustomCpuTemplate,
 ) -> Result<Cpuid, CpuConfigurationError> {
-    let guest_cpuid = cpuid.inner_mut();
-
     for mod_leaf in &template.cpuid_modifiers {
         let cpuid_key = CpuidKey {
             leaf: mod_leaf.leaf,
             subleaf: mod_leaf.subleaf,
         };
-        if let Some(entry) = guest_cpuid.get_mut(&cpuid_key) {
+        if let Some(entry) = cpuid.get_mut(&cpuid_key) {
             entry.flags = mod_leaf.flags;
 
             // Can we modify one reg multiple times????
@@ -77,14 +79,17 @@ pub(crate) fn apply_template_to_cpuid(
 
 /// Applies the MSR modifiers from a CPU template.
 pub(crate) fn apply_template_to_msrs(
-    mut msrs: BTreeMap<u32, u64>,
+    mut msrs: Msrs,
     template: &CustomCpuTemplate,
-) -> Result<BTreeMap<u32, u64>, CpuConfigurationError> {
+) -> Result<Msrs, CpuConfigurationError> {
     for modifier in &template.msr_modifiers {
-        if let Some(reg_value) = msrs.get_mut(&modifier.addr) {
-            *reg_value = modifier.bitmap.apply(*reg_value);
-        } else {
-            return Err(CpuConfigurationError::MsrNotSupported(modifier.addr));
+        match msrs
+            .as_mut_slice()
+            .iter_mut()
+            .find(|entry| entry.index == modifier.addr)
+        {
+            Some(entry) => entry.data = modifier.bitmap.apply(entry.data),
+            None => return Err(CpuConfigurationError::MsrNotSupported(modifier.addr)),
         }
     }
 
@@ -93,14 +98,12 @@ pub(crate) fn apply_template_to_msrs(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
-    use kvm_bindings::KVM_CPUID_FLAG_STATEFUL_FUNC;
+    use kvm_bindings::{KVM_CPUID_FLAG_STATEFUL_FUNC, kvm_msr_entry};
 
     use super::custom_cpu_template::{CpuidLeafModifier, CpuidRegisterModifier, RegisterModifier};
     use super::*;
     use crate::cpu_config::templates::RegisterValueFilter;
-    use crate::cpu_config::x86_64::cpuid::{CpuidEntry, IntelCpuid, KvmCpuidFlags};
+    use crate::cpu_config::x86_64::cpuid::{IntelCpuid, KvmCpuidFlags};
 
     fn build_test_template() -> CustomCpuTemplate {
         CustomCpuTemplate {
@@ -160,21 +163,34 @@ mod tests {
     }
 
     fn build_supported_cpuid() -> Cpuid {
-        Cpuid::Intel(IntelCpuid(BTreeMap::from([(
-            CpuidKey {
-                leaf: 0x3,
-                subleaf: 0x0,
-            },
-            CpuidEntry::default(),
-        )])))
+        Cpuid::Intel(IntelCpuid(
+            kvm_bindings::CpuId::from_entries(&[kvm_bindings::kvm_cpuid_entry2 {
+                function: 0x3,
+                index: 0x0,
+                ..Default::default()
+            }])
+            .unwrap(),
+        ))
     }
 
-    fn build_supported_msrs() -> BTreeMap<u32, u64> {
-        BTreeMap::from([(0x8000, 0b1000), (0x9999, 0b1010)])
+    fn make_msrs(entries: &[(u32, u64)]) -> Msrs {
+        let entries: Vec<kvm_msr_entry> = entries
+            .iter()
+            .map(|&(index, data)| kvm_msr_entry {
+                index,
+                data,
+                ..Default::default()
+            })
+            .collect();
+        Msrs::from_entries(&entries).unwrap()
+    }
+
+    fn build_supported_msrs() -> Msrs {
+        make_msrs(&[(0x8000, 0b1000), (0x9999, 0b1010)])
     }
 
     fn empty_cpuid() -> Cpuid {
-        Cpuid::Intel(IntelCpuid(BTreeMap::new()))
+        Cpuid::Intel(IntelCpuid(kvm_bindings::CpuId::from_entries(&[]).unwrap()))
     }
 
     #[test]
@@ -188,8 +204,10 @@ mod tests {
             cpuid
         );
         assert_eq!(
-            apply_template_to_msrs(msrs.clone(), &template).unwrap(),
-            msrs
+            apply_template_to_msrs(msrs.clone(), &template)
+                .unwrap()
+                .as_slice(),
+            msrs.as_slice()
         );
     }
 
@@ -226,13 +244,15 @@ mod tests {
 
         // Verify that modifiers are applied to a supported MSR.
         assert_eq!(
-            apply_template_to_msrs(build_supported_msrs(), &template).unwrap(),
-            BTreeMap::from([(0x8000, 0b1101), (0x9999, 0b1010)])
+            apply_template_to_msrs(build_supported_msrs(), &template)
+                .unwrap()
+                .as_slice(),
+            make_msrs(&[(0x8000, 0b1101), (0x9999, 0b1010)]).as_slice()
         );
 
         // Verify that an unsupported MSR is rejected.
         assert_eq!(
-            apply_template_to_msrs(BTreeMap::new(), &template).unwrap_err(),
+            apply_template_to_msrs(Msrs::new(0).unwrap(), &template).unwrap_err(),
             CpuConfigurationError::MsrNotSupported(0x9999)
         );
     }
