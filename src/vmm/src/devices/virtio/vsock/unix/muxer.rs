@@ -683,34 +683,39 @@ impl VsockMuxer {
         Ok(stream)
     }
 
-    /// Handle a new connection request comming from our peer (the guest vsock driver).
+    /// Handle a new connection request coming from our peer (the guest vsock driver).
     ///
     /// This will attempt to connect to a host-side Unix socket, expected to be listening at
-    /// the file system path corresponing to the destination port. If successful, a new
+    /// the file system path corresponding to the destination port. If successful, a new
     /// connection object will be created and added to the connection pool. On failure, a new
     /// RST packet will be scheduled for delivery to the guest.
     fn handle_peer_request_pkt(&mut self, pkt: &VsockPacketTx) {
-        let port_path = format!("{}_{}", self.host_sock_path, pkt.hdr.dst_port());
+        // Host-side ports in [1 << 30, 1 << 31) are reserved for host-initiated connections.
+        if (1 << 30..1 << 31).contains(&pkt.hdr.dst_port()) {
+            self.enq_rst(pkt.hdr.dst_port(), pkt.hdr.src_port());
+        } else {
+            let port_path = format!("{}_{}", self.host_sock_path, pkt.hdr.dst_port());
 
-        Self::connect_nonblocking(&port_path)
-            .map_err(VsockUnixBackendError::UnixConnect)
-            .and_then(|stream| {
-                self.add_connection(
-                    ConnMapKey {
-                        local_port: pkt.hdr.dst_port(),
-                        peer_port: pkt.hdr.src_port(),
-                    },
-                    MuxerConnection::new_peer_init(
-                        stream,
-                        uapi::VSOCK_HOST_CID,
-                        self.cid,
-                        pkt.hdr.dst_port(),
-                        pkt.hdr.src_port(),
-                        pkt.hdr.buf_alloc(),
-                    ),
-                )
-            })
-            .unwrap_or_else(|_| self.enq_rst(pkt.hdr.dst_port(), pkt.hdr.src_port()));
+            Self::connect_nonblocking(&port_path)
+                .map_err(VsockUnixBackendError::UnixConnect)
+                .and_then(|stream| {
+                    self.add_connection(
+                        ConnMapKey {
+                            local_port: pkt.hdr.dst_port(),
+                            peer_port: pkt.hdr.src_port(),
+                        },
+                        MuxerConnection::new_peer_init(
+                            stream,
+                            uapi::VSOCK_HOST_CID,
+                            self.cid,
+                            pkt.hdr.dst_port(),
+                            pkt.hdr.src_port(),
+                            pkt.hdr.buf_alloc(),
+                        ),
+                    )
+                })
+                .unwrap_or_else(|_| self.enq_rst(pkt.hdr.dst_port(), pkt.hdr.src_port()));
+        }
     }
 
     /// Perform an action that might mutate a connection's state.
@@ -1150,6 +1155,28 @@ mod tests {
         tx_pkt.hdr.set_dst_cid(uapi::VSOCK_HOST_CID + 1);
         ctx.send();
         assert!(!ctx.muxer.has_pending_rx());
+    }
+
+    #[test]
+    fn test_peer_request_reserved_port() {
+        const PEER_PORT: u32 = 52;
+
+        let mut ctx = MuxerTestContext::new("peer_request_reserved_port");
+        for local_port in [1 << 30, (1 << 31) - 1] {
+            let _listener = ctx.create_local_listener(local_port);
+            ctx.init_tx_pkt(local_port, PEER_PORT, uapi::VSOCK_OP_REQUEST);
+            ctx.send();
+            assert!(ctx.muxer.conn_map.is_empty());
+            ctx.recv();
+            assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
+            assert_eq!(ctx.rx_pkt.hdr.src_port(), local_port);
+            assert_eq!(ctx.rx_pkt.hdr.dst_port(), PEER_PORT);
+        }
+
+        // A host-initiated connection to the same guest port can't collide with a guest one.
+        let (_stream, local_port) = ctx.local_connect(PEER_PORT);
+        assert_eq!(local_port, 1 << 30);
+        assert_eq!(ctx.muxer.conn_map.len(), 1);
     }
 
     #[test]

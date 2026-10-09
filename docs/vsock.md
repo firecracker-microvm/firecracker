@@ -87,6 +87,15 @@ exists, no one is listening on it, or its accept backlog is full, a connection
 cannot be established, and a VIRTIO_VSOCK_OP_RST packet will be sent back to the
 guest.
 
+> [!NOTE]
+>
+> Ports in the range `[2^30, 2^31)` (i.e. `1073741824` to `2147483647`) are
+> reserved for host-side ports of
+> [host-initiated connections](#host-initiated-connections). Guest connection
+> requests to a port in this range are always rejected with a
+> VIRTIO_VSOCK_OP_RST packet, so host AF_UNIX sockets must not listen at
+> `/path/to/v.sock_PORT` with `PORT` in this range.
+
 Client B initiates connection to Server B in [figure below](#vsock-connections):
 
 1. Host: At VM configuration time, add a virtio-vsock device, with some

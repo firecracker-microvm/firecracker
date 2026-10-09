@@ -69,6 +69,12 @@ and this project adheres to
   now completes before the vCPU pauses, so snapshots include its effects without
   executing further guest instructions.
 
+- [#6315](https://github.com/firecracker-microvm/firecracker/pull/6315): Fixed
+  the vsock device mixing up a guest-initiated connection with a host-initiated
+  one when the guest connected to a port in the `[2^30, 2^31)` range, which is
+  used for host-side ports of host-initiated connections. Guest connection
+  requests to ports in this range are now refused.
+
 - [#6208](https://github.com/firecracker-microvm/firecracker/pull/6208): Fixed
   the vsock device stalling the VMM thread when the guest connects to a
   host-side Unix socket whose accept backlog is full. Such connection requests
