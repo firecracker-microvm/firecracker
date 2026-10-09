@@ -1073,8 +1073,8 @@ pub mod tests {
     };
     use crate::devices::virtio::net::test_utils::test::TestHelper;
     use crate::devices::virtio::net::test_utils::{
-        NetEvent, NetQueue, TapTrafficSimulator, default_net, enable, if_index,
-        inject_tap_tx_frame, set_mac,
+        MAX_TAP_TX_FRAME_LEN, NetEvent, NetQueue, TapTrafficSimulator, default_net, enable,
+        if_index, inject_tap_tx_frame, set_mac,
     };
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt};
@@ -1609,6 +1609,155 @@ pub mod tests {
         // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
         th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
         rx_multiple_frames(th);
+    }
+
+    /// A single region at guest address 0 with dirty page tracking enabled.
+    fn dirty_tracking_mem(size: usize) -> GuestMemoryMmap {
+        use crate::vmm_config::machine_config::HugePageConfig;
+        use crate::vstate::memory::{GuestRegionMmapExt, anonymous};
+
+        GuestMemoryMmap::from_regions(vec![GuestRegionMmapExt::dram_from_mmap_region(
+            anonymous(&[(GuestAddress(0), size)], true, HugePageConfig::None)
+                .unwrap()
+                .remove(0),
+            0,
+        )])
+        .unwrap()
+    }
+
+    /// Receive a frame of `frame_len` bytes into Rx chains of `chain_lens` bytes (one
+    /// descriptor each) and check that exactly the pages the frame was written to are marked
+    /// dirty. The frame fills the chains in order, so with VIRTIO_NET_F_MRG_RXBUF a frame longer
+    /// than the first chain spans several of them.
+    fn rx_dirty_tracking(
+        mut th: TestHelper,
+        mem: &GuestMemoryMmap,
+        chain_lens: &[u32],
+        frame_len: usize,
+    ) {
+        use crate::arch::host_page_size;
+        use crate::vstate::memory::{Bitmap, GuestMemoryExtension};
+
+        let page_size = host_page_size() as u64;
+        let page_of = |addr: u64| addr & !(page_size - 1);
+        th.activate_net();
+
+        // One chain per entry, `2 * MAX_BUFFER_SIZE` apart so that no page is shared between
+        // chains, starting one page past the queues so that used-ring writes cannot dirty a
+        // page shared with buffer data.
+        for (i, &len) in chain_lens.iter().enumerate() {
+            th.add_desc_chain(
+                NetQueue::Rx,
+                page_size + 2 * MAX_BUFFER_SIZE as u64 * i as u64,
+                &[(i as u16, len, VIRTQ_DESC_F_WRITE)],
+            );
+        }
+        mem.reset_dirty();
+
+        let frame = inject_tap_tx_frame(&th.net(), frame_len);
+        check_metric_after_block!(
+            th.net().metrics.rx_packets_count,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+
+        // How much of the frame landed in each chain: the chains are filled front to back.
+        let mut remaining = frame.len() as u32;
+        let written: Vec<u32> = chain_lens
+            .iter()
+            .map(|&len| {
+                let w = remaining.min(len);
+                remaining -= w;
+                w
+            })
+            .collect();
+        assert_eq!(remaining, 0, "frame does not fit in the chains");
+        let used_chains = written.iter().take_while(|&&w| w > 0).count();
+
+        // The used chains were returned to the guest, each with its share of the frame; the
+        // others are still parsed.
+        assert_eq!(
+            th.net().rx_buffer.iovec.chains.len(),
+            chain_lens.len() - used_chains
+        );
+        assert_eq!(th.rxq.used.idx.get(), used_chains as u16);
+        for (i, &written) in written.iter().enumerate().take(used_chains) {
+            th.rxq.check_used_elem(i as u16, i as u16, written);
+        }
+
+        let dirty = |addr: u64| {
+            mem.find_region(GuestAddress(0))
+                .unwrap()
+                .bitmap()
+                .dirty_at(addr as usize)
+        };
+        for (i, (&len, &written)) in chain_lens.iter().zip(&written).enumerate() {
+            let start = th.rxq.dtable[i].addr.get();
+            let end = start + u64::from(len);
+            let written_end = start + u64::from(written); // exclusive
+
+            // Every page touched by the frame is dirty...
+            let mut addr = start;
+            while addr < written_end {
+                assert!(dirty(addr), "chain {i}: page at {addr:#x} should be dirty");
+                addr = page_of(addr) + page_size;
+            }
+            // ...and the rest of the chain, from the first page past the written bytes, is not.
+            // A chain nothing was written into is clean from its first page.
+            let mut addr = if written == 0 {
+                start
+            } else {
+                assert!(dirty(written_end - 1));
+                page_of(written_end - 1) + page_size
+            };
+            while addr < end {
+                assert!(!dirty(addr), "chain {i}: page at {addr:#x} should be clean");
+                addr = page_of(addr) + page_size;
+            }
+        }
+    }
+
+    /// Frame sizes exercising the dirty tracking: within a page, spanning a page boundary,
+    /// several pages, and the largest frame that can be pushed through the tap.
+    fn dirty_tracking_frame_sizes() -> Vec<usize> {
+        let page_size = crate::arch::host_page_size();
+        vec![
+            1000,
+            page_size + 1,
+            3 * page_size + page_size / 2,
+            MAX_TAP_TX_FRAME_LEN,
+        ]
+    }
+
+    #[test]
+    fn test_rx_dirty_tracking() {
+        // Without VIRTIO_NET_F_MRG_RXBUF every chain must hold a whole frame, so the frame
+        // always lands in the first one and the second stays parsed and clean.
+        let chain_lens = [MAX_BUFFER_SIZE as u32; 2];
+        for frame_len in dirty_tracking_frame_sizes() {
+            let mem = dirty_tracking_mem(5 * MAX_BUFFER_SIZE);
+            let th = TestHelper::get_default(&mem);
+            rx_dirty_tracking(th, &mem, &chain_lens, frame_len);
+        }
+    }
+
+    #[test]
+    fn test_rx_dirty_tracking_mrg() {
+        // With VIRTIO_NET_F_MRG_RXBUF chains can be small: the first holds two pages, so frames
+        // longer than that spill into the second, and the third always stays parsed and clean.
+        let page_size = crate::arch::host_page_size() as u32;
+        let chain_lens = [
+            2 * page_size,
+            MAX_BUFFER_SIZE as u32,
+            MAX_BUFFER_SIZE as u32,
+        ];
+        for frame_len in dirty_tracking_frame_sizes() {
+            let mem = dirty_tracking_mem(7 * MAX_BUFFER_SIZE);
+            let mut th = TestHelper::get_default(&mem);
+            // VIRTIO_NET_F_MRG_RXBUF is not enabled by default
+            th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+            rx_dirty_tracking(th, &mem, &chain_lens, frame_len);
+        }
     }
 
     fn rx_mrg_rxbuf_only(mut th: TestHelper) {
