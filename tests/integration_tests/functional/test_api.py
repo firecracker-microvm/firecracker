@@ -157,7 +157,7 @@ def test_api_put_update_pre_boot(uvm, io_engine):
     # The machine configuration has a default value, so all PUTs are updates.
     microvm_config_json = {
         "vcpu_count": 4,
-        "smt": platform.machine() == "x86_64",
+        "smt": True,
         "mem_size_mib": 256,
         "track_dirty_pages": True,
     }
@@ -353,15 +353,8 @@ def test_api_machine_config(uvm):
     response = test_microvm.api.machine_config.get()
     assert response.json()["smt"] is False
 
-    # Test that smt=True errors on ARM.
-    if platform.machine() == "x86_64":
-        test_microvm.api.machine_config.patch(smt=True)
-    elif platform.machine() == "aarch64":
-        expected_msg = (
-            "Enabling simultaneous multithreading is not supported on aarch64"
-        )
-        with pytest.raises(RuntimeError, match=expected_msg):
-            test_microvm.api.machine_config.patch(smt=True)
+    # Test that smt=True is accepted.
+    test_microvm.api.machine_config.patch(smt=True)
 
     # Test invalid mem_size_mib < 0.
     with pytest.raises(RuntimeError):
@@ -1426,7 +1419,6 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
     Test the configuration of a microVM after restoring from a snapshot.
     """
     net_iface = uvm_configured.add_net_iface()
-    cpu_vendor = utils_cpuid.get_cpu_vendor()
 
     setup_cfg = {}
     # Basic config also implies a root block device.
@@ -1437,9 +1429,6 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
         "track_dirty_pages": False,
         "huge_pages": "None",
     }
-
-    if cpu_vendor == utils_cpuid.CpuVendor.ARM:
-        setup_cfg["machine-config"]["smt"] = False
 
     if len(SUPPORTED_CPU_TEMPLATES) != 0:
         setup_cfg["machine-config"]["cpu_template"] = SUPPORTED_CPU_TEMPLATES[0]
