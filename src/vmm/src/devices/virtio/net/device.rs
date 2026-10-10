@@ -30,7 +30,7 @@ use crate::devices::virtio::net::tap::Tap;
 use crate::devices::virtio::net::{
     MAX_BUFFER_SIZE, NET_QUEUE_SIZES, NetError, NetQueue, RX_INDEX, TX_INDEX, generated,
 };
-use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue};
+use crate::devices::virtio::queue::{InvalidAvailIdx, Queue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::{DeviceError, report_net_event_fail};
 use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
@@ -96,14 +96,6 @@ pub struct ConfigSpace {
 // SAFETY: `ConfigSpace` contains only PODs in `repr(C)` or `repr(transparent)`, without padding.
 unsafe impl ByteValued for ConfigSpace {}
 
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-enum AddRxBufferError {
-    /// Error while parsing new buffer: {0}
-    Parsing(#[from] IoVecError),
-    /// RX buffer is too small
-    BufferTooSmall,
-}
-
 /// A map of all the memory the guest has provided us with for performing RX
 #[derive(Debug)]
 pub struct RxBuffers {
@@ -134,25 +126,6 @@ impl RxBuffers {
         self.used_descriptors = 0;
         self.used_bytes = 0;
         self.min_buffer_size = 0;
-    }
-
-    /// Add a new `DescriptorChain` that we received from the RX queue in the buffer.
-    ///
-    /// SAFETY: The `DescriptorChain` cannot be referencing the same memory location as any other
-    /// `DescriptorChain`. (See also related comment in
-    /// [`IoVecBufferMut::append_descriptor_chain`]).
-    unsafe fn add_buffer(
-        &mut self,
-        mem: &GuestMemoryMmap,
-        head: DescriptorChain,
-    ) -> Result<(), AddRxBufferError> {
-        // SAFETY: descriptor chain cannot be referencing the same memory location as another chain
-        let parsed_dc = unsafe { self.iovec.append_descriptor_chain(mem, head)? };
-        if parsed_dc.length < self.min_buffer_size {
-            self.iovec.drop_chain_back();
-            return Err(AddRxBufferError::BufferTooSmall);
-        }
-        Ok(())
     }
 
     /// Returns the total size of available space in the buffer.
@@ -488,12 +461,19 @@ impl Net {
         while let Some(head) = queue.pop_or_enable_notification()? {
             let index = head.index;
             // SAFETY: we are only using this `DescriptorChain` here.
-            if let Err(err) = unsafe { self.rx_buffer.add_buffer(mem, head) } {
+            let added = unsafe {
+                self.rx_buffer.iovec.append_descriptor_chain(
+                    mem,
+                    head,
+                    self.rx_buffer.min_buffer_size,
+                )
+            };
+            if let Err(err) = added {
                 self.metrics.rx_fails.inc();
 
                 // If guest uses dirty tricks to make us add more descriptors than
                 // we can hold, just stop processing.
-                if matches!(err, AddRxBufferError::Parsing(IoVecError::IovDequeOverflow)) {
+                if matches!(err, IoVecError::IovDequeOverflow) {
                     error!("net: Could not add an RX descriptor: {err}");
                     queue.undo_pop();
                     break;
@@ -1366,6 +1346,9 @@ pub mod tests {
         th.add_desc_chain(NetQueue::Rx, 0, &[(0, 10, VIRTQ_DESC_F_WRITE)]);
         let mut frame = th.check_rx_discarded_buffer(1000);
         th.rxq.check_used_elem(0, 0, 0);
+        // The rejected chain left no trace in the RX buffer.
+        assert!(th.net().rx_buffer.iovec.is_empty());
+        assert_eq!(th.net().rx_buffer.iovec.chains.len(), 0);
 
         header_set_num_buffers(frame.as_mut_slice(), 1);
         th.check_rx_queue_resume(&frame);

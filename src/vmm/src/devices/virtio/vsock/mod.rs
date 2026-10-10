@@ -139,6 +139,7 @@ impl From<IoVecError> for VsockError {
             IoVecError::OverflowedDescriptor => VsockError::DescChainOverflow,
             IoVecError::IovDeque(err) => VsockError::IovDeque(err),
             IoVecError::IovDequeOverflow => VsockError::IovDequeOverflow,
+            IoVecError::ChainTooShort(_) => VsockError::DescChainTooShortForHeader(0),
         }
     }
 }

@@ -26,6 +26,8 @@ pub enum IoVecError {
     OverflowedDescriptor,
     /// Tried to push to full IovDeque.
     IovDequeOverflow,
+    /// Descriptor chain is shorter than the required {0} bytes
+    ChainTooShort(u32),
     /// Guest memory error: {0}
     GuestMemory(#[from] GuestMemoryError),
     /// Error with underlying `IovDeque`: {0}
@@ -253,8 +255,9 @@ pub struct IoVecBufferMut<const L: u16 = FIRECRACKER_MAX_QUEUE_SIZE> {
 unsafe impl<const L: u16> Send for IoVecBufferMut<L> {}
 
 impl<const L: u16> IoVecBufferMut<L> {
-    /// Append a `DescriptorChain` in this `IoVecBufferMut`, returning a view of the chain that
-    /// was added.
+    /// Append a `DescriptorChain` of at least `min_len` bytes in this `IoVecBufferMut`.
+    ///
+    /// On error the buffer is left as it was.
     ///
     /// # Safety
     ///
@@ -263,7 +266,8 @@ impl<const L: u16> IoVecBufferMut<L> {
         &mut self,
         mem: &GuestMemoryMmap,
         head: DescriptorChain,
-    ) -> Result<&ParsedDescriptorChain, IoVecError> {
+        min_len: u32,
+    ) -> Result<(), IoVecError> {
         let head_index = head.index;
         let mut next_descriptor = Some(head);
         let mut length = 0u32;
@@ -309,6 +313,11 @@ impl<const L: u16> IoVecBufferMut<L> {
             next_descriptor = desc.next_descriptor();
         }
 
+        if length < min_len {
+            self.vecs.pop_back(nr_iovecs);
+            return Err(IoVecError::ChainTooShort(min_len));
+        }
+
         self.len = self.len.checked_add(length).ok_or_else(|| {
             self.vecs.pop_back(nr_iovecs);
             IoVecError::OverflowedDescriptor
@@ -319,7 +328,7 @@ impl<const L: u16> IoVecBufferMut<L> {
             length,
             nr_iovecs,
         });
-        Ok(self.chains.back().unwrap())
+        Ok(())
     }
 
     /// Create an empty `IoVecBufferMut`.
@@ -347,8 +356,7 @@ impl<const L: u16> IoVecBufferMut<L> {
     ) -> Result<(), IoVecError> {
         self.clear();
         // SAFETY: descriptor chain cannot be referencing the same memory location as another chain
-        unsafe { self.append_descriptor_chain(mem, head)? };
-        Ok(())
+        unsafe { self.append_descriptor_chain(mem, head, 0) }
     }
 
     /// Drop the first descriptor chain from the `IoVecBufferMut`.
@@ -359,17 +367,6 @@ impl<const L: u16> IoVecBufferMut<L> {
     pub fn drop_chain_front(&mut self) {
         let chain = self.chains.pop_front().expect("no chain to drop");
         self.vecs.pop_front(chain.nr_iovecs);
-        self.len -= chain.length;
-    }
-
-    /// Drop the last descriptor chain from the `IoVecBufferMut`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the buffer holds no chain.
-    pub fn drop_chain_back(&mut self) {
-        let chain = self.chains.pop_back().expect("no chain to drop");
-        self.vecs.pop_back(chain.nr_iovecs);
         self.len -= chain.length;
     }
 
@@ -512,7 +509,7 @@ mod tests {
     use libc::{c_void, iovec};
     use vm_memory::VolatileMemoryError;
 
-    use super::{IoVecBuffer, ParsedDescriptorChain};
+    use super::{IoVecBuffer, IoVecError, ParsedDescriptorChain};
     // Redefine `IoVecBufferMut` with specific length. Otherwise
     // Rust will not know what to do.
     type IoVecBufferMutDefault = super::IoVecBufferMut<FIRECRACKER_MAX_QUEUE_SIZE>;
@@ -667,6 +664,68 @@ mod tests {
     }
 
     #[test]
+    fn test_iovec_mut_rejects_chain_crossing_regions() {
+        // Two regions, adjacent in guest memory. A descriptor may not straddle them, since their
+        // host mappings need not be adjacent, so every `iovec` lies within a single region.
+        let mem = multi_region_mem(&[(GuestAddress(0), 0x10000), (GuestAddress(0x10000), 0x10000)]);
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        let mut q = vq.create_queue();
+        q.ready = true;
+        // A one-descriptor chain, then a chain whose second descriptor crosses the boundary.
+        vq.dtable[0].set(0x8000, 64, VIRTQ_DESC_F_WRITE, 0);
+        vq.dtable[1].set(0x8100, 64, VIRTQ_DESC_F_WRITE | VIRTQ_DESC_F_NEXT, 2);
+        vq.dtable[2].set(0x10000 - 32, 64, VIRTQ_DESC_F_WRITE, 0);
+        vq.avail.ring[0].set(0);
+        vq.avail.ring[1].set(1);
+        vq.avail.idx.set(2);
+
+        let mut iovec = IoVecBufferMutDefault::new().unwrap();
+        // SAFETY: the two chains do not overlap.
+        unsafe {
+            iovec
+                .append_descriptor_chain(&mem, q.pop().unwrap().unwrap(), 0)
+                .unwrap();
+        }
+        let before = (iovec.len(), iovec.vecs.len(), iovec.chains.len());
+
+        let head = q.pop().unwrap().unwrap();
+        // SAFETY: as above.
+        let result = unsafe { iovec.append_descriptor_chain(&mem, head, 0) };
+        assert!(matches!(result, Err(IoVecError::GuestMemory(_))));
+        // The failed append rolled back the descriptor it had already pushed.
+        assert_eq!((iovec.len(), iovec.vecs.len(), iovec.chains.len()), before);
+    }
+
+    #[test]
+    fn test_iovec_mut_rejects_short_chain() {
+        let mem = default_mem();
+        let (mut q, _) = write_only_chain(&mem);
+        let head = q.pop().unwrap().unwrap();
+        let mut iovec = IoVecBufferMutDefault::new().unwrap();
+        // SAFETY: the chain is loaded only once.
+        let result = unsafe { iovec.append_descriptor_chain(&mem, head, 4 * 64 + 1) };
+        assert!(matches!(result, Err(IoVecError::ChainTooShort(257))));
+        assert!(iovec.is_empty());
+        assert_eq!(iovec.chains.len(), 0);
+        assert_eq!(iovec.vecs.len(), 0);
+
+        // The same on a buffer already holding a chain leaves that chain untouched.
+        let (mut q, _) = write_only_chain(&mem);
+        let head = q.pop().unwrap().unwrap();
+        // SAFETY: it is actually unsafe, as the chain was already loaded above, but we only check
+        // the bookkeeping of the `IoVecBufferMut`.
+        unsafe { iovec.append_descriptor_chain(&mem, head, 0).unwrap() };
+        let (mut q, _) = write_only_chain(&mem);
+        let head = q.pop().unwrap().unwrap();
+        // SAFETY: as above.
+        let result = unsafe { iovec.append_descriptor_chain(&mem, head, 4 * 64 + 1) };
+        assert!(matches!(result, Err(IoVecError::ChainTooShort(257))));
+        assert_eq!(iovec.len(), 4 * 64);
+        assert_eq!(iovec.chains.len(), 1);
+        assert_eq!(iovec.vecs.len(), 4);
+    }
+
+    #[test]
     fn test_iovec_mut_length() {
         let mem = default_mem();
         let (mut q, _) = write_only_chain(&mem);
@@ -685,7 +744,7 @@ mod tests {
         let head = q.pop().unwrap().unwrap();
         // SAFETY: it is actually unsafe, but we just want to check the length of the
         // `IoVecBufferMut` after appending.
-        unsafe { iovec.append_descriptor_chain(&mem, head).unwrap() };
+        unsafe { iovec.append_descriptor_chain(&mem, head, 0).unwrap() };
         assert_eq!(iovec.len(), 8 * 64);
     }
 
