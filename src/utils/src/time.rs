@@ -249,6 +249,7 @@ impl TimerFd {
 
     /// Arm the timer to be triggered after `duration` and then
     /// at optional `interval`
+    #[allow(clippy::infallible_destructuring_match)]
     pub fn arm(&mut self, duration: Duration, interval: Option<Duration>) {
         let file = match self {
             TimerFd::Real(file) => file,
@@ -286,6 +287,7 @@ impl TimerFd {
     /// flag, this function does not block and returns `0` if the timer has not fired. For a mock
     /// timer it returns the number of expirations that have occurred (per the virtual clock)
     /// since the previous read.
+    #[allow(clippy::infallible_destructuring_match)]
     pub fn read(&mut self) -> u64 {
         let file = match self {
             TimerFd::Real(file) => file,
@@ -301,6 +303,7 @@ impl TimerFd {
     }
 
     /// Tell if the timer is currently armed.
+    #[allow(clippy::infallible_destructuring_match)]
     pub fn is_armed(&self) -> bool {
         let file = match self {
             TimerFd::Real(file) => file,
