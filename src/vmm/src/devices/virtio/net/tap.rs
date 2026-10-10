@@ -14,7 +14,6 @@ use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use vmm_sys_util::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 use vmm_sys_util::ioctl_iow_nr;
 
-use crate::devices::virtio::iovec::IoVecBuffer;
 use crate::devices::virtio::net::generated;
 
 // As defined in the Linux UAPI:
@@ -95,6 +94,11 @@ impl IfReqBuilder {
 
     pub(crate) fn flags(mut self, flags: i16) -> Self {
         self.0.ifr_ifru.ifru_flags = flags;
+        self
+    }
+
+    pub(crate) fn mtu(mut self, mtu: i32) -> Self {
+        self.0.ifr_ifru.ifru_mtu = mtu;
         self
     }
 
@@ -179,34 +183,6 @@ impl Tap {
 
         Ok(())
     }
-
-    /// Write an `IoVecBuffer` to tap
-    pub(crate) fn write_iovec(&mut self, buffer: &IoVecBuffer) -> Result<usize, IoError> {
-        let iovcnt = i32::try_from(buffer.iovec_count()).unwrap();
-        let iov = buffer.as_iovec_ptr();
-
-        // SAFETY: `writev` is safe. Called with a valid tap fd, the iovec pointer and length
-        // is provide by the `IoVecBuffer` implementation and we check the return value.
-        let ret = unsafe { libc::writev(self.tap_file.as_raw_fd(), iov, iovcnt) };
-        if ret == -1 {
-            return Err(IoError::last_os_error());
-        }
-        Ok(usize::try_from(ret).unwrap())
-    }
-
-    /// Read from tap to an `IoVecBufferMut`
-    pub(crate) fn read_iovec(&mut self, buffer: &mut [libc::iovec]) -> Result<usize, IoError> {
-        let iov = buffer.as_mut_ptr();
-        let iovcnt = buffer.len().try_into().unwrap();
-
-        // SAFETY: `readv` is safe. Called with a valid tap fd, the iovec pointer and length
-        // is provide by the `IoVecBufferMut` implementation and we check the return value.
-        let ret = unsafe { libc::readv(self.tap_file.as_raw_fd(), iov, iovcnt) };
-        if ret == -1 {
-            return Err(IoError::last_os_error());
-        }
-        Ok(usize::try_from(ret).unwrap())
-    }
 }
 
 impl AsRawFd for Tap {
@@ -222,8 +198,13 @@ pub mod tests {
     use std::os::unix::ffi::OsStrExt;
 
     use super::*;
+    use crate::devices::virtio::iovec::IoVecBuffer;
     use crate::devices::virtio::net::generated;
     use crate::devices::virtio::net::test_utils::{TapTrafficSimulator, enable, if_index};
+    use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
+    use crate::devices::virtio::test_utils::VirtQueue;
+    use crate::test_utils::single_region_mem;
+    use crate::vstate::memory::{Bytes, GuestAddress};
 
     // Redefine `IoVecBufferMut` with specific length. Otherwise
     // Rust will not know what to do.
@@ -296,8 +277,8 @@ pub mod tests {
     }
 
     #[test]
-    fn test_write_iovec() {
-        let mut tap = Tap::open_named("").unwrap();
+    fn test_writev_to_tap() {
+        let tap = Tap::open_named("").unwrap();
         enable(&tap);
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&tap));
 
@@ -313,7 +294,7 @@ pub mod tests {
             fragment3.as_slice(),
         ]);
 
-        let num_bytes = tap.write_iovec(&scattered).unwrap();
+        let num_bytes = scattered.writev_to(&tap).unwrap();
         assert_eq!(num_bytes, scattered.len() as usize);
 
         let mut read_buf = vec![0u8; scattered.len() as usize];
@@ -333,22 +314,49 @@ pub mod tests {
     }
 
     #[test]
-    fn test_read_iovec() {
-        let mut tap = Tap::open_named("").unwrap();
+    fn test_readv_from_tap() {
+        let tap = Tap::open_named("").unwrap();
         enable(&tap);
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&tap));
 
-        let mut buff1 = vec![0; PAYLOAD_SIZE + VNET_HDR_SIZE];
-        let mut buff2 = vec![0; 2 * PAYLOAD_SIZE];
-
-        let mut rx_buffers = IoVecBufferMut::from(vec![buff1.as_mut_slice(), buff2.as_mut_slice()]);
+        // Two write-only descriptor chains of one descriptor each, in guest memory, with the
+        // first one holding exactly the virtio-net header and the first half of the payload.
+        let mem = single_region_mem(0x10000);
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        let mut q = vq.create_queue();
+        q.ready = true;
+        let buff1_len = u32::try_from(PAYLOAD_SIZE + VNET_HDR_SIZE).unwrap();
+        let buff2_len = u32::try_from(2 * PAYLOAD_SIZE).unwrap();
+        let buff1_addr = vq.end().0;
+        let buff2_addr = buff1_addr + u64::from(buff1_len);
+        vq.dtable[0].set(buff1_addr, buff1_len, VIRTQ_DESC_F_WRITE, 0);
+        vq.dtable[1].set(buff2_addr, buff2_len, VIRTQ_DESC_F_WRITE, 0);
+        vq.avail.ring[0].set(0);
+        vq.avail.ring[1].set(1);
+        vq.avail.idx.set(2);
+        let mut rx_buffers = IoVecBufferMut::new().unwrap();
+        // SAFETY: the two chains do not overlap.
+        unsafe {
+            rx_buffers
+                .append_descriptor_chain(&mem, q.pop().unwrap().unwrap(), 0)
+                .unwrap();
+            rx_buffers
+                .append_descriptor_chain(&mem, q.pop().unwrap().unwrap(), 0)
+                .unwrap();
+        }
 
         let packet = vmm_sys_util::rand::rand_alphanumerics(2 * PAYLOAD_SIZE);
         tap_traffic_simulator.push_tx_packet(packet.as_bytes());
         assert_eq!(
-            tap.read_iovec(rx_buffers.as_iovec_mut_slice()).unwrap(),
+            rx_buffers.readv_from(&mem, &tap, true).unwrap(),
             2 * PAYLOAD_SIZE + VNET_HDR_SIZE
         );
+        let mut buff1 = vec![0; PAYLOAD_SIZE + VNET_HDR_SIZE];
+        mem.read_slice(&mut buff1, GuestAddress(buff1_addr))
+            .unwrap();
+        let mut buff2 = vec![0; 2 * PAYLOAD_SIZE];
+        mem.read_slice(&mut buff2, GuestAddress(buff2_addr))
+            .unwrap();
         assert_eq!(&buff1[VNET_HDR_SIZE..], &packet.as_bytes()[..PAYLOAD_SIZE]);
         assert_eq!(&buff2[..PAYLOAD_SIZE], &packet.as_bytes()[PAYLOAD_SIZE..]);
         assert_eq!(&buff2[PAYLOAD_SIZE..], &vec![0; PAYLOAD_SIZE])

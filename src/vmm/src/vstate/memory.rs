@@ -1234,6 +1234,29 @@ pub fn snapshot_file(
     )
 }
 
+/// Marks as dirty the `len` bytes of guest memory mapped at host address `ptr`.
+///
+/// `[ptr, ptr + len)` must lie within a single region of `mem`, as ranges resolved with
+/// `get_slice` do.
+///
+/// # Panics
+///
+/// Panics if `len > 0` and the range does not fall within a single region.
+pub fn mark_dirty_host(mem: &GuestMemoryMmap, ptr: *const u8, len: usize) {
+    if len == 0 {
+        return;
+    }
+    for region in mem.iter() {
+        let offset = (ptr as usize).wrapping_sub(region.as_ptr() as usize);
+        if offset < region.size() {
+            assert!(offset + len <= region.size(), "range crosses a region end");
+            region.bitmap().mark_dirty(offset, len);
+            return;
+        }
+    }
+    unreachable!("host address {ptr:p} is not guest memory");
+}
+
 /// Defines the interface for snapshotting memory.
 pub trait GuestMemoryExtension
 where
@@ -1752,6 +1775,83 @@ mod tests {
         assert!(!dirty_at(0));
         assert!(dirty_at(page_size));
         assert!(!dirty_at(page_size * 2));
+    }
+
+    #[test]
+    fn test_mark_dirty_host() {
+        let page_size = host_page_size();
+        let region_size = page_size * 3;
+
+        let regions = vec![
+            (GuestAddress(0), region_size),                  // pages 0-2
+            (GuestAddress(region_size as u64), region_size), // pages 3-5
+        ];
+        let mem = into_region_ext(anonymous(&regions, true, HugePageConfig::None).unwrap());
+        let dirty_at = |page: usize| {
+            mem.get_slices(GuestAddress((page * page_size) as u64), 1)
+                .flatten()
+                .all(|slice| slice.bitmap().dirty_at(0))
+        };
+        let host_ptr = |page: usize, offset: usize| {
+            mem.get_slice(GuestAddress((page * page_size) as u64), 1)
+                .unwrap()
+                .ptr_guard()
+                .as_ptr()
+                .wrapping_add(offset)
+        };
+
+        // Marking through a host pointer lands on the page it maps, and only that one.
+        mark_dirty_host(&mem, host_ptr(1, 100), 10);
+        assert!(!dirty_at(0));
+        assert!(dirty_at(1));
+        assert!(!dirty_at(2));
+
+        // The second region has its own bitmap, indexed from its own start.
+        mem.reset_dirty();
+        mark_dirty_host(&mem, host_ptr(4, 0), page_size + 1);
+        assert!(!dirty_at(3));
+        assert!(dirty_at(4));
+        assert!(dirty_at(5));
+
+        // A range reaching exactly the end of a region is fine.
+        mem.reset_dirty();
+        mark_dirty_host(&mem, host_ptr(2, page_size - 1), 1);
+        assert!(!dirty_at(1));
+        assert!(dirty_at(2));
+        assert!(!dirty_at(3));
+
+        // Empty ranges mark nothing, wherever they point.
+        mem.reset_dirty();
+        mark_dirty_host(&mem, host_ptr(1, 0), 0);
+        mark_dirty_host(&mem, host_ptr(2, page_size), 0);
+        mark_dirty_host(&mem, std::ptr::null(), 0);
+        assert!(!(0..6).any(dirty_at));
+    }
+
+    #[test]
+    #[should_panic(expected = "range crosses a region end")]
+    fn test_mark_dirty_host_crossing_region_end() {
+        let page_size = host_page_size();
+        let mem = into_region_ext(
+            anonymous(&[(GuestAddress(0), page_size)], true, HugePageConfig::None).unwrap(),
+        );
+        let ptr = mem
+            .get_slice(GuestAddress(0), 1)
+            .unwrap()
+            .ptr_guard()
+            .as_ptr();
+        mark_dirty_host(&mem, ptr.wrapping_add(page_size - 1), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "is not guest memory")]
+    fn test_mark_dirty_host_outside_guest_memory() {
+        let page_size = host_page_size();
+        let mem = into_region_ext(
+            anonymous(&[(GuestAddress(0), page_size)], true, HugePageConfig::None).unwrap(),
+        );
+        let host_buf = vec![0u8; page_size];
+        mark_dirty_host(&mem, host_buf.as_ptr(), 1);
     }
 
     #[test]

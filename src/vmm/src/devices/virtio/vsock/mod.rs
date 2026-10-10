@@ -32,6 +32,7 @@ pub use self::unix::{VsockUnixBackend, VsockUnixBackendError};
 use super::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecError;
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
+use crate::vstate::memory::GuestMemoryMmap;
 
 mod defs {
     use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
@@ -139,6 +140,7 @@ impl From<IoVecError> for VsockError {
             IoVecError::OverflowedDescriptor => VsockError::DescChainOverflow,
             IoVecError::IovDeque(err) => VsockError::IovDeque(err),
             IoVecError::IovDequeOverflow => VsockError::IovDequeOverflow,
+            IoVecError::ChainTooShort(_) => VsockError::DescChainTooShortForHeader(0),
         }
     }
 }
@@ -166,7 +168,11 @@ pub trait VsockEpollListener: AsRawFd {
 ///       - `send_pkt(&pkt)` will fetch data from `pkt`, and place it into the channel.
 pub trait VsockChannel {
     /// Read/receive an incoming packet from the channel.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<(), VsockError>;
+    fn recv_pkt(
+        &mut self,
+        mem: &GuestMemoryMmap,
+        pkt: &mut VsockPacketRx,
+    ) -> Result<(), VsockError>;
 
     /// Write/send a packet through the channel.
     ///

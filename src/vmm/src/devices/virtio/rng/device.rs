@@ -97,13 +97,13 @@ impl Entropy {
             .map_err(DeviceError::FailedSignalingIrq)
     }
 
-    fn rate_limit_request(&mut self, bytes: u64) -> bool {
-        if !self.rate_limiter.consume(1, TokenType::Ops) {
+    fn rate_limit_request(rate_limiter: &mut RateLimiter, bytes: u64) -> bool {
+        if !rate_limiter.consume(1, TokenType::Ops) {
             return false;
         }
 
-        if !self.rate_limiter.consume(bytes, TokenType::Bytes) {
-            self.rate_limiter.manual_replenish(1, TokenType::Ops);
+        if !rate_limiter.consume(bytes, TokenType::Bytes) {
+            rate_limiter.manual_replenish(1, TokenType::Ops);
             return false;
         }
 
@@ -115,16 +115,17 @@ impl Entropy {
         rate_limiter.manual_replenish(bytes, TokenType::Bytes);
     }
 
-    fn handle_one(&mut self) -> Result<u32, EntropyError> {
+    /// Fills `buffer`, the chain of an entropy request, with random bytes.
+    fn handle_one(mem: &GuestMemoryMmap, buffer: &mut IoVecBufferMut) -> Result<u32, EntropyError> {
         // If guest provided us with an empty buffer just return directly
-        if self.buffer.is_empty() {
+        if buffer.is_empty() {
             return Ok(0);
         }
 
         // Cap the number of bytes we actually generate so that the host-side
         // allocation stays bounded even when buffer.len() is inflated by
         // overlapping descriptors in the chain.
-        let len = std::cmp::min(self.buffer.len(), MAX_ENTROPY_BYTES);
+        let len = std::cmp::min(buffer.len(), MAX_ENTROPY_BYTES);
 
         let mut rand_bytes = vec![0; len as usize];
         rand::fill(&mut rand_bytes).inspect_err(|_| {
@@ -132,7 +133,7 @@ impl Entropy {
         })?;
 
         // It is ok to unwrap here. We are writing `len` bytes at offset 0.
-        self.buffer.write_all_volatile_at(&rand_bytes, 0).unwrap();
+        buffer.write_all_volatile_at(mem, &rand_bytes, 0).unwrap();
         Ok(len)
     }
 
@@ -157,14 +158,17 @@ impl Entropy {
                     // Check for available rate limiting budget.
                     // If not enough budget is available, leave the request descriptor in the queue
                     // to handle once we do have budget.
-                    if !self.rate_limit_request(u64::from(self.buffer.len())) {
+                    if !Self::rate_limit_request(
+                        &mut self.rate_limiter,
+                        u64::from(self.buffer.len()),
+                    ) {
                         debug!("entropy: throttling entropy queue");
                         METRICS.entropy_rate_limiter_throttled.inc();
                         self.queues[RNG_QUEUE].undo_pop();
                         break;
                     }
 
-                    self.handle_one().unwrap_or_else(|err| {
+                    Self::handle_one(mem, &mut self.buffer).unwrap_or_else(|err| {
                         error!("entropy: {err}");
                         METRICS.entropy_event_fails.inc();
                         0
@@ -437,7 +441,7 @@ mod tests {
         let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop().unwrap().unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
         entropy_dev.buffer = unsafe { IoVecBufferMut::from_descriptor_chain(&mem, desc).unwrap() };
-        entropy_dev.handle_one().unwrap();
+        Entropy::handle_one(&mem, &mut entropy_dev.buffer).unwrap();
     }
 
     #[test]
@@ -642,7 +646,7 @@ mod tests {
 
         let mut dev = default_entropy();
         dev.buffer = buf;
-        let bytes = dev.handle_one().unwrap();
+        let bytes = Entropy::handle_one(&mem, &mut dev.buffer).unwrap();
 
         assert_eq!(
             bytes,
@@ -686,7 +690,7 @@ mod tests {
 
         let mut dev = default_entropy();
         dev.buffer = buf;
-        let bytes = dev.handle_one().unwrap();
+        let bytes = Entropy::handle_one(&mem, &mut dev.buffer).unwrap();
 
         assert_eq!(
             bytes, MAX_ENTROPY_BYTES,
@@ -721,7 +725,7 @@ mod tests {
 
         let mut dev = default_entropy();
         dev.buffer = buf;
-        let bytes = dev.handle_one().unwrap();
+        let bytes = Entropy::handle_one(&mem, &mut dev.buffer).unwrap();
 
         assert_eq!(
             bytes, SIZE,

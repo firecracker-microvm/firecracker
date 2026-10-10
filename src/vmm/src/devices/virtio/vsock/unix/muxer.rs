@@ -47,6 +47,7 @@ use super::{MuxerConnection, VsockUnixBackendError, defs};
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::packet::{VsockPacketRx, VsockPacketTx};
 use crate::logger::{IncMetric, debug, error, info, warn};
+use crate::vstate::memory::GuestMemoryMmap;
 
 /// A unique identifier of a `MuxerConnection` object. Connections are stored in a hash map,
 /// keyed by a `ConnMapKey` object.
@@ -122,7 +123,11 @@ impl VsockChannel for VsockMuxer {
     /// Retuns:
     /// - `Ok(())`: `pkt` has been successfully filled in; or
     /// - `Err(VsockError::NoData)`: there was no available data with which to fill in the packet.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<(), VsockError> {
+    fn recv_pkt(
+        &mut self,
+        mem: &GuestMemoryMmap,
+        pkt: &mut VsockPacketRx,
+    ) -> Result<(), VsockError> {
         // We'll look for instructions on how to build the RX packet in the RX queue. If the
         // queue is empty, that doesn't necessarily mean we don't have any pending RX, since
         // the queue might be out-of-sync. If that's the case, we'll attempt to sync it first,
@@ -159,7 +164,7 @@ impl VsockChannel for VsockMuxer {
                     let mut conn_res = Err(VsockError::NoData);
                     let mut do_pop = true;
                     self.apply_conn_mutation(key, |conn| {
-                        conn_res = conn.recv_pkt(pkt);
+                        conn_res = conn.recv_pkt(mem, pkt);
                         do_pop = !conn.has_pending_rx();
                     });
                     if do_pop {
@@ -957,7 +962,7 @@ mod tests {
 
             let data_len = data.len().try_into().unwrap(); // store in tmp var to make borrow checker happy.
             self.rx_pkt
-                .read_at_offset_from(&mut data, 0, data_len)
+                .read_at_offset_from(&self._vsock_test_ctx.mem, &mut data, 0, data_len)
                 .unwrap();
             &mut self.tx_pkt
         }
@@ -967,7 +972,9 @@ mod tests {
         }
 
         fn recv(&mut self) {
-            self.muxer.recv_pkt(&mut self.rx_pkt).unwrap();
+            self.muxer
+                .recv_pkt(&self._vsock_test_ctx.mem, &mut self.rx_pkt)
+                .unwrap();
         }
 
         fn notify_muxer(&mut self) {
@@ -1210,7 +1217,9 @@ mod tests {
         assert_eq!(&buf, &data);
 
         // The connection stays scheduled until the stream drains, then has no more pending RX.
-        ctx.muxer.recv_pkt(&mut ctx.rx_pkt).unwrap_err();
+        ctx.muxer
+            .recv_pkt(&ctx._vsock_test_ctx.mem, &mut ctx.rx_pkt)
+            .unwrap_err();
         assert!(!ctx.muxer.has_pending_rx());
     }
 
@@ -1285,7 +1294,9 @@ mod tests {
         assert!(!ctx.muxer.listener_map.contains_key(&conn_fd));
 
         // Draining the stream clears the pending RX and re-arms the epoll listener.
-        ctx.muxer.recv_pkt(&mut ctx.rx_pkt).unwrap_err();
+        ctx.muxer
+            .recv_pkt(&ctx._vsock_test_ctx.mem, &mut ctx.rx_pkt)
+            .unwrap_err();
         assert!(ctx.muxer.listener_map.contains_key(&conn_fd));
         assert_eq!(ctx.count_epoll_listeners().1, 1);
     }

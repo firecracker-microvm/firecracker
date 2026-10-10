@@ -1,11 +1,11 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io::ErrorKind;
+use std::collections::VecDeque;
+use std::io::{Error as IoError, ErrorKind};
+use std::os::fd::AsRawFd;
 
-use libc::{c_void, iovec, size_t};
-use serde::{Deserialize, Serialize};
-use vm_memory::bitmap::Bitmap;
+use libc::{c_int, c_void, iovec, size_t};
 use vm_memory::{
     GuestMemoryBackend, GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice,
     WriteVolatile,
@@ -14,7 +14,7 @@ use vm_memory::{
 use super::iov_deque::{IovDeque, IovDequeError};
 use super::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::queue::DescriptorChain;
-use crate::vstate::memory::GuestMemoryMmap;
+use crate::vstate::memory::{GuestMemoryMmap, mark_dirty_host};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum IoVecError {
@@ -26,6 +26,8 @@ pub enum IoVecError {
     OverflowedDescriptor,
     /// Tried to push to full IovDeque.
     IovDequeOverflow,
+    /// Descriptor chain is shorter than the required {0} bytes
+    ChainTooShort(u32),
     /// Guest memory error: {0}
     GuestMemory(#[from] GuestMemoryError),
     /// Error with underlying `IovDeque`: {0}
@@ -113,14 +115,22 @@ impl IoVecBuffer {
         self.len
     }
 
-    /// Returns a pointer to the memory keeping the `iovec` structs
-    pub fn as_iovec_ptr(&self) -> *const iovec {
-        self.vecs.as_ptr()
-    }
-
-    /// Returns the length of the `iovec` array.
-    pub fn iovec_count(&self) -> usize {
-        self.vecs.len()
+    /// Writes the whole buffer to `fd` with a single `writev`, returning how many bytes were
+    /// written.
+    pub fn writev_to<F: AsRawFd>(&self, fd: &F) -> Result<usize, IoError> {
+        // SAFETY: `writev` is called with a valid fd and `iovec`s that the constructors checked
+        // point into valid guest memory; the return value is checked.
+        let ret = unsafe {
+            libc::writev(
+                fd.as_raw_fd(),
+                self.vecs.as_ptr(),
+                c_int::try_from(self.vecs.len()).unwrap(),
+            )
+        };
+        if ret == -1 {
+            return Err(IoError::last_os_error());
+        }
+        Ok(usize::try_from(ret).unwrap())
     }
 
     /// Clears the `iovec` array
@@ -218,7 +228,7 @@ impl IoVecBuffer {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ParsedDescriptorChain {
     pub head_index: u16,
     pub length: u32,
@@ -228,18 +238,26 @@ pub struct ParsedDescriptorChain {
 /// This is essentially a wrapper of a `Vec<libc::iovec>` which can be passed to `libc::readv`.
 ///
 /// It describes a write-only buffer passed to us by the guest that is scattered across multiple
-/// memory regions. Additionally, this wrapper provides methods that allow reading arbitrary ranges
-/// of data from that buffer.
+/// memory regions. Additionally, this wrapper provides methods that allow reading and writing
+/// arbitrary ranges of data from that buffer.
 /// `L` const generic value must be a multiple of 256 as required by the `IovDeque` requirements.
+///
+/// The buffer can hold several descriptor chains at once, appended at the back and consumed from
+/// the front; it remembers which `iovec`s belong to which chain.
+///
+/// All writes also mark the corresponding pages as dirty.
 #[derive(Debug)]
 pub struct IoVecBufferMut<const L: u16 = FIRECRACKER_MAX_QUEUE_SIZE> {
     // container of the memory regions included in this IO vector
-    pub vecs: IovDeque<L>,
+    vecs: IovDeque<L>,
+    // The descriptor chains in `vecs`, front to back. The `nr_iovecs` of the chains sum up to
+    // `vecs.len()` and their `length`s to `len`.
+    pub chains: VecDeque<ParsedDescriptorChain>,
     // Total length of the IoVecBufferMut
     // We use `u32` here because we use this type in devices which
     // should not give us huge buffers. In any case this
     // value will not overflow as we explicitly check for this case.
-    pub len: u32,
+    len: u32,
 }
 
 // SAFETY: `IoVecBufferMut` doesn't allow for interior mutability and no shared ownership is
@@ -247,7 +265,9 @@ pub struct IoVecBufferMut<const L: u16 = FIRECRACKER_MAX_QUEUE_SIZE> {
 unsafe impl<const L: u16> Send for IoVecBufferMut<L> {}
 
 impl<const L: u16> IoVecBufferMut<L> {
-    /// Append a `DescriptorChain` in this `IoVecBufferMut`
+    /// Append a `DescriptorChain` of at least `min_len` bytes in this `IoVecBufferMut`.
+    ///
+    /// On error the buffer is left as it was.
     ///
     /// # Safety
     ///
@@ -256,7 +276,8 @@ impl<const L: u16> IoVecBufferMut<L> {
         &mut self,
         mem: &GuestMemoryMmap,
         head: DescriptorChain,
-    ) -> Result<ParsedDescriptorChain, IoVecError> {
+        min_len: u32,
+    ) -> Result<(), IoVecError> {
         let head_index = head.index;
         let mut next_descriptor = Some(head);
         let mut length = 0u32;
@@ -275,10 +296,6 @@ impl<const L: u16> IoVecBufferMut<L> {
                 .inspect_err(|_| {
                     self.vecs.pop_back(nr_iovecs);
                 })?;
-            // We need to mark the area of guest memory that will be mutated through this
-            // IoVecBufferMut as dirty ahead of time, as we loose access to all
-            // vm-memory related information after converting down to iovecs.
-            slice.bitmap().mark_dirty(0, desc.len as usize);
             let iov_base = slice.ptr_guard_mut().as_ptr().cast::<c_void>();
 
             if self.vecs.is_full() {
@@ -302,22 +319,32 @@ impl<const L: u16> IoVecBufferMut<L> {
             next_descriptor = desc.next_descriptor();
         }
 
+        if length < min_len {
+            self.vecs.pop_back(nr_iovecs);
+            return Err(IoVecError::ChainTooShort(min_len));
+        }
+
         self.len = self.len.checked_add(length).ok_or_else(|| {
             self.vecs.pop_back(nr_iovecs);
             IoVecError::OverflowedDescriptor
         })?;
 
-        Ok(ParsedDescriptorChain {
+        self.chains.push_back(ParsedDescriptorChain {
             head_index,
             length,
             nr_iovecs,
-        })
+        });
+        Ok(())
     }
 
     /// Create an empty `IoVecBufferMut`.
     pub fn new() -> Result<Self, IovDequeError> {
         let vecs = IovDeque::new()?;
-        Ok(Self { vecs, len: 0 })
+        Ok(Self {
+            vecs,
+            chains: VecDeque::with_capacity(usize::from(L)),
+            len: 0,
+        })
     }
 
     /// Create an `IoVecBufferMut` from a `DescriptorChain`
@@ -335,24 +362,66 @@ impl<const L: u16> IoVecBufferMut<L> {
     ) -> Result<(), IoVecError> {
         self.clear();
         // SAFETY: descriptor chain cannot be referencing the same memory location as another chain
-        let _ = unsafe { self.append_descriptor_chain(mem, head)? };
-        Ok(())
+        unsafe { self.append_descriptor_chain(mem, head, 0) }
     }
 
-    /// Drop descriptor chain from the `IoVecBufferMut` front
+    /// Drop the first descriptor chain from the `IoVecBufferMut`.
     ///
-    /// This will drop memory described by the `IoVecBufferMut` from the beginning.
-    pub fn drop_chain_front(&mut self, parse_descriptor: &ParsedDescriptorChain) {
-        self.vecs.pop_front(parse_descriptor.nr_iovecs);
-        self.len -= parse_descriptor.length;
+    /// # Panics
+    ///
+    /// Panics if the buffer holds no chain.
+    pub fn drop_chain_front(&mut self) {
+        let chain = self.chains.pop_front().expect("no chain to drop");
+        self.vecs.pop_front(chain.nr_iovecs);
+        self.len -= chain.length;
     }
 
-    /// Drop descriptor chain from the `IoVecBufferMut` back
+    /// Reads from `fd` with a single `readv` into the first descriptor chain of the buffer, or
+    /// into all of them if `all_chains`, and marks the bytes read dirty in `mem`.
     ///
-    /// This will drop memory described by the `IoVecBufferMut` from the beginning.
-    pub fn drop_chain_back(&mut self, parse_descriptor: &ParsedDescriptorChain) {
-        self.vecs.pop_back(parse_descriptor.nr_iovecs);
-        self.len -= parse_descriptor.length;
+    /// # Panics
+    ///
+    /// Panics if the buffer holds no chain.
+    pub fn readv_from<F: AsRawFd>(
+        &mut self,
+        mem: &GuestMemoryMmap,
+        fd: &F,
+        all_chains: bool,
+    ) -> Result<usize, IoError> {
+        let iovs = if all_chains {
+            self.vecs.as_slice()
+        } else {
+            let first = self.chains.front().expect("no chain to read into");
+            &self.vecs.as_slice()[..usize::from(first.nr_iovecs)]
+        };
+
+        // SAFETY: `readv` is called with a valid fd and `iovec`s that the constructors checked
+        // point into valid guest memory; the return value is checked.
+        let ret = unsafe {
+            libc::readv(
+                fd.as_raw_fd(),
+                iovs.as_ptr(),
+                c_int::try_from(iovs.len()).unwrap(),
+            )
+        };
+        if ret == -1 {
+            return Err(IoError::last_os_error());
+        }
+        let read = usize::try_from(ret).unwrap();
+
+        // `readv` fills the `iovec`s in order, so the bytes written are the first `read` bytes of
+        // `iovs`.
+        let mut remaining = read;
+        for iov in iovs {
+            if remaining == 0 {
+                break;
+            }
+            let len = remaining.min(iov.iov_len);
+            mark_dirty_host(mem, iov.iov_base.cast(), len);
+            remaining -= len;
+        }
+        assert_eq!(remaining, 0, "readv returned more than the iovecs hold");
+        Ok(read)
     }
 
     /// Create an `IoVecBuffer` from a `DescriptorChain`
@@ -384,14 +453,10 @@ impl<const L: u16> IoVecBufferMut<L> {
         self.len == 0
     }
 
-    /// Returns a pointer to the memory keeping the `iovec` structs
-    pub fn as_iovec_mut_slice(&mut self) -> &mut [iovec] {
-        self.vecs.as_mut_slice()
-    }
-
-    /// Clears the `iovec` array
+    /// Clears the `iovec` array and the descriptor chains
     pub fn clear(&mut self) {
         self.vecs.clear();
+        self.chains.clear();
         self.len = 0;
     }
 
@@ -399,7 +464,7 @@ impl<const L: u16> IoVecBufferMut<L> {
     ///
     /// This will try to fill `IoVecBufferMut` writing bytes from the `buf` starting from
     /// the given offset. It will write as many bytes from `buf` as they fit inside the
-    /// `IoVecBufferMut` starting from `offset`.
+    /// `IoVecBufferMut` starting from `offset`. The written bytes are marked dirty in `mem`.
     ///
     /// # Returns
     ///
@@ -408,12 +473,13 @@ impl<const L: u16> IoVecBufferMut<L> {
     /// `Err(VolatileMemoryError::OutOfBounds)` if `offset >= self.len()`.
     pub fn write_all_volatile_at(
         &mut self,
+        mem: &GuestMemoryMmap,
         mut buf: &[u8],
         offset: usize,
     ) -> Result<(), VolatileMemoryError> {
         if offset < self.len() as usize {
             let expected = buf.len();
-            let bytes_written = self.write_volatile_at(&mut buf, offset, expected)?;
+            let bytes_written = self.write_volatile_at(mem, &mut buf, offset, expected)?;
 
             if bytes_written != expected {
                 return Err(VolatileMemoryError::PartialBuffer {
@@ -431,9 +497,11 @@ impl<const L: u16> IoVecBufferMut<L> {
 
     /// Writes up to `len` bytes into the `IoVecBuffer` starting at the given offset.
     ///
-    /// This will try to write to the given [`WriteVolatile`].
+    /// This will try to write to the given [`WriteVolatile`]. The written bytes are marked dirty
+    /// in `mem`, which must be the guest memory the chains were parsed from.
     pub fn write_volatile_at<W: ReadVolatile>(
         &mut self,
+        mem: &GuestMemoryMmap,
         src: &mut W,
         mut offset: usize,
         mut len: usize,
@@ -468,6 +536,9 @@ impl<const L: u16> IoVecBufferMut<L> {
                 }
             } {
                 Ok(bytes_read) => {
+                    // Mark what landed in this slice right away, so that nothing written is left
+                    // unmarked whichever way the loop exits.
+                    mark_dirty_host(mem, slice.ptr_guard().as_ptr(), bytes_read);
                     total_bytes_read += bytes_read;
 
                     if bytes_read < slice.len() {
@@ -488,10 +559,13 @@ impl<const L: u16> IoVecBufferMut<L> {
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod tests {
-    use libc::{c_void, iovec};
-    use vm_memory::VolatileMemoryError;
+    use std::collections::VecDeque;
+    use std::io::Write;
 
-    use super::IoVecBuffer;
+    use libc::{c_void, iovec};
+    use vm_memory::{GuestMemoryBackend, VolatileMemoryError};
+
+    use super::{IoVecBuffer, IoVecError, ParsedDescriptorChain};
     // Redefine `IoVecBufferMut` with specific length. Otherwise
     // Rust will not know what to do.
     type IoVecBufferMutDefault = super::IoVecBufferMut<FIRECRACKER_MAX_QUEUE_SIZE>;
@@ -536,33 +610,31 @@ mod tests {
 
     impl<const L: u16> From<&mut [u8]> for super::IoVecBufferMut<L> {
         fn from(buf: &mut [u8]) -> Self {
-            let mut vecs = IovDeque::new().unwrap();
-            vecs.push_back(iovec {
-                iov_base: buf.as_mut_ptr().cast::<c_void>(),
-                iov_len: buf.len(),
-            });
-
-            Self {
-                vecs,
-                len: buf.len() as u32,
-            }
+            Self::from(vec![buf])
         }
     }
 
+    // Each slice becomes its own descriptor chain, with head indices 0, 1, 2, ...
     impl<const L: u16> From<Vec<&mut [u8]>> for super::IoVecBufferMut<L> {
         fn from(buffer: Vec<&mut [u8]>) -> Self {
             let mut len = 0;
             let mut vecs = IovDeque::new().unwrap();
-            for slice in buffer {
+            let mut chains = VecDeque::with_capacity(buffer.len());
+            for (head_index, slice) in buffer.into_iter().enumerate() {
                 len += slice.len() as u32;
 
                 vecs.push_back(iovec {
                     iov_base: slice.as_ptr() as *mut c_void,
                     iov_len: slice.len(),
                 });
+                chains.push_back(ParsedDescriptorChain {
+                    head_index: head_index.try_into().unwrap(),
+                    length: slice.len() as u32,
+                    nr_iovecs: 1,
+                });
             }
 
-            Self { vecs, len }
+            Self { vecs, chains, len }
         }
     }
 
@@ -648,6 +720,189 @@ mod tests {
     }
 
     #[test]
+    fn test_iovec_mut_dirty_tracking() {
+        use crate::arch::host_page_size;
+        use crate::vmm_config::machine_config::HugePageConfig;
+        use crate::vstate::memory::{Bitmap, GuestMemoryExtension, GuestRegionMmapExt};
+
+        let page_size = host_page_size();
+        // Dirty tracking enabled, unlike `default_mem()`.
+        let mem = GuestMemoryMmap::from_regions(vec![GuestRegionMmapExt::dram_from_mmap_region(
+            crate::vstate::memory::anonymous(
+                &[(GuestAddress(0), page_size * 8)],
+                true,
+                HugePageConfig::None,
+            )
+            .unwrap()
+            .remove(0),
+            0,
+        )])
+        .unwrap();
+        let dirty_at = |page: usize| {
+            mem.find_region(GuestAddress(0))
+                .unwrap()
+                .bitmap()
+                .dirty_at(page * page_size)
+        };
+
+        // A write-only chain of two descriptors of 64 bytes each on pages 4 and 5, and another
+        // chain of one descriptor on page 6.
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        let mut q = vq.create_queue();
+        q.ready = true;
+        let flags = VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE;
+        vq.dtable[0].set((4 * page_size) as u64, 64, flags, 1);
+        vq.dtable[1].set((5 * page_size) as u64, 64, VIRTQ_DESC_F_WRITE, 0);
+        vq.dtable[2].set((6 * page_size) as u64, 64, VIRTQ_DESC_F_WRITE, 0);
+        vq.avail.ring[0].set(0);
+        vq.avail.ring[1].set(2);
+        vq.avail.idx.set(2);
+
+        let mut iovec = IoVecBufferMutDefault::new().unwrap();
+        // SAFETY: the two chains do not overlap.
+        unsafe {
+            iovec
+                .append_descriptor_chain(&mem, q.pop().unwrap().unwrap(), 0)
+                .unwrap();
+            iovec
+                .append_descriptor_chain(&mem, q.pop().unwrap().unwrap(), 0)
+                .unwrap();
+        }
+        assert_eq!(iovec.len(), 3 * 64);
+        assert_eq!(iovec.chains.len(), 2);
+
+        // Parsing a descriptor chain does not mark anything dirty.
+        mem.reset_dirty();
+        assert!(!(4..7).any(dirty_at));
+
+        // Writing into it marks the written bytes, and only those.
+        iovec
+            .write_all_volatile_at(&mem, &[1u8; 64 + 10], 0)
+            .unwrap();
+        assert!(dirty_at(4));
+        assert!(dirty_at(5));
+        assert!(!dirty_at(6));
+
+        // A write past the first descriptor leaves that descriptor's page alone.
+        mem.reset_dirty();
+        iovec.write_all_volatile_at(&mem, &[2u8; 10], 64).unwrap();
+        assert!(!dirty_at(4));
+        assert!(dirty_at(5));
+        assert!(!dirty_at(6));
+
+        // `readv` into the first chain marks as many bytes as were read, and only those: a pipe
+        // holding 64 + 8 bytes fills the first descriptor and 8 bytes of the second.
+        mem.reset_dirty();
+        let (rx, mut tx) = std::io::pipe().unwrap();
+        tx.write_all(&[3u8; 64 + 8]).unwrap();
+        assert_eq!(iovec.readv_from(&mem, &rx, false).unwrap(), 64 + 8);
+        vq.dtable[0].check_data(&[3u8; 64]);
+        vq.dtable[1].check_data(&[3u8; 8]);
+        assert!(dirty_at(4));
+        assert!(dirty_at(5));
+        assert!(!dirty_at(6));
+
+        // With more bytes in the pipe than the first chain holds, reading into all chains spills
+        // into the second one...
+        mem.reset_dirty();
+        tx.write_all(&[4u8; 2 * 64 + 10]).unwrap();
+        assert_eq!(iovec.readv_from(&mem, &rx, true).unwrap(), 2 * 64 + 10);
+        vq.dtable[1].check_data(&[4u8; 64]);
+        vq.dtable[2].check_data(&[4u8; 10]);
+        assert!(dirty_at(4));
+        assert!(dirty_at(5));
+        assert!(dirty_at(6));
+
+        // ...while reading into the first chain only stops at its end.
+        mem.reset_dirty();
+        tx.write_all(&[5u8; 2 * 64 + 10]).unwrap();
+        assert_eq!(iovec.readv_from(&mem, &rx, false).unwrap(), 2 * 64);
+        vq.dtable[1].check_data(&[5u8; 64]);
+        vq.dtable[2].check_data(&[4u8; 10]);
+        assert!(dirty_at(4));
+        assert!(dirty_at(5));
+        assert!(!dirty_at(6));
+        assert_eq!(iovec.readv_from(&mem, &rx, true).unwrap(), 10);
+
+        // A read that returns nothing (the pipe is drained and closed) marks nothing.
+        drop(tx);
+        mem.reset_dirty();
+        assert_eq!(iovec.readv_from(&mem, &rx, true).unwrap(), 0);
+        assert!(!(4..7).any(dirty_at));
+
+        // Dropping chains marks nothing.
+        iovec.drop_chain_front();
+        assert_eq!(iovec.len(), 64);
+        assert_eq!(iovec.chains.len(), 1);
+        iovec.drop_chain_front();
+        assert!(iovec.is_empty());
+        assert_eq!(iovec.chains.len(), 0);
+        assert!(!(4..7).any(dirty_at));
+    }
+
+    #[test]
+    fn test_iovec_mut_rejects_chain_crossing_regions() {
+        // Two regions, adjacent in guest memory. A descriptor may not straddle them, since their
+        // host mappings need not be adjacent, so every `iovec` lies within a single region.
+        let mem = multi_region_mem(&[(GuestAddress(0), 0x10000), (GuestAddress(0x10000), 0x10000)]);
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        let mut q = vq.create_queue();
+        q.ready = true;
+        // A one-descriptor chain, then a chain whose second descriptor crosses the boundary.
+        vq.dtable[0].set(0x8000, 64, VIRTQ_DESC_F_WRITE, 0);
+        vq.dtable[1].set(0x8100, 64, VIRTQ_DESC_F_WRITE | VIRTQ_DESC_F_NEXT, 2);
+        vq.dtable[2].set(0x10000 - 32, 64, VIRTQ_DESC_F_WRITE, 0);
+        vq.avail.ring[0].set(0);
+        vq.avail.ring[1].set(1);
+        vq.avail.idx.set(2);
+
+        let mut iovec = IoVecBufferMutDefault::new().unwrap();
+        // SAFETY: the two chains do not overlap.
+        unsafe {
+            iovec
+                .append_descriptor_chain(&mem, q.pop().unwrap().unwrap(), 0)
+                .unwrap();
+        }
+        let before = (iovec.len(), iovec.vecs.len(), iovec.chains.len());
+
+        let head = q.pop().unwrap().unwrap();
+        // SAFETY: as above.
+        let result = unsafe { iovec.append_descriptor_chain(&mem, head, 0) };
+        assert!(matches!(result, Err(IoVecError::GuestMemory(_))));
+        // The failed append rolled back the descriptor it had already pushed.
+        assert_eq!((iovec.len(), iovec.vecs.len(), iovec.chains.len()), before);
+    }
+
+    #[test]
+    fn test_iovec_mut_rejects_short_chain() {
+        let mem = default_mem();
+        let (mut q, _) = write_only_chain(&mem);
+        let head = q.pop().unwrap().unwrap();
+        let mut iovec = IoVecBufferMutDefault::new().unwrap();
+        // SAFETY: the chain is loaded only once.
+        let result = unsafe { iovec.append_descriptor_chain(&mem, head, 4 * 64 + 1) };
+        assert!(matches!(result, Err(IoVecError::ChainTooShort(257))));
+        assert!(iovec.is_empty());
+        assert_eq!(iovec.chains.len(), 0);
+        assert_eq!(iovec.vecs.len(), 0);
+
+        // The same on a buffer already holding a chain leaves that chain untouched.
+        let (mut q, _) = write_only_chain(&mem);
+        let head = q.pop().unwrap().unwrap();
+        // SAFETY: it is actually unsafe, as the chain was already loaded above, but we only check
+        // the bookkeeping of the `IoVecBufferMut`.
+        unsafe { iovec.append_descriptor_chain(&mem, head, 0).unwrap() };
+        let (mut q, _) = write_only_chain(&mem);
+        let head = q.pop().unwrap().unwrap();
+        // SAFETY: as above.
+        let result = unsafe { iovec.append_descriptor_chain(&mem, head, 4 * 64 + 1) };
+        assert!(matches!(result, Err(IoVecError::ChainTooShort(257))));
+        assert_eq!(iovec.len(), 4 * 64);
+        assert_eq!(iovec.chains.len(), 1);
+        assert_eq!(iovec.vecs.len(), 4);
+    }
+
+    #[test]
     fn test_iovec_mut_length() {
         let mem = default_mem();
         let (mut q, _) = write_only_chain(&mem);
@@ -666,7 +921,7 @@ mod tests {
         let head = q.pop().unwrap().unwrap();
         // SAFETY: it is actually unsafe, but we just want to check the length of the
         // `IoVecBufferMut` after appending.
-        let _ = unsafe { iovec.append_descriptor_chain(&mem, head).unwrap() };
+        unsafe { iovec.append_descriptor_chain(&mem, head, 0).unwrap() };
         assert_eq!(iovec.len(), 8 * 64);
     }
 
@@ -743,10 +998,10 @@ mod tests {
         let mut test_vec4 = vec![0u8; 64];
 
         // Control test: Initially all three regions should be zero
-        iovec.write_all_volatile_at(&test_vec1, 0).unwrap();
-        iovec.write_all_volatile_at(&test_vec2, 64).unwrap();
-        iovec.write_all_volatile_at(&test_vec3, 128).unwrap();
-        iovec.write_all_volatile_at(&test_vec4, 192).unwrap();
+        iovec.write_all_volatile_at(&mem, &test_vec1, 0).unwrap();
+        iovec.write_all_volatile_at(&mem, &test_vec2, 64).unwrap();
+        iovec.write_all_volatile_at(&mem, &test_vec3, 128).unwrap();
+        iovec.write_all_volatile_at(&mem, &test_vec4, 192).unwrap();
         vq.dtable[0].check_data(&test_vec1);
         vq.dtable[1].check_data(&test_vec2);
         vq.dtable[2].check_data(&test_vec3);
@@ -755,7 +1010,7 @@ mod tests {
         // Let's initialize test_vec1 with our buffer.
         test_vec1[..buf.len()].copy_from_slice(&buf);
         // And write just a part of it
-        iovec.write_all_volatile_at(&buf[..3], 0).unwrap();
+        iovec.write_all_volatile_at(&mem, &buf[..3], 0).unwrap();
         // Not all 5 bytes from buf should be written in memory,
         // just 3 of them.
         vq.dtable[0].check_data(&[0u8, 1, 2, 0, 0]);
@@ -764,7 +1019,7 @@ mod tests {
         vq.dtable[3].check_data(&test_vec4);
         // But if we write the whole `buf` in memory then all
         // of it should be observable.
-        iovec.write_all_volatile_at(&buf, 0).unwrap();
+        iovec.write_all_volatile_at(&mem, &buf, 0).unwrap();
         vq.dtable[0].check_data(&test_vec1);
         vq.dtable[1].check_data(&test_vec2);
         vq.dtable[2].check_data(&test_vec3);
@@ -773,7 +1028,7 @@ mod tests {
         // We are now writing with an offset of 1. So, initialize
         // the corresponding part of `test_vec1`
         test_vec1[1..buf.len() + 1].copy_from_slice(&buf);
-        iovec.write_all_volatile_at(&buf, 1).unwrap();
+        iovec.write_all_volatile_at(&mem, &buf, 1).unwrap();
         vq.dtable[0].check_data(&test_vec1);
         vq.dtable[1].check_data(&test_vec2);
         vq.dtable[2].check_data(&test_vec3);
@@ -784,7 +1039,7 @@ mod tests {
         // first region and one byte on the second
         test_vec1[60..64].copy_from_slice(&buf[0..4]);
         test_vec2[0] = 4;
-        iovec.write_all_volatile_at(&buf, 60).unwrap();
+        iovec.write_all_volatile_at(&mem, &buf, 60).unwrap();
         vq.dtable[0].check_data(&test_vec1);
         vq.dtable[1].check_data(&test_vec2);
         vq.dtable[2].check_data(&test_vec3);
@@ -797,7 +1052,9 @@ mod tests {
         // 5 bytes at offset 252 (only 4 bytes left).
         test_vec4[60..64].copy_from_slice(&buf[0..4]);
         assert_eq!(
-            iovec.write_volatile_at(&mut &*buf, 252, buf.len()).unwrap(),
+            iovec
+                .write_volatile_at(&mem, &mut &*buf, 252, buf.len())
+                .unwrap(),
             4
         );
         vq.dtable[0].check_data(&test_vec1);
@@ -807,7 +1064,7 @@ mod tests {
 
         // Trying to add past the end of the buffer should not write anything
         assert!(matches!(
-            iovec.write_all_volatile_at(&buf, 256),
+            iovec.write_all_volatile_at(&mem, &buf, 256),
             Err(VolatileMemoryError::OutOfBounds { addr: 256 })
         ));
         vq.dtable[0].check_data(&test_vec1);
@@ -820,6 +1077,7 @@ mod tests {
 #[cfg(kani)]
 #[allow(dead_code)] // Avoid warning when using stubs
 mod verification {
+    use std::collections::VecDeque;
     use std::mem::ManuallyDrop;
 
     use libc::{c_void, iovec};
@@ -829,6 +1087,7 @@ mod verification {
     use super::IoVecBuffer;
     use crate::arch::GUEST_PAGE_SIZE;
     use crate::devices::virtio::iov_deque::IovDeque;
+    use crate::vstate::memory::GuestMemoryMmap;
     // Redefine `IoVecBufferMut` and `IovDeque` with specific length. Otherwise
     // Rust will not know what to do.
     type IoVecBufferMutDefault = super::IoVecBufferMut<FIRECRACKER_MAX_QUEUE_SIZE>;
@@ -848,6 +1107,11 @@ mod verification {
 
     mod stubs {
         use super::*;
+
+        /// This is a stub for `crate::vstate::memory::mark_dirty_host`. The `iovec`s under proof
+        /// point into a plain host allocation rather than guest memory, so the real function
+        /// would refuse them; proofs that are not about dirty tracking just skip the marking.
+        pub fn mark_dirty_host(_mem: &GuestMemoryMmap, _ptr: *const u8, _len: usize) {}
 
         /// This is a stub for the `IovDeque::push_back` method.
         ///
@@ -970,6 +1234,8 @@ mod verification {
             let (vecs, len) = create_iovecs_mut(mem, GUEST_MEMORY_SIZE, nr_descs);
             Self {
                 vecs,
+                // The harnesses never look at the chains, so leave them out of the model.
+                chains: VecDeque::new(),
                 len: len.try_into().unwrap(),
             }
         }
@@ -1043,39 +1309,76 @@ mod verification {
         }
     }
 
+    /// `write_volatile_at` into a buffer of `nr_descs` arbitrary `iovec`s writes exactly as many
+    /// bytes as its inputs allow.
+    /// This allows to split the harness per number of `iovec`s, so that they verify in parallel
+    /// and each solver run remains small.
+    fn check_write_to_iovec(nr_descs: usize) {
+        let mut iov_mut = IoVecBufferMutDefault::any_of_length(nr_descs);
+
+        let mut buf = kani::vec::any_vec::<u8, GUEST_MEMORY_SIZE>();
+        let offset: u32 = kani::any();
+
+        // We can't really check the contents that the operation here writes into
+        // `IoVecBufferMut`, because our `IoVecBufferMut` being completely arbitrary
+        // can contain overlapping memory regions, so checking the data copied is
+        // not exactly trivial.
+        //
+        // What we can verify is the bytes that we write into guest memory:
+        //    - `buf.len()`, if `offset + buf.len() < iov.len()`;
+        //    - `iov.len() - offset`, otherwise.
+        // Furthermore, we know our Read-/WriteVolatile implementation above is infallible, so
+        // provided that the logic inside write_volatile_at is correct, we should always get
+        // Ok(...)
+        // Dirty tracking is not part of this proof; `mark_dirty_host` is stubbed out.
+        let mem = GuestMemoryMmap::new();
+        assert_eq!(
+            iov_mut
+                .write_volatile_at(
+                    &mem,
+                    &mut KaniBuffer(&mut buf),
+                    offset as usize,
+                    GUEST_MEMORY_SIZE
+                )
+                .unwrap(),
+            buf.len().min(iov_mut.len().saturating_sub(offset) as usize)
+        );
+        std::mem::forget(iov_mut.vecs);
+    }
+
     #[kani::proof]
     #[kani::unwind(5)]
     #[kani::solver(cadical)]
     #[kani::stub(IovDeque::push_back, stubs::push_back)]
-    fn verify_write_to_iovec() {
-        for nr_descs in 0..MAX_DESC_LENGTH {
-            let mut iov_mut = IoVecBufferMutDefault::any_of_length(nr_descs);
+    #[kani::stub(crate::vstate::memory::mark_dirty_host, stubs::mark_dirty_host)]
+    fn verify_write_to_iovec_0() {
+        check_write_to_iovec(0);
+    }
 
-            let mut buf = kani::vec::any_vec::<u8, GUEST_MEMORY_SIZE>();
-            let offset: u32 = kani::any();
+    #[kani::proof]
+    #[kani::unwind(5)]
+    #[kani::solver(cadical)]
+    #[kani::stub(IovDeque::push_back, stubs::push_back)]
+    #[kani::stub(crate::vstate::memory::mark_dirty_host, stubs::mark_dirty_host)]
+    fn verify_write_to_iovec_1() {
+        check_write_to_iovec(1);
+    }
 
-            // We can't really check the contents that the operation here writes into
-            // `IoVecBufferMut`, because our `IoVecBufferMut` being completely arbitrary
-            // can contain overlapping memory regions, so checking the data copied is
-            // not exactly trivial.
-            //
-            // What we can verify is the bytes that we write into guest memory:
-            //    - `buf.len()`, if `offset + buf.len() < iov.len()`;
-            //    - `iov.len() - offset`, otherwise.
-            // Furthermore, we know our Read-/WriteVolatile implementation above is infallible, so
-            // provided that the logic inside write_volatile_at is correct, we should always get
-            // Ok(...)
-            assert_eq!(
-                iov_mut
-                    .write_volatile_at(
-                        &mut KaniBuffer(&mut buf),
-                        offset as usize,
-                        GUEST_MEMORY_SIZE
-                    )
-                    .unwrap(),
-                buf.len().min(iov_mut.len().saturating_sub(offset) as usize)
-            );
-            std::mem::forget(iov_mut.vecs);
-        }
+    #[kani::proof]
+    #[kani::unwind(5)]
+    #[kani::solver(cadical)]
+    #[kani::stub(IovDeque::push_back, stubs::push_back)]
+    #[kani::stub(crate::vstate::memory::mark_dirty_host, stubs::mark_dirty_host)]
+    fn verify_write_to_iovec_2() {
+        check_write_to_iovec(2);
+    }
+
+    #[kani::proof]
+    #[kani::unwind(5)]
+    #[kani::solver(cadical)]
+    #[kani::stub(IovDeque::push_back, stubs::push_back)]
+    #[kani::stub(crate::vstate::memory::mark_dirty_host, stubs::mark_dirty_host)]
+    fn verify_write_to_iovec_3() {
+        check_write_to_iovec(MAX_DESC_LENGTH - 1);
     }
 }
