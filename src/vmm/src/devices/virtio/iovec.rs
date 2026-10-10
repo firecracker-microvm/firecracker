@@ -1169,43 +1169,73 @@ mod verification {
         }
     }
 
+    /// `write_volatile_at` into a buffer of `nr_descs` arbitrary `iovec`s writes exactly as many
+    /// bytes as its inputs allow.
+    /// This allows to split the harness per number of `iovec`s, so that they verify in parallel
+    /// and each solver run remains small.
+    fn check_write_to_iovec(nr_descs: usize) {
+        let mut iov_mut = IoVecBufferMutDefault::any_of_length(nr_descs);
+
+        let mut buf = kani::vec::any_vec::<u8, GUEST_MEMORY_SIZE>();
+        let offset: u32 = kani::any();
+
+        // We can't really check the contents that the operation here writes into
+        // `IoVecBufferMut`, because our `IoVecBufferMut` being completely arbitrary
+        // can contain overlapping memory regions, so checking the data copied is
+        // not exactly trivial.
+        //
+        // What we can verify is the bytes that we write into guest memory:
+        //    - `buf.len()`, if `offset + buf.len() < iov.len()`;
+        //    - `iov.len() - offset`, otherwise.
+        // Furthermore, we know our Read-/WriteVolatile implementation above is infallible, so
+        // provided that the logic inside write_volatile_at is correct, we should always get
+        // Ok(...)
+        // Dirty tracking is not part of this proof: with no guest memory regions, marking is
+        // a no-op.
+        let mem = GuestMemoryMmap::new();
+        assert_eq!(
+            iov_mut
+                .write_volatile_at(
+                    &mem,
+                    &mut KaniBuffer(&mut buf),
+                    offset as usize,
+                    GUEST_MEMORY_SIZE
+                )
+                .unwrap(),
+            buf.len().min(iov_mut.len().saturating_sub(offset) as usize)
+        );
+        std::mem::forget(iov_mut.vecs);
+    }
+
     #[kani::proof]
     #[kani::unwind(5)]
     #[kani::solver(cadical)]
     #[kani::stub(IovDeque::push_back, stubs::push_back)]
-    fn verify_write_to_iovec() {
-        for nr_descs in 0..MAX_DESC_LENGTH {
-            let mut iov_mut = IoVecBufferMutDefault::any_of_length(nr_descs);
+    fn verify_write_to_iovec_0() {
+        check_write_to_iovec(0);
+    }
 
-            let mut buf = kani::vec::any_vec::<u8, GUEST_MEMORY_SIZE>();
-            let offset: u32 = kani::any();
+    #[kani::proof]
+    #[kani::unwind(5)]
+    #[kani::solver(cadical)]
+    #[kani::stub(IovDeque::push_back, stubs::push_back)]
+    fn verify_write_to_iovec_1() {
+        check_write_to_iovec(1);
+    }
 
-            // We can't really check the contents that the operation here writes into
-            // `IoVecBufferMut`, because our `IoVecBufferMut` being completely arbitrary
-            // can contain overlapping memory regions, so checking the data copied is
-            // not exactly trivial.
-            //
-            // What we can verify is the bytes that we write into guest memory:
-            //    - `buf.len()`, if `offset + buf.len() < iov.len()`;
-            //    - `iov.len() - offset`, otherwise.
-            // Furthermore, we know our Read-/WriteVolatile implementation above is infallible, so
-            // provided that the logic inside write_volatile_at is correct, we should always get
-            // Ok(...)
-            // Dirty tracking is not part of this proof: with no guest memory regions, marking is
-            // a no-op.
-            let mem = GuestMemoryMmap::new();
-            assert_eq!(
-                iov_mut
-                    .write_volatile_at(
-                        &mem,
-                        &mut KaniBuffer(&mut buf),
-                        offset as usize,
-                        GUEST_MEMORY_SIZE
-                    )
-                    .unwrap(),
-                buf.len().min(iov_mut.len().saturating_sub(offset) as usize)
-            );
-            std::mem::forget(iov_mut.vecs);
-        }
+    #[kani::proof]
+    #[kani::unwind(5)]
+    #[kani::solver(cadical)]
+    #[kani::stub(IovDeque::push_back, stubs::push_back)]
+    fn verify_write_to_iovec_2() {
+        check_write_to_iovec(2);
+    }
+
+    #[kani::proof]
+    #[kani::unwind(5)]
+    #[kani::solver(cadical)]
+    #[kani::stub(IovDeque::push_back, stubs::push_back)]
+    fn verify_write_to_iovec_3() {
+        check_write_to_iovec(MAX_DESC_LENGTH - 1);
     }
 }
