@@ -11,7 +11,8 @@ use vm_memory::GuestMemoryBackend;
 
 use crate::logger::error;
 use crate::utils::u64_to_usize;
-use crate::vstate::memory::{ByteValued, GuestAddress, GuestMemorySlice};
+use crate::vstate::memory::{ByteValued, GuestAddress};
+use crate::vstate::memory_slice::GuestMemorySlice;
 
 pub const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub const VIRTQ_DESC_F_WRITE: u16 = 0x2;
