@@ -12,7 +12,7 @@ use vm_memory::GuestMemoryBackend;
 use crate::logger::error;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{ByteValued, GuestAddress};
-use crate::vstate::memory_slice::GuestMemorySlice;
+use crate::vstate::memory_slice::{GuestMemorySlice, GuestMemorySliceMut};
 
 pub const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub const VIRTQ_DESC_F_WRITE: u16 = 0x2;
@@ -231,14 +231,14 @@ pub struct Queue {
     /// }
     pub(crate) avail_ring: GuestMemorySlice,
 
-    /// Used ring in guest memory, resolved by `initialize`.
+    /// Used ring in guest memory, resolved by `initialize`. The one ring Firecracker writes to.
     /// struct UsedRing {
     ///     flags: u16,
     ///     idx: u16,
     ///     ring: [UsedElement; <queue size>],
     ///     avail_event: u16,
     /// }
-    pub(crate) used_ring: GuestMemorySlice,
+    pub(crate) used_ring: GuestMemorySliceMut,
 
     pub next_avail: Wrapping<u16>,
     pub next_used: Wrapping<u16>,
@@ -263,7 +263,7 @@ impl Queue {
 
             desc_table: GuestMemorySlice::UNRESOLVED,
             avail_ring: GuestMemorySlice::UNRESOLVED,
-            used_ring: GuestMemorySlice::UNRESOLVED,
+            used_ring: GuestMemorySliceMut::UNRESOLVED,
 
             next_avail: Wrapping(0),
             next_used: Wrapping(0),
@@ -343,7 +343,8 @@ impl Queue {
             GuestMemorySlice::new(mem, self.desc_table_address, self.desc_table_size())?;
         self.avail_ring =
             GuestMemorySlice::new(mem, self.avail_ring_address, self.avail_ring_size())?;
-        self.used_ring = GuestMemorySlice::new(mem, self.used_ring_address, self.used_ring_size())?;
+        self.used_ring =
+            GuestMemorySliceMut::new(mem, self.used_ring_address, self.used_ring_size())?;
 
         Ok(())
     }

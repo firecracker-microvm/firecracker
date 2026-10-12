@@ -3,6 +3,8 @@
 
 //! Resolved ranges of guest memory, for the virtqueue rings.
 
+use std::ops::Deref;
+
 use vm_memory::bitmap::Bitmap;
 use vm_memory::{GuestMemoryBackend, GuestMemoryError};
 
@@ -14,6 +16,8 @@ use crate::vstate::memory::{ByteValued, GuestAddress};
 ///
 /// The slice does not keep its mapping alive. Devices retain it in `ActiveState::mem` until
 /// reset. Ballooning and virtio-mem preserve the virtual address range when reclaiming pages.
+///
+/// A slice is read-only; [`GuestMemorySliceMut`] is for ranges Firecracker writes to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GuestMemorySlice {
     base: *mut u8,
@@ -82,6 +86,35 @@ impl GuestMemorySlice {
         unsafe { self.read_obj(self.last_offset::<T>()?) }
     }
 
+    #[inline(always)]
+    fn last_offset<T>(&self) -> Option<usize> {
+        self.len.checked_sub(std::mem::size_of::<T>())
+    }
+}
+
+/// A [`GuestMemorySlice`] Firecracker writes to (e.g. a virtqueue used ring).
+#[derive(Debug)]
+pub(crate) struct GuestMemorySliceMut {
+    slice: GuestMemorySlice,
+}
+
+impl GuestMemorySliceMut {
+    /// An unresolved range used before queue initialization.
+    pub(crate) const UNRESOLVED: Self = Self {
+        slice: GuestMemorySlice::UNRESOLVED,
+    };
+
+    /// Resolves `addr..addr + len`, which must lie within a single region, and marks it dirty.
+    pub(crate) fn new<M: GuestMemoryBackend>(
+        mem: &M,
+        addr: GuestAddress,
+        len: usize,
+    ) -> Result<Self, GuestMemoryError> {
+        Ok(Self {
+            slice: GuestMemorySlice::new(mem, addr, len)?,
+        })
+    }
+
     /// Writes `val` at `offset` bytes into the range, or returns `None` if it does not fit.
     ///
     /// # Safety
@@ -91,7 +124,7 @@ impl GuestMemorySlice {
     #[must_use]
     pub(crate) unsafe fn write_obj<T: ByteValued>(&mut self, val: T, offset: usize) -> Option<()> {
         let ptr = self.ptr_at::<T>(offset)?;
-        // SAFETY: as in `read_obj`.
+        // SAFETY: `ptr_at` bounds the access. The caller guarantees alignment and a live mapping.
         unsafe { ptr.write_volatile(val) };
         Some(())
     }
@@ -107,10 +140,14 @@ impl GuestMemorySlice {
         // SAFETY: the caller upholds `write_obj`'s requirements at the tail offset.
         unsafe { self.write_obj(val, self.last_offset::<T>()?) }
     }
+}
 
-    #[inline(always)]
-    fn last_offset<T>(&self) -> Option<usize> {
-        self.len.checked_sub(std::mem::size_of::<T>())
+/// The read side of a mutable slice is the plain slice.
+impl Deref for GuestMemorySliceMut {
+    type Target = GuestMemorySlice;
+
+    fn deref(&self) -> &GuestMemorySlice {
+        &self.slice
     }
 }
 
@@ -130,7 +167,7 @@ mod tests {
         GuestMemorySlice::new(&mem, GuestAddress(0xff8), 0x10).unwrap_err();
         GuestMemorySlice::new(&mem, GuestAddress(0x3000), 0x10).unwrap_err();
 
-        let mut cache = GuestMemorySlice::new(&mem, GuestAddress(0x100), 0x10).unwrap();
+        let mut cache = GuestMemorySliceMut::new(&mem, GuestAddress(0x100), 0x10).unwrap();
         // SAFETY: `mem` outlives the caches. All in-bounds accesses are aligned; the remaining
         // accesses return `None` without dereferencing a pointer.
         unsafe {
@@ -154,11 +191,17 @@ mod tests {
             cache.write_last::<u16>(0xbeef).unwrap();
             assert_eq!(cache.read_last::<u16>().unwrap(), 0xbeef);
             assert_eq!(mem.read_obj::<u16>(GuestAddress(0x10e)).unwrap(), 0xbeef);
-            let mut short = GuestMemorySlice::new(&mem, GuestAddress(0x200), 1).unwrap();
+            let mut short = GuestMemorySliceMut::new(&mem, GuestAddress(0x200), 1).unwrap();
             assert_eq!(short.read_last::<u16>(), None);
             assert_eq!(short.write_last::<u16>(0), None);
 
-            let mut unresolved = GuestMemorySlice::UNRESOLVED;
+            // A read-only slice over the same range sees the writes.
+            let ro = GuestMemorySlice::new(&mem, GuestAddress(0x100), 0x10).unwrap();
+            assert_eq!(ro.read_obj::<u32>(0).unwrap(), 0xdead_beef);
+            assert_eq!(ro.read_last::<u16>().unwrap(), 0xbeef);
+            assert_eq!(ro.read_obj::<u8>(0x10), None);
+
+            let mut unresolved = GuestMemorySliceMut::UNRESOLVED;
             assert_eq!(unresolved.read_obj::<u8>(0), None);
             assert_eq!(unresolved.write_obj::<u8>(0, 0), None);
             assert_eq!(unresolved.read_last::<u8>(), None);
