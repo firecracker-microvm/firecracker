@@ -196,7 +196,7 @@ impl Iterator for DescriptorIterator {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 /// A virtio queue's parameters.
 pub struct Queue {
     /// The maximal size in elements offered by the device
@@ -654,6 +654,7 @@ mod verification {
     use vm_memory::{GuestMemoryBackend, GuestMemoryRegion, MemoryRegionAddress};
 
     use super::*;
+    use crate::snapshot::Persist;
     use crate::vstate::memory::{Bytes, FileOffset, GuestAddress, MmapRegion};
 
     /// A made-for-kani version of `vm_memory::GuestMemoryMmap`. Unlike the real
@@ -1138,10 +1139,10 @@ mod verification {
         // See verify_pop for explanation
         kani::assume(queue.len() <= queue.size);
 
-        let queue_clone = queue.clone();
+        let state = queue.save();
         if let Some(_) = queue.pop().unwrap() {
             queue.undo_pop();
-            assert_eq!(queue, queue_clone);
+            assert_eq!(queue.save(), state);
 
             // TODO: can we somehow check that guest memory wasn't touched?
         }

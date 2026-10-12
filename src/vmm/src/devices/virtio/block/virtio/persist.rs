@@ -238,7 +238,13 @@ mod tests {
         assert_eq!(restored_block.device_type(), VirtioDeviceType::Block);
         assert_eq!(restored_block.avail_features(), block.avail_features());
         assert_eq!(restored_block.acked_features(), block.acked_features());
-        assert_eq!(restored_block.queues(), block.queues());
+        assert!(
+            restored_block
+                .queues()
+                .iter()
+                .map(Persist::save)
+                .eq(block.queues().iter().map(Persist::save))
+        );
         assert!(!block.is_activated());
         assert!(!restored_block.is_activated());
 

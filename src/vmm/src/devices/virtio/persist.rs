@@ -379,7 +379,7 @@ mod tests {
         let restored_state = bitcode::deserialize(&serialized_data).unwrap();
         let restored_queue = Queue::restore(ca, &restored_state).unwrap();
 
-        assert_eq!(restored_queue, queue);
+        assert_eq!(restored_queue.save(), queue_state);
     }
 
     #[test]
