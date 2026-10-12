@@ -367,6 +367,12 @@ mod tests {
         let mut queue = Queue::new(128);
         queue.ready = true;
         queue.size = queue.max_size;
+        queue.desc_table_address = GuestAddress(0x1000);
+        queue.avail_ring_address = GuestAddress(0x2000);
+        queue.used_ring_address = GuestAddress(0x3000);
+        queue.next_avail = Wrapping(5);
+        queue.next_used = Wrapping(3);
+        queue.num_added = Wrapping(2);
         queue.initialize(&mem).unwrap();
 
         let queue_state = queue.save();
@@ -379,7 +385,14 @@ mod tests {
         let restored_state = bitcode::deserialize(&serialized_data).unwrap();
         let restored_queue = Queue::restore(ca, &restored_state).unwrap();
 
-        assert_eq!(restored_queue, queue);
+        assert_eq!(restored_queue.save(), queue_state);
+        assert_eq!(restored_queue.next_avail, Wrapping(5));
+        assert_eq!(restored_queue.next_used, Wrapping(3));
+        assert_eq!(restored_queue.num_added, Wrapping(2));
+        // The rings were resolved again, at the same places in the same memory.
+        assert_eq!(restored_queue.desc_table, queue.desc_table);
+        assert_eq!(restored_queue.avail_ring, queue.avail_ring);
+        assert_eq!(restored_queue.used_ring, queue.used_ring);
     }
 
     #[test]
