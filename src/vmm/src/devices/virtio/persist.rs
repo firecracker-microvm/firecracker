@@ -17,7 +17,7 @@ use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::mmio::MmioTransport;
 use crate::snapshot::Persist;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
-use crate::vstate::memory_slice::GuestMemorySlice;
+use crate::vstate::memory_slice::{GuestMemorySlice, GuestMemorySliceMut};
 
 /// Errors thrown during restoring virtio state.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -100,7 +100,7 @@ impl Persist<'_> for Queue {
 
             desc_table: GuestMemorySlice::UNRESOLVED,
             avail_ring: GuestMemorySlice::UNRESOLVED,
-            used_ring: GuestMemorySlice::UNRESOLVED,
+            used_ring: GuestMemorySliceMut::UNRESOLVED,
 
             next_avail: state.next_avail,
             next_used: state.next_used,
