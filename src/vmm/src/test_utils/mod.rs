@@ -41,6 +41,23 @@ pub fn single_region_mem_at_raw(at: u64, size: usize) -> Vec<GuestRegionMmap> {
     multi_region_mem_raw(&[(GuestAddress(at), size)])
 }
 
+/// Creates a [`GuestMemoryMmap`] with a single region at guest address 0 and dirty page
+/// tracking enabled.
+pub fn single_region_mem_dirty_tracking(region_size: usize) -> GuestMemoryMmap {
+    GuestRegionCollection::from_regions(
+        memory::anonymous(
+            &[(GuestAddress(0), region_size)],
+            true,
+            HugePageConfig::None,
+        )
+        .expect("Cannot initialize memory")
+        .into_iter()
+        .map(|region| GuestRegionMmapExt::dram_from_mmap_region(region, 0))
+        .collect(),
+    )
+    .unwrap()
+}
+
 /// Creates a [`GuestMemoryMmap`] with multiple regions and without dirty page tracking.
 pub fn multi_region_mem(regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
     GuestRegionCollection::from_regions(
