@@ -118,7 +118,9 @@ impl VirtioMem {
         block_size_mib: u32,
         slot_size_mib: u32,
     ) -> Result<Self, VirtioMemError> {
-        let queues = vec![Queue::new(FIRECRACKER_MAX_QUEUE_SIZE); MEM_NUM_QUEUES];
+        let queues = (0..MEM_NUM_QUEUES)
+            .map(|_| Queue::new(FIRECRACKER_MAX_QUEUE_SIZE))
+            .collect();
         let config = virtio_mem_config {
             addr: addr.raw_value(),
             region_size: u32_mib_to_bytes(total_size_mib),
@@ -815,7 +817,9 @@ mod tests {
     fn test_from_state() {
         let vm = setup_vm_with_memory(0x1000);
         let vm = Arc::new(vm);
-        let queues = vec![Queue::new(FIRECRACKER_MAX_QUEUE_SIZE); MEM_NUM_QUEUES];
+        let queues = (0..MEM_NUM_QUEUES)
+            .map(|_| Queue::new(FIRECRACKER_MAX_QUEUE_SIZE))
+            .collect();
         let addr = 512 << 30;
         let region_size_mib: u32 = 2048;
         let block_size_mib: u32 = 2;
