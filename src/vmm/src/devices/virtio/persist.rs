@@ -16,7 +16,8 @@ use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::mmio::MmioTransport;
 use crate::snapshot::Persist;
-use crate::vstate::memory::{GuestAddress, GuestMemoryMmap, GuestMemorySlice};
+use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
+use crate::vstate::memory_slice::GuestMemorySlice;
 
 /// Errors thrown during restoring virtio state.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
