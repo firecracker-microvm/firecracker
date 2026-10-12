@@ -388,17 +388,9 @@ impl DeviceManager {
         self.for_each_virtio_device_mut(|_, device| device.kick());
     }
 
-    /// Mark queue memory dirty for activated VirtIO devices
+    /// Marks dirty the queue memory the VirtIO devices wrote since the last call.
     pub fn mark_virtio_queue_memory_dirty(&self, mem: &GuestMemoryMmap) {
-        self.for_each_virtio_device_mut(|_, device| {
-            if device.is_activated() {
-                // SAFETY:
-                // This should never fail as we mark pages only if device has already been
-                // activated, and the address validation was already performed on device
-                // activation.
-                device.mark_queue_memory_dirty(mem).unwrap();
-            }
-        });
+        self.for_each_virtio_device(|_, device| device.mark_queue_memory_dirty(mem));
     }
 
     /// Get a VirtIO device of type `virtio_type` with ID `device_id`

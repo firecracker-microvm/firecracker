@@ -63,6 +63,11 @@ pub const GUEST_PAGE_SIZE: usize = 4096;
 
 /// Get the size of the host page size.
 pub fn host_page_size() -> usize {
+    // Kani cannot call into libc; the proofs assume 4K pages.
+    if cfg!(kani) {
+        return GUEST_PAGE_SIZE;
+    }
+
     /// Default page size for the host OS.
     static PAGE_SIZE: LazyLock<usize> = LazyLock::new(|| {
         // # Safety: Value always valid

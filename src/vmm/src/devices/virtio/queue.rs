@@ -11,7 +11,7 @@ use vm_memory::GuestMemoryBackend;
 
 use crate::logger::error;
 use crate::utils::u64_to_usize;
-use crate::vstate::memory::{ByteValued, GuestAddress};
+use crate::vstate::memory::{ByteValued, GuestAddress, GuestMemoryMmap};
 use crate::vstate::memory_slice::{GuestMemorySlice, GuestMemorySliceMut};
 
 pub const VIRTQ_DESC_F_NEXT: u16 = 0x1;
@@ -263,7 +263,7 @@ impl Queue {
 
             desc_table: GuestMemorySlice::UNRESOLVED,
             avail_ring: GuestMemorySlice::UNRESOLVED,
-            used_ring: GuestMemorySliceMut::UNRESOLVED,
+            used_ring: GuestMemorySliceMut::unresolved(),
 
             next_avail: Wrapping(0),
             next_used: Wrapping(0),
@@ -313,7 +313,7 @@ impl Queue {
         Ok(())
     }
 
-    /// Resolve the queue objects in the guest memory and mark them dirty.
+    /// Resolve the queue objects in the guest memory.
     pub fn initialize<M: GuestMemoryBackend>(&mut self, mem: &M) -> Result<(), QueueError> {
         if !self.ready {
             return Err(QueueError::NotReady);
@@ -558,6 +558,12 @@ impl Queue {
         // This fence ensures all descriptor writes are visible before the index update is.
         fence(Ordering::Release);
         self.used_ring_idx_set(self.next_used.0);
+    }
+
+    /// Marks dirty in `mem` the used ring pages written since the last call. The guest writes
+    /// the other rings, which KVM tracks.
+    pub fn mark_used_ring_dirty(&self, mem: &GuestMemoryMmap) {
+        self.used_ring.mark_dirty(mem);
     }
 
     /// Puts an available descriptor head into the used ring for use by the guest.

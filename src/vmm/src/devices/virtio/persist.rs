@@ -100,7 +100,7 @@ impl Persist<'_> for Queue {
 
             desc_table: GuestMemorySlice::UNRESOLVED,
             avail_ring: GuestMemorySlice::UNRESOLVED,
-            used_ring: GuestMemorySliceMut::UNRESOLVED,
+            used_ring: GuestMemorySliceMut::unresolved(),
 
             next_avail: state.next_avail,
             next_used: state.next_used,

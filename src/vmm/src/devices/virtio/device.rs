@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::ActivateError;
-use super::queue::{Queue, QueueError};
+use super::queue::Queue;
 use super::transport::VirtioInterrupt;
 use crate::MutEventSubscriber;
 use crate::devices::virtio::AsAny;
@@ -215,12 +215,11 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     /// backend does not support reset.
     fn _reset(&mut self) -> bool;
 
-    /// Mark pages used by queues as dirty.
-    fn mark_queue_memory_dirty(&mut self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
-        for queue in self.queues_mut() {
-            queue.initialize(mem)?
+    /// Marks dirty the queue pages written since the last call.
+    fn mark_queue_memory_dirty(&self, mem: &GuestMemoryMmap) {
+        for queue in self.queues() {
+            queue.mark_used_ring_dirty(mem);
         }
-        Ok(())
     }
 
     /// Notify all queues by writing to the eventfds.
