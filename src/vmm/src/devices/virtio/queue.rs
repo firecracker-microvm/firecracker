@@ -1222,7 +1222,9 @@ mod tests {
     pub use super::*;
     use crate::devices::virtio::queue::QueueError::DescIndexOutOfBounds;
     use crate::devices::virtio::test_utils::{VirtQueue, default_mem};
-    use crate::test_utils::{multi_region_mem, single_region_mem};
+    use crate::test_utils::{
+        multi_region_mem, single_region_mem, single_region_mem_dirty_tracking,
+    };
     use crate::vstate::memory::GuestAddress;
 
     #[test]
@@ -1525,6 +1527,55 @@ mod tests {
                 reported_len: 6
             }
         );
+    }
+
+    #[test]
+    fn test_used_ring_dirty_tracking() {
+        use crate::arch::host_page_size;
+        use crate::utils::usize_to_u64;
+        use crate::vstate::memory::{Bitmap, GuestMemoryExtension};
+
+        let page_size = host_page_size();
+        let mem = single_region_mem_dirty_tracking(page_size * 16);
+        // Put each ring on its own page so that marking can be attributed.
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        let mut q = vq.create_queue();
+        q.desc_table_address = GuestAddress(usize_to_u64(page_size));
+        q.avail_ring_address = GuestAddress(usize_to_u64(2 * page_size));
+        q.used_ring_address = GuestAddress(usize_to_u64(3 * page_size));
+        let region = mem.find_region(GuestAddress(0)).unwrap();
+        let dirty_page = |p: usize| region.bitmap().dirty_at(p * page_size);
+        let clean = || !(0..16).any(dirty_page);
+
+        // Initializing a queue marks nothing.
+        mem.reset_dirty();
+        q.initialize(&mem).unwrap();
+        q.commit_dirty();
+        assert!(clean());
+
+        // Writing used elements and the index marks exactly the used ring's page, once asked.
+        q.add_used(1, 0x10).unwrap();
+        q.add_used(2, 0x20).unwrap();
+        q.advance_used_ring_idx();
+        assert!(clean());
+        q.commit_dirty();
+        assert!(dirty_page(3));
+        assert!(!dirty_page(1) && !dirty_page(2) && !dirty_page(4));
+
+        // So does `avail_event`.
+        mem.reset_dirty();
+        q.commit_dirty();
+        assert!(clean());
+        q.used_ring_avail_event_set(7);
+        q.commit_dirty();
+        assert!(dirty_page(3) && !dirty_page(1) && !dirty_page(2));
+
+        // Reading the rings marks nothing.
+        mem.reset_dirty();
+        let _ = q.len();
+        let _ = q.avail_ring_used_event_get();
+        q.commit_dirty();
+        assert!(clean());
     }
 
     #[test]
