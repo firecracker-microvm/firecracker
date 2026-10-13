@@ -5,14 +5,18 @@
 import re
 import signal
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 
 import pytest
 from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_fixed
 
 import host_tools.drive as drive_tools
-from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.artifacts import (
+    GUEST_KERNEL_DEFAULT,
+    pin_dirty_tracking,
+    pin_guest_kernel,
+)
 from framework.microvm import Microvm, SnapshotType
 from framework.utils import (
     start_fast_page_fault_helper,
@@ -48,6 +52,7 @@ class SnapshotRestoreTest:
     blocks: int = 3
     all_devices: bool = False
     huge_pages: HugePagesConfig = HugePagesConfig.NONE
+    track_dirty_pages: bool = False
 
     @property
     def id(self):
@@ -82,6 +87,7 @@ class SnapshotRestoreTest:
             mem_size_mib=self.mem,
             rootfs_io_engine="Sync",
             huge_pages=self.huge_pages,
+            track_dirty_pages=self.track_dirty_pages,
         )
 
         for _ in range(self.nets):
@@ -119,8 +125,15 @@ class SnapshotRestoreTest:
     ],
     ids=lambda x: x.id,
 )
+@pin_dirty_tracking()
 def test_restore_latency(
-    microvm_factory, guest_kernel, rootfs, pci_enabled, test_setup, metrics
+    microvm_factory,
+    guest_kernel,
+    rootfs,
+    pci_enabled,
+    track_dirty_pages,
+    test_setup,
+    metrics,
 ):
     """
     Restores snapshots with vcpu/memory configuration, roughly scaling according to mem = (vcpus - 1) * 2048MB,
@@ -129,6 +142,7 @@ def test_restore_latency(
 
     We only test a single guest kernel, as the guest kernel does not "participate" in snapshot restore.
     """
+    test_setup = replace(test_setup, track_dirty_pages=track_dirty_pages)
     vm = test_setup.boot_vm(microvm_factory, guest_kernel, rootfs, pci_enabled)
 
     metrics.set_dimensions(test_setup.dimensions(vm, "test_restore_latency", None))
@@ -136,7 +150,10 @@ def test_restore_latency(
     snapshot = vm.snapshot_full()
     vm.kill()
     for microvm in microvm_factory.build_n_from_snapshot(
-        snapshot, ITERATIONS, no_netns_reuse=True
+        snapshot,
+        ITERATIONS,
+        no_netns_reuse=True,
+        track_dirty_pages=test_setup.track_dirty_pages,
     ):
         value = 0
         # Parse all metric data points in search of load_snapshot time.
@@ -154,28 +171,34 @@ def test_restore_latency(
 # wakes up, because it gets faulted in on the first page fault. In this scenario, we are not measuring UFFD
 # latencies, but KVM latencies of setting up missing EPT entries.
 @pytest.mark.nonci
-@pytest.mark.parametrize(
-    "huge_pages,uffd_handler",
-    [
-        (HugePagesConfig.NONE, None),
-        (HugePagesConfig.NONE, "on_demand"),
-        (HugePagesConfig.NONE, "fault_all"),
-        (HugePagesConfig.TRANSPARENT, "on_demand"),
-        (HugePagesConfig.HUGETLBFS_2MB, "on_demand"),
-        (HugePagesConfig.HUGETLBFS_2MB, "fault_all"),
-    ],
+@pin_dirty_tracking(
+    ("huge_pages", "uffd_handler"),
+    {
+        (HugePagesConfig.NONE, None): [False],
+        (HugePagesConfig.NONE, "on_demand"): [False],
+        (HugePagesConfig.NONE, "fault_all"): [False],
+        (HugePagesConfig.TRANSPARENT, "on_demand"): [False],
+        (HugePagesConfig.HUGETLBFS_2MB, "on_demand"): [False, True],
+        (HugePagesConfig.HUGETLBFS_2MB, "fault_all"): [False, True],
+    },
 )
 def test_post_restore_latency(
     microvm_factory,
     rootfs,
     guest_kernel,
     pci_enabled,
+    track_dirty_pages,
     metrics,
     uffd_handler,
     huge_pages,
 ):
     """Collects latency metric of post-restore memory accesses done inside the guest"""
-    test_setup = SnapshotRestoreTest(mem=1024, vcpus=2, huge_pages=huge_pages)
+    test_setup = SnapshotRestoreTest(
+        mem=1024,
+        vcpus=2,
+        huge_pages=huge_pages,
+        track_dirty_pages=track_dirty_pages,
+    )
     vm = test_setup.boot_vm(microvm_factory, guest_kernel, rootfs, pci_enabled)
 
     metrics.set_dimensions(
@@ -190,7 +213,10 @@ def test_post_restore_latency(
     vm.kill()
 
     for microvm in microvm_factory.build_n_from_snapshot(
-        snapshot, ITERATIONS, uffd_handler_name=uffd_handler
+        snapshot,
+        ITERATIONS,
+        uffd_handler_name=uffd_handler,
+        track_dirty_pages=test_setup.track_dirty_pages,
     ):
         microvm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
 
@@ -256,10 +282,19 @@ def test_population_latency(
 
 
 @pytest.mark.nonci
+@pin_dirty_tracking(
+    "snapshot_type",
+    {
+        SnapshotType.FULL: [False, True],
+        SnapshotType.DIFF: [True],
+        SnapshotType.DIFF_MINCORE: [False],
+    },
+)
 def test_snapshot_create_latency(
     uvm,
     metrics,
     snapshot_type,
+    track_dirty_pages,
 ):
     """Measure the latency of creating a Full snapshot"""
 
@@ -268,7 +303,7 @@ def test_snapshot_create_latency(
     vm.basic_config(
         vcpu_count=2,
         mem_size_mib=512,
-        track_dirty_pages=snapshot_type.needs_dirty_page_tracking,
+        track_dirty_pages=track_dirty_pages,
     )
     vm.start()
     vm.pin_threads(0)
