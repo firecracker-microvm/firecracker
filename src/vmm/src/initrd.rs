@@ -60,6 +60,9 @@ impl InitrdConfig {
         let mut slice = vm_memory
             .get_slice(GuestAddress(address), size)
             .map_err(|_| InitrdError::Load)?;
+        // Loaded at boot, before dirty page tracking is in use, so what a failed read marks does
+        // not matter.
+        #[expect(clippy::disallowed_methods)]
         file.read_exact_volatile(&mut slice)
             .map_err(InitrdError::Read)?;
 
