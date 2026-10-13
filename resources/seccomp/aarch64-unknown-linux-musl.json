@@ -95,6 +95,10 @@
                 "comment": "Used for drive patching & rescanning, for reading the local timezone from /etc/localtime"
             },
             {
+                "syscall": "fstatfs",
+                "comment": "Used to detect hugetlbfs snapshot memory files"
+            },
+            {
                 "syscall": "ftruncate",
                 "comment": "Used for snapshotting"
             },
@@ -267,7 +271,7 @@
             },
             {
                 "syscall": "mmap",
-                "comment": "Used for reading the timezone in LocalTime::now()",
+                "comment": "Used for reading the timezone and for writing hugetlbfs snapshot memory files",
                 "args": [
                     {
                         "index": 3,

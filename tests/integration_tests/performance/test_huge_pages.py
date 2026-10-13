@@ -4,6 +4,7 @@
 
 import signal
 import time
+from pathlib import Path
 
 import pytest
 
@@ -58,6 +59,23 @@ def check_hugetlbfs_in_use(pid: int, allocation_name: str):
     assert kernel_page_size_kib > 4
 
 
+def bind_hugetlbfs_into_jail(vm, hugetlbfs_path: Path) -> Path:
+    """Bind an existing hugetlbfs mount into a microVM jail before it starts."""
+    jailed_mount = Path(vm.chroot()) / "hugetlbfs"
+    jailed_mount.mkdir(parents=True, exist_ok=True)
+    utils.check_output(
+        ["mount", "--bind", str(hugetlbfs_path), str(jailed_mount)],
+        shell=False,
+    )
+    return jailed_mount
+
+
+def sha256sum(path: Path) -> str:
+    """Return a file's SHA-256 digest."""
+    _, stdout, _ = utils.check_output(["sha256sum", str(path)], shell=False)
+    return stdout.split()[0]
+
+
 def test_hugetlbfs_boot(uvm):
     """Tests booting a microvm with guest memory backed by 2MB hugetlbfs pages"""
 
@@ -104,6 +122,71 @@ def test_hugetlbfs_snapshot(microvm_factory, uvm, snapshot_type):
     vm.restore_from_snapshot(snapshot, resume=True, uffd_handler_name="on_demand")
 
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
+
+
+def test_hugetlbfs_snapshot_file_backend(microvm_factory, uvm, snapshot_type, tmp_path):
+    """Restore a hugetlbfs memory file directly without a UFFD handler."""
+    hugetlbfs_path = tmp_path / "hugetlbfs"
+    hugetlbfs_path.mkdir()
+    utils.check_output(
+        [
+            "mount",
+            "-t",
+            "hugetlbfs",
+            "-o",
+            f"pagesize=2M,uid={uvm.jailer.uid},gid={uvm.jailer.gid},mode=0770",
+            "none",
+            str(hugetlbfs_path),
+        ],
+        shell=False,
+    )
+
+    jail_mounts = []
+    restored_vm = None
+    try:
+        vm = uvm
+        vm.memory_monitor = None
+        jail_mounts.append(bind_hugetlbfs_into_jail(vm, hugetlbfs_path))
+        vm.spawn()
+        vm.basic_config(
+            huge_pages=HugePagesConfig.NONE,
+            mem_size_mib=128,
+            track_dirty_pages=snapshot_type.needs_dirty_page_tracking,
+        )
+        vm.add_net_iface()
+        vm.start()
+
+        snapshot = vm.make_snapshot(snapshot_type, mem_path="hugetlbfs/mem")
+        vm.kill()
+        snapshot_digest = sha256sum(snapshot.mem)
+
+        restored_vm = microvm_factory.build()
+        restored_vm.memory_monitor = None
+        jail_mounts.append(bind_hugetlbfs_into_jail(restored_vm, hugetlbfs_path))
+        restored_vm.spawn()
+        restored_vm.restore_from_snapshot(
+            snapshot,
+            resume=True,
+            huge_pages=HugePagesConfig.HUGETLBFS_2MB,
+            mem_backend_path="/hugetlbfs/mem",
+        )
+
+        restored_vm.ssh.check_output(
+            "dd if=/dev/zero of=/tmp/hugetlbfs-cow-test bs=1M count=16"
+        )
+        assert (
+            restored_vm.api.machine_config.get().json()["huge_pages"]
+            == HugePagesConfig.HUGETLBFS_2MB
+        )
+        check_hugetlbfs_in_use(restored_vm.firecracker_pid, "/hugetlbfs/mem")
+        assert sha256sum(snapshot.mem) == snapshot_digest
+    finally:
+        uvm.kill(might_be_dead=True)
+        if restored_vm is not None:
+            restored_vm.kill(might_be_dead=True)
+        for mount_path in reversed(jail_mounts):
+            utils.run_cmd(["umount", str(mount_path)], shell=False)
+        utils.run_cmd(["umount", str(hugetlbfs_path)], shell=False)
 
 
 @pytest.mark.parametrize(

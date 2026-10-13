@@ -9,6 +9,7 @@ use std::ffi::c_void;
 use std::fs::File;
 use std::io;
 use std::io::SeekFrom;
+use std::mem::MaybeUninit;
 use std::ops::Deref;
 use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
@@ -168,6 +169,22 @@ pub enum MemoryError {
     OffsetTooLarge,
     /// Cannot retrieve snapshot file metadata: {0}
     FileMetadata(std::io::Error),
+    /// Snapshot memory file uses {actual} byte pages, but the huge page configuration requires {expected} byte pages
+    SnapshotFilePageSize {
+        /// Page size required by the huge page configuration.
+        expected: usize,
+        /// Page size of the snapshot memory file: the hugetlbfs page size, or 4 KiB otherwise.
+        actual: usize,
+    },
+    /// Snapshot memory region at file offset {offset} with size {size} is not aligned to {page_size} bytes
+    UnalignedHugetlbfsRegion {
+        /// Offset of the region in the snapshot memory file.
+        offset: u64,
+        /// Size of the region.
+        size: usize,
+        /// Required huge page alignment.
+        page_size: usize,
+    },
     /// Memory region has zero size
     ZeroSize,
     /// Memory region has zero slots
@@ -1217,6 +1234,62 @@ impl MemfdBacking {
     }
 }
 
+/// Returns the huge-page size for a hugetlbfs-backed file, or `None` for other file systems.
+pub(crate) fn hugetlbfs_page_size(file: &File) -> Result<Option<usize>, MemoryError> {
+    let mut stat = MaybeUninit::<libc::statfs>::uninit();
+
+    // JUSTIFICATION: Rust's standard library does not expose the filesystem type or hugetlbfs
+    // page size for an open file descriptor.
+    // SAFETY: `file` owns a valid file descriptor and `stat` points to enough writable memory for
+    // `fstatfs` to initialize on success.
+    let ret = unsafe { libc::fstatfs(file.as_raw_fd(), stat.as_mut_ptr()) };
+    if ret != 0 {
+        return Err(MemoryError::FileMetadata(io::Error::last_os_error()));
+    }
+
+    // JUSTIFICATION: `MaybeUninit` is required because `fstatfs` initializes its out parameter.
+    // SAFETY: A successful `fstatfs` initialized the structure.
+    let stat = unsafe { stat.assume_init() };
+    if i128::from(stat.f_type) != i128::from(libc::HUGETLBFS_MAGIC) {
+        return Ok(None);
+    }
+
+    // hugetlbfs reports its huge page size as the block size.
+    usize::try_from(stat.f_bsize)
+        .map(Some)
+        .map_err(|err| MemoryError::FileMetadata(io::Error::new(io::ErrorKind::InvalidData, err)))
+}
+
+/// Checks that a snapshot memory file with pages of `file_page_size` (see
+/// [`hugetlbfs_page_size`]) can hold `regions` with the given huge page configuration.
+pub(crate) fn validate_snapshot_file_page_size(
+    file_page_size: Option<usize>,
+    huge_pages: HugePageConfig,
+    regions: &[(GuestAddress, usize)],
+) -> Result<(), MemoryError> {
+    let expected = huge_pages.page_size();
+    let actual = file_page_size.unwrap_or_else(|| HugePageConfig::None.page_size());
+    if actual != expected {
+        return Err(MemoryError::SnapshotFilePageSize { expected, actual });
+    }
+
+    let mut offset = 0u64;
+    for (_, size) in regions {
+        if !offset.is_multiple_of(expected as u64) || !size.is_multiple_of(expected) {
+            return Err(MemoryError::UnalignedHugetlbfsRegion {
+                offset,
+                size: *size,
+                page_size: expected,
+            });
+        }
+        offset = offset
+            .checked_add(*size as u64)
+            .ok_or(MemoryError::OffsetTooLarge)?;
+    }
+
+    Ok(())
+}
+
 /// Creates a GuestMemoryMmap given a `file` containing the data
 /// and a `state` containing mapping information.
 pub fn snapshot_file(
@@ -1225,9 +1298,11 @@ pub fn snapshot_file(
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+    validate_snapshot_file_page_size(hugetlbfs_page_size(&file)?, huge_pages, regions)?;
+
     memory_regions_from_ranges_file_backed(
         regions,
-        libc::MAP_PRIVATE,
+        libc::MAP_PRIVATE | huge_pages.mmap_flags(),
         FileOffset::new(file, 0),
         track_dirty_pages,
         huge_pages.madvise_flags(),
@@ -1605,6 +1680,74 @@ mod tests {
         assert!(matches!(
             backing.allocate(&[(GuestAddress(0), 0x1001)], false, HugePageConfig::None),
             Err(MemoryError::OffsetTooLarge)
+        ));
+    }
+
+    #[test]
+    fn test_regular_file_is_not_hugetlbfs() {
+        let file = TempFile::new().unwrap().into_file();
+        assert_eq!(hugetlbfs_page_size(&file).unwrap(), None);
+    }
+
+    #[test]
+    fn test_validate_snapshot_file_page_size() {
+        let page_size = HugePageConfig::Hugetlbfs2M.page_size();
+        let aligned_regions = [
+            (GuestAddress(0), page_size),
+            (GuestAddress(page_size as u64), 2 * page_size),
+        ];
+
+        validate_snapshot_file_page_size(None, HugePageConfig::None, &aligned_regions).unwrap();
+        validate_snapshot_file_page_size(None, HugePageConfig::Transparent, &aligned_regions)
+            .unwrap();
+        validate_snapshot_file_page_size(
+            Some(page_size),
+            HugePageConfig::Hugetlbfs2M,
+            &aligned_regions,
+        )
+        .unwrap();
+
+        // A regular file with 2M pages requested.
+        assert!(matches!(
+            validate_snapshot_file_page_size(None, HugePageConfig::Hugetlbfs2M, &aligned_regions)
+                .unwrap_err(),
+            MemoryError::SnapshotFilePageSize { expected, actual: 4096 } if expected == page_size
+        ));
+        // A hugetlbfs file without 2M pages requested.
+        assert!(matches!(
+            validate_snapshot_file_page_size(
+                Some(page_size),
+                HugePageConfig::None,
+                &aligned_regions,
+            )
+            .unwrap_err(),
+            MemoryError::SnapshotFilePageSize { expected: 4096, actual } if actual == page_size
+        ));
+        // A hugetlbfs mount with a different page size.
+        assert!(matches!(
+            validate_snapshot_file_page_size(
+                Some(2 * page_size),
+                HugePageConfig::Hugetlbfs2M,
+                &aligned_regions,
+            )
+            .unwrap_err(),
+            MemoryError::SnapshotFilePageSize {
+                expected,
+                actual,
+            } if expected == page_size && actual == 2 * page_size
+        ));
+        assert!(matches!(
+            validate_snapshot_file_page_size(
+                Some(page_size),
+                HugePageConfig::Hugetlbfs2M,
+                &[(GuestAddress(0), page_size + 1)],
+            )
+            .unwrap_err(),
+            MemoryError::UnalignedHugetlbfsRegion {
+                offset: 0,
+                size,
+                page_size: actual_page_size,
+            } if size == page_size + 1 && actual_page_size == page_size
         ));
     }
 

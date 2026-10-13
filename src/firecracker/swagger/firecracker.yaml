@@ -1792,9 +1792,9 @@ definitions:
           Selects the huge pages configuration for the restored microVM.
           Snapshot reuses the value serialized in the snapshot and is the
           default when this field is omitted; None uses the host's default
-          memory-mapping behavior. Explicit hugetlbfs (`2M`) pages require a UFFD
-          memory backend. With UFFD, the effectiveness of transparent huge pages
-          may be limited.
+          memory-mapping behavior. For a File memory backend, `2M` requires the
+          memory file to reside on a hugetlbfs mount configured for 2 MiB pages.
+          With UFFD, the effectiveness of transparent huge pages may be limited.
 
 
   TokenBucket:

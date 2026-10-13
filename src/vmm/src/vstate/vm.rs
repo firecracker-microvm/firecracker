@@ -7,7 +7,8 @@
 
 use std::collections::HashMap;
 use std::fs::OpenOptions;
-use std::io::Write;
+use std::io::{Cursor, Seek, Write};
+use std::os::fd::AsRawFd;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Barrier, Mutex, MutexGuard};
@@ -21,7 +22,7 @@ use kvm_bindings::{
 use kvm_ioctls::VmFd;
 use serde::{Deserialize, Serialize};
 use userfaultfd::Uffd;
-use vm_memory::GuestMemoryBackend;
+use vm_memory::{GuestMemoryBackend, WriteVolatile};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::terminal::Terminal;
@@ -32,13 +33,14 @@ use crate::logger::{debug, info};
 use crate::pci::PciSBDF;
 use crate::pci::msix::MsixTableEntry;
 use crate::persist::CreateSnapshotError;
+use crate::vmm_config::machine_config::HugePageConfig;
 use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::bus::Bus;
 use crate::vstate::interrupts::{InterruptError, MsixVector, MsixVectorGroup};
 use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{
-    GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestMemoryState, GuestRegionMmap,
-    GuestRegionMmapExt, MemoryError,
+    self, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestMemoryState,
+    GuestRegionMmap, GuestRegionMmapExt, MemoryError,
 };
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::{StartThreadedError, VcpuError, VcpuHandle};
@@ -615,6 +617,24 @@ impl KvmVm {
             .open(mem_file_path)
             .map_err(|err| MemoryBackingFile("open", err))?;
 
+        let hugetlbfs_page_size = memory::hugetlbfs_page_size(&file)?;
+        let hugetlbfs = hugetlbfs_page_size.is_some();
+        if hugetlbfs {
+            memory::validate_snapshot_file_page_size(
+                hugetlbfs_page_size,
+                HugePageConfig::Hugetlbfs2M,
+                &self.guest_memory().describe().regions(),
+            )?;
+            // hugetlbfs files are written through a shared writable mapping, which requires a
+            // file descriptor open for both reading and writing. Keep the existing write-only
+            // behavior for regular snapshot files.
+            file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(mem_file_path)
+                .map_err(|err| MemoryBackingFile("open_read_write", err))?;
+        }
+
         // Determine what size our total memory area is.
         let mem_size_mib = mem_size_mib(self.guest_memory());
         let expected_size = mem_size_mib * 1024 * 1024;
@@ -642,24 +662,97 @@ impl KvmVm {
         file.set_len(expected_size)
             .map_err(|e| MemoryBackingFile("set_length", e))?;
 
-        match snapshot_type {
-            SnapshotType::Diff => {
-                let dirty_bitmap = self.get_dirty_bitmap()?;
-                self.guest_memory().dump_dirty(&mut file, &dirty_bitmap)?;
-            }
-            SnapshotType::Full => {
-                self.guest_memory().dump(&mut file)?;
-                self.reset_dirty_bitmap();
-                self.guest_memory().reset_dirty();
-            }
-        };
-
-        file.flush()
-            .map_err(|err| MemoryBackingFile("flush", err))?;
+        if hugetlbfs {
+            self.snapshot_memory_via_mmap(&file, expected_size, snapshot_type)?;
+        } else {
+            self.dump_memory(&mut file, snapshot_type)?;
+            file.flush()
+                .map_err(|err| MemoryBackingFile("flush", err))?;
+        }
         if sync_snapshot_files {
             file.sync_all()
                 .map_err(|err| MemoryBackingFile("sync_all", err))?;
         }
+        Ok(())
+    }
+
+    /// Writes all of guest memory ([`SnapshotType::Full`]) or only its dirty pages
+    /// ([`SnapshotType::Diff`]) to `writer`, laid out as a snapshot memory file.
+    fn dump_memory<W: WriteVolatile + Seek>(
+        &self,
+        writer: &mut W,
+        snapshot_type: SnapshotType,
+    ) -> Result<(), CreateSnapshotError> {
+        match snapshot_type {
+            SnapshotType::Diff => {
+                let dirty_bitmap = self.get_dirty_bitmap()?;
+                self.guest_memory().dump_dirty(writer, &dirty_bitmap)?;
+            }
+            SnapshotType::Full => {
+                self.guest_memory().dump(writer)?;
+                self.reset_dirty_bitmap();
+                self.guest_memory().reset_dirty();
+            }
+        }
+        Ok(())
+    }
+
+    /// Writes guest memory into a hugetlbfs snapshot file through a temporary shared mapping.
+    ///
+    /// hugetlbfs does not implement `write(2)`, so the regular snapshot writer cannot be used.
+    /// `MAP_SHARED` is required for writes to update the file; a private mapping would create
+    /// anonymous copy-on-write pages and leave the snapshot file unchanged. The mapping exists
+    /// only while the snapshot is written. Snapshot restore maps the completed file privately.
+    /// A cursor over this mapping lets us reuse the existing full and differential dump logic.
+    fn snapshot_memory_via_mmap(
+        &self,
+        file: &std::fs::File,
+        size: u64,
+        snapshot_type: SnapshotType,
+    ) -> Result<(), CreateSnapshotError> {
+        use self::CreateSnapshotError::*;
+
+        let size = usize::try_from(size).map_err(|_| MemoryError::OffsetTooLarge)?;
+
+        // JUSTIFICATION: hugetlbfs does not support `write(2)`, so a shared mapping is the only way
+        // to populate the snapshot file.
+        // SAFETY: `file` is open for reading and writing, its length was set to `size`, `size` is
+        // non-zero and page-aligned, and the mapping is checked against `MAP_FAILED` before use.
+        let destination = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                file.as_raw_fd(),
+                0,
+            )
+        };
+        if destination == libc::MAP_FAILED {
+            return Err(MemoryBackingFile("mmap", std::io::Error::last_os_error()));
+        }
+
+        let dump_result = {
+            // JUSTIFICATION: The guest-memory dump API needs a writable slice over the raw mapping
+            // returned by `mmap`.
+            // SAFETY: `destination` is a writable mapping of exactly `size` bytes. Firecracker's
+            // guest-memory size is bounded below `isize::MAX`, and this slice does not outlive the
+            // mapping or alias any other Rust reference.
+            let destination =
+                unsafe { std::slice::from_raw_parts_mut(destination.cast::<u8>(), size) };
+            self.dump_memory(&mut Cursor::new(destination), snapshot_type)
+        };
+
+        // JUSTIFICATION: A mapping created by `libc::mmap` must be released with `libc::munmap`.
+        // SAFETY: `destination` and `size` describe the successful mapping above, and all Rust
+        // references into the mapping were dropped at the end of the block above.
+        let unmap_result = unsafe { libc::munmap(destination, size) };
+
+        dump_result?;
+        if unmap_result != 0 {
+            return Err(MemoryBackingFile("munmap", std::io::Error::last_os_error()));
+        }
+
         Ok(())
     }
 
