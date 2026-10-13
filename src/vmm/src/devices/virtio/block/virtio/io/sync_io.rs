@@ -121,6 +121,8 @@ impl SyncFileEngine {
             if unmarked.is_empty() {
                 break Ok(());
             }
+            // `unmarked` carries no bitmap, so vm-memory marks nothing; see above.
+            #[expect(clippy::disallowed_methods)]
             match self.file.read_volatile(&mut unmarked) {
                 Ok(0) => {
                     break Err(VolatileMemoryError::IOError(std::io::Error::new(

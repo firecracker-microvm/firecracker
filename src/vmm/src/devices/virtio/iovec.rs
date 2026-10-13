@@ -529,6 +529,9 @@ impl<const L: u16> IoVecBufferMut<L> {
             }
 
             match loop {
+                // `slice` carries no bitmap, so vm-memory marks nothing; the bytes read are
+                // marked below, and a failed read marks nothing.
+                #[expect(clippy::disallowed_methods)]
                 match src.read_volatile(&mut slice) {
                     Err(VolatileMemoryError::IOError(err))
                         if err.kind() == ErrorKind::Interrupted => {}
