@@ -57,6 +57,11 @@ pub const VENDOR_ID_INTEL: &[u8; 12] = b"GenuineIntel";
 /// AMD brand string.
 pub const VENDOR_ID_AMD: &[u8; 12] = b"AuthenticAMD";
 
+/// Hygon brand string. Hygon Dhyana CPUs are licensed AMD Zen designs; the
+/// Linux kernel KVM implementation routes them through the AMD paths, and we
+/// do the same (Zhiyuan PoC patch, 2026-10-13).
+pub const VENDOR_ID_HYGON: &[u8; 12] = b"HygonGenuine";
+
 /// Intel brand string.
 #[allow(clippy::undocumented_unsafe_blocks)]
 pub const VENDOR_ID_INTEL_STR: &str = unsafe { std::str::from_utf8_unchecked(VENDOR_ID_INTEL) };
@@ -64,6 +69,10 @@ pub const VENDOR_ID_INTEL_STR: &str = unsafe { std::str::from_utf8_unchecked(VEN
 /// AMD brand string.
 #[allow(clippy::undocumented_unsafe_blocks)]
 pub const VENDOR_ID_AMD_STR: &str = unsafe { std::str::from_utf8_unchecked(VENDOR_ID_AMD) };
+
+/// Hygon brand string.
+#[allow(clippy::undocumented_unsafe_blocks)]
+pub const VENDOR_ID_HYGON_STR: &str = unsafe { std::str::from_utf8_unchecked(VENDOR_ID_HYGON) };
 
 /// To store the brand string we have 3 leaves, each with 4 registers, each with 4 bytes.
 pub const BRAND_STRING_LENGTH: usize = 3 * 4 * 4;
@@ -407,7 +416,11 @@ impl TryFrom<kvm_bindings::CpuId> for Cpuid {
 
         match std::str::from_utf8(&vendor_id) {
             Ok(VENDOR_ID_INTEL_STR) => Ok(Cpuid::Intel(IntelCpuid::from(kvm_cpuid))),
-            Ok(VENDOR_ID_AMD_STR) => Ok(Cpuid::Amd(AmdCpuid::from(kvm_cpuid))),
+            // Hygon Dhyana reports "HygonGenuine" but is an AMD Zen design;
+            // treat it as AMD (Zhiyuan PoC patch, 2026-10-13).
+            Ok(VENDOR_ID_AMD_STR) | Ok(VENDOR_ID_HYGON_STR) => {
+                Ok(Cpuid::Amd(AmdCpuid::from(kvm_cpuid)))
+            }
             _ => Err(CpuidTryFromKvmCpuid::UnsupportedVendor(vendor_id)),
         }
     }
@@ -784,5 +797,25 @@ mod tests {
                 .unwrap();
         let cpuid = Cpuid::try_from(kvm_cpuid);
         assert_eq!(cpuid, Err(CpuidTryFromKvmCpuid::UnsupportedVendor([0; 12])));
+    }
+
+    #[test]
+    fn test_hygon_kvmcpuid_maps_to_amd() {
+        // Hygon Dhyana CPUs report "HygonGenuine" but are licensed AMD Zen
+        // designs and are handled through the AMD CPUID paths.
+        let hygon_leaf0 = kvm_bindings::kvm_cpuid_entry2 {
+            function: 0x0,
+            index: 0x0,
+            flags: 0x0,
+            eax: 0x1,
+            // "HygonGenuine" (ebx: "Hygo", ecx: "uine", edx: "nGen")
+            ebx: 0x6f677948,
+            ecx: 0x656e6975,
+            edx: 0x6e65476e,
+            ..Default::default()
+        };
+        let kvm_cpuid = kvm_bindings::CpuId::from_entries(&[hygon_leaf0]).unwrap();
+        let cpuid = Cpuid::try_from(kvm_cpuid).unwrap();
+        assert!(matches!(cpuid, Cpuid::Amd(_)));
     }
 }
