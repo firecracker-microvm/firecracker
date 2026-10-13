@@ -6,13 +6,17 @@ import re
 import signal
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 
 import pytest
 
 import host_tools.drive as drive_tools
-from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.artifacts import (
+    GUEST_KERNEL_DEFAULT,
+    pin_dirty_tracking,
+    pin_guest_kernel,
+)
 from framework.microvm import Microvm, SnapshotType
 from framework.utils import start_fast_page_fault_helper
 from framework.utils_hugepages import HugePagesConfig
@@ -34,7 +38,7 @@ def get_scratch_drives():
     ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class SnapshotRestoreTest:
     """Dataclass encapsulating properties of snapshot restore tests"""
 
@@ -44,6 +48,7 @@ class SnapshotRestoreTest:
     blocks: int = 3
     all_devices: bool = False
     huge_pages: HugePagesConfig = HugePagesConfig.NONE
+    track_dirty_pages: bool = False
 
     @property
     def id(self):
@@ -78,6 +83,7 @@ class SnapshotRestoreTest:
             mem_size_mib=self.mem,
             rootfs_io_engine="Sync",
             huge_pages=self.huge_pages,
+            track_dirty_pages=self.track_dirty_pages,
         )
 
         for _ in range(self.nets):
@@ -100,23 +106,29 @@ class SnapshotRestoreTest:
 
 
 @pytest.mark.nonci
-@pytest.mark.parametrize(
+@pin_dirty_tracking(
     "test_setup",
-    [
-        SnapshotRestoreTest(mem=128, vcpus=1),
-        SnapshotRestoreTest(mem=1024, vcpus=1),
-        SnapshotRestoreTest(mem=2048, vcpus=2),
-        SnapshotRestoreTest(mem=4096, vcpus=3),
-        SnapshotRestoreTest(mem=6144, vcpus=4),
-        SnapshotRestoreTest(mem=8192, vcpus=5),
-        SnapshotRestoreTest(mem=10240, vcpus=6),
-        SnapshotRestoreTest(mem=12288, vcpus=7),
-        SnapshotRestoreTest(all_devices=True),
-    ],
-    ids=lambda x: x.id,
+    {
+        SnapshotRestoreTest(mem=128, vcpus=1): [False, True],
+        SnapshotRestoreTest(mem=1024, vcpus=1): [False],
+        SnapshotRestoreTest(mem=2048, vcpus=2): [False],
+        SnapshotRestoreTest(mem=4096, vcpus=3): [False, True],
+        SnapshotRestoreTest(mem=6144, vcpus=4): [False],
+        SnapshotRestoreTest(mem=8192, vcpus=5): [False],
+        SnapshotRestoreTest(mem=10240, vcpus=6): [False],
+        SnapshotRestoreTest(mem=12288, vcpus=7): [False, True],
+        SnapshotRestoreTest(all_devices=True): [False],
+    },
+    ids=lambda value: value.id if isinstance(value, SnapshotRestoreTest) else None,
 )
 def test_restore_latency(
-    microvm_factory, guest_kernel, rootfs, pci_enabled, test_setup, metrics
+    microvm_factory,
+    guest_kernel,
+    rootfs,
+    pci_enabled,
+    track_dirty_pages,
+    test_setup,
+    metrics,
 ):
     """
     Restores snapshots with vcpu/memory configuration, roughly scaling according to mem = (vcpus - 1) * 2048MB,
@@ -125,6 +137,7 @@ def test_restore_latency(
 
     We only test a single guest kernel, as the guest kernel does not "participate" in snapshot restore.
     """
+    test_setup = replace(test_setup, track_dirty_pages=track_dirty_pages)
     vm = test_setup.boot_vm(microvm_factory, guest_kernel, rootfs, pci_enabled)
 
     metrics.set_dimensions(test_setup.dimensions(vm, "test_restore_latency", None))
@@ -132,7 +145,10 @@ def test_restore_latency(
     snapshot = vm.snapshot_full()
     vm.kill()
     for microvm in microvm_factory.build_n_from_snapshot(
-        snapshot, ITERATIONS, no_netns_reuse=True
+        snapshot,
+        ITERATIONS,
+        no_netns_reuse=True,
+        track_dirty_pages=test_setup.track_dirty_pages,
     ):
         value = 0
         # Parse all metric data points in search of load_snapshot time.
@@ -151,12 +167,20 @@ def test_restore_latency(
 # latencies, but KVM latencies of setting up missing EPT entries.
 @pytest.mark.nonci
 @pytest.mark.parametrize("uffd_handler", [None, "on_demand", "fault_all"])
-@pytest.mark.parametrize("huge_pages", HugePagesConfig)
+@pin_dirty_tracking(
+    "huge_pages",
+    {
+        HugePagesConfig.NONE: [False],
+        HugePagesConfig.TRANSPARENT: [False],
+        HugePagesConfig.HUGETLBFS_2MB: [False, True],
+    },
+)
 def test_post_restore_latency(
     microvm_factory,
     rootfs,
     guest_kernel,
     pci_enabled,
+    track_dirty_pages,
     metrics,
     uffd_handler,
     huge_pages,
@@ -165,7 +189,12 @@ def test_post_restore_latency(
     if huge_pages != HugePagesConfig.NONE and uffd_handler is None:
         pytest.skip("huge page snapshots can only be restored using uffd")
 
-    test_setup = SnapshotRestoreTest(mem=1024, vcpus=2, huge_pages=huge_pages)
+    test_setup = SnapshotRestoreTest(
+        mem=1024,
+        vcpus=2,
+        huge_pages=huge_pages,
+        track_dirty_pages=track_dirty_pages,
+    )
     vm = test_setup.boot_vm(microvm_factory, guest_kernel, rootfs, pci_enabled)
 
     metrics.set_dimensions(
@@ -180,7 +209,10 @@ def test_post_restore_latency(
     vm.kill()
 
     for microvm in microvm_factory.build_n_from_snapshot(
-        snapshot, ITERATIONS, uffd_handler_name=uffd_handler
+        snapshot,
+        ITERATIONS,
+        uffd_handler_name=uffd_handler,
+        track_dirty_pages=test_setup.track_dirty_pages,
     ):
         _, pid, _ = microvm.ssh.check_output("pidof fast_page_fault_helper")
 
@@ -247,10 +279,19 @@ def test_population_latency(
 
 
 @pytest.mark.nonci
+@pin_dirty_tracking(
+    "snapshot_type",
+    {
+        SnapshotType.FULL: [False, True],
+        SnapshotType.DIFF: [True],
+        SnapshotType.DIFF_MINCORE: [False],
+    },
+)
 def test_snapshot_create_latency(
     uvm,
     metrics,
     snapshot_type,
+    track_dirty_pages,
 ):
     """Measure the latency of creating a Full snapshot"""
 
@@ -259,7 +300,7 @@ def test_snapshot_create_latency(
     vm.basic_config(
         vcpu_count=2,
         mem_size_mib=512,
-        track_dirty_pages=snapshot_type.needs_dirty_page_tracking,
+        track_dirty_pages=track_dirty_pages,
     )
     vm.start()
     vm.pin_threads(0)
