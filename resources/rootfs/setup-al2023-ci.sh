@@ -78,6 +78,15 @@ rm -f /etc/systemd/system/sysinit.target.wants/systemd-timesyncd.service
 # don't need this
 rm -vf /etc/systemd/system/timers.target.wants/*
 
+# systemd 252.23-14 hard-requires selinux-policy, so the targeted policy is
+# installed and systemd would load it at boot. Loading it costs ~10 MiB of
+# guest kernel memory and ~120 ms of userspace boot. CI guests never ran with
+# a policy before, so keep it unloaded.
+mkdir -p /etc/selinux
+printf 'SELINUX=disabled\nSELINUXTYPE=targeted\n' >/etc/selinux/config
+# With no policy loaded, these would run on every boot.
+systemctl mask selinux-autorelabel-mark.service selinux-check-proper-disable.service
+
 systemctl enable var-lib-systemd.mount
 
 # disable Predictable Network Interface Names to keep ethN names
