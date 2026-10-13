@@ -337,5 +337,27 @@ mod tests {
         let b = layer(8, &[]);
         let err = LayeredMemory::new(vec![open(&a), open(&b)]).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        let empty = layer(0, &[]);
+        let err = LayeredMemory::new(vec![open(&empty)]).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn test_rejects_unaligned_extent() {
+        // A layer whose size is not page aligned ends in a partial data
+        // extent; overlaying it would hide the parent's bytes past EOF.
+        let f = TempFile::new().unwrap();
+        f.as_file().set_len(PAGE as u64 + 1).unwrap();
+        f.as_file().write_all_at(&[1], PAGE as u64).unwrap();
+        let err = LayeredMemory::new(vec![open(&f)]).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn test_hole_only_root_reads_zero() {
+        let root = layer(3, &[]);
+        let mem = LayeredMemory::new(vec![open(&root)]).unwrap();
+        assert_eq!(mem.extent_count, 0);
+        assert!(mem.as_slice().iter().all(|&b| b == 0));
     }
 }
