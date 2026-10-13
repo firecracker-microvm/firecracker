@@ -21,6 +21,7 @@ import psutil
 import pytest
 
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
+from framework.variants import pin_variant
 
 # If guest memory is >3072MB, it is split in a 2nd region
 X86_MEMORY_GAP_START = 3072 * 2**20
@@ -29,6 +30,11 @@ X86_MEMORY_GAP_START = 3072 * 2**20
 @pytest.mark.parametrize(
     "vcpu_count,mem_size_mib",
     [(1, 1024), (2, 2048), (4, 4096), (32, 4096)],
+)
+@pin_variant(
+    "track_dirty_pages",
+    [False, True],
+    when={"vcpu_count": 4, "mem_size_mib": 4096, "pci_enabled": True},
 )
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pytest.mark.nonci
@@ -39,6 +45,7 @@ def test_memory_overhead(
     vcpu_count,
     mem_size_mib,
     pci_enabled,
+    track_dirty_pages,
     metrics,
 ):
     """Track Firecracker memory overhead.
@@ -51,7 +58,11 @@ def test_memory_overhead(
             guest_kernel, rootfs, pci=pci_enabled, monitor_memory=False
         )
         microvm.spawn(emit_metrics=True)
-        microvm.basic_config(vcpu_count=vcpu_count, mem_size_mib=mem_size_mib)
+        microvm.basic_config(
+            vcpu_count=vcpu_count,
+            mem_size_mib=mem_size_mib,
+            track_dirty_pages=track_dirty_pages,
+        )
         microvm.add_net_iface()
         microvm.start()
         metrics.set_dimensions(
@@ -60,7 +71,9 @@ def test_memory_overhead(
 
         snapshot = microvm.snapshot_full()
         microvm.kill()
-        microvm2 = microvm_factory.build_from_snapshot(snapshot)
+        microvm2 = microvm_factory.build_from_snapshot(
+            snapshot, track_dirty_pages=track_dirty_pages
+        )
 
         guest_mem_bytes = mem_size_mib * 2**20
         guest_mem_splits = {
