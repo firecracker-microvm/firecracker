@@ -43,19 +43,16 @@ def uvm_booted_memhp(
         "huge_pages": huge_pages,
         # we need enough memory to be able to hotplug up to 16GB
         "mem_size_mib": 512,
+        "track_dirty_pages": (
+            snapshot_type.needs_dirty_page_tracking if snapshot_type else False
+        ),
     }
     if vhost_user:
         # We need to setup ssh keys manually because we did not specify rootfs
         # in microvm_factory.build method
         ssh_key = rootfs.with_suffix(".id_rsa")
         uvm.ssh_key = ssh_key
-        uvm.basic_config(
-            **uvm_config,
-            add_root_device=False,
-            track_dirty_pages=(
-                snapshot_type.needs_dirty_page_tracking if snapshot_type else False
-            ),
-        )
+        uvm.basic_config(**uvm_config, add_root_device=False)
         uvm.add_vhost_user_drive(
             "rootfs", rootfs, is_root_device=True, is_read_only=True
         )
