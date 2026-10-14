@@ -20,6 +20,7 @@ from framework.utils_vsock import (
     make_host_port_path,
     start_guest_echo_server,
 )
+from framework.variants import pin_variant
 
 pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
 
@@ -121,11 +122,17 @@ def consume_vsock_ping_output(ping_output):
     [("g2h", "64K"), ("h2g", "64K"), ("h2g", "1024K")],
     ids=["g2h-p64K", "h2g-p64K", "h2g-p1024K"],
 )
+@pin_variant(
+    "track_dirty_pages",
+    [False, True],
+    when={"vcpus": 2, "mode": "h2g", "payload_length": "64K", "pci_enabled": True},
+)
 def test_vsock_throughput(
     uvm,
     vcpus,
     payload_length,
     mode,
+    track_dirty_pages,
     metrics,
     results_dir,
 ):
@@ -136,7 +143,11 @@ def test_vsock_throughput(
     mem_size_mib = 1024
     vm = uvm
     vm.spawn(log_level="Info", emit_metrics=True)
-    vm.basic_config(vcpu_count=vcpus, mem_size_mib=mem_size_mib)
+    vm.basic_config(
+        vcpu_count=vcpus,
+        mem_size_mib=mem_size_mib,
+        track_dirty_pages=track_dirty_pages,
+    )
     vm.add_net_iface()
     # Create a vsock device
     vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)

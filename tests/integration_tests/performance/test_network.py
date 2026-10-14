@@ -10,6 +10,7 @@ import pytest
 
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
+from framework.variants import pin_variant
 
 pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
 
@@ -41,7 +42,7 @@ def consume_ping_output(ping_putput):
 
 
 @pytest.fixture
-def network_microvm(request, uvm):
+def network_microvm(request, uvm, track_dirty_pages):
     """Creates a microvm with the networking setup used by the performance tests in this file.
     This fixture receives its vcpu count via indirect parameterization"""
 
@@ -50,7 +51,11 @@ def network_microvm(request, uvm):
 
     vm = uvm
     vm.spawn(log_level="Info", emit_metrics=True)
-    vm.basic_config(vcpu_count=guest_vcpus, mem_size_mib=guest_mem_mib)
+    vm.basic_config(
+        vcpu_count=guest_vcpus,
+        mem_size_mib=guest_mem_mib,
+        track_dirty_pages=track_dirty_pages,
+    )
     vm.add_net_iface()
     vm.start()
 
@@ -94,6 +99,16 @@ def test_network_latency(network_microvm, metrics):
 @pytest.mark.parametrize("network_microvm", [1, 2], indirect=True)
 @pytest.mark.parametrize("payload_length", ["128K", "1024K"], ids=["p128K", "p1024K"])
 @pytest.mark.parametrize("mode", ["g2h", "h2g"])
+@pin_variant(
+    "track_dirty_pages",
+    [False, True],
+    when={
+        "network_microvm": 2,
+        "payload_length": "128K",
+        "mode": "h2g",
+        "pci_enabled": True,
+    },
+)
 def test_network_tcp_throughput(
     network_microvm,
     payload_length,

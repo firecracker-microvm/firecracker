@@ -11,6 +11,7 @@ import framework.utils_fio as fio
 import host_tools.drive as drive_tools
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
 from framework.utils import check_output, track_cpu_utilization
+from framework.variants import pin_variant
 
 pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
 
@@ -121,6 +122,16 @@ def emit_fio_metrics(logs_dir, metrics):
 @pytest.mark.parametrize("fio_mode", [fio.Mode.RANDREAD, fio.Mode.RANDWRITE])
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
 @pytest.mark.parametrize("fio_engine", [fio.Engine.LIBAIO, fio.Engine.PSYNC])
+@pin_variant(
+    "track_dirty_pages",
+    [False, True],
+    when={
+        "vcpus": 2,
+        "fio_mode": fio.Mode.RANDREAD,
+        "fio_engine": fio.Engine.LIBAIO,
+        "pci_enabled": True,
+    },
+)
 def test_block_performance(
     uvm,
     vcpus,
@@ -128,6 +139,7 @@ def test_block_performance(
     fio_block_size,
     fio_engine,
     io_engine,
+    track_dirty_pages,
     metrics,
     results_dir,
 ):
@@ -136,7 +148,11 @@ def test_block_performance(
     """
     vm = uvm
     vm.spawn(log_level="Info", emit_metrics=True)
-    vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
+    vm.basic_config(
+        vcpu_count=vcpus,
+        mem_size_mib=GUEST_MEM_MIB,
+        track_dirty_pages=track_dirty_pages,
+    )
     vm.add_net_iface()
     # Add a secondary block device for benchmark tests.
     fs = drive_tools.FilesystemFile(
