@@ -30,7 +30,7 @@
 ///  other pollable FDs are then registered under this nested epoll FD.
 ///  To route all these events to their handlers, the muxer uses another `HashMap` object,
 ///  mapping `RawFd`s to `EpollListener`s.
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::io::Read;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
@@ -115,6 +115,16 @@ pub struct VsockMuxer {
     /// This appears to have been a design decision dating back to the initial introduction of the
     /// vsock implementation.
     pub(crate) local_port_last: u32,
+
+    /// Host sockets waiting for CONNECT, in acceptance order. Entries are removed along with
+    /// their listeners so a reused FD cannot inherit an older socket's place in the queue.
+    pending_connections: VecDeque<RawFd>,
+    /// Maximum combined number of vsock connections and host sockets waiting for CONNECT.
+    /// Unit tests lower it so they can fill the limit without opening thousands of FDs.
+    max_connections: usize,
+    /// Events from the current `epoll_wait` batch. `remove_listener` clears the events for the
+    /// FD it removes, so a socket that reuses that FD number cannot receive them.
+    ready_events: Vec<EpollEvent>,
 }
 
 impl VsockChannel for VsockMuxer {
@@ -285,19 +295,8 @@ impl VsockEpollListener for VsockMuxer {
 
     /// Notify the muxer about a pending event having occurred under its nested epoll FD.
     fn notify(&mut self, _: EventSet) {
-        let mut epoll_events = vec![EpollEvent::new(EventSet::empty(), 0); 32];
-        match self.epoll.wait(0, epoll_events.as_mut_slice()) {
-            Ok(ev_cnt) => {
-                for ev in &epoll_events[0..ev_cnt] {
-                    self.handle_event(
-                        ev.fd(),
-                        // It's ok to unwrap here, since the `epoll_events[i].events` is filled
-                        // in by `epoll::wait()`, and therefore contains only valid epoll
-                        // flags.
-                        EventSet::from_bits(ev.events).unwrap(),
-                    );
-                }
-            }
+        match self.epoll.wait(0, &mut self.ready_events) {
+            Ok(ev_cnt) => self.handle_ready_events(ev_cnt),
             Err(err) => {
                 warn!("vsock: failed to consume muxer epoll event: {}", err);
                 METRICS.muxer_event_fails.inc();
@@ -352,6 +351,9 @@ impl VsockMuxer {
             killq: MuxerKillQ::new(),
             local_port_last: (1u32 << 30) - 1,
             local_port_set: HashSet::with_capacity(defs::MAX_CONNECTIONS),
+            pending_connections: VecDeque::with_capacity(defs::MAX_CONNECTIONS),
+            max_connections: defs::MAX_CONNECTIONS,
+            ready_events: vec![EpollEvent::default(); 32],
         };
 
         Ok(muxer)
@@ -385,7 +387,7 @@ impl VsockMuxer {
 
             // A new host-initiated connection is ready to be accepted.
             Some(EpollListener::HostSock) => {
-                if self.conn_map.len() == defs::MAX_CONNECTIONS {
+                if !self.make_connection_room() {
                     // If we're already maxed-out on connections, we'll just accept and
                     // immediately discard this potentially new one.
                     warn!("vsock: connection limit reached; refusing new host connection");
@@ -512,10 +514,10 @@ impl VsockMuxer {
         // - we are under no pressure to respect any accurate timing for connection termination.
         self.sweep_killq();
 
-        if self.conn_map.len() >= defs::MAX_CONNECTIONS {
+        if !self.make_connection_room() {
             info!(
                 "vsock: muxer connection limit reached ({})",
-                defs::MAX_CONNECTIONS
+                self.max_connections
             );
             return Err(VsockUnixBackendError::TooManyConnections);
         }
@@ -537,6 +539,44 @@ impl VsockMuxer {
             self.conn_map.insert(key, conn);
             METRICS.conns_added.inc();
         })
+    }
+
+    /// Handle the first `ev_cnt` events in `ready_events`.
+    fn handle_ready_events(&mut self, ev_cnt: usize) {
+        for i in 0..ev_cnt {
+            // Copy the event out, since handling it may clear later events in the batch.
+            let ev = self.ready_events[i];
+            // `remove_listener` cleared this event because its FD was closed earlier in the
+            // batch. The epoll FD is level-triggered, so if a new socket on the same FD number
+            // is ready, the next `epoll_wait` reports it.
+            if ev.events() == 0 {
+                continue;
+            }
+            self.handle_event(
+                ev.fd(),
+                // It's ok to unwrap here, since the event was filled in by `epoll::wait()`,
+                // and therefore contains only valid epoll flags.
+                EventSet::from_bits(ev.events()).unwrap(),
+            );
+        }
+    }
+
+    /// Enforce the combined limit for vsock connections and host sockets waiting for CONNECT.
+    /// At the limit, close the oldest pending socket to admit a new host or guest connection.
+    /// Returns `false` if every slot is held by an established connection.
+    fn make_connection_room(&mut self) -> bool {
+        if self.conn_map.len() + self.pending_connections.len() < self.max_connections {
+            return true;
+        }
+
+        let Some(fd) = self.pending_connections.front().copied() else {
+            return false;
+        };
+
+        // Unregister from epoll; the returned listener owns the UnixStream, so dropping it
+        // closes the socket.
+        self.remove_listener(fd);
+        true
     }
 
     /// Remove a connection from the active connection poll.
@@ -588,6 +628,9 @@ impl VsockMuxer {
                 EpollEvent::new(evset, u64::try_from(fd).unwrap()),
             )
             .map(|_| {
+                if matches!(listener, EpollListener::LocalStream(_)) {
+                    self.pending_connections.push_back(fd);
+                }
                 self.listener_map.insert(fd, listener);
             })
             .map_err(VsockUnixBackendError::EpollAdd)?;
@@ -599,6 +642,14 @@ impl VsockMuxer {
     fn remove_listener(&mut self, fd: RawFd) -> Option<EpollListener> {
         let maybe_listener = self.listener_map.remove(&fd);
 
+        if let Some(pos) = self
+            .pending_connections
+            .iter()
+            .position(|&pending_fd| pending_fd == fd)
+        {
+            self.pending_connections.remove(pos);
+        }
+
         if maybe_listener.is_some() {
             self.epoll
                 .ctl(ControlOperation::Delete, fd, EpollEvent::default())
@@ -608,6 +659,11 @@ impl VsockMuxer {
                         fd, err
                     );
                 });
+            for ev in &mut self.ready_events {
+                if ev.fd() == fd {
+                    *ev = EpollEvent::default();
+                }
+            }
         }
 
         maybe_listener
@@ -998,6 +1054,17 @@ mod tests {
             LocalListener::new(format!("{}_{}", self.muxer.host_sock_path, port))
         }
 
+        /// Connect to the host socket without sending CONNECT, and have the muxer accept it.
+        /// Returns the client end and the muxer-side FD of the pending socket.
+        fn pending_connect(&mut self) -> (UnixStream, RawFd) {
+            let stream = UnixStream::connect(self.muxer.host_sock_path()).unwrap();
+            stream.set_nonblocking(true).unwrap();
+            self.muxer
+                .handle_event(self.muxer.host_sock.as_raw_fd(), EventSet::IN);
+            let fd = *self.muxer.pending_connections.back().unwrap();
+            (stream, fd)
+        }
+
         fn local_connect(&mut self, peer_port: u32) -> (UnixStream, u32) {
             let (init_local_lsn_count, init_conn_lsn_count) = self.count_epoll_listeners();
 
@@ -1077,6 +1144,22 @@ mod tests {
         fn drop(&mut self) {
             std::fs::remove_file(&self.path).unwrap();
         }
+    }
+
+    /// Connection limit for tests that fill it, small enough to keep FD usage low.
+    const TEST_MAX_CONNECTIONS: usize = 8;
+
+    /// Assert that the muxer closed its end of a non-blocking socket.
+    fn assert_socket_closed(stream: &mut UnixStream) {
+        assert_eq!(stream.read(&mut [0u8; 1]).unwrap(), 0);
+    }
+
+    /// Assert that the muxer still holds its end of a non-blocking socket open.
+    fn assert_socket_open(stream: &mut UnixStream) {
+        assert_eq!(
+            stream.read(&mut [0u8; 1]).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
     }
 
     #[test]
@@ -1791,5 +1874,181 @@ mod tests {
 
         // Check that the connection was removed.
         assert_eq!(METRICS.conns_removed.count(), conns_removed + 1);
+    }
+
+    #[test]
+    fn test_pending_connections_evict_oldest() {
+        // Fill every slot with host sockets that have not sent CONNECT.
+        let mut ctx = MuxerTestContext::new("pending_evict_oldest");
+        ctx.muxer.max_connections = TEST_MAX_CONNECTIONS;
+        let mut clients: Vec<_> = (0..TEST_MAX_CONNECTIONS)
+            .map(|_| ctx.pending_connect().0)
+            .collect();
+        assert_eq!(ctx.muxer.pending_connections.len(), TEST_MAX_CONNECTIONS);
+        assert!(ctx.muxer.conn_map.is_empty());
+
+        // One more host socket closes only the oldest pending one.
+        let (mut newest, newest_fd) = ctx.pending_connect();
+        assert_socket_closed(&mut clients[0]);
+        for client in &mut clients[1..] {
+            assert_socket_open(client);
+        }
+        assert_eq!(ctx.muxer.pending_connections.len(), TEST_MAX_CONNECTIONS);
+        assert_eq!(ctx.muxer.pending_connections.back(), Some(&newest_fd));
+
+        // Promoting a pending socket into a vsock connection needs no additional slot.
+        newest.write_all(b"CONNECT 52\n").unwrap();
+        ctx.notify_muxer();
+        assert_eq!(ctx.muxer.conn_map.len(), 1);
+        assert_eq!(
+            ctx.muxer.pending_connections.len(),
+            TEST_MAX_CONNECTIONS - 1
+        );
+        assert_socket_open(&mut clients[1]);
+    }
+
+    #[test]
+    fn test_peer_connection_evicts_oldest_pending() {
+        const LOCAL_PORT: u32 = 1026;
+        const PEER_PORT: u32 = 1025;
+
+        // Fill the limit with one established connection and pending host sockets.
+        let mut ctx = MuxerTestContext::new("peer_evicts_pending");
+        ctx.muxer.max_connections = TEST_MAX_CONNECTIONS;
+        let (mut established, _) = ctx.local_connect(52);
+        let mut clients: Vec<_> = (0..TEST_MAX_CONNECTIONS - 1)
+            .map(|_| ctx.pending_connect().0)
+            .collect();
+
+        // A guest-initiated connection closes the oldest pending socket, not the
+        // established connection.
+        let mut listener = ctx.create_local_listener(LOCAL_PORT);
+        ctx.init_tx_pkt(LOCAL_PORT, PEER_PORT, uapi::VSOCK_OP_REQUEST);
+        ctx.send();
+        let _stream = listener.accept();
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RESPONSE);
+        assert_eq!(ctx.muxer.conn_map.len(), 2);
+        assert_eq!(
+            ctx.muxer.pending_connections.len(),
+            TEST_MAX_CONNECTIONS - 2
+        );
+        assert_socket_closed(&mut clients[0]);
+        assert_socket_open(&mut clients[1]);
+        assert_socket_open(&mut established);
+    }
+
+    #[test]
+    fn test_connection_limit_without_pending_sockets() {
+        const LOCAL_PORT: u32 = 1026;
+        const PEER_PORT: u32 = 1025;
+
+        // Fill the limit with guest-initiated vsock connections only.
+        let mut ctx = MuxerTestContext::new("connection_limit");
+        ctx.muxer.max_connections = TEST_MAX_CONNECTIONS;
+        let mut listener = ctx.create_local_listener(LOCAL_PORT);
+        let mut streams = Vec::new();
+        for offset in 0..u32::try_from(TEST_MAX_CONNECTIONS).unwrap() {
+            ctx.init_tx_pkt(LOCAL_PORT, PEER_PORT + offset, uapi::VSOCK_OP_REQUEST);
+            ctx.send();
+            streams.push(listener.accept());
+            ctx.recv();
+            assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RESPONSE);
+        }
+        assert!(ctx.muxer.pending_connections.is_empty());
+
+        // An incoming host connection is refused without dropping any vsock connection.
+        let mut client = UnixStream::connect(ctx.muxer.host_sock_path()).unwrap();
+        client.set_nonblocking(true).unwrap();
+        ctx.notify_muxer();
+        assert_socket_closed(&mut client);
+        assert!(ctx.muxer.pending_connections.is_empty());
+
+        // Guest-initiated connections are refused as well.
+        ctx.init_tx_pkt(LOCAL_PORT, PEER_PORT - 1, uapi::VSOCK_OP_REQUEST);
+        ctx.send();
+        let mut rejected = listener.accept();
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
+        assert_eq!(ctx.muxer.conn_map.len(), TEST_MAX_CONNECTIONS);
+        assert_socket_closed(&mut rejected);
+        for stream in &mut streams {
+            assert_socket_open(stream);
+        }
+    }
+
+    #[test]
+    fn test_evicted_socket_stale_event() {
+        // Fill every slot with host sockets that have not sent CONNECT, and have the oldest
+        // one send CONNECT just as a new host socket arrives.
+        let mut ctx = MuxerTestContext::new("evicted_stale_event");
+        ctx.muxer.max_connections = TEST_MAX_CONNECTIONS;
+        let (mut oldest, oldest_fd) = ctx.pending_connect();
+        let _clients: Vec<_> = (1..TEST_MAX_CONNECTIONS)
+            .map(|_| ctx.pending_connect().0)
+            .collect();
+        oldest.write_all(b"CONNECT 52\n").unwrap();
+        let mut newest = UnixStream::connect(ctx.muxer.host_sock_path()).unwrap();
+        newest.set_nonblocking(true).unwrap();
+
+        // `epoll_wait` does not guarantee event order, so build the batch by hand: the new
+        // host socket is accepted first, evicting the oldest socket, whose FD the new socket
+        // usually reuses.
+        let host_sock_fd = ctx.muxer.host_sock.as_raw_fd();
+        ctx.muxer.ready_events[0] =
+            EpollEvent::new(EventSet::IN, u64::try_from(host_sock_fd).unwrap());
+        ctx.muxer.ready_events[1] =
+            EpollEvent::new(EventSet::IN, u64::try_from(oldest_fd).unwrap());
+        ctx.muxer.handle_ready_events(2);
+
+        // The evicted socket's event is dropped instead of reaching the new socket.
+        assert_eq!(ctx.muxer.ready_events[1].events(), 0);
+        // The muxer closed the oldest socket with its CONNECT command unread, so the client
+        // sees a reset rather than EOF.
+        assert_eq!(
+            oldest.read(&mut [0u8; 1]).unwrap_err().kind(),
+            std::io::ErrorKind::ConnectionReset
+        );
+        assert!(ctx.muxer.conn_map.is_empty());
+        assert_eq!(ctx.muxer.pending_connections.len(), TEST_MAX_CONNECTIONS);
+        let newest_fd = *ctx.muxer.pending_connections.back().unwrap();
+        assert!(matches!(
+            ctx.muxer.listener_map.get(&newest_fd),
+            Some(EpollListener::LocalStream(_))
+        ));
+        assert_socket_open(&mut newest);
+    }
+
+    #[test]
+    fn test_pending_connections_cleanup_and_reset() {
+        // Each way a pending socket leaves the queue: a valid CONNECT, an invalid
+        // command, and the client closing its end.
+        let mut ctx = MuxerTestContext::new("pending_cleanup");
+        let (mut valid, _) = ctx.pending_connect();
+        let (mut invalid, _) = ctx.pending_connect();
+        let (closed, _) = ctx.pending_connect();
+        valid.write_all(b"CONNECT 52\n").unwrap();
+        ctx.notify_muxer();
+        assert_eq!(ctx.muxer.pending_connections.len(), 2);
+        assert_eq!(ctx.muxer.conn_map.len(), 1);
+        invalid.write_all(b"INVALID 52\n").unwrap();
+        ctx.notify_muxer();
+        assert_socket_closed(&mut invalid);
+        assert_eq!(ctx.muxer.pending_connections.len(), 1);
+        drop(closed);
+        ctx.notify_muxer();
+        assert!(ctx.muxer.pending_connections.is_empty());
+
+        // Reset closes pending sockets and clears the queue, and the muxer accepts new
+        // host sockets after reactivation.
+        let (mut pending, _) = ctx.pending_connect();
+        ctx.muxer.reset();
+        assert!(ctx.muxer.pending_connections.is_empty());
+        assert!(ctx.muxer.conn_map.is_empty());
+        assert!(ctx.muxer.listener_map.is_empty());
+        assert_socket_closed(&mut pending);
+        ctx.muxer.activate().unwrap();
+        let (_client, _) = ctx.pending_connect();
+        assert_eq!(ctx.muxer.pending_connections.len(), 1);
     }
 }
