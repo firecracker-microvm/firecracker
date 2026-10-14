@@ -546,7 +546,7 @@ impl Debug for VcpuState {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::io::AsRawFd;
 
@@ -561,7 +561,45 @@ mod tests {
     use crate::cpu_config::templates::RegisterValueFilter;
     use crate::test_utils::arch_mem;
     use crate::vcpu::VcpuConfig;
+    use crate::vstate::memory::Bytes;
+    use crate::vstate::vcpu::tests::setup_vcpu as setup_shared_vcpu;
     use crate::vstate::vm::tests::setup_vm_with_memory;
+
+    /// Size in bytes of the guest's MMIO load.
+    pub(crate) const MMIO_LOAD_SIZE: u64 = 4;
+
+    /// Builds a guest that loads an MMIO byte, increments a marker, then writes to MMIO.
+    /// The guest runs at EL1 with the MMU off.
+    pub(crate) fn setup_mmio_load_vcpu() -> (KvmVm, crate::vstate::vcpu::Vcpu) {
+        let code: &[u8] = &[
+            0x00, 0x00, 0x88, 0xd2, // mov x0, #0x4000 (just outside RAM)
+            0xa1, 0x14, 0x80, 0xd2, // mov x1, #0xa5
+            0x02, 0x00, 0x80, 0xd2, // mov x2, #0
+            0x01, 0x00, 0x40, 0x39, // ldrb w1, [x0]
+            0x42, 0x04, 0x00, 0x91, // add x2, x2, #1
+            0x01, 0x00, 0x00, 0x39, // strb w1, [x0]
+        ];
+        let (vm, vcpu) = setup_shared_vcpu(0x4000);
+        let entry_addr = GuestAddress(0x1000);
+        vm.guest_memory().write_slice(code, entry_addr).unwrap();
+        vcpu.kvm_vcpu
+            .fd
+            .set_one_reg(PC, &entry_addr.0.to_le_bytes())
+            .unwrap();
+        (vm, vcpu)
+    }
+
+    /// Returns (loaded byte, marker, PC) from x1, x2 and PC.
+    pub(crate) fn read_mmio_load_regs(vcpu: &crate::vstate::vcpu::Vcpu) -> (u64, u64, u64) {
+        let x =
+            |n: usize| arm64_core_reg_id!(KVM_REG_SIZE_U64, offset_of!(user_pt_regs, regs) + n * 8);
+        let [loaded, marker, pc] = [x(1), x(2), PC].map(|id| {
+            let mut value = [0u8; 8];
+            vcpu.kvm_vcpu.fd.get_one_reg(id, &mut value).unwrap();
+            u64::from_le_bytes(value)
+        });
+        (loaded, marker, pc)
+    }
 
     fn setup_vcpu(mem_size: usize) -> (KvmVm, KvmVcpu) {
         let (mut vm, mut vcpu) = setup_vcpu_no_init(mem_size);

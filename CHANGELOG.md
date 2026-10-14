@@ -10,12 +10,23 @@ and this project adheres to
 
 ### Added
 
+- [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
+  `SendCtrlAltDel` action is now supported on aarch64. It injects a virtual
+  power-button press through a new PL061 GPIO controller exposed to the guest as
+  a `gpio-keys` power button, enabling external graceful shutdown (aarch64
+  previously rejected the action with a 400). The controller's register state is
+  saved and restored with the microVM, which bumps the snapshot version to
+  `13.0.0`.
 - [#6237](https://github.com/firecracker-microvm/firecracker/pull/6237): Added
   balloon and virtio-mem memory reclamation for shared memfd-backed guest
   memory, such as memory shared with vhost-user devices.
 
 ### Changed
 
+- [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
+  PL061 GPIO controller backing the new aarch64 power button is always attached
+  and uses one extra GSI, which reduces the GSIs left for VirtIO devices. The
+  new maximum is 91 devices on aarch64; x86_64 is unaffected at 17.
 - [#6201](https://github.com/firecracker-microvm/firecracker/pull/6201):
   Bounds-check every virtio queue access against the ranges validated at
   activation, adding defense in depth against out-of-bounds accesses caused by
@@ -46,6 +57,11 @@ and this project adheres to
 
 ### Fixed
 
+- [#6254](https://github.com/firecracker-microvm/firecracker/pull/6254) Fixed
+  pausing a vCPU with an unfinished MMIO or port-I/O instruction. Pending I/O
+  now completes before the vCPU pauses, so snapshots include its effects without
+  executing further guest instructions.
+
 - [#6208](https://github.com/firecracker-microvm/firecracker/pull/6208): Fixed
   the vsock device stalling the VMM thread when the guest connects to a
   host-side Unix socket whose accept backlog is full. Such connection requests
@@ -72,6 +88,11 @@ and this project adheres to
   migrated between vCPUs. On host kernels supporting `KVM_VCPU_TSC_CTRL` (Linux
   5.16 and later), the restored TSC offset of vCPU 0 is now applied to all vCPUs
   before they start running.
+
+- [#6253](https://github.com/firecracker-microvm/firecracker/pull/6253): Guest
+  memory written by the virtio-net, vsock and entropy devices is now tracked
+  more accurately. This will lead to smaller incremental snapshots when dirty
+  tracking is enabled.
 
 ## [1.17.0]
 

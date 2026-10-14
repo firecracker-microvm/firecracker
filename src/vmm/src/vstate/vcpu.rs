@@ -405,12 +405,6 @@ impl Vcpu {
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
     pub fn run_emulation(&mut self) -> Result<VcpuEmulation, VcpuError> {
-        if self.kvm_vcpu.fd.get_kvm_run().immediate_exit == 1u8 {
-            warn!("Requested a vCPU run with immediate_exit enabled. The operation was skipped");
-            self.kvm_vcpu.fd.set_kvm_immediate_exit(0);
-            return Ok(VcpuEmulation::Interrupted);
-        }
-
         match self.kvm_vcpu.fd.run() {
             Err(ref err) if err.errno() == libc::EINTR => {
                 self.kvm_vcpu.fd.set_kvm_immediate_exit(0);
@@ -1031,17 +1025,48 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_immediate_exit_shortcircuits_execution() {
-        let (_, mut vcpu) = setup_vcpu(0x1000);
+    fn test_immediate_exit_completes_pending_mmio_load() {
+        use kvm_bindings::KVM_EXIT_MMIO;
 
+        #[cfg(target_arch = "aarch64")]
+        use crate::arch::aarch64::vcpu::tests::{
+            MMIO_LOAD_SIZE, read_mmio_load_regs, setup_mmio_load_vcpu,
+        };
+        #[cfg(target_arch = "x86_64")]
+        use crate::arch::x86_64::vcpu::tests::{
+            MMIO_LOAD_SIZE, read_mmio_load_regs, setup_mmio_load_vcpu,
+        };
+
+        let (_vm, mut vcpu) = setup_mmio_load_vcpu();
+
+        // No MMIO bus is attached, so Firecracker returns zero for the load.
+        assert_eq!(vcpu.run_emulation().unwrap(), VcpuEmulation::Handled);
+        assert_eq!(vcpu.kvm_vcpu.fd.get_kvm_run().exit_reason, KVM_EXIT_MMIO);
+        let (loaded, _, instruction_address) = read_mmio_load_regs(&vcpu);
+        assert_eq!(loaded, 0xa5);
+
+        // Complete the pending load without executing the following increment.
         vcpu.kvm_vcpu.fd.set_kvm_immediate_exit(1);
-        // Set a dummy value to be returned by the emulate call
-        let result = vcpu.run_emulation().expect("Failed to run emulation");
+        assert_eq!(vcpu.run_emulation().unwrap(), VcpuEmulation::Interrupted);
+        assert_eq!(vcpu.kvm_vcpu.fd.get_kvm_run().immediate_exit, 0);
+        let (loaded, marker, pc) = read_mmio_load_regs(&vcpu);
+        assert_eq!(loaded, 0, "MMIO load must complete");
         assert_eq!(
-            result,
-            VcpuEmulation::Interrupted,
-            "The Immediate Exit short-circuit should have prevented the execution of emulate"
+            pc,
+            instruction_address + MMIO_LOAD_SIZE,
+            "load must advance PC"
         );
+        assert_eq!(marker, 0, "next instruction must not execute");
+
+        // Resume at the increment and exit on the MMIO store.
+        assert_eq!(vcpu.run_emulation().unwrap(), VcpuEmulation::Handled);
+        assert_eq!(vcpu.kvm_vcpu.fd.get_kvm_run().exit_reason, KVM_EXIT_MMIO);
+        assert_eq!(read_mmio_load_regs(&vcpu).1, 1);
+    }
+
+    #[test]
+    fn test_resume_clears_immediate_exit() {
+        let (_, mut vcpu) = setup_vcpu(0x1000);
 
         let event_sender = vcpu.event_sender.take().expect("vCPU already started");
         let _ = event_sender.send(VcpuEvent::Resume);
