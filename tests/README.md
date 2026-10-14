@@ -480,7 +480,7 @@ it.
 
 ### Markers
 
-Firecracker uses two special
+Firecracker uses three special
 [pytest markers](https://pytest.org/en/7.4.x/example/markers.html) to determine
 which tests are run in which context:
 
@@ -488,6 +488,9 @@ which tests are run in which context:
   in separate pipelines according to various cron schedules.
 - Tests marked as `no_block_pr` are run in the "optional" PR CI pipeline. This
   pipeline is not required to pass for merging a PR.
+- Performance test cases marked as `dirty_tracking_on`, the runs with dirty page
+  tracking on that `pin_dirty_tracking` adds, run in the `dirty-tracking` groups
+  of the performance pipeline instead of their test's usual group.
 
 All tests without markers are run for every pull request, and are required to
 pass for the PR to be merged.
