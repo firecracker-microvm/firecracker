@@ -5,8 +5,18 @@
 import pytest
 
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
+from framework.microvm import SnapshotType
 
 pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
+
+SNAPSHOT_TYPES_WITH_TRACKING = pytest.mark.parametrize(
+    ("snapshot_type", "track_dirty_pages"),
+    [
+        (snapshot_type, snapshot_type.needs_dirty_page_tracking)
+        for snapshot_type in SnapshotType
+    ],
+    indirect=["track_dirty_pages"],
+)
 
 
 # Decorates the shared `uvm_booted` stage via same-name chaining: every booted
@@ -65,6 +75,7 @@ def test_vmclock_read_fields(uvm_booted, use_mmap):
 
 
 @pytest.mark.parametrize("use_mmap", [False, True], ids=["read()", "mmap()"])
+@SNAPSHOT_TYPES_WITH_TRACKING
 def test_snapshot_update(uvm_booted, microvm_factory, snapshot_type, use_mmap):
     """Test that `disruption_marker` and `vm_generation_counter` are updated
     upon snapshot resume"""
@@ -87,6 +98,7 @@ def test_snapshot_update(uvm_booted, microvm_factory, snapshot_type, use_mmap):
         assert vmclock["VMCLOCK_VM_GENERATION_COUNTER"] == f"{i+1}"
 
 
+@SNAPSHOT_TYPES_WITH_TRACKING
 def test_vmclock_notifications(uvm_booted, microvm_factory, snapshot_type):
     """Test that Firecracker will send a notification on snapshot load"""
     basevm = uvm_booted
