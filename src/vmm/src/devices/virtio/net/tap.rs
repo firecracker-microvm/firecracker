@@ -348,7 +348,7 @@ pub mod tests {
         let packet = vmm_sys_util::rand::rand_alphanumerics(2 * PAYLOAD_SIZE);
         tap_traffic_simulator.push_tx_packet(packet.as_bytes());
         assert_eq!(
-            rx_buffers.readv_from(&mem, &tap, true).unwrap(),
+            rx_buffers.readv_from(&mem, &tap, usize::MAX).unwrap(),
             2 * PAYLOAD_SIZE + VNET_HDR_SIZE
         );
         let mut buff1 = vec![0; PAYLOAD_SIZE + VNET_HDR_SIZE];
