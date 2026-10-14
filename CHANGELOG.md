@@ -46,6 +46,12 @@ and this project adheres to
   partial huge pages either failed or kept their old contents. Because zeroing
   allocates huge pages that were not backed yet, use free page reporting or
   hinting instead of the traditional balloon with hugetlbfs.
+- [#6280](https://github.com/firecracker-microvm/firecracker/pull/6280): When
+  the guest negotiates `VIRTIO_NET_F_MRG_RXBUF`, the network device now reads
+  each frame from the TAP device into only as many receive buffers as the
+  largest frame needs, instead of every buffer the guest has made available.
+  This lowers the cost of receiving each frame and improves receive throughput
+  for small packets.
 
 ### Deprecated
 
