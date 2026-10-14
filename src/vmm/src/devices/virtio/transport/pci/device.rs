@@ -1189,7 +1189,7 @@ impl PciDevice for VirtioPciDevice {
 
                 self.reset_msix();
             } else {
-                error!("Attempt to reset device when not implemented in underlying device");
+                error!("Failed to reset device, leaving it active");
                 // The virtio spec does not specify what to do if reset fails.
                 //
                 // Our MMIO transport sets FAILED in this case, but we must NOT do that for PCI.
@@ -1201,10 +1201,16 @@ impl PciDevice for VirtioPciDevice {
                 // - MMIO: https://elixir.bootlin.com/linux/v6.19.8/source/drivers/virtio/virtio_mmio.c#L251-L258
                 //
                 // Since device_status was already set to INIT by set_device_status(), we don't
-                // need to set it again here.  However, the backend device is still active since
-                // reset() is unimplemented.  The combination of device_activated == true and
-                // device_status == INIT will cause set_device_status() to block any
-                // re-initialization attempts.
+                // need to set it again here.  However, the device is still active, either
+                // because it does not implement reset or because it could not be quiesced.
+                // The combination of device_activated == true and device_status == INIT will
+                // cause set_device_status() to block any re-initialization attempts.
+                //
+                // That bounds how far the guest can drive the device. The work we could not
+                // stop may still write into guest memory that the guest has freed and reused.
+                //
+                // TODO: decide what Firecracker should do when a reset cannot be completed.
+                // https://github.com/firecracker-microvm/firecracker/issues/6281
             }
         }
         None
