@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from tenacity import Retrying, stop_after_attempt, wait_fixed
 
-from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
+from framework.artifacts import ACPI_GUEST_KERNELS, pin_dirty_tracking, pin_guest_kernel
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
@@ -25,7 +25,7 @@ pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
 
 
 @pytest.fixture
-def vsock_uvm(uvm, request):
+def vsock_uvm(uvm, request, track_dirty_pages):
     """Fixture to initialize a microVM with vsock device for perf tests."""
     vcpus = request.param if hasattr(request, "param") else 1
 
@@ -33,6 +33,7 @@ def vsock_uvm(uvm, request):
         uvm,
         vcpu_count=vcpus,
         mem_size_mib=1024,
+        track_dirty_pages=track_dirty_pages,
         log_level="Info",
         emit_metrics=True,
         pin_threads=True,
@@ -115,15 +116,17 @@ def consume_vsock_ping_output(ping_output):
 
 @pytest.mark.timeout(120)
 @pytest.mark.nonci
-@pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
-@pytest.mark.parametrize(
-    "mode,payload_length",
-    [("g2h", "64K"), ("h2g", "64K"), ("h2g", "1024K")],
-    ids=["g2h-p64K", "h2g-p64K", "h2g-p1024K"],
+@pytest.mark.parametrize("vsock_uvm", [1, 2], indirect=True, ids=["1vcpu", "2vcpu"])
+@pin_dirty_tracking(
+    ("mode", "payload_length"),
+    {
+        ("g2h", "64K"): [False],
+        ("h2g", "64K"): [False, True],
+        ("h2g", "1024K"): [False],
+    },
 )
 def test_vsock_throughput(
-    uvm,
-    vcpus,
+    vsock_uvm,
     payload_length,
     mode,
     metrics,
@@ -132,15 +135,7 @@ def test_vsock_throughput(
     """
     Test vsock throughput for multiple vm configurations.
     """
-
-    mem_size_mib = 1024
-    vm = uvm
-    vm.spawn(log_level="Info", emit_metrics=True)
-    vm.basic_config(vcpu_count=vcpus, mem_size_mib=mem_size_mib)
-    vm.add_net_iface()
-    # Create a vsock device
-    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
-    vm.start()
+    vm = vsock_uvm
 
     metrics.set_dimensions(
         {
@@ -150,8 +145,6 @@ def test_vsock_throughput(
             **vm.dimensions,
         }
     )
-
-    vm.pin_threads(0)
 
     test = VsockIPerf3Test(vm, mode, payload_length)
     data = test.run_test(vm.vcpus_count + 2)
@@ -170,6 +163,7 @@ def test_vsock_throughput(
 
 @pytest.mark.nonci
 @pytest.mark.parametrize("vsock_uvm", [1, 2], indirect=True, ids=["1vcpu", "2vcpu"])
+@pin_dirty_tracking()
 def test_vsock_latency_g2h(vsock_uvm, metrics, bin_vsock_path):
     """
     Test VSOCK latency for guest-to-host connections.
@@ -235,6 +229,7 @@ def test_vsock_latency_g2h(vsock_uvm, metrics, bin_vsock_path):
 
 @pytest.mark.nonci
 @pytest.mark.parametrize("vsock_uvm", [1, 2], indirect=True, ids=["1vcpu", "2vcpu"])
+@pin_dirty_tracking()
 def test_vsock_latency_h2g(vsock_uvm, metrics, bin_vsock_path):
     """
     Test VSOCK latency for host-to-guest connections.
