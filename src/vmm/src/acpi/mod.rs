@@ -12,6 +12,7 @@ use crate::acpi::x86_64::{
 use crate::arch::x86_64::layout;
 use crate::device_manager::DeviceManager;
 use crate::logger::{debug, error};
+use crate::pci::bus::MAX_PCI_BUSES;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 use crate::vstate::resources::ResourceAllocator;
 
@@ -157,7 +158,17 @@ impl AcpiTableWriter<'_> {
         resource_allocator: &mut ResourceAllocator,
         pci_mmio_config_addr: u64,
     ) -> Result<u64, AcpiError> {
-        let mut mcfg = Mcfg::new(OEM_ID, *b"FCMVMCFG", OEM_REVISION, pci_mmio_config_addr);
+        // The ECAM aperture is sized for every bus a segment can possibly
+        // have. Which of those buses actually exist is what the host bridge's
+        // _CRS bus range describes in PciSegment::append_aml_bytes().
+        let end_bus = MAX_PCI_BUSES - 1;
+        let mut mcfg = Mcfg::new(
+            OEM_ID,
+            *b"FCMVMCFG",
+            OEM_REVISION,
+            pci_mmio_config_addr,
+            end_bus,
+        );
         self.write_acpi_table(resource_allocator, &mut mcfg)
     }
 

@@ -16,18 +16,20 @@ use acpi_tables::{Aml, aml};
 #[cfg(target_arch = "x86_64")]
 use uuid::Uuid;
 
-use crate::arch::{PCI_MMCONFIG_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT};
+use crate::arch::PCI_MMCONFIG_START;
 use crate::logger::info;
 use crate::pci::PciSBDF;
 #[cfg(target_arch = "x86_64")]
 use crate::pci::bus::{PCI_CONFIG_IO_PORT, PCI_CONFIG_IO_PORT_SIZE, PciConfigIo};
-use crate::pci::bus::{PciBus, PciBusError, PciConfigMmio, PciHostBridge};
+use crate::pci::bus::{
+    PCI_MMIO_CONFIG_SIZE_PER_SEGMENT, PciBusError, PciBuses, PciConfigMmio, PciHostBridge,
+};
 use crate::vstate::bus::BusError;
 use crate::vstate::vm::KvmVm;
 
 pub struct PciSegment {
     pub(crate) id: u16,
-    pub(crate) pci_bus: Arc<Mutex<PciBus>>,
+    pub(crate) pci_buses: Arc<PciBuses>,
     // The MMIO bus only holds a weak reference to the device, so we need to keep
     // the strong reference here alive for as long as the segment exists.
     pub(crate) _pci_config_mmio: Arc<Mutex<PciConfigMmio>>,
@@ -65,10 +67,15 @@ impl std::fmt::Debug for PciSegment {
 
 impl PciSegment {
     fn build(id: u16, vm: &Arc<KvmVm>, pci_irq_slots: &[u8; 32]) -> Result<PciSegment, BusError> {
-        let host_bridge = PciHostBridge::new(None);
-        let pci_bus = Arc::new(Mutex::new(PciBus::new(host_bridge)));
+        let pci_buses = Arc::new(PciBuses::new(0));
+        pci_buses
+            .root_bus()
+            .lock()
+            .expect("Poisoned lock")
+            .add_device(0, Arc::new(Mutex::new(PciHostBridge::new(None))))
+            .expect("Slot 0 of the root bus is free");
 
-        let pci_config_mmio = Arc::new(Mutex::new(PciConfigMmio::new(Arc::clone(&pci_bus))));
+        let pci_config_mmio = Arc::new(Mutex::new(PciConfigMmio::new(pci_buses.clone())));
         let mmio_config_address = PCI_MMCONFIG_START + PCI_MMIO_CONFIG_SIZE_PER_SEGMENT * id as u64;
 
         vm.common.mmio_bus.insert(
@@ -87,7 +94,7 @@ impl PciSegment {
 
         let segment = PciSegment {
             id,
-            pci_bus,
+            pci_buses,
             _pci_config_mmio: pci_config_mmio,
             mmio_config_address,
             proximity_domain: 0,
@@ -110,7 +117,7 @@ impl PciSegment {
         pci_irq_slots: &[u8; 32],
     ) -> Result<PciSegment, BusError> {
         let mut segment = Self::build(id, vm, pci_irq_slots)?;
-        let pci_config_io = Arc::new(Mutex::new(PciConfigIo::new(Arc::clone(&segment.pci_bus))));
+        let pci_config_io = Arc::new(Mutex::new(PciConfigIo::new(segment.pci_buses.clone())));
 
         vm.pio_bus.insert(
             pci_config_io.clone(),
@@ -160,7 +167,7 @@ impl PciSegment {
         Ok(PciSBDF::new(
             self.id,
             0,
-            self.pci_bus.lock().unwrap().next_device_id()?,
+            self.pci_buses.root_bus().lock().unwrap().next_device_id()?,
             0,
         ))
     }
@@ -234,6 +241,29 @@ impl Aml for PciDsmMethod {
 }
 
 #[cfg(target_arch = "x86_64")]
+struct PciOscMethod {}
+
+#[cfg(target_arch = "x86_64")]
+impl Aml for PciOscMethod {
+    fn append_aml_bytes(&self, v: &mut Vec<u8>) -> Result<(), aml::AmlError> {
+        // _OSC (Operating System Capabilities), such as PCIeHotplug.
+        //
+        // Grant whatever the OS asks for by returning the capabilities buffer
+        // (Arg3) unchanged, so the control field it gets back is the one it
+        // requested. Granting control of features Firecracker does not
+        // implement is harmless: the OS only drives a feature if it also finds
+        // the corresponding PCI capability.
+        aml::Method::new(
+            "_OSC".try_into()?,
+            4,
+            false,
+            vec![&aml::Return::new(&aml::Arg(3))],
+        )
+        .append_aml_bytes(v)
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
 impl Aml for PciSegment {
     fn append_aml_bytes(&self, v: &mut Vec<u8>) -> Result<(), aml::AmlError> {
         let mut pci_dsdt_inner_data: Vec<&dyn Aml> = Vec::new();
@@ -260,12 +290,17 @@ impl Aml for PciSegment {
         let pci_dsm = PciDsmMethod {};
         pci_dsdt_inner_data.push(&pci_dsm);
 
+        let pci_osc = PciOscMethod {};
+        pci_dsdt_inner_data.push(&pci_osc);
+
+        let last_bus = u16::from(self.pci_buses.num_buses() - 1);
+
         #[allow(clippy::if_same_then_else)]
         let crs = if self.id == 0 {
             aml::Name::new(
                 "_CRS".try_into()?,
                 &aml::ResourceTemplate::new(vec![
-                    &aml::AddressSpace::new_bus_number(0x0u16, 0x0u16)?,
+                    &aml::AddressSpace::new_bus_number(0x0u16, last_bus)?,
                     &aml::Io::new(0xcf8, 0xcf8, 1, 0x8),
                     &aml::Memory32Fixed::new(
                         true,
@@ -292,7 +327,7 @@ impl Aml for PciSegment {
             aml::Name::new(
                 "_CRS".try_into()?,
                 &aml::ResourceTemplate::new(vec![
-                    &aml::AddressSpace::new_bus_number(0x0u16, 0x0u16)?,
+                    &aml::AddressSpace::new_bus_number(0x0u16, last_bus)?,
                     &aml::Memory32Fixed::new(
                         true,
                         self.mmio_config_address.try_into().unwrap(),
@@ -352,6 +387,7 @@ mod tests {
     use super::*;
     use crate::arch;
     use crate::builder::tests::default_vmm;
+    #[cfg(target_arch = "x86_64")]
     use crate::utils::u64_to_usize;
 
     #[test]
@@ -407,13 +443,32 @@ mod tests {
         let pci_irq_slots = &[0u8; 32];
         let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots).unwrap();
 
-        let mut data = [0u8; u64_to_usize(PCI_MMIO_CONFIG_SIZE_PER_SEGMENT)];
+        let mut data = [0u8; 4];
 
+        // Test that we can access the start and end of the ECAM region.
         kvm_vm
             .common
             .mmio_bus
             .read(pci_segment.mmio_config_address, &mut data)
             .unwrap();
+        kvm_vm
+            .common
+            .mmio_bus
+            .read(
+                pci_segment.mmio_config_address + PCI_MMIO_CONFIG_SIZE_PER_SEGMENT
+                    - data.len() as u64,
+                &mut data,
+            )
+            .unwrap();
+        // Test that accesses outside the ECAM region fail.
+        kvm_vm
+            .common
+            .mmio_bus
+            .read(
+                pci_segment.mmio_config_address - data.len() as u64,
+                &mut data,
+            )
+            .unwrap_err();
         kvm_vm
             .common
             .mmio_bus
@@ -470,8 +525,12 @@ mod tests {
             // a single bus with id 0. Also, each device of ours has a
             // single function.
             assert_eq!(sbdf, PciSBDF::new(0, 0, dev_id, 0));
-            let mut segment = pci_segment.pci_bus.lock().unwrap();
-            segment.add_device(dev_id, mock_dev()).unwrap();
+            let root_bus = pci_segment.pci_buses.root_bus();
+            root_bus
+                .lock()
+                .unwrap()
+                .add_device(dev_id, mock_dev())
+                .unwrap();
         }
 
         // We can only have 32 devices on a segment
