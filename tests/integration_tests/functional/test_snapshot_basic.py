@@ -662,7 +662,7 @@ def test_vmgenid(uvm, microvm_factory, snapshot_type):
     """
     base_vm = uvm
     base_vm.spawn()
-    base_vm.basic_config(track_dirty_pages=True)
+    base_vm.basic_config(track_dirty_pages=snapshot_type.needs_dirty_page_tracking)
     base_vm.add_net_iface()
     base_vm.start()
 

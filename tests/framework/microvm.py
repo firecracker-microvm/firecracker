@@ -1063,6 +1063,9 @@ class Microvm:
         If ``sync_snapshot_files`` is left as ``None`` the field is omitted from the
         request, exercising the API default. Otherwise it is sent explicitly.
         """
+        assert snapshot_type is SnapshotType.FULL or (
+            snapshot_type.needs_dirty_page_tracking == self.track_dirty_pages
+        ), f"{snapshot_type} snapshot of a microVM with track_dirty_pages={self.track_dirty_pages}"
         self.pause()
         # Notify monitor that snapshot is being created
         if self.memory_monitor:
