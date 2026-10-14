@@ -176,7 +176,6 @@ impl MmioTransport {
         ];
 
         if (status & FAILED) != 0 {
-            // TODO: notify backend driver to stop the device
             self.device_status |= FAILED;
         } else if status == INIT {
             if self.device_status != INIT {

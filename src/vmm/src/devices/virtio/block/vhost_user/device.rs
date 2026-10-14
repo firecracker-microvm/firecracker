@@ -391,6 +391,10 @@ where
     }
 
     fn _reset(&mut self) -> bool {
+        // TODO: stop the backend before reporting success. The backend keeps the guest
+        // memory it received at activation and keeps serving the device, so it may write
+        // into pages that the guest has already freed and reused.
+        // https://github.com/firecracker-microvm/firecracker/issues/6277
         false
     }
 }
