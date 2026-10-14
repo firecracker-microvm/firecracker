@@ -6,7 +6,6 @@
 use device::ConfigSpace;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU16;
-use std::sync::{Arc, Mutex};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::device::{BlockResources, BlockRuntimeState, DiskProperties};
@@ -22,8 +21,8 @@ use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_MQ, VIRTIO_BLK_F_RO,
 };
 use crate::devices::virtio::persist::{PersistError, VirtioDeviceState};
-use crate::rate_limiter::RateLimiter;
 use crate::rate_limiter::persist::RateLimiterState;
+use crate::rate_limiter::{RateLimiter, SharedRateLimiter};
 use crate::snapshot::Persist;
 use crate::vmm_config::RateLimiterConfig;
 
@@ -102,7 +101,7 @@ impl Persist<'_> for VirtioBlock {
             root_device: self.config.is_root_device,
             disk_path: self.config.path_on_host.clone(),
             virtio_state,
-            rate_limiter_state: self.lock_rate_limiter().save(),
+            rate_limiter_state: self.rate_limiter.lock().save(),
             file_engine_type: FileEngineTypeState::from(self.file_engine_type()),
             blk_size: self.config_space.blk_size,
             topology: self.config_space.topology,
@@ -181,7 +180,7 @@ impl Persist<'_> for VirtioBlock {
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
 
             config,
-            rate_limiter: Arc::new(Mutex::new(rate_limiter)),
+            rate_limiter: SharedRateLimiter::new(rate_limiter),
             state: BlockRuntimeState::Configuring(resources, Vec::new()),
             metrics: BlockMetricsPerDevice::alloc(state.id.clone()),
         })

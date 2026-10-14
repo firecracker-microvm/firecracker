@@ -37,7 +37,7 @@ impl VirtioBlock {
 
     fn register_rate_limiter_event(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::with_data(
-            &*self.lock_rate_limiter(),
+            &*self.rate_limiter.lock(),
             Self::PROCESS_RATE_LIMITER,
             EventSet::IN,
         )) {
@@ -111,7 +111,7 @@ impl MutEventSubscriber for VirtioBlock {
                 }
                 Self::PROCESS_QUEUE => self.drain_queue_events(),
                 Self::PROCESS_RATE_LIMITER => {
-                    let _ = self.lock_rate_limiter().event_handler();
+                    let _ = self.rate_limiter.lock().event_handler();
                 }
                 Self::PROCESS_ASYNC_COMPLETION => {
                     let resources = self.resources();
@@ -143,6 +143,7 @@ impl MutEventSubscriber for VirtioBlock {
 
 #[cfg(test)]
 mod tests {
+    use std::os::fd::AsRawFd;
     use std::sync::{Arc, Mutex};
 
     use event_manager::{EventManager, SubscriberOps};
@@ -150,11 +151,13 @@ mod tests {
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
     use crate::devices::virtio::block::virtio::test_utils::{
-        default_block, read_blk_req_descriptors, set_queue, simulate_async_completion_event,
+        default_block, read_blk_req_descriptors, set_queue, set_rate_limiter,
+        simulate_async_completion_event,
     };
     use crate::devices::virtio::block::virtio::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
     use crate::devices::virtio::queue::VIRTQ_DESC_F_NEXT;
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
+    use crate::rate_limiter::{RateLimiter, TokenType};
     use crate::vstate::memory::{Bytes, GuestAddress};
 
     #[test]
@@ -219,5 +222,33 @@ mod tests {
         assert_eq!(vq.used.ring[0].get().id, 0);
         assert_eq!(vq.used.ring[0].get().len, 1);
         assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
+    }
+
+    #[test]
+    fn test_rate_limiter_event_before_activation() {
+        let mut block = default_block(FileEngineType::default());
+        // One op per second: the second op blocks the limiter and arms its 100 ms refill timer.
+        set_rate_limiter(&mut block, RateLimiter::new(0, 0, 0, 1, 0, 1000));
+        let mut limiter = block.rate_limiter.lock();
+        assert!(limiter.consume(1, TokenType::Ops));
+        assert!(!limiter.consume(1, TokenType::Ops));
+        let limiter_fd = limiter.as_raw_fd();
+        drop(limiter);
+        assert!(block.rate_limiter.is_blocked());
+
+        let mut event_manager = EventManager::new().unwrap();
+        let block = Arc::new(Mutex::new(block));
+        let id = event_manager.add_subscriber(block.clone());
+        let mut ops = event_manager.event_ops(id).unwrap();
+        let mut block = block.lock().unwrap();
+
+        // A timer that fires before the device is activated still unblocks the limiter.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        block.process(
+            Events::with_data_raw(limiter_fd, VirtioBlock::PROCESS_RATE_LIMITER, EventSet::IN),
+            &mut ops,
+        );
+        assert!(!block.is_activated());
+        assert!(!block.rate_limiter.is_blocked());
     }
 }
