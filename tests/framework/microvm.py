@@ -1004,6 +1004,10 @@ class Microvm:
         If ``sync_snapshot_files`` is left as ``None`` the field is omitted from the
         request, exercising the API default. Otherwise it is sent explicitly.
         """
+        assert not snapshot_type.needs_dirty_page_tracking or self.track_dirty_pages, (
+            "Diff snapshots of untracked microVMs fall back to mincore, "
+            "use SnapshotType.DIFF_MINCORE"
+        )
         self.pause()
         # Notify monitor that snapshot is being created
         if self.memory_monitor:
