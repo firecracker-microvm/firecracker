@@ -201,6 +201,24 @@ At the moment, [snapshotting](../snapshotting) is not supported for microVMs
 that have vhost-user devices configured. An attempt to take a snapshot of such a
 microVM will fail. It is planned to add support for that in the future.
 
+## Device reset support
+
+At the moment, device reset is not implemented. Firecracker does not tell the
+backend to stop serving the device, so a reset requested by the guest has two
+consequences.
+
+The device becomes unusable for the rest of the lifetime of the microVM.
+Firecracker rejects any attempt to re-initialize it, because the backend is
+still active, so the guest cannot bring the device back.
+
+The backend may also corrupt the guest's memory. It still has the guest memory
+it received when the device was activated. The guest has torn the device down,
+so it is free to reuse those pages for another purpose. Requests that the
+backend accepted before the reset can complete afterwards and write into them.
+
+Propagating the reset to the backend is tracked in
+[#6277](https://github.com/firecracker-microvm/firecracker/issues/6277).
+
 ## Example configuration
 
 Run a vhost-user backend, eg Qemu backend:
