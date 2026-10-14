@@ -81,6 +81,11 @@ and this project adheres to
   had IA32_XFD cleared while its kernel still held the old value, so tasks using
   AMX lost their tile data at the next context switch.
 
+- [#6283](https://github.com/firecracker-microvm/firecracker/pull/6283): Fixed
+  snapshot restore with the `File` memory backend rejecting a block device as
+  `backend_path`. Since v1.14.0 the memory file size was read with `fstat`,
+  which reports 0 for block devices; it is now read with `lseek`.
+
 - [#6254](https://github.com/firecracker-microvm/firecracker/pull/6254) Fixed
   pausing a vCPU with an unfinished MMIO or port-I/O instruction. Pending I/O
   now completes before the vCPU pauses, so snapshots include its effects without
