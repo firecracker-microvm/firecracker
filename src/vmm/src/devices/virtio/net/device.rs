@@ -621,14 +621,19 @@ impl Net {
             // by the size of `self.rx_frame_buf` which is MAX_BUFFER_SIZE size.
             (vnet_hdr_len() + len).try_into().unwrap()
         } else {
-            // Read the frame into the first descriptor chain, or into as many as needed when
-            // VIRTIO_NET_F_MRG_RXBUF is negotiated. We ensured above that `self.rx_buffer` has at
-            // least one `DescriptorChain` parsed in it.
-            let mrg_rxbuf = self.has_feature(VIRTIO_NET_F_MRG_RXBUF as u64);
+            // A frame never exceeds `MAX_BUFFER_SIZE`, so read into the chains that can hold that
+            // much, or into the first chain only when VIRTIO_NET_F_MRG_RXBUF is not negotiated,
+            // as a frame must then fit in one chain. We ensured above that `self.rx_buffer` has
+            // at least one `DescriptorChain` parsed in it.
+            let bytes = if self.has_feature(VIRTIO_NET_F_MRG_RXBUF as u64) {
+                MAX_BUFFER_SIZE
+            } else {
+                self.rx_buffer.iovec.chains.front().unwrap().length as usize
+            };
             let len = self
                 .rx_buffer
                 .iovec
-                .readv_from(mem, &self.tap, mrg_rxbuf)
+                .readv_from(mem, &self.tap, bytes)
                 .map_err(NetError::IO)?;
             // SAFETY:
             // * len will never be bigger that u32::MAX

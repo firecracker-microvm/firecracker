@@ -376,24 +376,34 @@ impl<const L: u16> IoVecBufferMut<L> {
         self.len -= chain.length;
     }
 
-    /// Reads from `fd` with a single `readv` into the first descriptor chain of the buffer, or
-    /// into all of them if `all_chains`, and marks the bytes read dirty in `mem`.
+    /// Reads from `fd` with a single `readv` into the shortest prefix of the buffer's `iovec`s
+    /// that holds at least `bytes` bytes (all of them if the buffer holds fewer), and marks the
+    /// bytes read dirty in `mem`.
+    ///
+    /// The read can run past `bytes`, up to the end of the last `iovec` of that prefix. Handing
+    /// `readv` only the `iovec`s that can be filled saves the kernel copying and checking the
+    /// rest of them on every call.
     ///
     /// # Panics
     ///
-    /// Panics if the buffer holds no chain.
+    /// Panics if there is no `iovec` to read into: the buffer is empty or `bytes` is 0.
     pub fn readv_from<F: AsRawFd>(
         &mut self,
         mem: &GuestMemoryMmap,
         fd: &F,
-        all_chains: bool,
+        bytes: usize,
     ) -> Result<usize, IoError> {
-        let iovs = if all_chains {
-            self.vecs.as_slice()
-        } else {
-            let first = self.chains.front().expect("no chain to read into");
-            &self.vecs.as_slice()[..usize::from(first.nr_iovecs)]
-        };
+        let vecs = self.vecs.as_slice();
+        let mut nr_iovs = 0;
+        let mut held = 0;
+        while nr_iovs < vecs.len() && held < bytes {
+            held += vecs[nr_iovs].iov_len;
+            nr_iovs += 1;
+        }
+        // `readv` with no `iovec` returns 0 without consuming anything from `fd`, which a caller
+        // would take for an empty read.
+        assert!(nr_iovs > 0, "no iovec to read into");
+        let iovs = &vecs[..nr_iovs];
 
         // SAFETY: `readv` is called with a valid fd and `iovec`s that the constructors checked
         // point into valid guest memory; the return value is checked.
@@ -746,44 +756,58 @@ mod tests {
         assert!(dirty_at(5));
         assert!(!dirty_at(6));
 
-        // `readv` into the first chain marks as many bytes as were read, and only those: a pipe
-        // holding 64 + 8 bytes fills the first descriptor and 8 bytes of the second.
+        // `readv` into the shortest prefix of the buffer holding 64 + 1 bytes, i.e. the first
+        // chain, marks as many bytes as were read, and only those: a pipe holding 64 + 8 bytes
+        // fills the first descriptor and 8 bytes of the second.
         mem.reset_dirty();
         let (rx, mut tx) = std::io::pipe().unwrap();
         tx.write_all(&[3u8; 64 + 8]).unwrap();
-        assert_eq!(iovec.readv_from(&mem, &rx, false).unwrap(), 64 + 8);
+        assert_eq!(iovec.readv_from(&mem, &rx, 64 + 1).unwrap(), 64 + 8);
         vq.dtable[0].check_data(&[3u8; 64]);
         vq.dtable[1].check_data(&[3u8; 8]);
         assert!(dirty_at(4));
         assert!(dirty_at(5));
         assert!(!dirty_at(6));
 
-        // With more bytes in the pipe than the first chain holds, reading into all chains spills
-        // into the second one...
+        // With more bytes in the pipe than the first chain holds, a prefix of more than the first
+        // chain spills into the second one...
         mem.reset_dirty();
         tx.write_all(&[4u8; 2 * 64 + 10]).unwrap();
-        assert_eq!(iovec.readv_from(&mem, &rx, true).unwrap(), 2 * 64 + 10);
+        assert_eq!(
+            iovec.readv_from(&mem, &rx, 2 * 64 + 1).unwrap(),
+            2 * 64 + 10
+        );
         vq.dtable[1].check_data(&[4u8; 64]);
         vq.dtable[2].check_data(&[4u8; 10]);
         assert!(dirty_at(4));
         assert!(dirty_at(5));
         assert!(dirty_at(6));
 
-        // ...while reading into the first chain only stops at its end.
+        // ...while a prefix of exactly the first chain stops at its end...
         mem.reset_dirty();
         tx.write_all(&[5u8; 2 * 64 + 10]).unwrap();
-        assert_eq!(iovec.readv_from(&mem, &rx, false).unwrap(), 2 * 64);
+        assert_eq!(iovec.readv_from(&mem, &rx, 2 * 64).unwrap(), 2 * 64);
         vq.dtable[1].check_data(&[5u8; 64]);
         vq.dtable[2].check_data(&[4u8; 10]);
         assert!(dirty_at(4));
         assert!(dirty_at(5));
         assert!(!dirty_at(6));
-        assert_eq!(iovec.readv_from(&mem, &rx, true).unwrap(), 10);
+        assert_eq!(iovec.readv_from(&mem, &rx, 1).unwrap(), 10);
+
+        // ...and a prefix of 64 bytes is the first descriptor alone.
+        mem.reset_dirty();
+        tx.write_all(&[6u8; 64 + 10]).unwrap();
+        assert_eq!(iovec.readv_from(&mem, &rx, 64).unwrap(), 64);
+        vq.dtable[0].check_data(&[6u8; 64]);
+        assert!(dirty_at(4));
+        assert!(!dirty_at(5));
+        assert!(!dirty_at(6));
+        assert_eq!(iovec.readv_from(&mem, &rx, usize::MAX).unwrap(), 10);
 
         // A read that returns nothing (the pipe is drained and closed) marks nothing.
         drop(tx);
         mem.reset_dirty();
-        assert_eq!(iovec.readv_from(&mem, &rx, true).unwrap(), 0);
+        assert_eq!(iovec.readv_from(&mem, &rx, usize::MAX).unwrap(), 0);
         assert!(clean());
 
         // Dropping chains marks nothing.
@@ -794,6 +818,16 @@ mod tests {
         assert!(iovec.is_empty());
         assert_eq!(iovec.chains.len(), 0);
         assert!(clean());
+    }
+
+    #[test]
+    #[should_panic(expected = "no iovec to read into")]
+    fn test_iovec_mut_readv_from_empty() {
+        let mem = default_mem();
+        let (rx, _tx) = std::io::pipe().unwrap();
+        let _ = IoVecBufferMutDefault::new()
+            .unwrap()
+            .readv_from(&mem, &rx, usize::MAX);
     }
 
     #[test]
