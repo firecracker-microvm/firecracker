@@ -510,6 +510,9 @@ which tests are run in which context:
   pipeline is not required to pass for merging a PR.
 - Tests marked as `serial` must not run concurrently with other tests. The PR CI
   pipeline runs them on their own and the other performance tests in parallel.
+- Performance test cases marked as `track_dirty_pages`, the runs with dirty page
+  tracking on that `pin_variant` adds, run in the `dirty-tracking` groups of the
+  performance pipeline instead of their test's usual group.
 
 All tests without markers are run for every pull request, and are required to
 pass for the PR to be merged.
