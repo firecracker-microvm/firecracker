@@ -108,6 +108,26 @@ our NVME experiments, io_uring will always bring performance improvements
 It is recommended that users perform some tests with examples of expected
 workloads and measure the efficiency as (IOPS/CPU load).
 
+## Known limitations
+
+Resetting a device that uses the `Async` engine can fail. Before reporting a
+reset as complete, Firecracker waits for the operations that are still in
+flight, because the kernel may write into the guest's buffers at any point until
+an operation has completed, and there is no way to stop it. If that wait fails,
+the reset does not complete.
+
+Firecracker then rejects any attempt to re-initialize the device, so the device
+becomes unusable for the rest of the lifetime of the microVM. The guest, on the
+other hand, considers the reset complete. It is free to reuse the pages that
+held the virtqueue and the request buffers, and a completion that arrives
+afterwards is written into them. The guest's memory may be corrupted as a
+result.
+
+Handling a draining failure is tracked in
+[#6278](https://github.com/firecracker-microvm/firecracker/issues/6278), and how
+long Firecracker should keep waiting before it gives up depends on
+[#6281](https://github.com/firecracker-microvm/firecracker/issues/6281).
+
 ## Developer preview status
 
 View the [release policy](../RELEASE_POLICY.md) for information about developer
@@ -152,6 +172,7 @@ inherited by the io_uring workers.
 
 We plan on marking the Async engine as production ready once an LTS linux kernel
 including mitigations for the aforementioned mitigations is released and support
-for it is added in Firecracker.
+for it is added in Firecracker. The device reset behaviour described above needs
+resolving as well.
 
 Read more about Firecracker's [kernel support policy](../kernel-policy.md).
