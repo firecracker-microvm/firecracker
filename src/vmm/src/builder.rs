@@ -587,7 +587,8 @@ pub fn build_microvm_from_snapshot(
     // Restore devices states.
     // Restoring VMGenID injects an interrupt in the guest to notify it about the new generation
     // ID. As a result, we need to restore DeviceManager after restoring the KVM state, otherwise
-    // the injected interrupt will be overwritten.
+    // the injected interrupt will be overwritten. Replaying pending MMIO interrupts during
+    // transport restore also depends on KVM interrupt state being restored first.
     let device_ctor_args = DeviceRestoreArgs {
         mem: kvm_vm.guest_memory(),
         vm: &kvm_vm,
