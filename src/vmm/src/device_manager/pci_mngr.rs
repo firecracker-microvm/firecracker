@@ -217,10 +217,16 @@ impl PciDevices {
             warn!("Failed to remove event subscriber for device {device_id:?}");
         }
 
-        pci_device_arc
+        // The device goes away, so the queue pages it wrote since the last snapshot have to be
+        // committed now, or the next snapshot misses them.
+        let mut pci_device = pci_device_arc.lock().expect("Poisoned lock");
+        pci_device
+            .virtio_device()
             .lock()
             .expect("Poisoned lock")
-            .free_bars(&mut vm.resource_allocator().mmio32_memory);
+            .commit_dirty();
+
+        pci_device.free_bars(&mut vm.resource_allocator().mmio32_memory);
 
         // Ensure no other references to the device remain, so it is freed when
         // this function returns.

@@ -4,10 +4,12 @@
 //! Resolved ranges of guest memory, for the virtqueue rings.
 
 use std::ops::Deref;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use vm_memory::bitmap::Bitmap;
 use vm_memory::{GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion};
 
+use crate::arch::host_page_size;
 use crate::vstate::memory::{ByteValued, GuestAddress, GuestMemoryMmap};
 
 /// Guest memory that may track the pages written to it.
@@ -107,8 +109,14 @@ impl GuestMemorySlice {
 
 /// A [`GuestMemorySlice`] Firecracker writes to (e.g. a virtqueue used ring).
 ///
-/// With dirty page tracking on, each write marks the pages it touches in the guest memory's
-/// dirty bitmap, right after writing them. With tracking off, writes are plain writes.
+/// With dirty page tracking on, each write records the pages it touches, and
+/// [`Self::commit_dirty`] reports them to the guest memory's dirty bitmap when a snapshot is
+/// taken. The record is only ever written by the slice's owner, so recording never contends with
+/// other threads, unlike an atomic update of the shared dirty bitmap would. With tracking off,
+/// writes are plain writes.
+///
+/// A tracked slice must not be dropped with writes it has not committed, since nothing else
+/// knows about them: whoever lets go of a written slice has to call `commit_dirty` first.
 #[derive(Debug)]
 pub(crate) enum GuestMemorySliceMut {
     /// Dirty page tracking is off.
@@ -116,11 +124,81 @@ pub(crate) enum GuestMemorySliceMut {
     /// Dirty page tracking is on.
     Tracked {
         slice: GuestMemorySlice,
-        /// The guest memory to mark the writes in.
+        /// The pages written since the last commit.
+        written: WrittenPages,
+        /// The guest memory to report the writes to.
         mem: GuestMemoryMmap,
-        /// The range's address in it.
-        addr: GuestAddress,
+        /// The address of the page holding the start of the range.
+        first_page: GuestAddress,
     },
+}
+
+/// The pages of a range written since they were last taken, one bit per page.
+///
+/// Pages are counted from the page holding the start of the range, which begins
+/// `first_page_offset` bytes before the range.
+#[derive(Debug)]
+pub(crate) struct WrittenPages {
+    /// Offset of the range's start within its first page.
+    first_page_offset: usize,
+    /// `log2` of the page size.
+    page_shift: u32,
+    /// One bit per page the range touches, counted from the page holding its start: whether the
+    /// page was written since the pages were last taken.
+    written: AtomicU64,
+}
+
+impl WrittenPages {
+    /// For a range of `range_len` bytes starting `first_page_offset` bytes into a page.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range covers more than 64 pages.
+    fn new(first_page_offset: usize, range_len: usize, page_shift: u32) -> Self {
+        // 64 bits for the pages from the one holding the start of the range to the one holding
+        // its end.
+        assert!(
+            (first_page_offset + range_len).div_ceil(1 << page_shift) <= 64,
+            "range covers more than 64 pages"
+        );
+        Self {
+            first_page_offset,
+            page_shift,
+            written: AtomicU64::new(0),
+        }
+    }
+
+    /// Records that the `len` bytes at `offset` into the range were written.
+    #[inline(always)]
+    fn record(&self, offset: usize, len: usize) {
+        // The write covers the pages from the one holding its first byte to the one holding its
+        // last byte, counted from the page holding the start of the range.
+        let first = (offset + self.first_page_offset) >> self.page_shift;
+        let last = (offset + self.first_page_offset + len - 1) >> self.page_shift;
+        // Bits `first..=last`: all the bits from `first` up, intersected with all the bits up to
+        // `last`.
+        let pages = (u64::MAX << first) & (u64::MAX >> (63 - last));
+        self.written.fetch_or(pages, Ordering::Release);
+    }
+
+    /// Whether no page was written since the pages were last taken.
+    fn is_empty(&self) -> bool {
+        self.written.load(Ordering::Acquire) == 0
+    }
+
+    /// Takes the pages written since the last call, handing `f` each one's start as an offset from
+    /// the start of the range's first page, lowest page first.
+    fn take(&self, mut f: impl FnMut(usize)) {
+        let mut pages = self.written.swap(0, Ordering::Acquire);
+        while pages != 0 {
+            // The lowest set bit has that many zero bits below it.
+            let page = pages.trailing_zeros() as usize;
+            // Subtracting 1 flips the lowest set bit and the zeros below it; the AND then keeps
+            // all the other bits, clearing exactly the one just read.
+            pages &= pages - 1;
+            f(page << self.page_shift);
+        }
+    }
 }
 
 impl GuestMemorySliceMut {
@@ -128,16 +206,48 @@ impl GuestMemorySliceMut {
     pub(crate) const UNRESOLVED: Self = Self::Untracked(GuestMemorySlice::UNRESOLVED);
 
     /// Resolves `addr..addr + len`, which must lie within a single region.
+    ///
+    /// # Panics
+    ///
+    /// Panics if dirty page tracking is on and the range covers more than 64 pages.
     pub(crate) fn new<M: GuestMemoryBackend + DirtyTracking>(
         mem: &M,
         addr: GuestAddress,
         len: usize,
     ) -> Result<Self, GuestMemoryError> {
         let slice = GuestMemorySlice::new(mem, addr, len)?;
-        Ok(match mem.dirty_tracking() {
-            None => Self::Untracked(slice),
-            Some(mem) => Self::Tracked { slice, mem, addr },
+        let Some(tracking_mem) = mem.dirty_tracking() else {
+            return Ok(Self::Untracked(slice));
+        };
+        // Regions are page-aligned in both guest and host memory, so host and guest pages
+        // coincide and the host address tells which page a byte is on.
+        let page_size = host_page_size();
+        let first_page_offset = slice.base.addr() % page_size;
+        Ok(Self::Tracked {
+            slice,
+            written: WrittenPages::new(first_page_offset, len, page_size.trailing_zeros()),
+            mem: tracking_mem,
+            first_page: GuestAddress(addr.0 - first_page_offset as u64),
         })
+    }
+
+    /// Marks dirty in the guest memory's bitmap the pages written since the last call.
+    pub(crate) fn commit_dirty(&self) {
+        let Self::Tracked {
+            written,
+            mem,
+            first_page,
+            ..
+        } = self
+        else {
+            return;
+        };
+        let region = mem
+            .find_region(*first_page)
+            .expect("range resolved in this memory");
+        let first_page_start = usize::try_from(first_page.0 - region.start_addr().0).unwrap();
+        // Marking one byte marks the whole page.
+        written.take(|page_start| region.bitmap().mark_dirty(first_page_start + page_start, 1));
     }
 
     /// Writes `val` at `offset` bytes into the range, or returns `None` if it does not fit.
@@ -151,18 +261,8 @@ impl GuestMemorySliceMut {
         let ptr = self.ptr_at::<T>(offset)?;
         // SAFETY: `ptr_at` bounds the access. The caller guarantees alignment and a live mapping.
         unsafe { ptr.write_volatile(val) };
-        if let Self::Tracked { mem, addr, .. } = self {
-            // TODO: this looks the region up on every write, and marks the region's dirty
-            // bitmap, whose words cover 2 MiB of guest memory each: the rings and buffers of all
-            // the queues within the same 2 MiB share a cache line, so queues served from
-            // different threads contend on it.
-            let region = mem
-                .find_region(*addr)
-                .expect("range resolved in this memory");
-            let range_start = usize::try_from(addr.0 - region.start_addr().0).unwrap();
-            region
-                .bitmap()
-                .mark_dirty(range_start + offset, std::mem::size_of::<T>());
+        if let Self::Tracked { written, .. } = self {
+            written.record(offset, std::mem::size_of::<T>());
         }
         Some(())
     }
@@ -180,6 +280,20 @@ impl GuestMemorySliceMut {
     }
 }
 
+impl Drop for GuestMemorySliceMut {
+    fn drop(&mut self) {
+        // A panic while already panicking aborts the process, hiding the original panic.
+        if let Self::Tracked { written, .. } = self
+            && !std::thread::panicking()
+        {
+            assert!(
+                written.is_empty(),
+                "guest memory slice dropped with uncommitted writes"
+            );
+        }
+    }
+}
+
 /// The read side of a mutable slice is the plain slice.
 impl Deref for GuestMemorySliceMut {
     type Target = GuestMemorySlice;
@@ -191,10 +305,60 @@ impl Deref for GuestMemorySliceMut {
     }
 }
 
+#[cfg(kani)]
+mod verification {
+    use super::WrittenPages;
+
+    const PAGE_SHIFT: u32 = 12;
+    const PAGE: usize = 1 << PAGE_SHIFT;
+    // Three pages are enough for a write to relate to a page in every way: not touch it, start
+    // in it, end in it, or cover it entirely (the middle page). More pages only repeat these.
+    const NR_PAGES: usize = 3;
+
+    /// Taking the pages recorded for a write hands over every page the write touches and no
+    /// other, each once, lowest first, and leaves no page recorded.
+    #[kani::proof]
+    #[kani::unwind(5)]
+    fn verify_written_pages() {
+        let first_page_offset: usize = kani::any_where(|&o| o < PAGE);
+        let range_len: usize =
+            kani::any_where(|&l| l >= 1 && l <= NR_PAGES * PAGE - first_page_offset);
+        let offset: usize = kani::any_where(|&o| o < range_len);
+        let len: usize = kani::any_where(|&l| l >= 1 && l <= range_len - offset);
+
+        let pages = WrittenPages::new(first_page_offset, range_len, PAGE_SHIFT);
+        assert!(pages.is_empty());
+        pages.record(offset, len);
+        assert!(!pages.is_empty());
+
+        // The write and one arbitrary byte of it, as offsets from the first page's start like the
+        // pages handed over. Kani covers all the bytes.
+        let write_start = first_page_offset + offset;
+        let write_end = write_start + len;
+        let byte: usize = kani::any_where(|&b| b >= write_start && b < write_end);
+        let mut byte_handed_over = false;
+        let mut last_end = 0;
+        pages.take(|page_start| {
+            assert_eq!(page_start % PAGE, 0);
+            let page_end = page_start + PAGE;
+            // Overlapping the write: starting before it ends, and ending after it starts.
+            assert!(page_start < write_end);
+            assert!(page_end > write_start);
+            // After the previous page.
+            assert!(page_start >= last_end);
+            last_end = page_end;
+            byte_handed_over |= page_start <= byte && byte < page_end;
+        });
+        assert!(byte_handed_over);
+
+        assert!(pages.is_empty());
+        pages.take(|_| unreachable!("page taken twice"));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arch::host_page_size;
     use crate::test_utils::multi_region_mem;
     use crate::vmm_config::machine_config::HugePageConfig;
     use crate::vstate::memory::test_utils::into_region_ext;
@@ -277,41 +441,54 @@ mod tests {
         unsafe {
             slice.read_obj::<u32>(0).unwrap();
             slice.read_last::<u16>().unwrap();
+            slice.commit_dirty();
             assert!(clean());
 
-            // A write marks the page it landed on, and only that.
+            // A write is reported by the next `commit_dirty`, for the page it landed on only.
             slice.write_obj::<u32>(1, 0).unwrap();
+            assert!(clean());
+            slice.commit_dirty();
             assert!(!dirty_at(0));
             assert!(dirty_at(page_size));
             assert!(!dirty_at(2 * page_size));
 
+            // `commit_dirty` reports each write once.
             mem.reset_dirty();
+            slice.commit_dirty();
+            assert!(clean());
+
             slice.write_last::<u16>(2).unwrap();
+            slice.commit_dirty();
             assert!(!dirty_at(page_size));
             assert!(dirty_at(2 * page_size));
 
-            // A write straddling the two pages marks both.
+            // A write straddling the two pages is reported for both.
             mem.reset_dirty();
             slice.write_obj::<[u32; 2]>([3, 3], 4).unwrap();
+            slice.commit_dirty();
             assert!(dirty_at(page_size));
             assert!(dirty_at(2 * page_size));
 
             // An out-of-bounds write marks nothing.
             mem.reset_dirty();
             assert_eq!(slice.write_obj::<u32>(4, 16), None);
+            slice.commit_dirty();
             assert!(clean());
 
-            // With dirty page tracking off, the regions have no bitmap: writes still land.
+            // With dirty page tracking off, the regions have no bitmap: writes still land and
+            // `commit_dirty` has nothing to mark, without panicking.
             let untracked = into_region_ext(
                 anonymous(&[(GuestAddress(0), page_size)], false, HugePageConfig::None).unwrap(),
             );
             let mut slice = GuestMemorySliceMut::new(&untracked, GuestAddress(0), 16).unwrap();
             slice.write_obj::<u32>(5, 0).unwrap();
             assert_eq!(slice.read_obj::<u32>(0).unwrap(), 5);
+            slice.commit_dirty();
 
-            // An unresolved slice never writes.
+            // An unresolved slice never writes and has nothing to report.
             let mut unresolved = GuestMemorySliceMut::UNRESOLVED;
             assert_eq!(unresolved.write_obj::<u8>(0, 0), None);
+            unresolved.commit_dirty();
             assert!(clean());
         }
     }

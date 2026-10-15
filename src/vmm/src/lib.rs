@@ -801,6 +801,9 @@ impl Drop for Vmm {
             kvm_vm.shutdown_vcpus();
         }
 
+        // The devices go with the Vmm; commit the dirty pages before dropping them.
+        self.device_manager.commit_dirty();
+
         if let Err(err) = std::io::stdin().lock().set_canon_mode() {
             warn!("Cannot set canonical mode for the terminal. {:?}", err);
         }
