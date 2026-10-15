@@ -7,6 +7,7 @@
 
 use std::fmt::Debug;
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use acpi::ACPIDeviceManager;
@@ -46,6 +47,8 @@ use crate::devices::virtio::net::persist::NetPersistError;
 use crate::devices::virtio::pmem::device::Pmem;
 use crate::devices::virtio::pmem::persist::PmemPersistError;
 use crate::devices::virtio::rng::persist::EntropyPersistError;
+use crate::devices::virtio::transport::VirtioInterruptType;
+use crate::devices::virtio::transport::mmio::VIRTIO_MMIO_INT_VRING;
 use crate::devices::virtio::vsock::{VsockError, VsockUnixBackendError};
 use crate::logger::{error, info};
 use crate::rate_limiter::TokenBucket;
@@ -116,6 +119,46 @@ pub enum AttachDeviceError {
 pub enum FindDeviceError {
     /// Device not found
     DeviceNotFound,
+}
+
+/// Signals again an interrupt that the device raised and the guest has not acknowledged.
+///
+/// An MMIO device's interrupt goes to KVM through an irqfd on an IOAPIC pin, which KVM
+/// injects from a workqueue, not when the eventfd is written. A snapshot taken right
+/// after a device raised its interrupt can therefore save the device's interrupt status
+/// set but the IOAPIC and LAPIC without the interrupt, and a VM restored from it never
+/// gets it. With VIRTIO_RING_F_EVENT_IDX the device does not interrupt again until the
+/// guest moves its used_event, which it does only from the interrupt's handler, so the
+/// queue stalls for good (a virtio-net guest stops receiving). The status bits are
+/// already set, so one notification covers both kinds. If the guest already had the
+/// interrupt, this costs it at most one spurious interrupt per device and resume (its
+/// handler reads and acknowledges the status first, and finds nothing new).
+fn reraise_pending_interrupt(device: &mut dyn VirtioDevice) {
+    if !device.is_activated() {
+        return;
+    }
+    let interrupt = device.interrupt_trigger();
+    let status = interrupt.status().load(Ordering::SeqCst);
+    if status == 0 {
+        return;
+    }
+    let kind = if status & VIRTIO_MMIO_INT_VRING != 0 {
+        VirtioInterruptType::Queue(0)
+    } else {
+        VirtioInterruptType::Config
+    };
+    match interrupt.trigger(kind) {
+        Ok(()) => info!(
+            "[{:?}:{}] raised its pending interrupt again (status {status:#x})",
+            device.device_type(),
+            device.id()
+        ),
+        Err(err) => error!(
+            "[{:?}:{}] could not raise its pending interrupt again: {err:?}",
+            device.device_type(),
+            device.id()
+        ),
+    }
 }
 
 #[derive(Debug, Default)]
@@ -404,7 +447,10 @@ impl DeviceManager {
     /// Artificially kick VirtIO devices as if they had external events.
     pub fn kick_virtio_devices(&self) {
         info!("Artificially kick devices");
-        self.for_each_virtio_device_mut(|_, device| device.kick());
+        self.for_each_virtio_device_mut(|_, device| {
+            device.kick();
+            reraise_pending_interrupt(device);
+        });
     }
 
     /// Mark queue memory dirty for activated VirtIO devices
@@ -1255,5 +1301,38 @@ pub(crate) mod tests {
             vmm.hot_unplug_device(device_id, &mut evt_manager),
             Err(VmmActionError::CannotUnplugRootDevice)
         ));
+    }
+
+    #[test]
+    fn test_reraise_pending_interrupt() {
+        use crate::devices::virtio::transport::mmio::tests::DummyDevice;
+        use crate::devices::virtio::transport::mmio::{IrqTrigger, VIRTIO_MMIO_INT_CONFIG};
+        use crate::test_utils::single_region_mem;
+
+        let mut device = DummyDevice::new();
+        // Not activated: nothing to raise.
+        reraise_pending_interrupt(&mut device);
+
+        let interrupt = Arc::new(IrqTrigger::new());
+        device
+            .activate(single_region_mem(0x1000), interrupt.clone())
+            .unwrap();
+
+        // Nothing pending: no notification.
+        reraise_pending_interrupt(&mut device);
+        interrupt.irq_evt.read().unwrap_err();
+
+        // Each pending kind alone, and both: one notification, status unchanged.
+        for status in [
+            VIRTIO_MMIO_INT_VRING,
+            VIRTIO_MMIO_INT_CONFIG,
+            VIRTIO_MMIO_INT_VRING | VIRTIO_MMIO_INT_CONFIG,
+        ] {
+            interrupt.irq_status.store(status, Ordering::SeqCst);
+            reraise_pending_interrupt(&mut device);
+            assert_eq!(interrupt.irq_evt.read().unwrap(), 1);
+            interrupt.irq_evt.read().unwrap_err();
+            assert_eq!(interrupt.irq_status.load(Ordering::SeqCst), status);
+        }
     }
 }
