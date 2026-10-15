@@ -183,8 +183,12 @@ pub(crate) fn run_with_api(
     // command line enables, plus the API-only operations it exists for.
     let api_seccomp_filter = seccomp_filters
         .remove("api")
-        .expect("Missing seccomp filter for API thread.")
-        .compose(seccomp_features | SeccompFeatures::API);
+        .expect("Missing seccomp filter for API thread.");
+    let api_seccomp_filter = vmm::seccomp::compose_for_thread(
+        &api_seccomp_filter,
+        "api",
+        seccomp_features | SeccompFeatures::API,
+    );
 
     let mut server = match HttpServer::new(&bind_path) {
         Ok(s) => s,
@@ -262,8 +266,9 @@ pub(crate) fn run_with_api(
         let seccomp_features = vmm.lock().expect("Poisoned lock").seccomp_features;
         let vmm_seccomp_filter = seccomp_filters
             .get("vmm")
-            .ok_or(ApiServerError::MissingSeccompFilter)?
-            .compose(seccomp_features);
+            .ok_or(ApiServerError::MissingSeccompFilter)?;
+        let vmm_seccomp_filter =
+            vmm::seccomp::compose_for_thread(vmm_seccomp_filter, "vmm", seccomp_features);
         vmm::seccomp::apply_filter(&vmm_seccomp_filter).map_err(ApiServerError::SeccompFilter)?;
 
         firecracker_metrics

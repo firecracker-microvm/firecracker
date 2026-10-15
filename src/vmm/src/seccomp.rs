@@ -10,6 +10,8 @@ use serde::Deserialize;
 #[cfg(test)]
 use serde::Serialize;
 
+use crate::logger::{info, warn};
+
 // This byte limit is passed to `bitcode` to guard against a potential memory
 // allocation DOS caused by binary filters that are too large.
 // This limit can be safely determined since the maximum length of a BPF
@@ -132,6 +134,25 @@ impl SeccompFilter {
 
 /// Type that associates a thread category to its seccomp filter.
 pub type BpfThreadMap = HashMap<String, SeccompFilter>;
+
+/// Compose the program the `thread` threads install for a microVM with `features`, and log what
+/// they get, so that a syscall they later trip over can be traced back to the composed filter.
+pub fn compose_for_thread(
+    filter: &SeccompFilter,
+    thread: &str,
+    features: SeccompFeatures,
+) -> BpfProgram {
+    let program = filter.compose(features);
+    if program.is_empty() {
+        warn!("No seccomp filter is installed on the {thread} thread");
+    } else {
+        info!(
+            "Seccomp filter of the {thread} thread: {} instructions, features [{features}]",
+            program.len()
+        );
+    }
+    program
+}
 
 /// Binary filter deserialization errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
