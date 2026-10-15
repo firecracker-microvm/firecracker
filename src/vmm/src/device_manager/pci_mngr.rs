@@ -229,12 +229,12 @@ impl PciDevices {
     pub(crate) fn detach_pci_virtio_device(
         &mut self,
         vm: &KvmVm,
-        device_id: VirtioDeviceId,
+        device_id: &VirtioDeviceId,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
         let pci_device_arc = self
             .virtio_devices
-            .remove(&device_id)
+            .remove(device_id)
             .expect("device presence should be checked before detach");
 
         let sbdf = pci_device_arc.lock().expect("Poisoned lock").sbdf;
