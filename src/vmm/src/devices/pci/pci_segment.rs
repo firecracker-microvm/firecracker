@@ -15,19 +15,24 @@ use std::sync::{Arc, Mutex};
 use acpi_tables::{Aml, aml};
 #[cfg(target_arch = "x86_64")]
 use uuid::Uuid;
+use vm_allocator::AllocPolicy;
 
-use crate::arch::{PCI_MMCONFIG_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT};
+use crate::arch::PCI_MMCONFIG_START;
+use crate::device_manager::pci_mngr::PciManagerError;
+use crate::devices::pci::root_port::{PciRootPort, ROOT_PORT_MSIX_BAR_SIZE};
 use crate::logger::info;
 use crate::pci::PciSBDF;
 #[cfg(target_arch = "x86_64")]
 use crate::pci::bus::{PCI_CONFIG_IO_PORT, PCI_CONFIG_IO_PORT_SIZE, PciConfigIo};
-use crate::pci::bus::{PciBus, PciBusError, PciConfigMmio, PciHostBridge};
+use crate::pci::bus::{
+    PCI_MMIO_CONFIG_SIZE_PER_SEGMENT, PciBusError, PciBuses, PciConfigMmio, PciHostBridge,
+};
 use crate::vstate::bus::BusError;
 use crate::vstate::vm::KvmVm;
 
 pub struct PciSegment {
     pub(crate) id: u16,
-    pub(crate) pci_bus: Arc<Mutex<PciBus>>,
+    pub(crate) pci_buses: Arc<PciBuses>,
     // The MMIO bus only holds a weak reference to the device, so we need to keep
     // the strong reference here alive for as long as the segment exists.
     pub(crate) _pci_config_mmio: Arc<Mutex<PciConfigMmio>>,
@@ -46,6 +51,10 @@ pub struct PciSegment {
 
     pub(crate) start_of_mem64_area: u64,
     pub(crate) end_of_mem64_area: u64,
+
+    // Hot-plug capable root ports on the primary bus.
+    // Root port `i` starts secondary bus `i + 1`.
+    pub(crate) root_ports: Vec<Arc<Mutex<PciRootPort>>>,
 }
 
 impl std::fmt::Debug for PciSegment {
@@ -59,16 +68,27 @@ impl std::fmt::Debug for PciSegment {
             .field("end_of_mem32_area", &self.end_of_mem32_area)
             .field("start_of_mem64_area", &self.start_of_mem64_area)
             .field("end_of_mem64_area", &self.end_of_mem64_area)
+            .field("root_ports", &self.root_ports.len())
             .finish()
     }
 }
 
 impl PciSegment {
-    fn build(id: u16, vm: &Arc<KvmVm>, pci_irq_slots: &[u8; 32]) -> Result<PciSegment, BusError> {
-        let host_bridge = PciHostBridge::new(None);
-        let pci_bus = Arc::new(Mutex::new(PciBus::new(host_bridge)));
+    fn build(
+        id: u16,
+        vm: &Arc<KvmVm>,
+        pci_irq_slots: &[u8; 32],
+        num_root_ports: u8,
+    ) -> Result<PciSegment, BusError> {
+        let pci_buses = Arc::new(PciBuses::new(num_root_ports));
+        pci_buses
+            .root_bus()
+            .lock()
+            .expect("Poisoned lock")
+            .add_device(0, Arc::new(Mutex::new(PciHostBridge::new(None))))
+            .expect("Slot 0 of the root bus is free");
 
-        let pci_config_mmio = Arc::new(Mutex::new(PciConfigMmio::new(Arc::clone(&pci_bus))));
+        let pci_config_mmio = Arc::new(Mutex::new(PciConfigMmio::new(pci_buses.clone())));
         let mmio_config_address = PCI_MMCONFIG_START + PCI_MMIO_CONFIG_SIZE_PER_SEGMENT * id as u64;
 
         vm.common.mmio_bus.insert(
@@ -87,7 +107,7 @@ impl PciSegment {
 
         let segment = PciSegment {
             id,
-            pci_bus,
+            pci_buses,
             _pci_config_mmio: pci_config_mmio,
             mmio_config_address,
             proximity_domain: 0,
@@ -98,6 +118,7 @@ impl PciSegment {
             start_of_mem64_area,
             end_of_mem64_area,
             pci_irq_slots: *pci_irq_slots,
+            root_ports: Vec::new(),
         };
 
         Ok(segment)
@@ -108,9 +129,10 @@ impl PciSegment {
         id: u16,
         vm: &Arc<KvmVm>,
         pci_irq_slots: &[u8; 32],
+        num_root_ports: u8,
     ) -> Result<PciSegment, BusError> {
-        let mut segment = Self::build(id, vm, pci_irq_slots)?;
-        let pci_config_io = Arc::new(Mutex::new(PciConfigIo::new(Arc::clone(&segment.pci_bus))));
+        let mut segment = Self::build(id, vm, pci_irq_slots, num_root_ports)?;
+        let pci_config_io = Arc::new(Mutex::new(PciConfigIo::new(segment.pci_buses.clone())));
 
         vm.pio_bus.insert(
             pci_config_io.clone(),
@@ -140,8 +162,9 @@ impl PciSegment {
         id: u16,
         vm: &Arc<KvmVm>,
         pci_irq_slots: &[u8; 32],
+        num_root_ports: u8,
     ) -> Result<PciSegment, BusError> {
-        let segment = Self::build(id, vm, pci_irq_slots)?;
+        let segment = Self::build(id, vm, pci_irq_slots, num_root_ports)?;
         info!(
             "pci: adding PCI segment: id={:#x}, PCI MMIO config address: {:#x}, mem32 area: \
              [{:#x}-{:#x}], mem64 area: [{:#x}-{:#x}]",
@@ -156,11 +179,70 @@ impl PciSegment {
         Ok(segment)
     }
 
+    /// Attach hot-plug capable root ports to the primary bus.
+    pub(crate) fn attach_root_ports(&mut self, vm: &Arc<KvmVm>) -> Result<(), PciManagerError> {
+        for secondary_bus in 1..self.pci_buses.num_buses() {
+            let sbdf = self.next_device_sbdf()?;
+
+            let msix_vectors = Arc::new(KvmVm::create_msix_group(vm.clone(), 1)?);
+
+            let msix_bar_addr = vm
+                .resource_allocator()
+                .mmio32_memory
+                .allocate(
+                    ROOT_PORT_MSIX_BAR_SIZE,
+                    ROOT_PORT_MSIX_BAR_SIZE,
+                    AllocPolicy::FirstMatch,
+                )?
+                .start();
+
+            let root_port = Arc::new(Mutex::new(PciRootPort::new(
+                sbdf,
+                secondary_bus,
+                msix_vectors,
+                msix_bar_addr,
+            )));
+
+            self.attach_root_port(vm, sbdf, root_port, msix_bar_addr)?;
+        }
+
+        Ok(())
+    }
+
+    /// Put a root port on the root bus and map its MSI-X BAR.
+    fn attach_root_port(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        sbdf: PciSBDF,
+        root_port: Arc<Mutex<PciRootPort>>,
+        msix_bar_addr: u64,
+    ) -> Result<(), PciManagerError> {
+        let secondary_bus = root_port.lock().expect("Poisoned lock").secondary_bus();
+
+        self.pci_buses
+            .root_bus()
+            .lock()
+            .expect("Poisoned lock")
+            .add_device(sbdf.device(), root_port.clone())?;
+
+        vm.common
+            .mmio_bus
+            .insert(root_port.clone(), msix_bar_addr, ROOT_PORT_MSIX_BAR_SIZE)?;
+
+        info!(
+            "pci: added PCIe root port: {sbdf}, secondary bus {secondary_bus}, MSI-X BAR \
+             {msix_bar_addr:#x}"
+        );
+
+        self.root_ports.push(root_port);
+        Ok(())
+    }
+
     pub(crate) fn next_device_sbdf(&self) -> Result<PciSBDF, PciBusError> {
         Ok(PciSBDF::new(
             self.id,
             0,
-            self.pci_bus.lock().unwrap().next_device_id()?,
+            self.pci_buses.root_bus().lock().unwrap().next_device_id()?,
             0,
         ))
     }
@@ -234,6 +316,29 @@ impl Aml for PciDsmMethod {
 }
 
 #[cfg(target_arch = "x86_64")]
+struct PciOscMethod {}
+
+#[cfg(target_arch = "x86_64")]
+impl Aml for PciOscMethod {
+    fn append_aml_bytes(&self, v: &mut Vec<u8>) -> Result<(), aml::AmlError> {
+        // _OSC (Operating System Capabilities), such as PCIeHotplug.
+        //
+        // Grant whatever the OS asks for by returning the capabilities buffer
+        // (Arg3) unchanged, so the control field it gets back is the one it
+        // requested. Granting control of features Firecracker does not
+        // implement is harmless: the OS only drives a feature if it also finds
+        // the corresponding PCI capability.
+        aml::Method::new(
+            "_OSC".try_into()?,
+            4,
+            false,
+            vec![&aml::Return::new(&aml::Arg(3))],
+        )
+        .append_aml_bytes(v)
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
 impl Aml for PciSegment {
     fn append_aml_bytes(&self, v: &mut Vec<u8>) -> Result<(), aml::AmlError> {
         let mut pci_dsdt_inner_data: Vec<&dyn Aml> = Vec::new();
@@ -260,12 +365,17 @@ impl Aml for PciSegment {
         let pci_dsm = PciDsmMethod {};
         pci_dsdt_inner_data.push(&pci_dsm);
 
+        let pci_osc = PciOscMethod {};
+        pci_dsdt_inner_data.push(&pci_osc);
+
+        let last_bus = u16::from(self.pci_buses.num_buses() - 1);
+
         #[allow(clippy::if_same_then_else)]
         let crs = if self.id == 0 {
             aml::Name::new(
                 "_CRS".try_into()?,
                 &aml::ResourceTemplate::new(vec![
-                    &aml::AddressSpace::new_bus_number(0x0u16, 0x0u16)?,
+                    &aml::AddressSpace::new_bus_number(0x0u16, last_bus)?,
                     &aml::Io::new(0xcf8, 0xcf8, 1, 0x8),
                     &aml::Memory32Fixed::new(
                         true,
@@ -292,7 +402,7 @@ impl Aml for PciSegment {
             aml::Name::new(
                 "_CRS".try_into()?,
                 &aml::ResourceTemplate::new(vec![
-                    &aml::AddressSpace::new_bus_number(0x0u16, 0x0u16)?,
+                    &aml::AddressSpace::new_bus_number(0x0u16, last_bus)?,
                     &aml::Memory32Fixed::new(
                         true,
                         self.mmio_config_address.try_into().unwrap(),
@@ -352,14 +462,45 @@ mod tests {
     use super::*;
     use crate::arch;
     use crate::builder::tests::default_vmm;
+    use crate::pci::configuration::PciConfiguration;
+    use crate::pci::{PciClassCode, PciDevice, PciMassStorageSubclass};
+    #[cfg(target_arch = "x86_64")]
     use crate::utils::u64_to_usize;
+
+    struct PciDevMock(PciConfiguration);
+    impl PciDevice for PciDevMock {
+        fn write_config_register(
+            &mut self,
+            reg_idx: u16,
+            offset: u8,
+            data: &[u8],
+        ) -> Option<Arc<std::sync::Barrier>> {
+            self.0.write_config_register(reg_idx, offset, data);
+            None
+        }
+        fn read_config_register(&mut self, reg_idx: u16) -> u32 {
+            self.0.read_reg(reg_idx)
+        }
+    }
+
+    fn mock_dev() -> Arc<Mutex<dyn PciDevice>> {
+        Arc::new(Mutex::new(PciDevMock(PciConfiguration::new_type0(
+            0x42,
+            0x0,
+            0x0,
+            PciClassCode::MassStorageController,
+            PciMassStorageSubclass::SerialScsiController as u8,
+            0x13,
+            0x12,
+        ))))
+    }
 
     #[test]
     fn test_pci_segment_build() {
         let vmm = default_vmm();
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let pci_irq_slots = &[0u8; 32];
-        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots).unwrap();
+        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots, 0).unwrap();
 
         assert_eq!(pci_segment.id, 0);
         assert_eq!(
@@ -389,7 +530,7 @@ mod tests {
         let vmm = default_vmm();
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let pci_irq_slots = &[0u8; 32];
-        let _pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots).unwrap();
+        let _pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots, 0).unwrap();
 
         let mut data = [0u8; u64_to_usize(PCI_CONFIG_IO_PORT_SIZE)];
         kvm_vm.pio_bus.read(PCI_CONFIG_IO_PORT, &mut data).unwrap();
@@ -405,15 +546,34 @@ mod tests {
         let vmm = default_vmm();
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let pci_irq_slots = &[0u8; 32];
-        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots).unwrap();
+        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots, 0).unwrap();
 
-        let mut data = [0u8; u64_to_usize(PCI_MMIO_CONFIG_SIZE_PER_SEGMENT)];
+        let mut data = [0u8; 4];
 
+        // Test that we can access the start and end of the ECAM region.
         kvm_vm
             .common
             .mmio_bus
             .read(pci_segment.mmio_config_address, &mut data)
             .unwrap();
+        kvm_vm
+            .common
+            .mmio_bus
+            .read(
+                pci_segment.mmio_config_address + PCI_MMIO_CONFIG_SIZE_PER_SEGMENT
+                    - data.len() as u64,
+                &mut data,
+            )
+            .unwrap();
+        // Test that accesses outside the ECAM region fail.
+        kvm_vm
+            .common
+            .mmio_bus
+            .read(
+                pci_segment.mmio_config_address - data.len() as u64,
+                &mut data,
+            )
+            .unwrap_err();
         kvm_vm
             .common
             .mmio_bus
@@ -426,40 +586,10 @@ mod tests {
 
     #[test]
     fn test_next_device_bdf() {
-        use crate::pci::configuration::PciConfiguration;
-        use crate::pci::{PciClassCode, PciDevice, PciMassStorageSubclass};
-
-        struct PciDevMock(PciConfiguration);
-        impl PciDevice for PciDevMock {
-            fn write_config_register(
-                &mut self,
-                reg_idx: u16,
-                offset: u8,
-                data: &[u8],
-            ) -> Option<Arc<std::sync::Barrier>> {
-                self.0.write_config_register(reg_idx, offset, data);
-                None
-            }
-            fn read_config_register(&mut self, reg_idx: u16) -> u32 {
-                self.0.read_reg(reg_idx)
-            }
-        }
-        fn mock_dev() -> Arc<Mutex<dyn PciDevice>> {
-            Arc::new(Mutex::new(PciDevMock(PciConfiguration::new_type0(
-                0x42,
-                0x0,
-                0x0,
-                PciClassCode::MassStorageController,
-                PciMassStorageSubclass::SerialScsiController as u8,
-                0x13,
-                0x12,
-            ))))
-        }
-
         let vmm = default_vmm();
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let pci_irq_slots = &[0u8; 32];
-        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots).unwrap();
+        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots, 0).unwrap();
 
         // Start checking from device id 1, since 0 is allocated to the Root port.
         // `next_device_sbdf` only inspects the bus, so the caller must `add_device`
@@ -470,11 +600,66 @@ mod tests {
             // a single bus with id 0. Also, each device of ours has a
             // single function.
             assert_eq!(sbdf, PciSBDF::new(0, 0, dev_id, 0));
-            let mut segment = pci_segment.pci_bus.lock().unwrap();
-            segment.add_device(dev_id, mock_dev()).unwrap();
+            let root_bus = pci_segment.pci_buses.root_bus();
+            root_bus
+                .lock()
+                .unwrap()
+                .add_device(dev_id, mock_dev())
+                .unwrap();
         }
 
         // We can only have 32 devices on a segment
         pci_segment.next_device_sbdf().unwrap_err();
+    }
+
+    #[test]
+    fn test_attach_root_ports() {
+        let vmm = default_vmm();
+        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
+        let mut pci_segment = PciSegment::new(0, &kvm_vm, &[0u8; 32], 2).unwrap();
+
+        // Stand in for a boot device that was attached before the ports are
+        // provisioned, so that it takes the slot right after the host bridge.
+        let boot_device_sbdf = pci_segment.next_device_sbdf().unwrap();
+        assert_eq!(boot_device_sbdf.device(), 1);
+        pci_segment
+            .pci_buses
+            .root_bus()
+            .lock()
+            .unwrap()
+            .add_device(boot_device_sbdf.device(), mock_dev())
+            .unwrap();
+
+        pci_segment.attach_root_ports(&kvm_vm).unwrap();
+        assert_eq!(pci_segment.root_ports.len(), 2);
+
+        for (index, port) in pci_segment.root_ports.iter().enumerate() {
+            // The ports follow the boot device rather than displacing it, ...
+            let expected_slot = u8::try_from(index).unwrap() + boot_device_sbdf.device() + 1;
+            let root_bus = pci_segment.pci_buses.root_bus();
+            let bus = root_bus.lock().unwrap();
+            assert!(bus.get_device(expected_slot).is_some());
+
+            // ... while the secondary bus numbers are handed out by port index,
+            // so they stay contiguous from 1 whatever slots the ports occupy.
+            let secondary_bus = port.lock().unwrap().secondary_bus();
+            assert_eq!(secondary_bus, u8::try_from(index).unwrap() + 1);
+            // Each secondary bus exists in the topology and starts out empty.
+            let bus = pci_segment.pci_buses.get(secondary_bus).unwrap();
+            assert!(bus.lock().unwrap().get_device(0).is_none());
+        }
+    }
+
+    #[test]
+    fn test_attach_root_ports_none_by_default() {
+        let vmm = default_vmm();
+        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
+        let mut pci_segment = PciSegment::new(0, &kvm_vm, &[0u8; 32], 0).unwrap();
+
+        pci_segment.attach_root_ports(&kvm_vm).unwrap();
+        assert!(pci_segment.root_ports.is_empty());
+        // Only the host bridge is on the root bus.
+        let root_bus = pci_segment.pci_buses.root_bus();
+        assert_eq!(root_bus.lock().unwrap().next_device_id().unwrap(), 1);
     }
 }
