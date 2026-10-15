@@ -225,8 +225,28 @@ ALL_SECCOMP_FEATURES = "api,pci,hotplug,block,async-io,net,vsock,pmem,memory-hot
 
 
 def _seccomp_features_log_line(features):
-    """The log line reporting the seccomp features a microVM gets."""
+    """The log line reporting the seccomp features derived from the microVM."""
     return f"Seccomp features required by the microVM: [{features}]"
+
+
+def _seccomp_filter_log_line(thread, features):
+    """The log line reporting the filter a thread got, up to the feature set."""
+    return f"Seccomp filter of the {thread} thread: ", f"features [{features}]"
+
+
+def _check_filter_log_line(uvm, thread, features):
+    """Check that `thread` got a filter composed with exactly `features`."""
+    prefix, suffix = _seccomp_filter_log_line(thread, features)
+    lines = [line for line in uvm.log_data.splitlines() if prefix in line]
+    assert lines, f"no filter log line for the {thread} thread"
+    assert all(line.endswith(suffix) for line in lines), lines
+
+
+def _derived_features(uvm):
+    """The features derived from the configuration `basic_config` sets up."""
+    if uvm.pci_enabled:
+        return "api,pci,hotplug,block,async-io,net,pmem"
+    return "api,block"
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
@@ -241,24 +261,31 @@ def test_seccomp_features_derived(uvm):
     uvm.spawn()
     uvm.basic_config()
     uvm.start()
-    if uvm.pci_enabled:
-        expected = "api,pci,hotplug,block,async-io,net,pmem"
-    else:
-        expected = "api,block"
+    expected = _derived_features(uvm)
     uvm.check_log_message(_seccomp_features_log_line(expected))
+    assert "Seccomp features added by the command line" not in uvm.log_data
+    for thread in ["vmm", "vcpu"]:
+        _check_filter_log_line(uvm, thread, expected)
+    # The API thread's filter is installed before the configuration is known.
+    _check_filter_log_line(uvm, "api", "api")
     utils.assert_seccomp_level(uvm.firecracker_pid, "2")
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_seccomp_features_all(uvm):
     """
-    Test that --seccomp-features all enables every feature.
+    Test that --seccomp-features all enables every feature on every thread.
     """
     uvm.jailer.extra_args.update({"seccomp-features": "all"})
     uvm.spawn()
     uvm.basic_config()
     uvm.start()
-    uvm.check_log_message(_seccomp_features_log_line(ALL_SECCOMP_FEATURES))
+    uvm.check_log_message(_seccomp_features_log_line(_derived_features(uvm)))
+    uvm.check_log_message(
+        f"Seccomp features added by the command line: [{ALL_SECCOMP_FEATURES}]"
+    )
+    for thread in ["api", "vmm", "vcpu"]:
+        _check_filter_log_line(uvm, thread, ALL_SECCOMP_FEATURES)
     utils.assert_seccomp_level(uvm.firecracker_pid, "2")
 
 
