@@ -178,8 +178,6 @@ pub enum MemoryError {
     },
     /// Cannot punch a hole in the snapshot memory file: {0}
     PunchHole(std::io::Error),
-    /// Cannot query the residency of guest memory: {0}
-    Mincore(std::io::Error),
     /// Snapshot memory region at file offset {offset} with size {size} is not aligned to {page_size} bytes
     UnalignedHugetlbfsRegion {
         /// Offset of the region in the snapshot memory file.
@@ -1246,18 +1244,16 @@ impl MemfdBacking {
 }
 
 /// Returns whether any host page of the `len` bytes at `addr` is resident, using `residency`
-/// (one byte per host page) as scratch space for `mincore(2)`.
-fn is_resident(addr: *const u8, len: usize, residency: &mut [u8]) -> Result<bool, MemoryError> {
+/// (one byte per host page) as scratch space for `mincore(2)`. Reports the range as resident if
+/// `mincore` fails, so that callers fall back to reading it.
+fn is_resident(addr: *const u8, len: usize, residency: &mut [u8]) -> bool {
     let pages = len.div_ceil(host_page_size());
     // JUSTIFICATION: Rust's standard library does not expose page residency.
     // SAFETY: `addr` is the page-aligned start of `len` bytes of mapped guest memory, and
     // `residency` has at least one byte for each of their pages.
     let ret =
         unsafe { libc::mincore(addr.cast_mut().cast(), len, residency[..pages].as_mut_ptr()) };
-    if ret != 0 {
-        return Err(MemoryError::Mincore(io::Error::last_os_error()));
-    }
-    Ok(residency[..pages].iter().any(|page| page & 1 != 0))
+    ret != 0 || residency[..pages].iter().any(|page| page & 1 != 0)
 }
 
 /// Returns the huge-page size for a hugetlbfs-backed file, or `None` for other file systems.
@@ -1494,7 +1490,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                         .map_err(MemoryError::VolatileMemoryError)?;
                     let chunk_offset = offset + done as u64;
                     let is_zero = if skip_non_resident
-                        && !is_resident(chunk.ptr_guard().as_ptr(), n, &mut residency)?
+                        && !is_resident(chunk.ptr_guard().as_ptr(), n, &mut residency)
                     {
                         true
                     } else {
@@ -2801,7 +2797,6 @@ mod tests {
                     page_size,
                     &mut residency,
                 )
-                .unwrap()
             })
             .collect();
         // Dumping did not allocate the untouched page.
