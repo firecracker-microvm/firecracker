@@ -617,11 +617,30 @@ impl KvmVm {
             .open(mem_file_path)
             .map_err(|err| MemoryBackingFile("open", err))?;
 
+        // Determine what size our total memory area is.
+        let mem_size_mib = mem_size_mib(self.guest_memory());
+        let expected_size = mem_size_mib * 1024 * 1024;
+
+        let file_size = file
+            .metadata()
+            .map_err(|e| MemoryBackingFile("get_metadata", e))?
+            .len();
+
         let hugetlbfs_page_size = memory::hugetlbfs_page_size(&file)?;
-        let hugetlbfs = hugetlbfs_page_size.is_some();
-        if hugetlbfs {
+        if let Some(page_size) = hugetlbfs_page_size {
+            // hugetlbfs reports a whole file as data, so a separate diff layer would not record
+            // which pages are unchanged: they read as zeros. A diff is only valid when merged
+            // into an existing memory file.
+            if snapshot_type == SnapshotType::Diff && !(file_existed && file_size == expected_size)
+            {
+                if !file_existed {
+                    // Best effort: do not leave behind the empty file created above.
+                    let _ = std::fs::remove_file(mem_file_path);
+                }
+                return Err(HugetlbfsDiffLayer);
+            }
             memory::validate_snapshot_file_page_size(
-                hugetlbfs_page_size,
+                Some(page_size),
                 HugePageConfig::Hugetlbfs2M,
                 &self.guest_memory().describe().regions(),
             )?;
@@ -635,16 +654,7 @@ impl KvmVm {
                 .map_err(|err| MemoryBackingFile("open_read_write", err))?;
         }
 
-        // Determine what size our total memory area is.
-        let mem_size_mib = mem_size_mib(self.guest_memory());
-        let expected_size = mem_size_mib * 1024 * 1024;
-
         if file_existed {
-            let file_size = file
-                .metadata()
-                .map_err(|e| MemoryBackingFile("get_metadata", e))?
-                .len();
-
             // Here we only truncate the file if the size mismatches.
             // - For full snapshots, the entire file's contents will be overwritten anyway. We have
             //   to avoid truncating here to deal with the edge case where it represents the
@@ -662,8 +672,8 @@ impl KvmVm {
         file.set_len(expected_size)
             .map_err(|e| MemoryBackingFile("set_length", e))?;
 
-        if hugetlbfs {
-            self.snapshot_memory_via_mmap(&file, expected_size, snapshot_type)?;
+        if let Some(page_size) = hugetlbfs_page_size {
+            self.snapshot_memory_via_mmap(&file, expected_size, snapshot_type, page_size)?;
         } else {
             self.dump_memory(&mut file, snapshot_type)?;
             file.flush()
@@ -703,12 +713,16 @@ impl KvmVm {
     /// `MAP_SHARED` is required for writes to update the file; a private mapping would create
     /// anonymous copy-on-write pages and leave the snapshot file unchanged. The mapping exists
     /// only while the snapshot is written. Snapshot restore maps the completed file privately.
-    /// A cursor over this mapping lets us reuse the existing full and differential dump logic.
+    /// A cursor over this mapping lets us reuse the existing dump logic.
+    ///
+    /// A full snapshot leaves all-zero huge pages as holes, so the file only takes pool pages for
+    /// memory the guest holds. Punching them also clears stale contents when the file is reused.
     fn snapshot_memory_via_mmap(
         &self,
         file: &std::fs::File,
         size: u64,
         snapshot_type: SnapshotType,
+        page_size: usize,
     ) -> Result<(), CreateSnapshotError> {
         use self::CreateSnapshotError::*;
 
@@ -740,7 +754,20 @@ impl KvmVm {
             // mapping or alias any other Rust reference.
             let destination =
                 unsafe { std::slice::from_raw_parts_mut(destination.cast::<u8>(), size) };
-            self.dump_memory(&mut Cursor::new(destination), snapshot_type)
+            let mut destination = Cursor::new(destination);
+            match snapshot_type {
+                SnapshotType::Diff => self.dump_memory(&mut destination, snapshot_type),
+                SnapshotType::Full => self
+                    .guest_memory()
+                    .dump_skipping_zero_chunks(&mut destination, page_size, |offset, len| {
+                        punch_hole(file, offset, len)
+                    })
+                    .map(|()| {
+                        self.reset_dirty_bitmap();
+                        self.guest_memory().reset_dirty();
+                    })
+                    .map_err(CreateSnapshotError::from),
+            }
         };
 
         // JUSTIFICATION: A mapping created by `libc::mmap` must be released with `libc::munmap`.
@@ -890,6 +917,26 @@ fn mincore_bitmap(addr: *mut u8, len: usize) -> Result<Vec<u64>, VmError> {
     }
 
     Ok(bitmap)
+}
+
+/// Deallocates `len` bytes of `file` at `offset`, keeping its size, so the range reads as zeros.
+fn punch_hole(file: &std::fs::File, offset: u64, len: usize) -> Result<(), MemoryError> {
+    let offset = libc::off_t::try_from(offset).map_err(|_| MemoryError::OffsetTooLarge)?;
+    let len = libc::off_t::try_from(len).map_err(|_| MemoryError::OffsetTooLarge)?;
+    // JUSTIFICATION: Rust's standard library does not expose hole punching.
+    // SAFETY: `file` owns a valid file descriptor, and `fallocate` only changes its allocation.
+    let ret = unsafe {
+        libc::fallocate(
+            file.as_raw_fd(),
+            libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE,
+            offset,
+            len,
+        )
+    };
+    if ret != 0 {
+        return Err(MemoryError::PunchHole(std::io::Error::last_os_error()));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1308,5 +1355,79 @@ pub(crate) mod tests {
             .allocate(1024, 1024, AllocPolicy::FirstMatch)
             .unwrap();
         assert_eq!(range + 1024, range_new.start());
+    }
+
+    /// Returns a path for a new file on a 2 MiB hugetlbfs mount, if the host has one and at least
+    /// `pages` free huge pages.
+    fn hugetlbfs_snapshot_path(name: &str, pages: usize) -> Option<std::path::PathBuf> {
+        if memory::test_utils::free_hugepages_2m() < pages {
+            return None;
+        }
+        let mounts = std::fs::read_to_string("/proc/mounts").ok()?;
+        let mount = mounts
+            .lines()
+            .map(|line| line.split_whitespace().collect::<Vec<_>>())
+            .find(|fields| {
+                fields.len() > 3
+                    && fields[2] == "hugetlbfs"
+                    && fields[3].split(',').any(|option| option == "pagesize=2M")
+            })?;
+        Some(Path::new(mount[1]).join(format!("fc-test-{}-{name}", std::process::id())))
+    }
+
+    #[test]
+    fn test_hugetlbfs_diff_snapshot_merges_into_existing_file() {
+        use std::os::unix::fs::MetadataExt;
+
+        use vm_memory::Bytes;
+
+        let page_size = HugePageConfig::Hugetlbfs2M.page_size();
+        let mem_size = 3 * page_size;
+        // The full snapshot allocates two huge pages and leaves the third as a hole.
+        let Some(path) = hugetlbfs_snapshot_path("diff-merge", 2) else {
+            println!("Skipping: no 2 MiB hugetlbfs mount with two free huge pages");
+            return;
+        };
+        let vm = setup_vm_with_memory(mem_size);
+
+        // A separate diff layer is rejected, and the file created for it is removed.
+        assert_matches!(
+            vm.snapshot_memory_to_file(&path, SnapshotType::Diff, false),
+            Err(CreateSnapshotError::HugetlbfsDiffLayer)
+        );
+        assert!(!path.exists());
+
+        // Page 0 does not change after the full snapshot; page 1 does.
+        vm.guest_memory().write(&[1; 8], GuestAddress(0)).unwrap();
+        vm.guest_memory()
+            .write(&[2; 8], GuestAddress(page_size as u64))
+            .unwrap();
+        vm.snapshot_memory_to_file(&path, SnapshotType::Full, false)
+            .unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().blocks() * 512,
+            2 * page_size as u64
+        );
+        vm.guest_memory()
+            .write(&[3; 8], GuestAddress(page_size as u64))
+            .unwrap();
+
+        // A diff merged into the full snapshot keeps unchanged memory and adds the changes.
+        vm.snapshot_memory_to_file(&path, SnapshotType::Diff, false)
+            .unwrap();
+        let mut expected = vec![0; mem_size];
+        expected[..8].copy_from_slice(&[1; 8]);
+        expected[page_size..page_size + 8].copy_from_slice(&[3; 8]);
+        assert!(std::fs::read(&path).unwrap() == expected);
+
+        // A diff into a memory file of another size is rejected, and the file is left intact.
+        let larger_vm = setup_vm_with_memory(2 * mem_size);
+        assert_matches!(
+            larger_vm.snapshot_memory_to_file(&path, SnapshotType::Diff, false),
+            Err(CreateSnapshotError::HugetlbfsDiffLayer)
+        );
+        assert!(std::fs::read(&path).unwrap() == expected);
+
+        std::fs::remove_file(&path).unwrap();
     }
 }

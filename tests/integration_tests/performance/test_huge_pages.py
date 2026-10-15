@@ -10,6 +10,7 @@ import pytest
 
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.microvm import SnapshotType
 from framework.properties import global_props
 from framework.utils_ftrace import ftrace_events
 from framework.utils_hugepages import HugePagesConfig
@@ -124,8 +125,9 @@ def test_hugetlbfs_snapshot(microvm_factory, uvm, snapshot_type):
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
 
-def test_hugetlbfs_snapshot_file_backend(microvm_factory, uvm, snapshot_type, tmp_path):
-    """Restore a hugetlbfs memory file directly without a UFFD handler."""
+@pytest.fixture
+def hugetlbfs_mount(uvm, tmp_path):
+    """A 2 MiB hugetlbfs mount that jailed microVMs can bind and use."""
     hugetlbfs_path = tmp_path / "hugetlbfs"
     hugetlbfs_path.mkdir()
     utils.check_output(
@@ -140,29 +142,85 @@ def test_hugetlbfs_snapshot_file_backend(microvm_factory, uvm, snapshot_type, tm
         ],
         shell=False,
     )
+    yield hugetlbfs_path
+    utils.run_cmd(["umount", str(hugetlbfs_path)], shell=False)
 
+
+GUEST_TMPFS = "/mnt/hugetlbfs-test"
+
+
+def guest_sha256sum(vm, path: str) -> str:
+    """Return the SHA-256 digest of a file in the guest."""
+    _, stdout, _ = vm.ssh.check_output(f"sha256sum {path}")
+    return stdout.split()[0]
+
+
+def write_guest_memory_file(vm, name: str, size_mib: int = 16) -> str:
+    """Fill a guest tmpfs file, which lives in guest memory, with random data.
+
+    Returns the file's SHA-256 digest.
+    """
+    path = f"{GUEST_TMPFS}/{name}"
+    vm.ssh.check_output(
+        f"mkdir -p {GUEST_TMPFS} && (mountpoint -q {GUEST_TMPFS} || mount -t tmpfs tmpfs {GUEST_TMPFS})"
+        f" && dd if=/dev/urandom of={path} bs=1M count={size_mib}"
+    )
+    return guest_sha256sum(vm, path)
+
+
+def guest_memory_mappings(pid: int, mem_file: str, mem_size_mib: int):
+    """Return the name and KernelPageSize (KiB) of each mapping of file-restored guest memory.
+
+    Guest memory starts where the first page of `mem_file` is mapped. Mappings with another
+    name replaced guest memory that was discarded after the restore.
+    """
+    mappings = []
+    for line in Path(f"/proc/{pid}/smaps").read_text(encoding="utf-8").splitlines():
+        fields = line.split()
+        if "-" in fields[0] and not fields[0].endswith(":"):
+            start, end = (int(address, 16) for address in fields[0].split("-"))
+            mappings.append(
+                {
+                    "start": start,
+                    "end": end,
+                    "offset": int(fields[2], 16),
+                    "name": " ".join(fields[5:]),
+                }
+            )
+        elif fields[0] == "KernelPageSize:":
+            mappings[-1]["kernel_page_size_kib"] = int(fields[1])
+
+    base = min(
+        m["start"] - m["offset"] for m in mappings if m["name"].endswith(mem_file)
+    )
+    end = base + mem_size_mib * 2**20
+    return [
+        (m["name"], m["kernel_page_size_kib"])
+        for m in mappings
+        if base <= m["start"] and m["end"] <= end
+    ]
+
+
+def test_hugetlbfs_snapshot_file_backend(microvm_factory, uvm, hugetlbfs_mount):
+    """Restore a hugetlbfs memory file directly without a UFFD handler."""
     jail_mounts = []
     restored_vm = None
     try:
         vm = uvm
         vm.memory_monitor = None
-        jail_mounts.append(bind_hugetlbfs_into_jail(vm, hugetlbfs_path))
+        jail_mounts.append(bind_hugetlbfs_into_jail(vm, hugetlbfs_mount))
         vm.spawn()
-        vm.basic_config(
-            huge_pages=HugePagesConfig.NONE,
-            mem_size_mib=128,
-            track_dirty_pages=snapshot_type.needs_dirty_page_tracking,
-        )
+        vm.basic_config(huge_pages=HugePagesConfig.NONE, mem_size_mib=128)
         vm.add_net_iface()
         vm.start()
 
-        snapshot = vm.make_snapshot(snapshot_type, mem_path="hugetlbfs/mem")
+        snapshot = vm.make_snapshot(SnapshotType.FULL, mem_path="hugetlbfs/mem")
         vm.kill()
         snapshot_digest = sha256sum(snapshot.mem)
 
         restored_vm = microvm_factory.build()
         restored_vm.memory_monitor = None
-        jail_mounts.append(bind_hugetlbfs_into_jail(restored_vm, hugetlbfs_path))
+        jail_mounts.append(bind_hugetlbfs_into_jail(restored_vm, hugetlbfs_mount))
         restored_vm.spawn()
         restored_vm.restore_from_snapshot(
             snapshot,
@@ -186,7 +244,133 @@ def test_hugetlbfs_snapshot_file_backend(microvm_factory, uvm, snapshot_type, tm
             restored_vm.kill(might_be_dead=True)
         for mount_path in reversed(jail_mounts):
             utils.run_cmd(["umount", str(mount_path)], shell=False)
-        utils.run_cmd(["umount", str(hugetlbfs_path)], shell=False)
+
+
+def test_hugetlbfs_diff_snapshot_file_backend(microvm_factory, uvm, hugetlbfs_mount):
+    """Merge a diff snapshot into a hugetlbfs full snapshot and restore it.
+
+    hugetlbfs reports a whole file as data, so a separate diff layer would not record which
+    pages are unchanged. Firecracker rejects it, and the diff must be merged into the memory
+    file of the full snapshot instead.
+    """
+    jail_mounts = []
+    restored_vm = None
+    try:
+        vm = uvm
+        vm.memory_monitor = None
+        jail_mounts.append(bind_hugetlbfs_into_jail(vm, hugetlbfs_mount))
+        vm.spawn()
+        vm.basic_config(
+            huge_pages=HugePagesConfig.HUGETLBFS_2MB,
+            mem_size_mib=128,
+            track_dirty_pages=True,
+        )
+        vm.add_net_iface()
+        vm.start()
+
+        unchanged_digest = write_guest_memory_file(vm, "unchanged")
+        vm.make_snapshot(SnapshotType.FULL, mem_path="hugetlbfs/mem")
+
+        with pytest.raises(
+            RuntimeError, match="must be merged into an existing memory file"
+        ):
+            vm.api.snapshot_create.put(
+                mem_file_path="hugetlbfs/diff",
+                snapshot_path="vmstate-diff",
+                snapshot_type=SnapshotType.DIFF.api_type,
+            )
+        assert not (hugetlbfs_mount / "diff").exists()
+
+        vm.resume()
+        changed_digest = write_guest_memory_file(vm, "changed")
+        snapshot = vm.make_snapshot(SnapshotType.DIFF, mem_path="hugetlbfs/mem")
+        vm.kill()
+
+        restored_vm = microvm_factory.build()
+        restored_vm.memory_monitor = None
+        jail_mounts.append(bind_hugetlbfs_into_jail(restored_vm, hugetlbfs_mount))
+        restored_vm.spawn()
+        restored_vm.restore_from_snapshot(
+            snapshot,
+            resume=True,
+            huge_pages=HugePagesConfig.HUGETLBFS_2MB,
+            mem_backend_path="/hugetlbfs/mem",
+        )
+
+        assert (
+            guest_sha256sum(restored_vm, f"{GUEST_TMPFS}/unchanged") == unchanged_digest
+        )
+        assert guest_sha256sum(restored_vm, f"{GUEST_TMPFS}/changed") == changed_digest
+    finally:
+        uvm.kill(might_be_dead=True)
+        if restored_vm is not None:
+            restored_vm.kill(might_be_dead=True)
+        for mount_path in reversed(jail_mounts):
+            utils.run_cmd(["umount", str(mount_path)], shell=False)
+
+
+def test_hugetlbfs_file_backend_free_page_reporting(
+    microvm_factory, uvm, hugetlbfs_mount
+):
+    """Guest memory freed after a hugetlbfs file restore stays on 2 MiB pages."""
+    mem_size_mib = 128
+    jail_mounts = []
+    restored_vm = None
+    try:
+        vm = uvm
+        vm.memory_monitor = None
+        jail_mounts.append(bind_hugetlbfs_into_jail(vm, hugetlbfs_mount))
+        vm.spawn()
+        vm.basic_config(huge_pages=HugePagesConfig.NONE, mem_size_mib=mem_size_mib)
+        vm.add_net_iface()
+        vm.api.balloon.put(
+            amount_mib=0,
+            deflate_on_oom=False,
+            stats_polling_interval_s=0,
+            free_page_reporting=True,
+        )
+        vm.start()
+
+        snapshot = vm.make_snapshot(SnapshotType.FULL, mem_path="hugetlbfs/mem")
+        vm.kill()
+        snapshot_digest = sha256sum(snapshot.mem)
+
+        restored_vm = microvm_factory.build()
+        restored_vm.memory_monitor = None
+        jail_mounts.append(bind_hugetlbfs_into_jail(restored_vm, hugetlbfs_mount))
+        restored_vm.spawn()
+        restored_vm.restore_from_snapshot(
+            snapshot,
+            resume=True,
+            huge_pages=HugePagesConfig.HUGETLBFS_2MB,
+            mem_backend_path="/hugetlbfs/mem",
+        )
+        pid = restored_vm.firecracker_pid
+
+        # Free memory in the guest, so that it reports it and Firecracker discards it.
+        write_guest_memory_file(restored_vm, "reported", size_mib=64)
+        restored_vm.ssh.check_output(f"rm {GUEST_TMPFS}/reported")
+        deadline = time.time() + 30
+        while True:
+            mappings = guest_memory_mappings(pid, "hugetlbfs/mem", mem_size_mib)
+            if any(not name.endswith("hugetlbfs/mem") for name, _ in mappings):
+                break
+            assert time.time() < deadline, "no guest memory was discarded"
+            time.sleep(1)
+        assert all(size == 2048 for _, size in mappings), mappings
+
+        # The guest reuses the memory it freed.
+        digest = write_guest_memory_file(restored_vm, "reused", size_mib=64)
+        assert guest_sha256sum(restored_vm, f"{GUEST_TMPFS}/reused") == digest
+        mappings = guest_memory_mappings(pid, "hugetlbfs/mem", mem_size_mib)
+        assert all(size == 2048 for _, size in mappings), mappings
+        assert sha256sum(snapshot.mem) == snapshot_digest
+    finally:
+        uvm.kill(might_be_dead=True)
+        if restored_vm is not None:
+            restored_vm.kill(might_be_dead=True)
+        for mount_path in reversed(jail_mounts):
+            utils.run_cmd(["umount", str(mount_path)], shell=False)
 
 
 @pytest.mark.parametrize(

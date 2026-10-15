@@ -68,6 +68,16 @@ restore with the `File` backend requires such a memory file, and a hugetlbfs
 memory file is rejected unless the restored page configuration resolves to `2M`.
 Restore maps the file privately, so guest writes do not modify the snapshot.
 
+A `Full` snapshot on hugetlbfs leaves huge pages that are entirely zero as
+holes, so the file only takes pool pages for memory the guest holds. Huge pages
+of `2M` guest memory that were never touched are skipped without being read, so
+snapshot creation does not allocate them. hugetlbfs reports a whole file as
+data, so a separate `Diff` layer would not record which pages are unchanged, and
+`snapshot-editor` cannot rebase it. A `Diff` snapshot to a hugetlbfs memory file
+must therefore be merged into an existing memory file of the same size, such as
+the file of a previous `Full` snapshot of the same microVM; otherwise it is
+rejected.
+
 `Transparent` is accepted with UFFD, although UFFD may limit the effectiveness
 of transparent huge pages.
 

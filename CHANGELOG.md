@@ -145,7 +145,9 @@ and this project adheres to
   [block discard documentation](docs/api_requests/block-discard.md).
 - [#6099](https://github.com/firecracker-microvm/firecracker/issues/6099): Added
   support for creating snapshot memory files on 2 MiB hugetlbfs mounts and
-  restoring them directly with the `File` memory backend.
+  restoring them directly with the `File` memory backend. `Full` snapshots leave
+  zero huge pages as holes, and `Diff` snapshots must be merged into an existing
+  memory file of the same size.
 
 ### Changed
 

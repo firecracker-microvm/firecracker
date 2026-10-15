@@ -271,6 +271,26 @@
             },
             {
                 "syscall": "mmap",
+                "comment": "Used by discard_range for the VirtIO balloon on a microVM restored from a hugetlbfs snapshot memory file",
+                "args": [
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1409564722,
+                        "comment": "libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE | libc::MAP_NORESERVE | libc::MAP_HUGETLB | libc::MAP_HUGE_2MB"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": {"masked_eq": 4},
+                        "val": 0,
+                        "comment": "Ensure PROT_EXEC is not set"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
                 "comment": "Used for reading the timezone and for writing hugetlbfs snapshot memory files",
                 "args": [
                     {

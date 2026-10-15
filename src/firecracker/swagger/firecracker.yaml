@@ -1682,7 +1682,8 @@ definitions:
           - Diff
         description:
           Type of snapshot to create. It is optional and by default, a full
-          snapshot is created.
+          snapshot is created. A Diff snapshot to a memory file on hugetlbfs
+          must be merged into an existing memory file of the same size.
       sync_snapshot_files:
         type: boolean
         default: true
