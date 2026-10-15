@@ -292,7 +292,8 @@ Firecracker provides the following guarantees about unplugged memory:
   protected.
 - **Unplugged memory blocks are freed**: When a memory block is unplugged, the
   backing pages are freed, for example using `madvise(MADV_DONTNEED)` for anon
-  memory, returning memory to the host at block granularity.
+  memory or `madvise(MADV_REMOVE)` for shared memfd memory, returning memory to
+  the host at block granularity.
 
 ### Trust Model
 
@@ -335,6 +336,13 @@ page on the next access.
 protection of unplugged memory from a `vhost-user` backend. A malicious guest
 driver may be able to trick the backend to access unplugged memory. This is not
 possible in Firecracker itself as unplugged memory slots are `mprotect`-ed.
+
+When a `vhost-user` device is configured, the hotpluggable region is placed in
+the same `memfd` as guest DRAM, right after it, so the `memfd` is as large as a
+full memory snapshot file (`mem_size_mib` + `total_size_mib`). If Firecracker
+runs under the [jailer](jailer.md) with a `fsize` resource limit, the limit must
+cover this total size, or Firecracker will fail to boot. See the
+[vhost-user jailer notes](api_requests/block-vhost-user.md#resource-limit-in-jailer).
 
 [^uffd]: snapshotting/handling-page-faults-on-snapshot-resume.md#userfaultfd
 

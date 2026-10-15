@@ -127,7 +127,7 @@ pub fn build_microvm_from_config(
         app_name: "cpu-template-helper".to_string(),
     };
     let mut vm_resources =
-        VmResources::from_json(&config, &instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
+        VmResources::from_json(&config, &instance_info, HTTP_MAX_PAYLOAD_SIZE, None, false)
             .map_err(UtilsError::CreateVmResources)?;
     if let Some(template) = template {
         vm_resources.set_custom_cpu_template(template);

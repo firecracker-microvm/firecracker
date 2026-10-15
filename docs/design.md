@@ -78,6 +78,13 @@ them, there are one or more vCPU threads (one per guest CPU core). They are
 created via KVM and run the `KVM_RUN` main loop. They execute synchronous I/O
 and memory-mapped I/O operations on devices models.
 
+All device emulation on the VMM thread is driven by a single epoll-based event
+loop, which also picks up the requests forwarded by the API thread. When the
+microVM is paused through the API, the VMM thread stops polling that event loop
+and only serves API requests until it is resumed. A `Paused` microVM therefore
+has neither its vCPUs nor its device models running (see
+[snapshot support](snapshotting/snapshot-support.md#pausing-the-microvm)).
+
 ### Threat Containment
 
 From a security perspective, all vCPU threads are considered to be running

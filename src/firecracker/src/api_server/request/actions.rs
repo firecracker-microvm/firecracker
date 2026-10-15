@@ -7,8 +7,6 @@ use vmm::rpc_interface::VmmAction;
 
 use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::Body;
-#[cfg(target_arch = "aarch64")]
-use super::StatusCode;
 
 // The names of the members from this enum must precisely correspond (as a string) to the possible
 // values of "action_type" from the json request body. This is useful to get a strongly typed
@@ -37,17 +35,7 @@ pub(crate) fn parse_put_actions(body: &Body) -> Result<ParsedRequest, RequestErr
     match action_body.action_type {
         ActionType::FlushMetrics => Ok(ParsedRequest::new_sync(VmmAction::FlushMetrics)),
         ActionType::InstanceStart => Ok(ParsedRequest::new_sync(VmmAction::StartMicroVm)),
-        ActionType::SendCtrlAltDel => {
-            // SendCtrlAltDel not supported on aarch64.
-            #[cfg(target_arch = "aarch64")]
-            return Err(RequestError::Generic(
-                StatusCode::BadRequest,
-                "SendCtrlAltDel does not supported on aarch64.".to_string(),
-            ));
-
-            #[cfg(target_arch = "x86_64")]
-            Ok(ParsedRequest::new_sync(VmmAction::SendCtrlAltDel))
-        }
+        ActionType::SendCtrlAltDel => Ok(ParsedRequest::new_sync(VmmAction::SendCtrlAltDel)),
     }
 }
 
@@ -69,7 +57,6 @@ mod tests {
             assert_eq!(result.unwrap(), req);
         }
 
-        #[cfg(target_arch = "x86_64")]
         {
             let json = r#"{
                 "action_type": "SendCtrlAltDel"
@@ -78,16 +65,6 @@ mod tests {
             let req: ParsedRequest = ParsedRequest::new_sync(VmmAction::SendCtrlAltDel);
             let result = parse_put_actions(&Body::new(json));
             assert_eq!(result.unwrap(), req);
-        }
-
-        #[cfg(target_arch = "aarch64")]
-        {
-            let json = r#"{
-                "action_type": "SendCtrlAltDel"
-            }"#;
-
-            let result = parse_put_actions(&Body::new(json));
-            result.unwrap_err();
         }
 
         {

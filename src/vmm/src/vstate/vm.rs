@@ -863,7 +863,7 @@ pub(crate) mod tests {
 
         for i in 0..=max_nr_regions {
             let regions = anonymous(
-                vec![(GuestAddress(i as u64 * 0x1000), 0x1000)].into_iter(),
+                &[(GuestAddress(i as u64 * 0x1000), 0x1000)],
                 false,
                 HugePageConfig::None,
             )

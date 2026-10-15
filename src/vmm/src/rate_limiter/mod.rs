@@ -5,7 +5,9 @@ use std::fmt;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 
-use utils::time::TimerFd;
+#[cfg(test)]
+use utils::time::MockClock;
+use utils::time::{Clock, TimerFd};
 
 pub mod persist;
 
@@ -46,8 +48,8 @@ pub enum BucketReduction {
     Failure,
     /// A part of the available tokens have been consumed.
     Success,
-    /// A number of tokens `inner` times larger than the bucket size have been consumed.
-    OverConsumption(f64),
+    /// The time required to replenish the tokens consumed in excess of the bucket capacity.
+    OverConsumption(Duration),
 }
 
 /// TokenBucket provides a lower level interface to rate limiting with a
@@ -70,6 +72,9 @@ pub struct TokenBucket {
     // Last time this token bucket saw activity.
     last_update: Instant,
 
+    // Clock source used to measure elapsed time for replenishment.
+    clock: Clock,
+
     // Fields used for pre-processing optimizations.
     processed_capacity: u64,
     processed_refill_time: u64,
@@ -85,6 +90,33 @@ impl TokenBucket {
     ///
     /// If the `size` or the `complete refill time` are zero, then `None` is returned.
     pub fn new(size: u64, one_time_burst: u64, complete_refill_time_ms: u64) -> Option<Self> {
+        Self::new_with_clock(size, one_time_burst, complete_refill_time_ms, Clock::Real)
+    }
+
+    /// Test-only: like [`TokenBucket::new`], but the bucket measures elapsed time for
+    /// replenishment against the given deterministic mock `clock` instead of the real monotonic
+    /// clock, making token replenishment controllable from tests.
+    #[cfg(test)]
+    pub fn new_mocked(
+        size: u64,
+        one_time_burst: u64,
+        complete_refill_time_ms: u64,
+        clock: &MockClock,
+    ) -> Option<Self> {
+        Self::new_with_clock(
+            size,
+            one_time_burst,
+            complete_refill_time_ms,
+            Clock::Mock(clock.clone()),
+        )
+    }
+    /// Creates a `TokenBucket` (wrapped in an `Option`) backed by the given `clock`.
+    fn new_with_clock(
+        size: u64,
+        one_time_burst: u64,
+        complete_refill_time_ms: u64,
+        clock: Clock,
+    ) -> Option<Self> {
         // If either token bucket capacity or refill time is 0, disable limiting.
         if size == 0 || complete_refill_time_ms == 0 {
             return None;
@@ -110,18 +142,28 @@ impl TokenBucket {
             refill_time: complete_refill_time_ms,
             // Start off full.
             budget: size,
-            // Last updated is now.
-            last_update: Instant::now(),
+            // Last updated is now, according to the provided clock.
+            last_update: clock.now(),
+            clock,
             processed_capacity,
             processed_refill_time,
         })
     }
 
+    /// Returns the time needed to refill `tokens`, rounded up and saturated at `u64::MAX`
+    /// nanoseconds.
+    fn time_to_refill(&self, tokens: u64) -> Duration {
+        let ns = (u128::from(tokens) * u128::from(self.processed_refill_time))
+            .div_ceil(u128::from(self.processed_capacity));
+
+        Duration::from_nanos(u64::try_from(ns).unwrap_or(u64::MAX))
+    }
+
     // Replenishes token bucket based on elapsed time. Should only be called internally by `Self`.
     #[allow(clippy::cast_possible_truncation)]
     fn auto_replenish(&mut self) {
-        // Compute time passed since last refill/update.
-        let now = Instant::now();
+        // Compute time passed since last refill/update, according to the bucket's clock.
+        let now = self.clock.now();
         let time_delta = (now - self.last_update).as_nanos();
 
         if time_delta >= u128::from(self.refill_time * NANOSEC_IN_ONE_MILLISEC) {
@@ -133,41 +175,28 @@ impl TokenBucket {
             // `processed_capacity` and `processed_refill_time` are the result of simplifying above
             // fraction formula with their greatest-common-factor.
 
-            // In the constructor, we assured that (self.refill_time * NANOSEC_IN_ONE_MILLISEC)
-            // fits into a u64 That means, at this point we know that time_delta <
-            // u64::MAX. Since all other values here are u64, this assures that u128
-            // multiplication cannot overflow.
             let processed_capacity = u128::from(self.processed_capacity);
             let processed_refill_time = u128::from(self.processed_refill_time);
 
-            let tokens = (time_delta * processed_capacity) / processed_refill_time;
+            // `time_delta` < `refill_time * NANOSEC_IN_ONE_MILLISEC`, which fits into a u64
+            // (checked in the constructor), and the `processed_*` values are u64, so this
+            // u128 multiplication cannot overflow.
+            // Since `time_delta` is less than the full refill time, `tokens` is less than
+            // `self.size`, so this cast cannot truncate.
+            let tokens = ((time_delta * processed_capacity) / processed_refill_time) as u64;
 
-            // We increment `self.last_update` by the minimum time required to generate `tokens`, in
-            // the case where we have the time to generate `1.8` tokens but only
-            // generate `x` tokens due to integer arithmetic this will carry the time
-            // required to generate 0.8th of a token over to the next call, such that if
-            // the next call where to generate `2.3` tokens it would instead
-            // generate `3.1` tokens. This minimizes dropping tokens at high frequencies.
-            // We want the integer division here to round up instead of down (as if we round down,
-            // we would allow some fraction of a nano second to be used twice, allowing
-            // for the generation of one extra token in extreme circumstances).
-            let mut time_adjustment = tokens * processed_refill_time / processed_capacity;
-            if !(tokens * processed_refill_time).is_multiple_of(processed_capacity) {
-                time_adjustment += 1;
-            }
+            // Increment `last_update` by the minimum time required to generate `tokens`.
+            // Rounding up carries the unused fractional token time over to the next call.
+            let time_adjustment = self.time_to_refill(tokens);
 
-            // Ensure that we always generate as many tokens as we can: assert that the "unused"
-            // part of time_delta is less than the time it would take to generate a
-            // single token (= processed_refill_time / processed_capacity)
-            debug_assert!(time_adjustment <= time_delta);
+            debug_assert!(time_adjustment.as_nanos() <= time_delta);
             debug_assert!(
-                (time_delta - time_adjustment) * processed_capacity <= processed_refill_time
+                (time_delta - time_adjustment.as_nanos()) * processed_capacity
+                    <= processed_refill_time
             );
 
-            // time_adjustment is at most time_delta, and since time_delta <= u64::MAX, this cast is
-            // fine
-            self.last_update += Duration::from_nanos(time_adjustment as u64);
-            self.budget = std::cmp::min(self.budget.saturating_add(tokens as u64), self.size);
+            self.last_update += time_adjustment;
+            self.budget = std::cmp::min(self.budget.saturating_add(tokens), self.size);
         }
     }
 
@@ -178,7 +207,7 @@ impl TokenBucket {
             // We still have burst budget for *all* tokens requests.
             if self.one_time_burst >= tokens {
                 self.one_time_burst -= tokens;
-                self.last_update = Instant::now();
+                self.last_update = self.clock.now();
                 // No need to continue to the refill process, we still have burst budget to consume
                 // from.
                 return BucketReduction::Success;
@@ -201,11 +230,11 @@ impl TokenBucket {
                     tokens,
                     self.size
                 );
-                // Empty the bucket and report an overconsumption of
-                // (remaining tokens / size) times larger than the bucket size
+                // Empty the bucket and report the time required to replenish
+                // the tokens consumed in excess of the bucket capacity
                 tokens -= self.budget;
                 self.budget = 0;
-                return BucketReduction::OverConsumption(tokens as f64 / self.size as f64);
+                return BucketReduction::OverConsumption(self.time_to_refill(tokens));
             }
 
             if tokens > self.budget {
@@ -298,7 +327,9 @@ pub enum BucketUpdate {
 pub struct RateLimiter {
     bandwidth: Option<TokenBucket>,
     ops: Option<TokenBucket>,
-
+    // We need a timer_fd, even if our current config effectively disables rate limiting,
+    // because `Self::update_buckets()` might re-enable it later, and we might be
+    // seccomp-blocked from creating the timer_fd at that time.
     timer_fd: TimerFd,
     // Internal flag that quickly determines timer state.
     timer_active: bool,
@@ -358,15 +389,46 @@ impl RateLimiter {
             ops_complete_refill_time_ms,
         );
 
-        // We'll need a timer_fd, even if our current config effectively disables rate limiting,
-        // because `Self::update_buckets()` might re-enable it later, and we might be
-        // seccomp-blocked from creating the timer_fd at that time.
-        let timer_fd = TimerFd::new();
+        RateLimiter {
+            bandwidth: bytes_token_bucket,
+            ops: ops_token_bucket,
+            timer_fd: TimerFd::new(),
+            timer_active: false,
+        }
+    }
+
+    /// Test-only: like [`RateLimiter::new`], but the buckets and timer are driven by the given
+    /// deterministic mock `clock`. Advancing `clock` (in place of `thread::sleep`) moves the
+    /// buckets' replenishment and the timer's expiry in lock step, keeping timer-driven tests
+    /// fast and reproducible.
+    #[cfg(test)]
+    pub(crate) fn new_mocked(
+        bytes_total_capacity: u64,
+        bytes_one_time_burst: u64,
+        bytes_complete_refill_time_ms: u64,
+        ops_total_capacity: u64,
+        ops_one_time_burst: u64,
+        ops_complete_refill_time_ms: u64,
+        clock: &MockClock,
+    ) -> Self {
+        let bytes_token_bucket = TokenBucket::new_mocked(
+            bytes_total_capacity,
+            bytes_one_time_burst,
+            bytes_complete_refill_time_ms,
+            clock,
+        );
+
+        let ops_token_bucket = TokenBucket::new_mocked(
+            ops_total_capacity,
+            ops_one_time_burst,
+            ops_complete_refill_time_ms,
+            clock,
+        );
 
         RateLimiter {
             bandwidth: bytes_token_bucket,
             ops: ops_token_bucket,
-            timer_fd,
+            timer_fd: TimerFd::new_mocked(clock),
             timer_active: false,
         }
     }
@@ -394,7 +456,6 @@ impl RateLimiter {
         };
         // Try to consume from the token bucket.
         if let Some(bucket) = token_bucket {
-            let refill_time = bucket.refill_time_ms();
             match bucket.reduce(tokens) {
                 // When we report budget is over, there will be no further calls here,
                 // register a timer to replenish the bucket and resume processing;
@@ -409,16 +470,13 @@ impl RateLimiter {
                 BucketReduction::Success => true,
                 // The operation succeeded as the tokens have been consumed
                 // but the timer still needs to be armed.
-                BucketReduction::OverConsumption(ratio) => {
-                    // The operation "borrowed" a number of tokens `ratio` times
-                    // greater than the size of the bucket, and since it takes
-                    // `refill_time` milliseconds to fill an empty bucket, in
-                    // order to enforce the bandwidth limit we need to prevent
-                    // further calls to the rate limiter for
-                    // `ratio * refill_time` milliseconds.
-                    // The conversion should be safe because the ratio is positive.
-                    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                    self.activate_timer(Duration::from_millis((ratio * refill_time as f64) as u64));
+                BucketReduction::OverConsumption(duration) => {
+                    // The operation "borrowed" tokens from the bucket. `duration` is
+                    // the minimum time required to replenish the borrowed tokens.
+                    //
+                    // Use the duration directly so that sub-millisecond debts are
+                    // preserved instead of being truncated to zero.
+                    self.activate_timer(duration);
                     true
                 }
             }
@@ -758,23 +816,15 @@ mod verification {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::thread;
     use std::time::Duration;
 
     use super::*;
-
-    // Define custom refill interval to be a bit bigger. This will help
-    // in tests which wait for a limiter refill in 2 stages. This will make it so
-    // second wait will always result in the limiter being refilled. Otherwise
-    // there is a chance for a race condition between limiter refilling and limiter
-    // checking.
-    const TEST_REFILL_TIMER_DURATION: Duration = Duration::from_millis(110);
 
     impl TokenBucket {
         // Resets the token bucket: budget set to max capacity and last-updated set to now.
         fn reset(&mut self) {
             self.budget = self.size;
-            self.last_update = Instant::now();
+            self.last_update = self.clock.now();
         }
 
         fn get_last_update(&self) -> &Instant {
@@ -812,33 +862,33 @@ pub(crate) mod tests {
         // These values will give 1 token every 100 milliseconds
         const SIZE: u64 = 10;
         const TIME: u64 = 1000;
-        let mut tb = TokenBucket::new(SIZE, 0, TIME).unwrap();
+        let clock = MockClock::new();
+        let mut tb = TokenBucket::new_mocked(SIZE, 0, TIME, &clock).unwrap();
         tb.reduce(SIZE);
         assert_eq!(tb.budget(), 0);
 
         // Auto-replenishing after 10 milliseconds should not yield any tokens
-        thread::sleep(Duration::from_millis(10));
+        clock.advance(Duration::from_millis(10));
         tb.auto_replenish();
         assert_eq!(tb.budget(), 0);
 
         // Neither after 20.
-        thread::sleep(Duration::from_millis(10));
+        clock.advance(Duration::from_millis(10));
         tb.auto_replenish();
         assert_eq!(tb.budget(), 0);
 
         // We should get 1 token after 100 millis
-        thread::sleep(Duration::from_millis(80));
+        clock.advance(Duration::from_millis(80));
         tb.auto_replenish();
         assert_eq!(tb.budget(), 1);
 
         // So, 5 after 500 millis
-        thread::sleep(Duration::from_millis(400));
+        clock.advance(Duration::from_millis(400));
         tb.auto_replenish();
         assert_eq!(tb.budget(), 5);
 
         // And be fully replenished after 1 second.
-        // Wait more here to make sure we do not overshoot
-        thread::sleep(Duration::from_millis(1000));
+        clock.advance(Duration::from_millis(500));
         tb.auto_replenish();
         assert_eq!(tb.budget(), 10);
     }
@@ -847,29 +897,28 @@ pub(crate) mod tests {
     fn test_token_bucket_auto_replenish_two() {
         const SIZE: u64 = 1000;
         const TIME: u64 = 1000;
-        let time = Duration::from_millis(TIME);
 
-        let mut tb = TokenBucket::new(SIZE, 0, TIME).unwrap();
+        let clock = MockClock::new();
+        let mut tb = TokenBucket::new_mocked(SIZE, 0, TIME, &clock).unwrap();
         tb.reduce(SIZE);
         assert_eq!(tb.budget(), 0);
 
-        let now = Instant::now();
-        while now.elapsed() < time {
+        // Replenish in many small steps; after a full second the bucket is back to capacity.
+        for i in 0..TIME {
+            assert_eq!(tb.budget(), i);
+            clock.advance(Duration::from_millis(1));
             tb.auto_replenish();
         }
-        tb.auto_replenish();
         assert_eq!(tb.budget(), SIZE);
     }
 
     #[test]
     fn test_token_bucket_create() {
-        let before = Instant::now();
-        let tb = TokenBucket::new(1000, 0, 1000).unwrap();
+        let clock = MockClock::new();
+        let tb = TokenBucket::new_mocked(1000, 0, 1000, &clock).unwrap();
         assert_eq!(tb.capacity(), 1000);
         assert_eq!(tb.budget(), 1000);
-        assert!(*tb.get_last_update() >= before);
-        let after = Instant::now();
-        assert!(*tb.get_last_update() <= after);
+        assert_eq!(*tb.get_last_update(), clock.now());
         assert_eq!(tb.get_processed_capacity(), 1);
         assert_eq!(tb.get_processed_refill_time(), 1_000_000);
 
@@ -900,33 +949,35 @@ pub(crate) mod tests {
         // allowing rate of 1 token/ms.
         let capacity = 1000;
         let refill_ms = 1000;
-        let mut tb = TokenBucket::new(capacity, 0, refill_ms).unwrap();
+        let clock = MockClock::new();
+        let mut tb = TokenBucket::new_mocked(capacity, 0, refill_ms, &clock).unwrap();
 
         assert_eq!(tb.reduce(123), BucketReduction::Success);
         assert_eq!(tb.budget(), capacity - 123);
         assert_eq!(tb.reduce(capacity), BucketReduction::Failure);
 
         // token bucket with capacity 1000 and refill time of 1000 milliseconds
-        let mut tb = TokenBucket::new(1000, 1100, 1000).unwrap();
-        // safely assuming the thread can run these 3 commands in less than 500ms
+        let clock = MockClock::new();
+        let mut tb = TokenBucket::new_mocked(1000, 1100, 1000, &clock).unwrap();
         assert_eq!(tb.reduce(1000), BucketReduction::Success);
         assert_eq!(tb.one_time_burst(), 100);
         assert_eq!(tb.reduce(500), BucketReduction::Success);
         assert_eq!(tb.one_time_burst(), 0);
         assert_eq!(tb.reduce(500), BucketReduction::Success);
         assert_eq!(tb.reduce(500), BucketReduction::Failure);
-        thread::sleep(Duration::from_millis(500));
+        clock.advance(Duration::from_millis(500));
         assert_eq!(tb.reduce(500), BucketReduction::Success);
-        thread::sleep(Duration::from_millis(1000));
-        assert_eq!(tb.reduce(2500), BucketReduction::OverConsumption(1.5));
+        clock.advance(Duration::from_millis(1000));
+        assert_eq!(
+            tb.reduce(2500),
+            BucketReduction::OverConsumption(Duration::from_millis(1500))
+        );
 
-        let before = Instant::now();
         tb.reset();
         assert_eq!(tb.capacity(), 1000);
         assert_eq!(tb.budget(), 1000);
-        assert!(*tb.get_last_update() >= before);
-        let after = Instant::now();
-        assert!(*tb.get_last_update() <= after);
+        // `reset` sets `last_update` to the current time of the bucket's clock.
+        assert_eq!(*tb.get_last_update(), clock.now());
     }
 
     #[test]
@@ -988,12 +1039,11 @@ pub(crate) mod tests {
     #[test]
     fn test_rate_limiter_bandwidth() {
         // rate limiter with limit of 1000 bytes/s
-        let mut l = RateLimiter::new(1000, 0, 1000, 0, 0, 0);
+        let clock = MockClock::new();
+        let mut l = RateLimiter::new_mocked(1000, 0, 1000, 0, 0, 0, &clock);
 
         // limiter should not be blocked
         assert!(!l.is_blocked());
-        // raw FD for this disabled should be valid
-        assert!(l.as_raw_fd() > 0);
 
         // ops/s limiter should be disabled so consume(whatever) should work
         assert!(l.consume(u64::MAX, TokenType::Ops));
@@ -1004,13 +1054,13 @@ pub(crate) mod tests {
         assert!(!l.consume(100, TokenType::Bytes));
         // since consume failed, limiter should be blocked now
         assert!(l.is_blocked());
-        // wait half the timer period
-        thread::sleep(TEST_REFILL_TIMER_DURATION / 2);
+        // advance half the timer period
+        clock.advance(REFILL_TIMER_DURATION / 2);
         // limiter should still be blocked
         assert!(l.is_blocked());
-        // wait the other half of the timer period
-        thread::sleep(TEST_REFILL_TIMER_DURATION / 2);
-        // the timer_fd should have an event on it by now
+        // advance the other half of the timer period
+        clock.advance(REFILL_TIMER_DURATION / 2);
+        // the timer should have an event on it by now
         l.event_handler().unwrap();
         // limiter should now be unblocked
         assert!(!l.is_blocked());
@@ -1021,12 +1071,11 @@ pub(crate) mod tests {
     #[test]
     fn test_rate_limiter_ops() {
         // rate limiter with limit of 1000 ops/s
-        let mut l = RateLimiter::new(0, 0, 0, 1000, 0, 1000);
+        let clock = MockClock::new();
+        let mut l = RateLimiter::new_mocked(0, 0, 0, 1000, 0, 1000, &clock);
 
         // limiter should not be blocked
         assert!(!l.is_blocked());
-        // raw FD for this disabled should be valid
-        assert!(l.as_raw_fd() > 0);
 
         // bytes/s limiter should be disabled so consume(whatever) should work
         assert!(l.consume(u64::MAX, TokenType::Bytes));
@@ -1037,13 +1086,13 @@ pub(crate) mod tests {
         assert!(!l.consume(100, TokenType::Ops));
         // since consume failed, limiter should be blocked now
         assert!(l.is_blocked());
-        // wait half the timer period
-        thread::sleep(TEST_REFILL_TIMER_DURATION / 2);
+        // advance half the timer period
+        clock.advance(REFILL_TIMER_DURATION / 2);
         // limiter should still be blocked
         assert!(l.is_blocked());
-        // wait the other half of the timer period
-        thread::sleep(TEST_REFILL_TIMER_DURATION / 2);
-        // the timer_fd should have an event on it by now
+        // advance the other half of the timer period
+        clock.advance(REFILL_TIMER_DURATION / 2);
+        // the timer should have an event on it by now
         l.event_handler().unwrap();
         // limiter should now be unblocked
         assert!(!l.is_blocked());
@@ -1054,14 +1103,13 @@ pub(crate) mod tests {
     #[test]
     fn test_rate_limiter_full() {
         // rate limiter with limit of 1000 bytes/s and 1000 ops/s
-        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000);
+        let clock = MockClock::new();
+        let mut l = RateLimiter::new_mocked(1000, 0, 1000, 1000, 0, 1000, &clock);
 
         // limiter should not be blocked
         assert!(!l.is_blocked());
-        // raw FD for this disabled should be valid
-        assert!(l.as_raw_fd() > 0);
 
-        // do full 1000 bytes
+        // do full 1000 ops
         assert!(l.consume(1000, TokenType::Ops));
         // do full 1000 bytes
         assert!(l.consume(1000, TokenType::Bytes));
@@ -1071,13 +1119,13 @@ pub(crate) mod tests {
         assert!(!l.consume(100, TokenType::Bytes));
         // since consume failed, limiter should be blocked now
         assert!(l.is_blocked());
-        // wait half the timer period
-        thread::sleep(TEST_REFILL_TIMER_DURATION / 2);
+        // advance half the timer period
+        clock.advance(REFILL_TIMER_DURATION / 2);
         // limiter should still be blocked
         assert!(l.is_blocked());
-        // wait the other half of the timer period
-        thread::sleep(TEST_REFILL_TIMER_DURATION / 2);
-        // the timer_fd should have an event on it by now
+        // advance the other half of the timer period
+        clock.advance(REFILL_TIMER_DURATION / 2);
+        // the timer should have an event on it by now
         l.event_handler().unwrap();
         // limiter should now be unblocked
         assert!(!l.is_blocked());
@@ -1090,7 +1138,8 @@ pub(crate) mod tests {
     #[test]
     fn test_rate_limiter_overconsumption() {
         // initialize the rate limiter
-        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000);
+        let clock = MockClock::new();
+        let mut l = RateLimiter::new_mocked(1000, 0, 1000, 1000, 0, 1000, &clock);
         // try to consume 2.5x the bucket size
         // we are "borrowing" 1.5x the bucket size in tokens since
         // the bucket is full
@@ -1098,18 +1147,19 @@ pub(crate) mod tests {
 
         // check that even after a whole second passes, the rate limiter
         // is still blocked
-        thread::sleep(Duration::from_millis(1000));
+        clock.advance(Duration::from_millis(1000));
         l.event_handler().unwrap_err();
         assert!(l.is_blocked());
 
         // after 1.5x the replenish time has passed, the rate limiter
         // is available again
-        thread::sleep(Duration::from_millis(500));
+        clock.advance(Duration::from_millis(500));
         l.event_handler().unwrap();
         assert!(!l.is_blocked());
 
         // reset the rate limiter
-        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000);
+        let clock = MockClock::new();
+        let mut l = RateLimiter::new_mocked(1000, 0, 1000, 1000, 0, 1000, &clock);
         // try to consume 1.5x the bucket size
         // we are "borrowing" 1.5x the bucket size in tokens since
         // the bucket is full, should arm the timer to 0.5x replenish
@@ -1118,7 +1168,7 @@ pub(crate) mod tests {
 
         // check that after more than the minimum refill time,
         // the rate limiter is still blocked
-        thread::sleep(Duration::from_millis(200));
+        clock.advance(Duration::from_millis(200));
         l.event_handler().unwrap_err();
         assert!(l.is_blocked());
 
@@ -1131,17 +1181,46 @@ pub(crate) mod tests {
         // check that after the minimum refill time, the timer was not
         // overwritten and the rate limiter is still blocked from the
         // borrowing we performed earlier
-        thread::sleep(Duration::from_millis(100));
+        clock.advance(Duration::from_millis(100));
         l.event_handler().unwrap_err();
         assert!(l.is_blocked());
         assert!(!l.consume(100, TokenType::Bytes));
 
         // after waiting out the full duration, rate limiter should be
-        // availale again
-        thread::sleep(Duration::from_millis(200));
+        // available again
+        clock.advance(Duration::from_millis(200));
         l.event_handler().unwrap();
         assert!(!l.is_blocked());
         assert!(l.consume(100, TokenType::Bytes));
+    }
+
+    #[test]
+    fn test_rate_limiter_overconsumption_sub_millisecond() {
+        // Bucket of 1_000_000 bytes that refills completely in one second.
+        // Borrowing one single token beyond the bucket capacity must be
+        // replenished in `1/1_000_000 * 1000 ms = 0.001 ms`. The limiter has
+        // to arm a (sub-millisecond) timer for that debt. If the duration
+        // is truncated to zero, the timerfd gets disarmed while `timer_active`
+        // stays set, and the limiter is wedged forever.
+        let clock = MockClock::new();
+        let mut l = RateLimiter::new_mocked(1_000_000, 0, 1000, 0, 0, 0, &clock);
+
+        // Consume one byte more than the full bucket, i.e. borrow 1 token.
+        assert!(l.consume(1_000_001, TokenType::Bytes));
+        assert!(l.is_blocked());
+
+        // The debt of 1 token takes exactly 1000 ns to replenish, so the timer
+        // must not fire one nanosecond earlier. With the buggy millisecond
+        // truncation the timer is disarmed, so `event_handler` keeps returning
+        // `SpuriousRateLimiterEvent` and the limiter never unblocks.
+        clock.advance(Duration::from_nanos(999));
+        l.event_handler().unwrap_err();
+        assert!(l.is_blocked());
+
+        clock.advance(Duration::from_nanos(1));
+        l.event_handler().unwrap();
+        assert!(!l.is_blocked());
+        assert!(l.consume(1, TokenType::Bytes));
     }
 
     #[test]

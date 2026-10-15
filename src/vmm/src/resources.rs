@@ -14,8 +14,8 @@ use crate::logger::{LoggerConfig, info};
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
 use crate::mmds::ns::MmdsNetworkStack;
-use crate::utils::mib_to_bytes;
 use crate::utils::net::ipv4addr::is_link_local_valid;
+use crate::utils::{mib_to_bytes, u32_mib_to_bytes};
 use crate::vmm_config::TokenBucketConfig;
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
@@ -33,7 +33,7 @@ use crate::vmm_config::pmem::{PmemBuilder, PmemConfig, PmemConfigError};
 use crate::vmm_config::serial::SerialConfig;
 use crate::vmm_config::vsock::*;
 use crate::vstate::memory;
-use crate::vstate::memory::{GuestRegionMmap, MemoryError};
+use crate::vstate::memory::{GuestRegionMmap, MemfdBacking, MemoryError};
 
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -158,6 +158,7 @@ impl VmResources {
         instance_info: &InstanceInfo,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
+        pci_enabled: bool,
     ) -> Result<Self, ResourcesError> {
         let vmm_config = serde_json::from_str::<VmmConfig>(config_json)?;
 
@@ -171,6 +172,7 @@ impl VmResources {
 
         let mut resources: Self = Self {
             mmds_size_limit,
+            pci_enabled,
             ..Default::default()
         };
         if let Some(machine_config) = vmm_config.machine_config {
@@ -267,6 +269,10 @@ impl VmResources {
         update: &MachineConfigUpdate,
     ) -> Result<(), MachineConfigError> {
         let updated = self.machine_config.update(update)?;
+
+        if updated.pcie_hotplug_ports > 0 && !self.pci_enabled {
+            return Err(MachineConfigError::PcieHotplugPortsRequirePci);
+        }
 
         // The VM cannot have a memory size smaller than the target size
         // of the balloon device, if present.
@@ -477,61 +483,94 @@ impl VmResources {
         Ok(())
     }
 
-    /// Allocates the given guest memory regions.
+    /// Whether guest memory has to be backed by a memfd rather than anonymous memory.
     ///
-    /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
-    /// prefers anonymous memory for performance reasons.
-    fn allocate_memory_regions(
-        &self,
-        regions: &[(GuestAddress, usize)],
-    ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-        let vhost_user_device_used = self
-            .block
+    /// Page faults are more expensive for shared memory mappings, including memfd. For this
+    /// reason, guest memory is only backed by a memfd when something outside of Firecracker
+    /// has to see it, which today means a vhost-user-blk device.
+    fn memfd_required(&self) -> bool {
+        self.block
             .devices
             .iter()
-            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user());
+            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user())
+    }
 
-        // Page faults are more expensive for shared memory mapping, including  memfd.
-        // For this reason, we only back guest memory with a memfd
-        // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
-        // an anonymous private memory.
-        //
-        // The vhost-user-blk branch is not currently covered by integration tests in Rust,
-        // because that would require running a backend process. If in the future we converge to
-        // a single way of backing guest memory for vhost-user and non-vhost-user cases,
-        // that would not be worth the effort.
-        if vhost_user_device_used {
-            memory::memfd_backed(
-                regions,
+    /// Total size in bytes of guest memory: the given DRAM regions plus the virtio-mem
+    /// hotpluggable region, if one is configured. This is the size of the memfd when memory is
+    /// memfd-backed, and of a full guest memory snapshot file.
+    fn guest_memory_size(&self, dram: &[(GuestAddress, usize)]) -> Result<u64, MemoryError> {
+        let hotplug_size = self
+            .memory_hotplug
+            .as_ref()
+            .map(|cfg| u32_mib_to_bytes(cfg.total_size_mib))
+            .unwrap_or(0);
+        dram.iter()
+            .try_fold(hotplug_size, |acc, &(_, size)| acc.checked_add(size as u64))
+            .ok_or(MemoryError::OffsetTooLarge)
+    }
+
+    /// Allocates guest DRAM in a configuration most appropriate for these [`VmResources`].
+    ///
+    /// When memory is memfd-backed, a single memfd is created for DRAM *and* the hotpluggable
+    /// region, laid out like a guest memory snapshot file. The returned [`MemfdBacking`] must
+    /// then be passed to [`Self::allocate_memory_region`] so that the hotpluggable region is
+    /// mapped from the same memfd, right after DRAM.
+    pub fn allocate_guest_memory(
+        &self,
+    ) -> Result<(Vec<GuestRegionMmap>, Option<MemfdBacking>), MemoryError> {
+        self.allocate_guest_memory_backed(self.memfd_required())
+    }
+
+    /// [`Self::allocate_guest_memory`] with the memfd decision made by the caller.
+    fn allocate_guest_memory_backed(
+        &self,
+        memfd: bool,
+    ) -> Result<(Vec<GuestRegionMmap>, Option<MemfdBacking>), MemoryError> {
+        let regions =
+            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
+
+        if memfd {
+            let mut backing = MemfdBacking::new(
+                self.guest_memory_size(&regions)?,
+                self.machine_config.huge_pages,
+            )?;
+            let guest_memory = backing.allocate(
+                &regions,
                 self.machine_config.track_dirty_pages,
                 self.machine_config.huge_pages,
-            )
+            )?;
+            Ok((guest_memory, Some(backing)))
         } else {
-            memory::anonymous(
-                regions.iter().copied(),
+            let guest_memory = memory::anonymous(
+                &regions,
                 self.machine_config.track_dirty_pages,
                 self.machine_config.huge_pages,
-            )
+            )?;
+            Ok((guest_memory, None))
         }
     }
 
-    /// Allocates guest memory in a configuration most appropriate for these [`VmResources`].
-    pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-        let regions =
-            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
-        self.allocate_memory_regions(&regions)
-    }
-
-    /// Allocates a single guest memory region.
+    /// Allocates the hotpluggable guest memory region, from the memfd returned by
+    /// [`Self::allocate_guest_memory`] if there is one.
     pub fn allocate_memory_region(
         &self,
         start: GuestAddress,
         size: usize,
+        backing: Option<&mut MemfdBacking>,
     ) -> Result<GuestRegionMmap, MemoryError> {
-        Ok(self
-            .allocate_memory_regions(&[(start, size)])?
-            .pop()
-            .unwrap())
+        let mut regions = match backing {
+            Some(backing) => backing.allocate(
+                &[(start, size)],
+                self.machine_config.track_dirty_pages,
+                self.machine_config.huge_pages,
+            )?,
+            None => memory::anonymous(
+                &[(start, size)],
+                self.machine_config.track_dirty_pages,
+                self.machine_config.huge_pages,
+            )?,
+        };
+        Ok(regions.pop().unwrap())
     }
 }
 
@@ -561,10 +600,12 @@ impl From<&VmResources> for VmmConfig {
 mod tests {
     use std::fs::File;
     use std::io::Write;
+    use std::os::fd::AsRawFd;
     use std::os::linux::fs::MetadataExt;
     use std::str::FromStr;
 
     use serde_json::{Map, Value};
+    use vm_memory::GuestMemoryRegion;
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
@@ -577,11 +618,14 @@ mod tests {
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::resources::VmResources;
     use crate::utils::net::mac::MacAddr;
+    use crate::utils::u64_to_usize;
     use crate::vmm_config::RateLimiterConfig;
     use crate::vmm_config::boot_source::{BootConfig, BootSource, BootSourceConfig};
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
     use crate::vmm_config::machine_config::HugePageConfig::{Hugetlbfs2M, Transparent};
-    use crate::vmm_config::machine_config::{HugePageConfig, MachineConfig, MachineConfigError};
+    use crate::vmm_config::machine_config::{
+        HugePageConfig, MAX_PCIE_HOTPLUG_PORTS, MachineConfig, MachineConfigError,
+    };
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
 
@@ -672,6 +716,75 @@ mod tests {
         }
     }
 
+    const HOTPLUG_CONFIG: MemoryHotplugConfig = MemoryHotplugConfig {
+        total_size_mib: 256,
+        block_size_mib: 2,
+        slot_size_mib: 128,
+    };
+
+    #[test]
+    fn test_guest_memory_size() {
+        let dram = [(GuestAddress(0), 0x1000), (GuestAddress(0x2000), 0x3000)];
+
+        let mut resources = default_vm_resources();
+        assert_eq!(resources.guest_memory_size(&dram).unwrap(), 0x4000);
+
+        resources.set_memory_hotplug_config(HOTPLUG_CONFIG).unwrap();
+        assert_eq!(
+            resources.guest_memory_size(&dram).unwrap(),
+            0x4000 + u32_mib_to_bytes(HOTPLUG_CONFIG.total_size_mib)
+        );
+
+        assert!(matches!(
+            resources.guest_memory_size(&[(GuestAddress(0), usize::MAX)]),
+            Err(MemoryError::OffsetTooLarge)
+        ));
+    }
+
+    #[test]
+    fn test_allocate_guest_memory() {
+        let mut resources = default_vm_resources();
+        resources.set_memory_hotplug_config(HOTPLUG_CONFIG).unwrap();
+        let dram_size = mib_to_bytes(resources.machine_config.mem_size_mib) as u64;
+        // Right after DRAM, which does not start at guest address 0 on all architectures.
+        let hotplug_addr = crate::arch::arch_memory_regions(u64_to_usize(dram_size))
+            .iter()
+            .map(|&(start, size)| start.0 + size as u64)
+            .max()
+            .map(GuestAddress)
+            .unwrap();
+        let hotplug_size = u64_to_usize(u32_mib_to_bytes(HOTPLUG_CONFIG.total_size_mib));
+
+        // No vhost-user device: anonymous memory, for DRAM and the hotplug region alike.
+        assert!(!resources.memfd_required());
+        let (regions, mut backing) = resources.allocate_guest_memory().unwrap();
+        assert!(backing.is_none());
+        assert!(regions.iter().all(|r| r.file_offset().is_none()));
+        let region = resources
+            .allocate_memory_region(hotplug_addr, hotplug_size, backing.as_mut())
+            .unwrap();
+        assert!(region.file_offset().is_none());
+
+        // memfd: DRAM regions and then the hotplug region are mapped from one memfd, each at the
+        // sum of the sizes of the regions before it, which is the layout of a snapshot file.
+        let (regions, mut backing) = resources.allocate_guest_memory_backed(true).unwrap();
+        let memfd = backing.as_ref().unwrap().file.as_raw_fd();
+        let mut offset = 0;
+        for region in &regions {
+            let file_offset = region.file_offset().unwrap();
+            assert_eq!(file_offset.file().as_raw_fd(), memfd);
+            assert_eq!(file_offset.start(), offset);
+            offset += region.len();
+        }
+        assert_eq!(offset, dram_size);
+        let region = resources
+            .allocate_memory_region(hotplug_addr, hotplug_size, backing.as_mut())
+            .unwrap();
+        let file_offset = region.file_offset().unwrap();
+        assert_eq!(file_offset.file().as_raw_fd(), memfd);
+        assert_eq!(file_offset.start(), dram_size);
+    }
+
     #[test]
     fn test_from_json() {
         let kernel_file = TempFile::new().unwrap();
@@ -686,9 +799,14 @@ mod tests {
         // these resources, it is considered an invalid json and the test will crash.
 
         // Invalid JSON string must yield a `serde_json` error.
-        let error =
-            VmResources::from_json(r#"}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
-                .unwrap_err();
+        let error = VmResources::from_json(
+            r#"}"#,
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+            false,
+        )
+        .unwrap_err();
         assert!(
             matches!(error, ResourcesError::InvalidJson(_)),
             "{:?}",
@@ -697,9 +815,14 @@ mod tests {
 
         // Valid JSON string without the configuration for kernel or rootfs
         // result in an invalid JSON error.
-        let error =
-            VmResources::from_json(r#"{}"#, &default_instance_info, HTTP_MAX_PAYLOAD_SIZE, None)
-                .unwrap_err();
+        let error = VmResources::from_json(
+            r#"{}"#,
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+            false,
+        )
+        .unwrap_err();
         assert!(
             matches!(error, ResourcesError::InvalidJson(_)),
             "{:?}",
@@ -730,6 +853,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap_err();
         assert!(
@@ -765,6 +889,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap_err();
         assert!(
@@ -807,6 +932,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap();
         #[cfg(target_arch = "aarch64")]
@@ -815,6 +941,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap_err();
 
@@ -847,6 +974,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap_err();
         assert!(
@@ -886,6 +1014,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap_err();
         assert!(
@@ -925,6 +1054,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap_err();
         assert!(
@@ -971,6 +1101,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap_err();
 
@@ -1027,6 +1158,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap();
 
@@ -1085,6 +1217,7 @@ mod tests {
             &default_instance_info,
             1200,
             Some(r#"{"key": "value"}"#),
+            false,
         )
         .unwrap();
         let mut map = Map::new();
@@ -1128,6 +1261,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap_err();
         assert!(matches!(error, ResourcesError::File(_)), "{:?}", error);
@@ -1166,6 +1300,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap();
     }
@@ -1209,6 +1344,7 @@ mod tests {
             &default_instance_info,
             HTTP_MAX_PAYLOAD_SIZE,
             None,
+            false,
         )
         .unwrap();
         assert_eq!(
@@ -1278,6 +1414,7 @@ mod tests {
                     &InstanceInfo::default(),
                     HTTP_MAX_PAYLOAD_SIZE,
                     None,
+                    false,
                 )
                 .unwrap();
 
@@ -1293,6 +1430,7 @@ mod tests {
                     &InstanceInfo::default(),
                     HTTP_MAX_PAYLOAD_SIZE,
                     Some(r#"{"key": "value"}"#),
+                    false,
                 )
                 .unwrap();
 
@@ -1362,6 +1500,7 @@ mod tests {
                 &InstanceInfo::default(),
                 HTTP_MAX_PAYLOAD_SIZE,
                 None,
+                false,
             )
             .unwrap();
 
@@ -1430,6 +1569,7 @@ mod tests {
                 &InstanceInfo::default(),
                 HTTP_MAX_PAYLOAD_SIZE,
                 None,
+                false,
             )
             .unwrap();
 
@@ -1452,6 +1592,7 @@ mod tests {
             cpu_template: Some(StaticCpuTemplate::V1N1),
             track_dirty_pages: Some(false),
             huge_pages: Some(HugePageConfig::None),
+            pcie_hotplug_ports: Some(0),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         };
@@ -1561,6 +1702,50 @@ mod tests {
         // trigger the "ballooning incompatible with huge pages" check.
         vm_resources.balloon = BalloonBuilder::new();
         vm_resources.update_machine_config(&aux_vm_config).unwrap();
+    }
+
+    #[test]
+    fn test_update_machine_config_pcie_hotplug_ports() {
+        let mut vm_resources = default_vm_resources();
+        let mut update = MachineConfigUpdate::from(vm_resources.machine_config.clone());
+
+        // No ports by default.
+        assert_eq!(vm_resources.machine_config.pcie_hotplug_ports, 0);
+
+        // Ports need the PCI bus.
+        assert!(!vm_resources.pci_enabled);
+        update.pcie_hotplug_ports = Some(1);
+        assert_eq!(
+            vm_resources.update_machine_config(&update).unwrap_err(),
+            MachineConfigError::PcieHotplugPortsRequirePci
+        );
+
+        // Asking for none of them does not, though.
+        update.pcie_hotplug_ports = Some(0);
+        vm_resources.update_machine_config(&update).unwrap();
+
+        vm_resources.pci_enabled = true;
+        update.pcie_hotplug_ports = Some(MAX_PCIE_HOTPLUG_PORTS);
+        vm_resources.update_machine_config(&update).unwrap();
+        assert_eq!(
+            vm_resources.machine_config.pcie_hotplug_ports,
+            MAX_PCIE_HOTPLUG_PORTS
+        );
+
+        // One more than we have bus numbers for.
+        update.pcie_hotplug_ports = Some(MAX_PCIE_HOTPLUG_PORTS + 1);
+        assert_eq!(
+            vm_resources.update_machine_config(&update).unwrap_err(),
+            MachineConfigError::InvalidPcieHotplugPorts
+        );
+
+        // An update that does not mention the ports leaves them alone.
+        update.pcie_hotplug_ports = None;
+        vm_resources.update_machine_config(&update).unwrap();
+        assert_eq!(
+            vm_resources.machine_config.pcie_hotplug_ports,
+            MAX_PCIE_HOTPLUG_PORTS
+        );
     }
 
     #[test]

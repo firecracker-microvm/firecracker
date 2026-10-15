@@ -10,13 +10,89 @@ and this project adheres to
 
 ### Added
 
+- [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
+  `SendCtrlAltDel` action is now supported on aarch64. It injects a virtual
+  power-button press through a new PL061 GPIO controller exposed to the guest as
+  a `gpio-keys` power button, enabling external graceful shutdown (aarch64
+  previously rejected the action with a 400). The controller's register state is
+  saved and restored with the microVM, which bumps the snapshot version to
+  `13.0.0`.
+- [#6237](https://github.com/firecracker-microvm/firecracker/pull/6237): Added
+  balloon and virtio-mem memory reclamation for shared memfd-backed guest
+  memory, such as memory shared with vhost-user devices.
+
 ### Changed
+
+- [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
+  PL061 GPIO controller backing the new aarch64 power button is always attached
+  and uses one extra GSI, which reduces the GSIs left for VirtIO devices. The
+  new maximum is 91 devices on aarch64; x86_64 is unaffected at 17.
+- [#6201](https://github.com/firecracker-microvm/firecracker/pull/6201):
+  Bounds-check every virtio queue access against the ranges validated at
+  activation, adding defense in depth against out-of-bounds accesses caused by
+  changes to an active queue's configuration. The MMIO and PCI transports
+  already reject queue configuration writes after `DRIVER_OK`, so a guest cannot
+  reach this condition.
+- [#6233](https://github.com/firecracker-microvm/firecracker/pull/6233): When
+  guest memory is backed by a memfd (currently, when a vhost-user device is
+  configured), the hotpluggable memory region is now placed in the same memfd as
+  guest DRAM, with the same layout as a memory snapshot file. The memfd is thus
+  as large as DRAM plus the hotpluggable region, and the jailer's `fsize`
+  resource limit, if set, must be at least `mem_size_mib + total_size_mib` (in
+  bytes) for Firecracker to boot.
+- [#6237](https://github.com/firecracker-microvm/firecracker/pull/6237): Balloon
+  discards on hugetlbfs-backed memory now free the whole huge pages inside each
+  range and zero the partial huge pages at either end. Previously, a range with
+  partial huge pages either failed or kept their old contents. Because zeroing
+  allocates huge pages that were not backed yet, use free page reporting or
+  hinting instead of the traditional balloon with hugetlbfs.
 
 ### Deprecated
 
 ### Removed
 
+- [#6223](https://github.com/firecracker-microvm/firecracker/pull/6223): Custom
+  CPU template JSON files are no longer included in release artifacts. The
+  template definitions remain available in `tests/data/custom_cpu_templates`.
+
 ### Fixed
+
+- [#6254](https://github.com/firecracker-microvm/firecracker/pull/6254) Fixed
+  pausing a vCPU with an unfinished MMIO or port-I/O instruction. Pending I/O
+  now completes before the vCPU pauses, so snapshots include its effects without
+  executing further guest instructions.
+
+- [#6208](https://github.com/firecracker-microvm/firecracker/pull/6208): Fixed
+  the vsock device stalling the VMM thread when the guest connects to a
+  host-side Unix socket whose accept backlog is full. Such connection requests
+  are now refused instead.
+
+- [#6218](https://github.com/firecracker-microvm/firecracker/pull/6218): Bumped
+  `vm-superio` to 0.8.2, fixing serial console input being dropped while the
+  guest has the UART interrupts masked. The Linux 8250 console masks IER for the
+  duration of every `printk` and expects the RX interrupt to be re-asserted once
+  it restores IER, so input that arrived meanwhile stayed in the FIFO and was
+  never delivered to the guest.
+
+- [#6211](https://github.com/firecracker-microvm/firecracker/pull/6211): Fixed
+  the rate limiter permanently throttling a device when a single request
+  exceeded the bucket size by less than one millisecond's worth of tokens. The
+  overconsumption debt was truncated to `0ms`, which disarmed the underlying
+  timerfd while the limiter stayed marked as blocked, so the timer never fired
+  and the device I/O hung until the microVM was restarted. The debt is now
+  computed in nanoseconds and rounded up.
+
+- [#6200](https://github.com/firecracker-microvm/firecracker/pull/6200): Fixed
+  snapshot restore on x86_64 leaving vCPUs with different TSC offsets, which
+  could make guest clocks using the `tsc` clocksource move backwards when a task
+  migrated between vCPUs. On host kernels supporting `KVM_VCPU_TSC_CTRL` (Linux
+  5.16 and later), the restored TSC offset of vCPU 0 is now applied to all vCPUs
+  before they start running.
+
+- [#6253](https://github.com/firecracker-microvm/firecracker/pull/6253): Guest
+  memory written by the virtio-net, vsock and entropy devices is now tracked
+  more accurately. This will lead to smaller incremental snapshots when dirty
+  tracking is enabled.
 
 ## [1.17.0]
 
@@ -140,6 +216,11 @@ and this project adheres to
   Terminating a connection now also discards its TX buffer, so the device stops
   advertising `EPOLLOUT` for a host stream it will never write to again, which
   could otherwise busy-spin the event thread indefinitely.
+- [#6083](https://github.com/firecracker-microvm/firecracker/pull/6083): Fixed a
+  vhost-user-block device backed by a readonly backend not being treated as
+  readonly. The `VIRTIO_BLK_F_RO` check read the acked feature set after it had
+  been narrowed to the vhost-user protocol bit, so it never matched, and a
+  readonly vhost-user root device was given `rw` on the guest kernel cmdline.
 - [#6086](https://github.com/firecracker-microvm/firecracker/pull/6086),
   [#6143](https://github.com/firecracker-microvm/firecracker/pull/6143): Fixed a
   deadlock in the logger: a signal handler that logs while the interrupted
@@ -1437,7 +1518,7 @@ and this project adheres to
 - Added new jailer command line argument `--cgroup` which allow the user to
   specify the cgroups that are going to be set by the Jailer.
 - Added full support for AMD CPUs (General Availability). More details
-  [here](README.md#supported-platforms).
+  [here](README.md#tested-platforms).
 
 ### Fixed
 

@@ -78,10 +78,20 @@ benefits of using huge pages. This is because KVM will unconditionally establish
 guest page tables at 4K granularity if dirty page tracking is enabled, even if
 the host uses huge mappings.
 
-The traditional balloon device reports free pages at 4k granularity, this means
-the device is unable to reclaim the hugepage backing of the guest and drop RSS.
-However, the balloon can still be inflated and used to restrict memory usage in
-the guest.
+The traditional balloon cannot free hugetlbfs memory. A huge page can only be
+freed whole, but Linux guests inflate the traditional balloon at most 1 MiB at a
+time. Firecracker zeroes the inflated pages rather than freeing them. If the
+huge page holding an inflated page was not backed yet, zeroing takes it from the
+pool, so inflating can increase host memory use. Use free page hinting or free
+page reporting instead. Free page reporting needs the guest to report ranges of
+at least 2 MiB, which Linux guests do by default. See the
+[balloon documentation](ballooning.md#security-disclaimer) for details.
+
+Freeing anonymous hugetlbfs memory needs a host kernel of 5.18 or later. Older
+kernels, such as 5.10, reject `MADV_DONTNEED` on hugetlbfs mappings, so
+Firecracker cannot free this memory on those hosts. Hugetlbfs memory shared with
+vhost-user devices is not affected, because Firecracker frees it with
+`MADV_REMOVE`.
 
 [hugetlbfs_docs]: https://docs.kernel.org/admin-guide/mm/hugetlbpage.html
 [thp_docs]: https://www.kernel.org/doc/html/next/admin-guide/mm/transhuge.html#hugepages-in-tmpfs-shmem

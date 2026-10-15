@@ -8,6 +8,7 @@ pub mod net;
 /// Module with external libc functions
 pub mod signal;
 
+use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::num::Wrapping;
 use std::os::unix::fs::OpenOptionsExt;
@@ -109,7 +110,7 @@ pub fn open_file_nonblock(path: &Path) -> Result<File, std::io::Error> {
 
 /// Simple compact version type encoded as `major << 24 | minor << 16 | patch`
 /// Encoding as `u32` allows for trivial comparison.
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Version(pub u32);
 
 impl Version {

@@ -6,6 +6,7 @@ import os
 
 from framework import utils
 from framework.ab_test import DEFAULT_A_REVISION
+from framework.properties import global_props
 
 
 def test_gitlint():
@@ -15,7 +16,8 @@ def test_gitlint():
     os.environ["LC_ALL"] = "C.UTF-8"
     os.environ["LANG"] = "C.UTF-8"
 
+    base = global_props.buildkite_merge_queue_base or f"origin/{DEFAULT_A_REVISION}"
     rc, _, stderr = utils.run_cmd(
-        f"gitlint --commits origin/{DEFAULT_A_REVISION}..HEAD -C ../.gitlint --extra-path framework/gitlint_rules.py",
+        f"gitlint --commits {base}..HEAD -C ../.gitlint --extra-path framework/gitlint_rules.py",
     )
     assert rc == 0, "Commit message violates gitlint rules: {}".format(stderr)

@@ -34,7 +34,7 @@ use crate::devices::virtio::vsock::persist::{
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{debug, warn};
 use crate::pci::PciSBDF;
-use crate::pci::bus::PciRootError;
+use crate::pci::bus::PciBusError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
@@ -57,8 +57,8 @@ pub enum PciManagerError {
     ResourceAllocation(#[from] vm_allocator::Error),
     /// Bus error: {0}
     Bus(#[from] BusError),
-    /// PCI root error: {0}
-    PciRoot(#[from] PciRootError),
+    /// PCI bus error: {0}
+    PciBus(#[from] PciBusError),
     /// MSI error: {0}
     Msi(#[from] InterruptError),
     /// VirtIO PCI device error: {0}
@@ -68,10 +68,10 @@ pub enum PciManagerError {
 }
 
 impl PciDevices {
-    pub fn new(vm: &Arc<KvmVm>) -> Result<Self, PciManagerError> {
+    pub fn new(vm: &Arc<KvmVm>, hotplug_ports: u8) -> Result<Self, PciManagerError> {
         // Currently we don't assign any IRQs to PCI devices. We will be using MSI-X interrupts
         // only.
-        let pci_segment = PciSegment::new(0, vm, &[0u8; 32])?;
+        let pci_segment = PciSegment::new(0, vm, &[0u8; 32], hotplug_ports)?;
 
         Ok(Self {
             pci_segment,
@@ -103,7 +103,8 @@ impl PciDevices {
             .insert((device_type, id), virtio_device.clone());
 
         self.pci_segment
-            .pci_bus
+            .pci_buses
+            .root_bus()
             .lock()
             .expect("Poisoned lock")
             .add_device(sbdf.device(), virtio_device.clone())?;
@@ -144,7 +145,7 @@ impl PciDevices {
         // Don't hold the resource allocator lock across attach_common()
         // below: a device access holds the bus lock and can take the allocator
         // lock, so the reverse order can deadlock.
-        virtio_device.allocate_bars(&mut vm.resource_allocator().mmio64_memory);
+        virtio_device.allocate_bars(&mut vm.resource_allocator().mmio32_memory);
 
         let virtio_device = Arc::new(Mutex::new(virtio_device));
 
@@ -153,6 +154,11 @@ impl PciDevices {
 
     pub(crate) fn pci_segment(&self) -> &PciSegment {
         &self.pci_segment
+    }
+
+    /// Attach the configured number of PCIe root ports.
+    pub(crate) fn attach_root_ports(&mut self, vm: &Arc<KvmVm>) -> Result<(), PciManagerError> {
+        self.pci_segment.attach_root_ports(vm)
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -182,7 +188,8 @@ impl PciDevices {
         // with the PCI bus lock held and can relocate the BAR, so afterwards
         // the BAR address of the device can no longer change under us.
         self.pci_segment
-            .pci_bus
+            .pci_buses
+            .root_bus()
             .lock()
             .expect("Poisoned lock")
             .remove_device(sbdf_device);
@@ -213,7 +220,7 @@ impl PciDevices {
         pci_device_arc
             .lock()
             .expect("Poisoned lock")
-            .free_bars(&mut vm.resource_allocator().mmio64_memory);
+            .free_bars(&mut vm.resource_allocator().mmio32_memory);
 
         // Ensure no other references to the device remain, so it is freed when
         // this function returns.
@@ -495,7 +502,7 @@ impl<'a> Persist<'a> for PciDevices {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let mem = constructor_args.mem;
-        let mut pci_devices = PciDevices::new(constructor_args.vm)?;
+        let mut pci_devices = PciDevices::new(constructor_args.vm, 0)?;
 
         if let Some(balloon_state) = &state.balloon_device {
             let device = Arc::new(Mutex::new(Balloon::restore(
@@ -879,7 +886,8 @@ mod tests {
     "mem_size_mib": 128,
     "smt": false,
     "track_dirty_pages": false,
-    "huge_pages": "None"
+    "huge_pages": "None",
+    "pcie_hotplug_ports": 0
   }},
   "metrics": null,
   "mmds-config": {{

@@ -96,17 +96,33 @@ Please note that even in the case where the driver is not working properly, the
 balloon will never leak memory from one Firecracker process to another, nor can
 a guest within Firecracker access information in memory outside its own guest
 memory. In other words, memory cannot leak in or out of Firecracker if the
-driver becomes corrupted. This is guaranteed by the fact that the page frame
-numbers coming from the driver are checked to be inside the guest memory, then
-`madvise`d with the `MADV_DONTNEED` flag, which breaks the mappings between host
-physical memory (where the information is ultimately stored) and Firecracker
-virtual memory, which is what Firecracker uses to build the guest memory. On
-subsequent accesses on previously `madvise`d memory addresses, the memory is
-zeroed. Furthermore, the guest memory is `mmap`ped with the `MAP_PRIVATE` and
-`MAP_ANONYMOUS` flags, which ensure that even if a Firecracker yields some
-information through an inflate and that same physical page containing the
-information is mapped onto another Firecracker process, reads on that address
-space will see zeroes.
+driver becomes corrupted. The page frame numbers supplied by the driver are
+checked to be inside guest memory before Firecracker discards the ranges.
+Anonymous memory uses `madvise(MADV_DONTNEED)`. Shared memfd-backed memory, such
+as memory shared with vhost-user block devices, uses `madvise(MADV_REMOVE)` to
+release the backing pages. Private snapshot-file mappings are replaced with
+anonymous mappings so later accesses cannot read the old snapshot contents.
+Discarded ranges read as zero on subsequent access until the guest writes to
+them again.
+
+> [!WARNING]
+>
+> With hugetlbfs-backed memory (`huge_pages: "2M"`), use free page hinting or
+> free page reporting instead of the traditional balloon.
+>
+> A huge page can only be freed whole. For each discarded range, Firecracker
+> frees the whole huge pages inside it and zeroes the partial huge pages at
+> either end. Linux guests inflate the traditional balloon at most 1 MiB at a
+> time, so an inflated range never covers a whole huge page, and inflation frees
+> no hugetlbfs memory.
+>
+> Inflation can also increase host memory use. The guest can inflate pages it
+> has never touched, which the host has not backed yet. Zeroing them allocates
+> their huge pages from the pool.
+>
+> Free page hinting always reports whole huge pages. By default, free page
+> reporting does too, because Linux guests only report free ranges of 2 MiB or
+> larger (see [free page reporting](#virtio-balloon-free-page-reporting)).
 
 ## Prerequisites
 
@@ -308,10 +324,11 @@ through a `polling_interval` value of zero post-boot.
 
 Free page reporting is a virtio balloon feature which allows the guest OS to
 report ranges of memory which are not being used. In Firecracker, the balloon
-device will `madvise` the range with the `MADV_DONTNEED` flag, reducing the RSS
-of the guest. Reporting can only be enabled pre-boot and will run continually
-with no option to stop it running. The feature also requires the guest to have
-the Linux kernel config option `PAGE_REPORTING` enabled.
+device discards these ranges to reclaim host memory and reduce the Firecracker
+process's resident set size (RSS). Hugetlbfs memory is accounted separately from
+RSS. Reporting can only be enabled pre-boot and will run continually with no
+option to stop it running. The feature also requires the guest to have the Linux
+kernel config option `PAGE_REPORTING` enabled.
 
 To enable free page reporting when creating the balloon device, the
 `free_page_reporting` attribute should be set in the JSON object.
@@ -344,17 +361,20 @@ order dictates the minimum size of ranges reported and can be configured with
 the `page_reporting_order` module parameter in the guest kernel. The page order
 comes with trade-offs between performance and memory reclaimed; a good target to
 maximise memory reclaim is to have the reported ranges match the backing page
-size.
+size. With hugetlbfs, Firecracker cannot free reported ranges smaller than 2 MiB
+and zeroes them instead. With 4 KiB guest pages, order 9 is 2 MiB and each
+higher order doubles the size, so keep `page_reporting_order` at 9 or higher.
 
 ## Virtio balloon free page hinting
 
 Free page hinting is a
 [developer-preview](../docs/RELEASE_POLICY.md#developer-preview-features)
 feature, which allows the guest driver to report ranges of memory which are not
-being used. In Firecracker, the balloon device will `madvise` the range with the
-`MADV_DONTNEED` flag, reducing the RSS of the guest. Free page hinting differs
-from reporting as this is instead initiated from the host side, giving more
-flexibility on when to reclaim memory.
+being used. In Firecracker, the balloon device discards these ranges to reclaim
+host memory and reduce the Firecracker process's RSS. Hugetlbfs memory is
+accounted separately from RSS. Free page hinting differs from reporting as this
+is instead initiated from the host side, giving more flexibility on when to
+reclaim memory.
 
 To enable free page hinting when creating the balloon device, the
 `free_page_hinting` attribute should be set in the JSON object.
@@ -481,3 +501,9 @@ your scenario.
   is designed to deflate and release memory slowly. This is also compounded if
   the balloon has yet to reach its target size, as it will attempt to inflate
   while also deflating.
+
+- With hugetlbfs-backed memory (`huge_pages: "2M"`), use free page hinting or
+  reporting instead of the traditional balloon. Traditional inflation frees no
+  hugetlbfs memory and can increase host memory use. Free page reporting needs
+  the guest to report ranges of at least 2 MiB, which Linux guests do by
+  default. See the [security disclaimer](#security-disclaimer) for details.

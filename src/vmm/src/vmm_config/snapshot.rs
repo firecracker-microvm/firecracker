@@ -6,7 +6,6 @@
 use std::path::PathBuf;
 
 /// For crates that depend on `vmm` we export.
-pub use semver::Version;
 use serde::{Deserialize, Serialize};
 
 use super::machine_config::HugePageConfig;

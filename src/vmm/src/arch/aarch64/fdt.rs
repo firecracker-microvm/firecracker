@@ -16,7 +16,7 @@ use super::cache_info::{CacheEntry, read_cache_config};
 use super::gic::GICDevice;
 use crate::arch::{
     MEM_32BIT_DEVICES_SIZE, MEM_32BIT_DEVICES_START, MEM_64BIT_DEVICES_SIZE,
-    MEM_64BIT_DEVICES_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT,
+    MEM_64BIT_DEVICES_START,
 };
 use crate::device_manager::DeviceManager;
 use crate::device_manager::mmio::MMIODeviceInfo;
@@ -24,6 +24,7 @@ use crate::devices::acpi::vmclock::{VMCLOCK_SIZE, VmClock};
 use crate::devices::acpi::vmgenid::{VMGENID_MEM_SIZE, VmGenId};
 use crate::devices::pci::PciSegment;
 use crate::initrd::InitrdConfig;
+use crate::pci::bus::PCI_MMIO_CONFIG_SIZE_PER_SEGMENT;
 use crate::vstate::memory::{Address, GuestMemoryMmap, GuestRegionType};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
@@ -32,6 +33,8 @@ const GIC_PHANDLE: u32 = 1;
 const CLOCK_PHANDLE: u32 = 2;
 // This is a value for uniquely identifying the FDT node declaring the MSI controller.
 const MSI_PHANDLE: u32 = 3;
+// This is a value for uniquely identifying the PL061 GPIO controller node.
+const GPIO_PL061_PHANDLE: u32 = 4;
 // You may be wondering why this big value?
 // This phandle is used to uniquely identify the FDT nodes containing cache information. Each cpu
 // can have a variable number of caches, some of these caches may be shared with other cpus.
@@ -51,6 +54,9 @@ const GIC_FDT_IRQ_TYPE_PPI: u32 = 1;
 // From https://elixir.bootlin.com/linux/v4.9.62/source/include/dt-bindings/interrupt-controller/irq.h#L17
 const IRQ_TYPE_EDGE_RISING: u32 = 1;
 const IRQ_TYPE_LEVEL_HI: u32 = 4;
+const KEY_POWER: u32 = 116;
+const POWER_BUTTON_GPIO_PIN: u32 = 0;
+const GPIO_ACTIVE_HIGH: u32 = 0;
 
 /// Errors thrown while configuring the Flattened Device Tree for aarch64.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -459,6 +465,55 @@ fn create_rtc_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<(),
     Ok(())
 }
 
+fn create_gpio_pl061_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<(), FdtError> {
+    let compatible = b"arm,pl061\0arm,primecell\0";
+
+    let gpio = fdt.begin_node(&format!("pl061@{:x}", dev_info.addr))?;
+    fdt.property("compatible", compatible)?;
+    fdt.property_array_u64("reg", &[dev_info.addr, dev_info.len])?;
+    fdt.property_u32("clocks", CLOCK_PHANDLE)?;
+    fdt.property_string("clock-names", "apb_pclk")?;
+    fdt.property_u32("#gpio-cells", 2)?;
+    fdt.property_null("gpio-controller")?;
+    fdt.property_u32("phandle", GPIO_PL061_PHANDLE)?;
+    // The PL061 interrupt is injected through a plain KVM irqfd (no resample fd), which
+    // models an edge-triggered line: each `trigger()` delivers a single pulse and there is
+    // no path to de-assert a level. Declaring it level-high would make the GIC re-fire the
+    // interrupt forever after the guest EOIs it (interrupt storm). Match the edge-triggered
+    // model used by every other Firecracker SPI (serial, vmgenid, vmclock).
+    fdt.property_array_u32(
+        "interrupts",
+        &[
+            GIC_FDT_IRQ_TYPE_SPI,
+            dev_info.gsi.unwrap(),
+            IRQ_TYPE_EDGE_RISING,
+        ],
+    )?;
+    fdt.end_node(gpio)?;
+
+    Ok(())
+}
+
+fn create_gpio_keys_node(fdt: &mut FdtWriter) -> Result<(), FdtError> {
+    let gpio_keys = fdt.begin_node("gpio-keys")?;
+    fdt.property_string("compatible", "gpio-keys")?;
+
+    // A single KEY_POWER button bound to line 0 of the PL061 above (via its phandle), so the
+    // guest's gpio-keys driver reports a power-key event when the host asserts that line.
+    let power_button = fdt.begin_node("poweroff")?;
+    fdt.property_string("label", "GPIO Key Poweroff")?;
+    fdt.property_u32("linux,code", KEY_POWER)?;
+    fdt.property_array_u32(
+        "gpios",
+        &[GPIO_PL061_PHANDLE, POWER_BUTTON_GPIO_PIN, GPIO_ACTIVE_HIGH],
+    )?;
+    fdt.end_node(power_button)?;
+
+    fdt.end_node(gpio_keys)?;
+
+    Ok(())
+}
+
 fn create_devices_node(
     fdt: &mut FdtWriter,
     device_manager: &DeviceManager,
@@ -469,6 +524,14 @@ fn create_devices_node(
 
     if let Some(serial_info) = device_manager.mmio_platform_devices.serial_device_info() {
         create_serial_node(fdt, serial_info)?;
+    }
+
+    if let Some(gpio_pl061_info) = device_manager
+        .mmio_platform_devices
+        .gpio_pl061_device_info()
+    {
+        create_gpio_pl061_node(fdt, gpio_pl061_info)?;
+        create_gpio_keys_node(fdt)?;
     }
 
     if let Some(mmio_virtio_devices) = device_manager.mmio_virtio_devices() {
@@ -488,19 +551,23 @@ fn create_pci_nodes(fdt: &mut FdtWriter, segment: &PciSegment) -> Result<(), Fdt
     let pci_node_name = format!("pci@{:x}", segment.mmio_config_address);
     // Each range here is a thruple of `(PCI address, CPU address, PCI size)`.
     //
+    // The first cell encodes the address space: bits 25-24 hold the space code
+    // (0b10 for 32-bit memory, 0b11 for 64-bit memory) and bit 30 marks the
+    // range prefetchable.
+    //
     // More info about the format can be found here:
     // https://elinux.org/Device_Tree_Usage#PCI_Address_Translation
     let ranges = [
-        // 32bit addresses
-        0x200_0000u32,
+        // 32 bit memory space, non-prefetchable
+        0b0000_0010_0000_0000_0000_0000_0000_0000u32,
         (MEM_32BIT_DEVICES_START >> 32) as u32, // PCI address
         (MEM_32BIT_DEVICES_START & 0xffff_ffff) as u32,
         (MEM_32BIT_DEVICES_START >> 32) as u32, // CPU address
         (MEM_32BIT_DEVICES_START & 0xffff_ffff) as u32,
         (MEM_32BIT_DEVICES_SIZE >> 32) as u32, // Range size
         (MEM_32BIT_DEVICES_SIZE & 0xffff_ffff) as u32,
-        // 64bit addresses
-        0x300_0000u32,
+        // 64 bit memory space, prefetchable
+        0b0100_0011_0000_0000_0000_0000_0000_0000u32,
         // PCI address
         (MEM_64BIT_DEVICES_START >> 32) as u32, // PCI address
         (MEM_64BIT_DEVICES_START & 0xffff_ffff) as u32,
@@ -527,11 +594,12 @@ fn create_pci_nodes(fdt: &mut FdtWriter, segment: &PciSegment) -> Result<(), Fdt
     ];
 
     let pci_node = fdt.begin_node(&pci_node_name)?;
+    let last_bus = u32::from(segment.pci_buses.num_buses() - 1);
 
     fdt.property_string("compatible", "pci-host-ecam-generic")?;
     fdt.property_string("device_type", "pci")?;
     fdt.property_array_u32("ranges", &ranges)?;
-    fdt.property_array_u32("bus-range", &[0, 0])?;
+    fdt.property_array_u32("bus-range", &[0, last_bus])?;
     fdt.property_u32("linux,pci-domain", segment.id.into())?;
     fdt.property_u32("#address-cells", 3)?;
     fdt.property_u32("#size-cells", 2)?;
@@ -619,7 +687,9 @@ mod tests {
             "psci",
             "rtc@40001000",
             "uart@40002000",
-            "virtio_mmio@40003000",
+            "pl061@40003000",
+            "gpio-keys",
+            "virtio_mmio@40004000",
             "vmgenid",
             "ptp@2149572608",
         ];

@@ -12,7 +12,7 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use semver::Version;
+use crate::utils::Version;
 use serde::{Deserialize, Serialize};
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use vmm_sys_util::sock_ctrl_msg::ScmSocket;
@@ -59,6 +59,8 @@ pub struct VmInfo {
     pub boot_source: BootSourceConfig,
     /// Huge page configuration
     pub huge_pages: HugePageConfig,
+    /// Number of PCIe hot-plug ports
+    pub pcie_hotplug_ports: u8,
 }
 
 impl From<&VmResources> for VmInfo {
@@ -69,6 +71,7 @@ impl From<&VmResources> for VmInfo {
             cpu_template: StaticCpuTemplate::from(&value.machine_config.cpu_template),
             boot_source: value.boot_source.config.clone(),
             huge_pages: value.machine_config.huge_pages,
+            pcie_hotplug_ports: value.machine_config.pcie_hotplug_ports,
         }
     }
 }
@@ -82,6 +85,7 @@ impl From<&Vmm> for VmInfo {
             cpu_template: StaticCpuTemplate::from(&machine_config.cpu_template),
             boot_source: value.boot_source_config.clone(),
             huge_pages: machine_config.huge_pages,
+            pcie_hotplug_ports: machine_config.pcie_hotplug_ports,
         }
     }
 }
@@ -163,7 +167,7 @@ pub enum CreateSnapshotError {
 }
 
 /// Snapshot version
-pub const SNAPSHOT_VERSION: Version = Version::new(12, 0, 0);
+pub const SNAPSHOT_VERSION: Version = Version::new(13, 0, 0);
 
 /// Creates a Microvm snapshot.
 pub fn create_snapshot(
@@ -433,6 +437,22 @@ pub fn restore_from_snapshot(
         .map_err(|_| MachineConfigError::InvalidVcpuCount)
         .map_err(BuildMicrovmFromSnapshotError::VmUpdateConfig)?;
 
+    // Due to questionable past API design decisions whether the restored VM
+    // uses PCI is decided by the snapshot and not by the --enable-pci flag of
+    // the process doing the restore. Set the option based on the snapshot
+    // state.
+    let pci_enabled = matches!(
+        microvm_state.device_states.virtio_state,
+        VirtioDevicesState::Pci(_)
+    );
+    if pci_enabled != vm_resources.pci_enabled {
+        warn!(
+            "The snapshot's PCI configuration does not match --enable-pci; \
+             following the snapshot configuration."
+        );
+    }
+    vm_resources.pci_enabled = pci_enabled;
+
     vm_resources
         .update_machine_config(&MachineConfigUpdate {
             vcpu_count: Some(vcpu_count),
@@ -441,6 +461,7 @@ pub fn restore_from_snapshot(
             cpu_template: Some(microvm_state.vm_info.cpu_template),
             track_dirty_pages: Some(track_dirty_pages),
             huge_pages: Some(params.huge_pages.resolve(microvm_state.vm_info.huge_pages)),
+            pcie_hotplug_ports: Some(microvm_state.vm_info.pcie_hotplug_ports),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         })
@@ -532,8 +553,12 @@ fn guest_memory_from_file(
     huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, GuestMemoryFromFileError> {
     let mem_file = File::open(mem_file_path)?;
-    let guest_mem =
-        memory::snapshot_file(mem_file, mem_state.regions(), track_dirty_pages, huge_pages)?;
+    let guest_mem = memory::snapshot_file(
+        mem_file,
+        &mem_state.regions(),
+        track_dirty_pages,
+        huge_pages,
+    )?;
     Ok(guest_mem)
 }
 
@@ -591,7 +616,7 @@ fn create_guest_memory(
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<(Vec<GuestRegionMmap>, Vec<GuestRegionUffdMapping>), GuestMemoryFromUffdError> {
-    let guest_memory = memory::anonymous(mem_state.regions(), track_dirty_pages, huge_pages)?;
+    let guest_memory = memory::anonymous(&mem_state.regions(), track_dirty_pages, huge_pages)?;
     let mut backend_mappings = Vec::with_capacity(guest_memory.len());
     let mut offset = 0;
     for mem_region in guest_memory.iter() {

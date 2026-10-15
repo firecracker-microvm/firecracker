@@ -42,7 +42,7 @@ workload at that particular point in time.
 ### Supported platforms
 
 The Firecracker snapshot feature is supported on all CPU micro-architectures
-listed in [README](../../README.md#supported-platforms).
+listed in [README](../../README.md#tested-platforms).
 
 ### Overview
 
@@ -199,6 +199,13 @@ the microVM in the `Paused` state. **Effects**:
 
 - _on success_: microVM is guaranteed to be `Paused`.
 - _on failure_: no side-effects.
+
+**What `Paused` means**: all vCPU threads are paused, and all device emulation
+stops. API requests are still served, but no virtio device, tap, rate limiter,
+or timer is polled (including the automatic periodic metric flushing).
+Effectively, the guest memory gets frozen in time, except for in-flight async
+block I/O that the kernel completes after the pause (drained by
+`snapshot/create`) and for changes made by external vhost-user backends.
 
 ### Creating snapshots
 
@@ -521,7 +528,10 @@ When using `kvm-clock` as clock source on `x86_64`, it's possible to optionally
 set the `clock_realtime: true` in the `LoadSnapshot` request to advance the
 clock on the guest at restore time (host Linux >= 5.16 is required to support
 this feature). Note that this may cause issues within the guest as the clock
-will appear to suddenly jump.
+will appear to suddenly jump. The host that creates the snapshot must also use a
+TSC-based clock source (for example `tsc`). Otherwise KVM does not save the
+realtime clock in the snapshot, and loading it with `clock_realtime: true` fails
+with `clock_realtime requested but not present in the snapshot state`.
 
 ## Provisioning host disk space for snapshots
 

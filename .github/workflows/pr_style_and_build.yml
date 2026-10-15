@@ -1,0 +1,54 @@
+name: PR style and build
+
+on: pull_request
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  style_and_build:
+    name: Style and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: "Checkout pull request head"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Load the dev container from the cache that cache_devctr.yml keeps on
+      # main, so the checks below do not pull it from the registry. On a
+      # miss, devtool pulls the image itself, with retries.
+      - name: "Resolve dev container image"
+        id: image
+        run: |
+          image=$(./tools/devtool -y devctr_image)
+          echo "key=fcuvm-${RUNNER_OS}-${RUNNER_ARCH}-${image##*:}" >> "$GITHUB_OUTPUT"
+
+      - name: "Restore cached dev container"
+        id: restore
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/fcuvm.tar.zst
+          key: ${{ steps.image.outputs.key }}
+
+      - name: "Load dev container"
+        if: steps.restore.outputs.cache-hit == 'true'
+        shell: bash
+        run: |
+          zstd -d -c "$RUNNER_TEMP/fcuvm.tar.zst" | docker load
+          rm -f "$RUNNER_TEMP/fcuvm.tar.zst"
+
+      - name: "Check build"
+        run: ./tools/devtool -y checkbuild --all
+
+      - name: "Check style"
+        env:
+          BUILDKITE_PULL_REQUEST_BASE_BRANCH: ${{ github.base_ref }}
+        run: ./tools/devtool -y checkstyle --no-clippy

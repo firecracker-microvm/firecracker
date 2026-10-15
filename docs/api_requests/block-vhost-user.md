@@ -142,9 +142,9 @@ region file descriptors after mapping them into its own address space.
 The Firecracker [jailer](../jailer.md) allows to configure resource limits for
 the Firecracker process. Specifically, it allows to set the maximum file size.
 Since `memfd` that is used to back the guest memory is considered a file, the
-file size resource limit cannot be less than the biggest guest memory region.
-This does not require any special action from a user, but needs to be taken into
-consideration.
+file size resource limit cannot be less than the biggest guest memory region
+(including hot-pluggable memory). This does not require any special action from
+a user, but needs to be taken into consideration.
 
 ### Remote code execution in the backend
 

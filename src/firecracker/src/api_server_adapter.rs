@@ -101,11 +101,13 @@ impl ApiServerAdapter {
             // If the latest req is a pause request, temporarily switch to a mode where we
             // do blocking `recv`s on the `from_api` receiver in a loop, until we get
             // unpaused. The device emulation is implicitly paused since we do not
-            // relinquish control to the event manager because we're not returning from
-            // `process`.
+            // return to `run_microvm` and hence `event_manager.run()` is not called
+            // again: device fds (virtqueue notifications, tap, rate limiters, timers)
+            // are not polled until we break out of this loop on `Resume`.
             if request_is_pause {
                 // This loop only attempts to process API requests, so things like the
-                // metric flush timerfd handling are frozen as well.
+                // metric flush timerfd handling are frozen as well (an explicit `FlushMetrics`
+                // request still goes through).
                 loop {
                     let req = self.from_api.recv().expect("Error receiving API request.");
                     let req_is_resume = *req == VmmAction::Resume;

@@ -889,6 +889,7 @@ mod tests {
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
     use crate::rate_limiter::TokenType;
     use crate::vstate::memory::{Address, Bytes, GuestAddress};
+    use utils::time::MockClock;
 
     #[test]
     fn test_calculate_blk_size_and_topology() {
@@ -2006,7 +2007,8 @@ mod tests {
 
             // Create bandwidth rate limiter that allows only 5120 bytes/s with bucket size of 8
             // bytes.
-            let mut rl = RateLimiter::new(512, 0, 100, 0, 0, 0);
+            let clock = MockClock::new();
+            let mut rl = RateLimiter::new_mocked(512, 0, 100, 0, 0, 0, &clock);
             // Use up the budget.
             assert!(rl.consume(512, TokenType::Bytes));
 
@@ -2034,9 +2036,8 @@ mod tests {
                 assert_eq!(vq.used.idx.get(), 0);
             }
 
-            // Wait for 100ms to give the rate-limiter timer a chance to replenish.
-            // Wait for an extra 50ms to make sure the timerfd event makes its way from the kernel.
-            thread::sleep(Duration::from_millis(150));
+            // Advance the shared virtual clock past the refill timer (100ms).
+            clock.advance(Duration::from_millis(100));
 
             // Following write procedure should succeed because bandwidth should now be available.
             {
@@ -2075,7 +2076,8 @@ mod tests {
             let status_addr = GuestAddress(vq.dtable[2].addr.get());
 
             // Create ops rate limiter that allows only 10 ops/s with bucket size of 1 ops.
-            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100);
+            let clock = MockClock::new();
+            let mut rl = RateLimiter::new_mocked(0, 0, 0, 1, 0, 100, &clock);
             // Use up the budget.
             assert!(rl.consume(1, TokenType::Ops));
 
@@ -2118,9 +2120,8 @@ mod tests {
                 assert_eq!(vq.used.idx.get(), 0);
             }
 
-            // Wait for 100ms to give the rate-limiter timer a chance to replenish.
-            // Wait for an extra 50ms to make sure the timerfd event makes its way from the kernel.
-            thread::sleep(Duration::from_millis(150));
+            // Advance the shared virtual clock past the refill timer (100ms).
+            clock.advance(Duration::from_millis(100));
 
             // Following write procedure should succeed because ops budget should now be available.
             {

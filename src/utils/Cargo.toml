@@ -10,6 +10,7 @@ bench = false
 
 [features]
 tracing = ["log-instrument"]
+test-utils = []
 
 [dependencies]
 displaydoc = "0.2.6"

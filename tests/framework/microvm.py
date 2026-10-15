@@ -17,6 +17,7 @@ import re
 import select
 import shutil
 import signal
+import socket
 import time
 import uuid
 from collections import namedtuple
@@ -371,7 +372,7 @@ class Microvm:
             # https://github.com/firecracker-microvm/firecracker/pull/4442/commits/d63eb7a65ffaaae0409d15ed55d99ecbd29bc572
             # Note: we have to retry a bit because /proc might show killed processes for a brief amount of time.
             for attempt in Retrying(
-                wait=wait_fixed(0.1), stop=stop_after_delay(1.0), reraise=True
+                wait=wait_fixed(0.01), stop=stop_after_delay(1.0), reraise=True
             ):
                 with attempt:
                     # filter ps results for the jailer's unique id
@@ -666,10 +667,19 @@ class Microvm:
         metrics_path="fc.ndjson",
         emit_metrics: bool = False,
         validate_api: bool = True,
+        expect_failure: bool = False,
     ):
-        """Start a microVM as a daemon or in a screen session."""
+        """Start a microVM as a daemon or in a screen session.
+
+        Set `expect_failure` when Firecracker is meant to exit during startup:
+        no readiness check is then performed, and it is up to the caller to
+        assert on the failure.
+        """
         # pylint: disable=subprocess-run-check
         # pylint: disable=too-many-branches
+        # Firecracker matches `--level` case-insensitively, so normalise the
+        # value to the one spelling the comparisons below are written against.
+        log_level = log_level.capitalize()
         self.jailer.setup()
         self.api = Api(
             self.jailer.api_socket_path(),
@@ -750,13 +760,16 @@ class Microvm:
         if emit_metrics:
             self.monitors.append(FCMetricsMonitor(self))
 
+        if expect_failure:
+            # Firecracker is meant to exit during startup, so there is no API to
+            # wait for. The caller asserts on how it failed.
+            return
+
         # Ensure Firecracker is in as good a state as possible wrts guest
         # responsiveness / API availability.
         # If we are using a config file and it has a network device specified,
         # use SSH to wait until guest userspace is available. If we are
-        # using the API, wait until the log message indicating the API server
-        # has finished initializing is printed (if logging is enabled), or
-        # until the API socket file has been created.
+        # using the API, wait until the API socket accepts connections.
         # If none of these apply, do a last ditch effort to make sure the
         # Firecracker process itself at least came up by checking
         # for the startup log message. Otherwise, you're on your own kid.
@@ -764,10 +777,7 @@ class Microvm:
             assert not serial_out_path
             self.wait_for_ssh_up()
         elif "no-api" not in self.jailer.extra_args:
-            if self.log_file and log_level in ("Trace", "Debug", "Info"):
-                self.check_log_message("API server started.")
-            else:
-                self._wait_for_api_socket()
+            self._wait_for_api_socket()
 
             if serial_out_path is not None:
                 self.api.serial.put(serial_out_path=serial_out_path)
@@ -775,16 +785,17 @@ class Microvm:
             assert not serial_out_path
             self.check_log_message("Running Firecracker")
 
-    @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
+    @retry(wait=wait_fixed(0.01), stop=stop_after_delay(3.0), reraise=True)
     def _wait_for_api_socket(self):
-        """Wait until the API socket and chroot folder are available."""
+        """Wait until the API socket accepts connections."""
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.connect(str(self.jailer.api_socket_path()))
 
-        # We expect the jailer to start within 80 ms. However, we wait for
-        # 1 sec since we are rechecking the existence of the socket 5 times
-        # and leave 0.2 delay between them.
-        os.stat(self.jailer.api_socket_path())
-
-    @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
+    # Firecracker typically prints this within a few milliseconds of being
+    # spawned, so poll frequently: a coarse fixed delay here adds directly to
+    # the wall time of every test that boots a VM. Keep the total budget at
+    # ~1 second.
+    @retry(wait=wait_fixed(0.01), stop=stop_after_delay(1.0), reraise=True)
     def check_log_message(self, message):
         """Wait until `message` appears in logging output."""
         assert (
@@ -887,11 +898,11 @@ class Microvm:
             backend_type, path_on_host, self.chroot(), drive_id, is_read_only
         )
 
-        socket = backend.spawn(self.jailer.uid, self.jailer.gid)
+        socket_path = backend.spawn(self.jailer.uid, self.jailer.gid)
 
         self.api.drive.put(
             drive_id=drive_id,
-            socket=socket,
+            socket=socket_path,
             partuuid=partuuid,
             is_root_device=is_root_device,
             cache_type=cache_type,

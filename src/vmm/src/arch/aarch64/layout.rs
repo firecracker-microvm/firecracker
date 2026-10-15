@@ -108,8 +108,6 @@ pub const MMIO32_MEM_SIZE: u64 = DRAM_MEM_START - MMIO32_MEM_START;
 pub const PCI_MMCONFIG_SIZE: u64 = 256 << 20;
 /// Start of MMIO region for PCIe configuration accesses.
 pub const PCI_MMCONFIG_START: u64 = DRAM_MEM_START - PCI_MMCONFIG_SIZE;
-/// MMIO space per PCIe segment
-pub const PCI_MMIO_CONFIG_SIZE_PER_SEGMENT: u64 = 4096 * 256;
 
 // We reserve 768 MiB for devices at the beginning of the MMIO region. This includes space both for
 // pure MMIO and PCIe devices.
@@ -120,9 +118,11 @@ pub const BOOT_DEVICE_MEM_START: u64 = MMIO32_MEM_START;
 pub const RTC_MEM_START: u64 = BOOT_DEVICE_MEM_START + MMIO_LEN;
 /// Memory region start for Serial device.
 pub const SERIAL_MEM_START: u64 = RTC_MEM_START + MMIO_LEN;
+/// Memory region start for PL061 GPIO device.
+pub const GPIO_PL061_MEM_START: u64 = SERIAL_MEM_START + MMIO_LEN;
 
 /// Beginning of memory region for device MMIO 32-bit accesses
-pub const MEM_32BIT_DEVICES_START: u64 = SERIAL_MEM_START + MMIO_LEN;
+pub const MEM_32BIT_DEVICES_START: u64 = GPIO_PL061_MEM_START + MMIO_LEN;
 /// Size of memory region for device MMIO 32-bit accesses
 pub const MEM_32BIT_DEVICES_SIZE: u64 = PCI_MMCONFIG_START - MEM_32BIT_DEVICES_START;
 
