@@ -6,9 +6,23 @@
 use std::ops::Deref;
 
 use vm_memory::bitmap::Bitmap;
-use vm_memory::{GuestMemoryBackend, GuestMemoryError};
+use vm_memory::{GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion};
 
-use crate::vstate::memory::{ByteValued, GuestAddress};
+use crate::vstate::memory::{ByteValued, GuestAddress, GuestMemoryMmap};
+
+/// Guest memory that may track the pages written to it.
+pub trait DirtyTracking {
+    /// The memory to report writes to, or `None` when dirty page tracking is off.
+    fn dirty_tracking(&self) -> Option<GuestMemoryMmap>;
+}
+
+impl DirtyTracking for GuestMemoryMmap {
+    fn dirty_tracking(&self) -> Option<GuestMemoryMmap> {
+        self.iter()
+            .any(|region| region.bitmap().is_some())
+            .then(|| self.clone())
+    }
+}
 
 /// A resolved guest-memory range with volatile accesses bounded by its original length.
 ///
@@ -36,14 +50,13 @@ impl GuestMemorySlice {
         len: 0,
     };
 
-    /// Resolves `addr..addr + len`, which must lie within a single region, and marks it dirty.
+    /// Resolves `addr..addr + len`, which must lie within a single region.
     pub(crate) fn new<M: GuestMemoryBackend>(
         mem: &M,
         addr: GuestAddress,
         len: usize,
     ) -> Result<Self, GuestMemoryError> {
         let slice = mem.get_slice(addr, len)?;
-        slice.bitmap().mark_dirty(0, len);
         Ok(Self {
             base: slice.ptr_guard_mut().as_ptr(),
             len,
@@ -93,25 +106,37 @@ impl GuestMemorySlice {
 }
 
 /// A [`GuestMemorySlice`] Firecracker writes to (e.g. a virtqueue used ring).
+///
+/// With dirty page tracking on, each write marks the pages it touches in the guest memory's
+/// dirty bitmap, right after writing them. With tracking off, writes are plain writes.
 #[derive(Debug)]
-pub(crate) struct GuestMemorySliceMut {
-    slice: GuestMemorySlice,
+pub(crate) enum GuestMemorySliceMut {
+    /// Dirty page tracking is off.
+    Untracked(GuestMemorySlice),
+    /// Dirty page tracking is on.
+    Tracked {
+        slice: GuestMemorySlice,
+        /// The guest memory to mark the writes in.
+        mem: GuestMemoryMmap,
+        /// The range's address in it.
+        addr: GuestAddress,
+    },
 }
 
 impl GuestMemorySliceMut {
     /// An unresolved range used before queue initialization.
-    pub(crate) const UNRESOLVED: Self = Self {
-        slice: GuestMemorySlice::UNRESOLVED,
-    };
+    pub(crate) const UNRESOLVED: Self = Self::Untracked(GuestMemorySlice::UNRESOLVED);
 
-    /// Resolves `addr..addr + len`, which must lie within a single region, and marks it dirty.
-    pub(crate) fn new<M: GuestMemoryBackend>(
+    /// Resolves `addr..addr + len`, which must lie within a single region.
+    pub(crate) fn new<M: GuestMemoryBackend + DirtyTracking>(
         mem: &M,
         addr: GuestAddress,
         len: usize,
     ) -> Result<Self, GuestMemoryError> {
-        Ok(Self {
-            slice: GuestMemorySlice::new(mem, addr, len)?,
+        let slice = GuestMemorySlice::new(mem, addr, len)?;
+        Ok(match mem.dirty_tracking() {
+            None => Self::Untracked(slice),
+            Some(mem) => Self::Tracked { slice, mem, addr },
         })
     }
 
@@ -126,6 +151,19 @@ impl GuestMemorySliceMut {
         let ptr = self.ptr_at::<T>(offset)?;
         // SAFETY: `ptr_at` bounds the access. The caller guarantees alignment and a live mapping.
         unsafe { ptr.write_volatile(val) };
+        if let Self::Tracked { mem, addr, .. } = self {
+            // TODO: this looks the region up on every write, and marks the region's dirty
+            // bitmap, whose words cover 2 MiB of guest memory each: the rings and buffers of all
+            // the queues within the same 2 MiB share a cache line, so queues served from
+            // different threads contend on it.
+            let region = mem
+                .find_region(*addr)
+                .expect("range resolved in this memory");
+            let range_start = usize::try_from(addr.0 - region.start_addr().0).unwrap();
+            region
+                .bitmap()
+                .mark_dirty(range_start + offset, std::mem::size_of::<T>());
+        }
         Some(())
     }
 
@@ -147,7 +185,9 @@ impl Deref for GuestMemorySliceMut {
     type Target = GuestMemorySlice;
 
     fn deref(&self) -> &GuestMemorySlice {
-        &self.slice
+        match self {
+            Self::Untracked(slice) | Self::Tracked { slice, .. } => slice,
+        }
     }
 }
 
@@ -210,7 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn test_guest_memory_slice_marks_range_dirty() {
+    fn test_guest_memory_slice_mut_dirty_tracking() {
         let page_size = host_page_size();
         let mem = into_region_ext(
             anonymous(
@@ -220,17 +260,59 @@ mod tests {
             )
             .unwrap(),
         );
-
-        mem.reset_dirty();
-        GuestMemorySlice::new(&mem, GuestAddress(page_size as u64), page_size).unwrap();
-
         let dirty_at = |addr: usize| {
             mem.get_slices(GuestAddress(addr as u64), 1)
                 .flatten()
                 .all(|slice| slice.bitmap().dirty_at(0))
         };
-        assert!(!dirty_at(0));
-        assert!(dirty_at(page_size));
-        assert!(!dirty_at(page_size * 2));
+        let clean = || !(0..3).any(|p| dirty_at(p * page_size));
+
+        // A slice spanning the end of page 1 and the start of page 2.
+        mem.reset_dirty();
+        let mut slice =
+            GuestMemorySliceMut::new(&mem, GuestAddress((2 * page_size - 8) as u64), 16).unwrap();
+
+        // Resolving a slice marks nothing, and neither do reads.
+        // SAFETY: `mem` outlives the slice; all accesses are aligned and in bounds.
+        unsafe {
+            slice.read_obj::<u32>(0).unwrap();
+            slice.read_last::<u16>().unwrap();
+            assert!(clean());
+
+            // A write marks the page it landed on, and only that.
+            slice.write_obj::<u32>(1, 0).unwrap();
+            assert!(!dirty_at(0));
+            assert!(dirty_at(page_size));
+            assert!(!dirty_at(2 * page_size));
+
+            mem.reset_dirty();
+            slice.write_last::<u16>(2).unwrap();
+            assert!(!dirty_at(page_size));
+            assert!(dirty_at(2 * page_size));
+
+            // A write straddling the two pages marks both.
+            mem.reset_dirty();
+            slice.write_obj::<[u32; 2]>([3, 3], 4).unwrap();
+            assert!(dirty_at(page_size));
+            assert!(dirty_at(2 * page_size));
+
+            // An out-of-bounds write marks nothing.
+            mem.reset_dirty();
+            assert_eq!(slice.write_obj::<u32>(4, 16), None);
+            assert!(clean());
+
+            // With dirty page tracking off, the regions have no bitmap: writes still land.
+            let untracked = into_region_ext(
+                anonymous(&[(GuestAddress(0), page_size)], false, HugePageConfig::None).unwrap(),
+            );
+            let mut slice = GuestMemorySliceMut::new(&untracked, GuestAddress(0), 16).unwrap();
+            slice.write_obj::<u32>(5, 0).unwrap();
+            assert_eq!(slice.read_obj::<u32>(0).unwrap(), 5);
+
+            // An unresolved slice never writes.
+            let mut unresolved = GuestMemorySliceMut::UNRESOLVED;
+            assert_eq!(unresolved.write_obj::<u8>(0, 0), None);
+            assert!(clean());
+        }
     }
 }

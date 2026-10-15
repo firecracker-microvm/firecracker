@@ -196,12 +196,6 @@ pub fn create_snapshot(
         params.sync_snapshot_files,
     )?;
 
-    // We need to mark queues as dirty again for all activated devices. The reason we
-    // do it here is that we don't mark pages as dirty during runtime
-    // for queue objects.
-    vmm.device_manager
-        .mark_virtio_queue_memory_dirty(kvm_vm.guest_memory());
-
     Ok(())
 }
 
