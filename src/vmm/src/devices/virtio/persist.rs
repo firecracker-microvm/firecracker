@@ -154,9 +154,14 @@ impl VirtioDeviceState {
         // - right device type,
         // - acked features is a subset of available ones,
         // - right number of queues,
+        // - right queue max size, before restoring resolves rings of up to that size.
         if self.device_type != expected_device_type
             || (self.acked_features & !self.avail_features) != 0
             || self.queues.len() != expected_num_queues
+            || self
+                .queues
+                .iter()
+                .any(|q| q.max_size != expected_queue_max_size)
         {
             return Err(PersistError::InvalidInput);
         }
@@ -166,8 +171,7 @@ impl VirtioDeviceState {
             mem: mem.clone(),
             is_activated: self.activated,
         };
-        let queues: Vec<Queue> = self
-            .queues
+        self.queues
             .iter()
             .map(|queue_state| {
                 Queue::restore(queue_construction_args.clone(), queue_state)
@@ -179,15 +183,7 @@ impl VirtioDeviceState {
                     })
                     .map_err(PersistError::QueueConstruction)
             })
-            .collect::<Result<_, _>>()?;
-
-        for q in &queues {
-            // Sanity check queue size and queue max size.
-            if q.max_size != expected_queue_max_size {
-                return Err(PersistError::InvalidInput);
-            }
-        }
-        Ok(queues)
+            .collect()
     }
 }
 
@@ -269,6 +265,7 @@ mod tests {
     use crate::devices::virtio::test_utils::default_mem;
     use crate::devices::virtio::transport::mmio::tests::DummyDevice;
     use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
+    use crate::test_utils::single_region_mem_dirty_tracking;
 
     const DEFAULT_QUEUE_MAX_SIZE: u16 = 256;
     impl Default for QueueState {
@@ -340,6 +337,26 @@ mod tests {
         state
             .build_queues_checked(&mem, VirtioDeviceType::Net, state.queues.len(), max_size)
             .unwrap_err();
+
+        // Invalid max queue size, with rings too large to track dirty pages for: the size
+        // check comes first, so restoring fails rather than panics.
+        let bad_q = QueueState {
+            max_size: 32768,
+            size: 32768,
+            ready: true,
+            ..Default::default()
+        };
+        state.queues = vec![bad_q];
+        state.activated = true;
+        state
+            .build_queues_checked(
+                &single_region_mem_dirty_tracking(0x100000),
+                VirtioDeviceType::Net,
+                state.queues.len(),
+                max_size,
+            )
+            .unwrap_err();
+        state.activated = false;
 
         // Invalid: size > max.
         let bad_q = QueueState {
