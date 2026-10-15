@@ -5,6 +5,7 @@
 import signal
 import time
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -60,9 +61,9 @@ def check_hugetlbfs_in_use(pid: int, allocation_name: str):
     assert kernel_page_size_kib > 4
 
 
-def bind_hugetlbfs_into_jail(vm, hugetlbfs_path: Path) -> Path:
-    """Bind an existing hugetlbfs mount into a microVM jail before it starts."""
-    jailed_mount = Path(vm.chroot()) / "hugetlbfs"
+def bind_hugetlbfs_into_jail(vm, hugetlbfs_path: Path, name: str = "hugetlbfs") -> Path:
+    """Bind an existing hugetlbfs mount into a microVM jail, as `/name`, before it starts."""
+    jailed_mount = Path(vm.chroot()) / name
     jailed_mount.mkdir(parents=True, exist_ok=True)
     utils.check_output(
         ["mount", "--bind", str(hugetlbfs_path), str(jailed_mount)],
@@ -129,21 +130,20 @@ def test_hugetlbfs_snapshot(microvm_factory, uvm, snapshot_type):
 def hugetlbfs_mount(uvm, tmp_path):
     """A 2 MiB hugetlbfs mount that jailed microVMs can bind and use."""
     hugetlbfs_path = tmp_path / "hugetlbfs"
-    hugetlbfs_path.mkdir()
-    utils.check_output(
-        [
-            "mount",
-            "-t",
-            "hugetlbfs",
-            "-o",
-            f"pagesize=2M,uid={uvm.jailer.uid},gid={uvm.jailer.gid},mode=0770",
-            "none",
-            str(hugetlbfs_path),
-        ],
-        shell=False,
-    )
+    mount_hugetlbfs(uvm, hugetlbfs_path)
     yield hugetlbfs_path
     utils.run_cmd(["umount", str(hugetlbfs_path)], shell=False)
+
+
+def mount_hugetlbfs(vm, path: Path, size: Optional[str] = None):
+    """Mount a 2 MiB hugetlbfs at `path` for the jailed `vm`, limited to `size` if given."""
+    options = f"pagesize=2M,uid={vm.jailer.uid},gid={vm.jailer.gid},mode=0770"
+    if size is not None:
+        options += f",size={size}"
+    path.mkdir(exist_ok=True)
+    utils.check_output(
+        ["mount", "-t", "hugetlbfs", "-o", options, "none", str(path)], shell=False
+    )
 
 
 GUEST_TMPFS = "/mnt/hugetlbfs-test"
@@ -161,8 +161,10 @@ def write_guest_memory_file(vm, name: str, size_mib: int = 16) -> str:
     Returns the file's SHA-256 digest.
     """
     path = f"{GUEST_TMPFS}/{name}"
+    # tmpfs is limited to half of the guest's memory by default.
     vm.ssh.check_output(
-        f"mkdir -p {GUEST_TMPFS} && (mountpoint -q {GUEST_TMPFS} || mount -t tmpfs tmpfs {GUEST_TMPFS})"
+        f"mkdir -p {GUEST_TMPFS} && (mountpoint -q {GUEST_TMPFS}"
+        f" || mount -t tmpfs -o size=100% tmpfs {GUEST_TMPFS})"
         f" && dd if=/dev/urandom of={path} bs=1M count={size_mib}"
     )
     return guest_sha256sum(vm, path)
@@ -309,11 +311,60 @@ def test_hugetlbfs_diff_snapshot_file_backend(microvm_factory, uvm, hugetlbfs_mo
             utils.run_cmd(["umount", str(mount_path)], shell=False)
 
 
+def test_hugetlbfs_sparse_snapshot_mount_capacity(uvm, tmp_path):
+    """A full snapshot on hugetlbfs only needs huge pages for the guest's nonzero memory.
+
+    A freshly booted guest holds far less than half of its memory, so a mount limited to half of
+    the guest has room for the snapshot, but not for all of guest memory. A mount too small even
+    for the nonzero memory fails the snapshot without killing Firecracker.
+    """
+    mem_size_mib = 1024
+    mounts = {"half": f"{mem_size_mib // 2}M", "tiny": "2M"}
+    host_mounts = []
+    jail_mounts = []
+    try:
+        vm = uvm
+        vm.memory_monitor = None
+        for name, size in mounts.items():
+            host_mount = tmp_path / name
+            mount_hugetlbfs(vm, host_mount, size)
+            host_mounts.append(host_mount)
+            jail_mounts.append(bind_hugetlbfs_into_jail(vm, host_mount, name))
+        vm.spawn()
+        vm.basic_config(huge_pages=HugePagesConfig.NONE, mem_size_mib=mem_size_mib)
+        vm.add_net_iface()
+        vm.start()
+
+        vm.pause()
+        vm.api.snapshot_create.put(
+            mem_file_path="half/mem",
+            snapshot_path="vmstate",
+            snapshot_type=SnapshotType.FULL.api_type,
+        )
+        allocated = (tmp_path / "half" / "mem").stat().st_blocks * 512
+        assert 0 < allocated < mem_size_mib * 2**20 // 2
+
+        with pytest.raises(RuntimeError, match="No space left on device"):
+            vm.api.snapshot_create.put(
+                mem_file_path="tiny/mem",
+                snapshot_path="vmstate-tiny",
+                snapshot_type=SnapshotType.FULL.api_type,
+            )
+        vm.resume()
+        vm.ssh.check_output("true")
+    finally:
+        uvm.kill(might_be_dead=True)
+        for mount_path in reversed(jail_mounts + host_mounts):
+            utils.run_cmd(["umount", str(mount_path)], shell=False)
+
+
 def test_hugetlbfs_file_backend_free_page_reporting(
     microvm_factory, uvm, hugetlbfs_mount
 ):
     """Guest memory freed after a hugetlbfs file restore stays on 2 MiB pages."""
-    mem_size_mib = 128
+    # The guest only reports free memory while it has 64 MiB (32 blocks of 2 MiB) free above its
+    # low watermark, so leave room for that next to the 64 MiB it writes.
+    mem_size_mib = 256
     jail_mounts = []
     restored_vm = None
     try:

@@ -44,7 +44,7 @@
             },
             {
                 "syscall": "fallocate",
-                "comment": "Used by the VirtIO block device to punch holes for discard on regular backing files",
+                "comment": "Used by the VirtIO block device to punch holes for discard on regular backing files, and to leave zero pages of hugetlbfs snapshot memory files as holes",
                 "args": [
                     {
                         "index": 1,
@@ -52,6 +52,19 @@
                         "op": "eq",
                         "val": 3,
                         "comment": "FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE"
+                    }
+                ]
+            },
+            {
+                "syscall": "fallocate",
+                "comment": "Used to allocate the huge pages of a hugetlbfs snapshot memory file before writing them",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "FALLOC_FL_KEEP_SIZE"
                     }
                 ]
             },
@@ -291,7 +304,7 @@
             },
             {
                 "syscall": "mmap",
-                "comment": "Used for reading the timezone and for writing hugetlbfs snapshot memory files",
+                "comment": "Used for reading the timezone in LocalTime::now()",
                 "args": [
                     {
                         "index": 3,
@@ -351,7 +364,7 @@
             },
             {
                 "syscall": "mmap",
-                "comment": "Used by pmem device to mmap the backing file",
+                "comment": "Used by pmem device to mmap the backing file, and to write hugetlbfs snapshot memory files",
                 "args": [
                     {
                         "index": 3,

@@ -22,7 +22,8 @@ use kvm_bindings::{
 use kvm_ioctls::VmFd;
 use serde::{Deserialize, Serialize};
 use userfaultfd::Uffd;
-use vm_memory::{GuestMemoryBackend, WriteVolatile};
+use vm_memory::bitmap::BitmapSlice;
+use vm_memory::{GuestMemoryBackend, VolatileMemoryError, VolatileSlice, WriteVolatile};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::terminal::Terminal;
@@ -717,6 +718,7 @@ impl KvmVm {
     ///
     /// A full snapshot leaves all-zero huge pages as holes, so the file only takes pool pages for
     /// memory the guest holds. Punching them also clears stale contents when the file is reused.
+    /// The mapping reserves no huge pages; [`HugetlbfsWriter`] allocates the ones it writes.
     fn snapshot_memory_via_mmap(
         &self,
         file: &std::fs::File,
@@ -729,7 +731,8 @@ impl KvmVm {
         let size = usize::try_from(size).map_err(|_| MemoryError::OffsetTooLarge)?;
 
         // JUSTIFICATION: hugetlbfs does not support `write(2)`, so a shared mapping is the only way
-        // to populate the snapshot file.
+        // to populate the snapshot file. Without MAP_NORESERVE, hugetlbfs would reserve huge pages
+        // for the whole file, including the zero pages a full snapshot leaves as holes.
         // SAFETY: `file` is open for reading and writing, its length was set to `size`, `size` is
         // non-zero and page-aligned, and the mapping is checked against `MAP_FAILED` before use.
         let destination = unsafe {
@@ -737,7 +740,7 @@ impl KvmVm {
                 std::ptr::null_mut(),
                 size,
                 libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED,
+                libc::MAP_SHARED | libc::MAP_NORESERVE,
                 file.as_raw_fd(),
                 0,
             )
@@ -754,7 +757,11 @@ impl KvmVm {
             // mapping or alias any other Rust reference.
             let destination =
                 unsafe { std::slice::from_raw_parts_mut(destination.cast::<u8>(), size) };
-            let mut destination = Cursor::new(destination);
+            let mut destination = HugetlbfsWriter {
+                file,
+                page_size: page_size as u64,
+                mapping: Cursor::new(destination),
+            };
             match snapshot_type {
                 SnapshotType::Diff => self.dump_memory(&mut destination, snapshot_type),
                 SnapshotType::Full => self
@@ -919,24 +926,69 @@ fn mincore_bitmap(addr: *mut u8, len: usize) -> Result<Vec<u64>, VmError> {
     Ok(bitmap)
 }
 
-/// Deallocates `len` bytes of `file` at `offset`, keeping its size, so the range reads as zeros.
-fn punch_hole(file: &std::fs::File, offset: u64, len: usize) -> Result<(), MemoryError> {
-    let offset = libc::off_t::try_from(offset).map_err(|_| MemoryError::OffsetTooLarge)?;
-    let len = libc::off_t::try_from(len).map_err(|_| MemoryError::OffsetTooLarge)?;
-    // JUSTIFICATION: Rust's standard library does not expose hole punching.
+/// Calls `fallocate(2)` on `len` bytes of `file` at `offset`, keeping its size.
+fn fallocate(
+    file: &std::fs::File,
+    mode: libc::c_int,
+    offset: u64,
+    len: u64,
+) -> std::io::Result<()> {
+    let offset = libc::off_t::try_from(offset).map_err(std::io::Error::other)?;
+    let len = libc::off_t::try_from(len).map_err(std::io::Error::other)?;
+    // JUSTIFICATION: Rust's standard library does not expose `fallocate`.
     // SAFETY: `file` owns a valid file descriptor, and `fallocate` only changes its allocation.
     let ret = unsafe {
         libc::fallocate(
             file.as_raw_fd(),
-            libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE,
+            mode | libc::FALLOC_FL_KEEP_SIZE,
             offset,
             len,
         )
     };
     if ret != 0 {
-        return Err(MemoryError::PunchHole(std::io::Error::last_os_error()));
+        return Err(std::io::Error::last_os_error());
     }
     Ok(())
+}
+
+/// Deallocates `len` bytes of `file` at `offset`, keeping its size, so the range reads as zeros.
+fn punch_hole(file: &std::fs::File, offset: u64, len: usize) -> Result<(), MemoryError> {
+    fallocate(file, libc::FALLOC_FL_PUNCH_HOLE, offset, len as u64).map_err(MemoryError::PunchHole)
+}
+
+/// Writes into a `MAP_NORESERVE` shared mapping of a hugetlbfs file.
+///
+/// Without a reservation, writing to a huge page that the pool cannot provide raises `SIGBUS`.
+/// Each write therefore first allocates the huge pages it covers, which fails with `ENOSPC`
+/// instead.
+struct HugetlbfsWriter<'a> {
+    file: &'a std::fs::File,
+    page_size: u64,
+    mapping: Cursor<&'a mut [u8]>,
+}
+
+impl WriteVolatile for HugetlbfsWriter<'_> {
+    fn write_volatile<B: BitmapSlice>(
+        &mut self,
+        buf: &VolatileSlice<B>,
+    ) -> Result<usize, VolatileMemoryError> {
+        let len = self.mapping.get_ref().len() as u64;
+        let start = self.mapping.position().min(len);
+        let end = start.saturating_add(buf.len() as u64).min(len);
+        let aligned_start = start - start % self.page_size;
+        let aligned_end = end.div_ceil(self.page_size) * self.page_size;
+        if aligned_end > aligned_start {
+            fallocate(self.file, 0, aligned_start, aligned_end - aligned_start)
+                .map_err(VolatileMemoryError::IOError)?;
+        }
+        self.mapping.write_volatile(buf)
+    }
+}
+
+impl Seek for HugetlbfsWriter<'_> {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        self.mapping.seek(pos)
+    }
 }
 
 #[cfg(test)]
@@ -1373,6 +1425,59 @@ pub(crate) mod tests {
                     && fields[3].split(',').any(|option| option == "pagesize=2M")
             })?;
         Some(Path::new(mount[1]).join(format!("fc-test-{}-{name}", std::process::id())))
+    }
+
+    #[test]
+    fn test_hugetlbfs_writer_allocates_written_pages_only() {
+        use std::io::SeekFrom;
+        use std::os::unix::fs::{FileExt, MetadataExt};
+
+        if memory::test_utils::free_hugepages_2m() < 1 {
+            println!("Skipping: no free 2 MiB huge page");
+            return;
+        }
+        let page_size = HugePageConfig::Hugetlbfs2M.page_size();
+        let len = 3 * page_size;
+        let file = memfd::MemfdOptions::default()
+            .hugetlb(Some(memfd::HugetlbSize::Huge2MB))
+            .create("hugetlbfs_writer")
+            .unwrap()
+            .into_file();
+        file.set_len(len as u64).unwrap();
+        // SAFETY: `file` is a hugetlbfs file of `len` bytes, open for reading and writing.
+        let mapping = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED | libc::MAP_NORESERVE,
+                file.as_raw_fd(),
+                0,
+            )
+        };
+        assert_ne!(mapping, libc::MAP_FAILED);
+        // SAFETY: `mapping` is a writable mapping of `len` bytes.
+        let destination = unsafe { std::slice::from_raw_parts_mut(mapping.cast::<u8>(), len) };
+        let mut writer = HugetlbfsWriter {
+            file: &file,
+            page_size: page_size as u64,
+            mapping: Cursor::new(destination),
+        };
+
+        writer.seek(SeekFrom::Start(page_size as u64 + 16)).unwrap();
+        let mut data = [7u8; 8];
+        writer
+            .write_all_volatile(&VolatileSlice::from(&mut data[..]))
+            .unwrap();
+        // SAFETY: `mapping` and `len` describe the mapping above, and `writer` is not used again.
+        assert_eq!(unsafe { libc::munmap(mapping, len) }, 0);
+
+        // Only the huge page that was written is allocated.
+        assert_eq!(file.metadata().unwrap().blocks() * 512, page_size as u64);
+        let mut actual = [0u8; 8];
+        file.read_exact_at(&mut actual, page_size as u64 + 16)
+            .unwrap();
+        assert_eq!(actual, data);
     }
 
     #[test]
