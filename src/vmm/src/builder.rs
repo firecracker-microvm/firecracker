@@ -428,8 +428,11 @@ pub enum BuildMicrovmFromSnapshotError {
 }
 
 /// Align restored TSC offsets before starting any vCPU threads.
+///
+/// Each vCPU's TSC deadline is then written again from `states`, because KVM armed its timer
+/// against the TSC the vCPU had before the offset changed.
 #[cfg(target_arch = "x86_64")]
-fn synchronize_tsc_offsets(vcpus: &[crate::Vcpu]) {
+fn synchronize_tsc_offsets(vcpus: &[crate::Vcpu], states: &[crate::vstate::vcpu::VcpuState]) {
     let reference = vcpus
         .first()
         .expect("TSC synchronization requires at least one vCPU");
@@ -448,13 +451,20 @@ fn synchronize_tsc_offsets(vcpus: &[crate::Vcpu]) {
     };
 
     let mut synchronized = true;
-    for vcpu in vcpus {
+    for (vcpu, state) in vcpus.iter().zip(states) {
         if let Err(err) = vcpu.kvm_vcpu.set_tsc_offset(offset) {
             crate::logger::warn!(
                 "Failed to synchronize vCPU {} TSC offset: {err}",
                 vcpu.kvm_vcpu.index
             );
             synchronized = false;
+            continue;
+        }
+        if let Err(err) = vcpu.kvm_vcpu.restore_tsc_deadline(state) {
+            crate::logger::warn!(
+                "Failed to restore vCPU {} TSC deadline: {err}",
+                vcpu.kvm_vcpu.index
+            );
         }
     }
     if synchronized {
@@ -519,7 +529,7 @@ pub fn build_microvm_from_snapshot(
     // Preserve vCPU0's restored timeline while preventing time from going backwards
     // when the guest migrates between vCPUs.
     #[cfg(target_arch = "x86_64")]
-    synchronize_tsc_offsets(&vcpus);
+    synchronize_tsc_offsets(&vcpus, &microvm_state.vcpu_states);
 
     #[cfg(target_arch = "aarch64")]
     {
@@ -908,7 +918,7 @@ pub(crate) mod tests {
                 assert_eq!(vcpu.kvm_vcpu.get_tsc_offset().unwrap(), offset);
             }
 
-            synchronize_tsc_offsets(&vcpus);
+            synchronize_tsc_offsets(&vcpus, &states);
             for vcpu in &vcpus {
                 assert_eq!(vcpu.kvm_vcpu.get_tsc_offset().unwrap(), offsets[0]);
             }
