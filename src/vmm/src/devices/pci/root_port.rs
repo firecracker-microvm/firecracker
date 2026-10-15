@@ -178,18 +178,12 @@ impl PciRootPort {
         }
     }
 
-    /// Signal that a device is present in the slot. When `hotplug` is true the
-    /// device was inserted at runtime, so latch the change bits and raise the
-    /// hot-plug interrupt; a device present from boot (`hotplug` false) is
-    /// discovered by enumeration and needs no notification.
-    pub fn plug(&mut self, hotplug: bool) {
+    /// Signal that a device is present in the slot.
+    pub fn plug(&mut self) {
         self.link_status |= LINK_STATUS_UP;
-        self.slot_status |= PCI_EXP_SLTSTA_PDS;
-        if hotplug {
-            self.slot_status |= PCI_EXP_SLTSTA_PDC | PCI_EXP_SLTSTA_DLLSC;
-            if self.must_inject_irq(PCI_EXP_SLTSTA_PDC | PCI_EXP_SLTSTA_DLLSC) {
-                self.inject_irq();
-            }
+        self.slot_status |= PCI_EXP_SLTSTA_PDS | PCI_EXP_SLTSTA_PDC | PCI_EXP_SLTSTA_DLLSC;
+        if self.must_inject_irq(PCI_EXP_SLTSTA_PDC | PCI_EXP_SLTSTA_DLLSC) {
+            self.inject_irq();
         }
     }
 
@@ -435,24 +429,6 @@ mod tests {
     }
 
     #[test]
-    fn test_boot_time_plug_is_silent() {
-        let mut rp = new_root_port();
-        let reg = rp.slot_reg_idx();
-
-        // Arm every hot-plug notification the port supports.
-        let ctl = PCI_EXP_SLTCTL_HPIE | PCI_EXP_SLTCTL_PDCE | PCI_EXP_SLTCTL_DLLSCE;
-        rp.write_config_register(reg, 0, &ctl.to_le_bytes());
-
-        // A device present from boot is found by ordinary enumeration, so the
-        // slot reports it as present but latches no change bits.
-        rp.plug(false);
-        let status = (rp.read_config_register(reg) >> 16) as u16;
-        assert_ne!(status & PCI_EXP_SLTSTA_PDS, 0);
-        assert_eq!(status & PCI_EXP_SLTSTA_PDC, 0);
-        assert_eq!(status & PCI_EXP_SLTSTA_DLLSC, 0);
-    }
-
-    #[test]
     fn test_slot_status_w1c() {
         let mut rp = new_root_port();
         let reg = rp.slot_reg_idx();
@@ -461,7 +437,7 @@ mod tests {
 
         // Latch every change bit the port reports: an insertion sets PDC and
         // DLLSC, a removal request sets ABP.
-        rp.plug(true);
+        rp.plug();
         rp.request_unplug();
         let latched = PCI_EXP_SLTSTA_ABP | PCI_EXP_SLTSTA_PDC | PCI_EXP_SLTSTA_DLLSC;
         assert_eq!(status(&mut rp) & latched, latched);
@@ -510,7 +486,7 @@ mod tests {
             0
         );
         // After plug, Data Link Layer Link Active is set.
-        rp.plug(true);
+        rp.plug();
         assert_ne!(
             (rp.read_config_register(link_reg) >> 16) as u16 & PCI_EXP_LNKSTA_DLLLA,
             0
