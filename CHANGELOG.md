@@ -109,10 +109,10 @@ and this project adheres to
   5.16 and later), the restored TSC offset of vCPU 0 is now applied to all vCPUs
   before they start running.
 
-- [#6253](https://github.com/firecracker-microvm/firecracker/pull/6253): Guest
-  memory written by the virtio-net, vsock and entropy devices is now tracked
-  more accurately. This will lead to smaller incremental snapshots when dirty
-  tracking is enabled.
+- [#6253](https://github.com/firecracker-microvm/firecracker/pull/6253),
+  [#6274](https://github.com/firecracker-microvm/firecracker/pull/6274): Guest
+  memory written by the virtio devices is now tracked more accurately. This will
+  lead to smaller incremental snapshots when dirty tracking is enabled.
 
 ## [1.17.0]
 
