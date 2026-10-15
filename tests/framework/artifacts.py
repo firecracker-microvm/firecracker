@@ -208,3 +208,8 @@ def pin_rootfs_mode(mode):
 def pin_pci(enabled):
     """Convenience marker for pinning the `pci_enabled` dim to a single value."""
     return pytest.mark.parametrize("pci_enabled", [enabled], indirect=True)
+
+
+def pin_hotplug_ports(count):
+    """Convenience marker for reserving PCIe root ports for hot-plug."""
+    return pytest.mark.parametrize("pcie_hotplug_ports", [count], indirect=True)

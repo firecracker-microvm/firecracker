@@ -42,7 +42,7 @@ workload at that particular point in time.
 ### Supported platforms
 
 The Firecracker snapshot feature is supported on all CPU micro-architectures
-listed in [README](../../README.md#supported-platforms).
+listed in [README](../../README.md#tested-platforms).
 
 ### Overview
 
