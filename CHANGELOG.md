@@ -21,8 +21,8 @@ and this project adheres to
   when devices can be hot-plugged (PCI transport with the API), the rules of all
   hot-pluggable device types are kept. The device and API specific rules of the
   default filters are tagged. The new optional `--seccomp-features` parameter
-  enables the rules of additional features (`all` or a comma-separated list) on
-  top of the derived ones. See
+  enables the rules of additional features (`all`, `none` or a comma-separated
+  list) on top of the derived ones. See
   [docs/seccomp.md](docs/seccomp.md#feature-tagged-rules).
 
 ### Changed

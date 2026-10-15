@@ -76,12 +76,13 @@ logged at `INFO` level when the microVM is built, e.g.
 > boot and only the configured device types are allowed.
 
 The optional `--seccomp-features` parameter enables additional features on top
-of the derived ones, for every thread. It takes `all` or a comma-separated list
-of feature names, e.g. `--seccomp-features net,block`. Use it when a custom
-filter tags rules in a way the derivation does not cover, or to rule out the
-feature derivation while investigating a seccomp violation (which Firecracker
-reports as `Shutting down VM after intercepting a bad syscall`, together with
-the `seccomp.num_faults` metric).
+of the derived ones, for every thread. It takes `all`, `none` or a
+comma-separated list of feature names, e.g. `--seccomp-features net,block`; an
+unknown name is an error. Use it when a custom filter tags rules in a way the
+derivation does not cover, or to rule out the feature derivation while
+investigating a seccomp violation (which Firecracker reports as
+`Shutting down VM after intercepting a bad syscall`, together with the
+`seccomp.num_faults` metric).
 
 ## Custom filters (advanced users only)
 

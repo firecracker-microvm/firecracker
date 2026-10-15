@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::io::Read;
 
 pub use seccomp_filter::{
-    FilterError, FilterFragment, FormatError, SeccompFeature, SeccompFeatures, SeccompFilter,
-    UnknownSeccompFeature,
+    FeatureListError, FilterError, FilterFragment, FormatError, SeccompFeature, SeccompFeatures,
+    SeccompFilter, UnknownSeccompFeature,
 };
 
 /// Each BPF instruction is 8 bytes long and 4 byte aligned.

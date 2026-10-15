@@ -195,6 +195,40 @@ impl fmt::Display for SeccompFeatures {
     }
 }
 
+/// Errors parsing a list of features, see [`SeccompFeatures::from_str`].
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
+pub enum FeatureListError {
+    /// {0}. Expected `all`, `none` or a comma-separated list of feature names
+    UnknownFeature(UnknownSeccompFeature),
+    /// Empty feature name. Expected `all`, `none` or a comma-separated list of feature names
+    EmptyName,
+    /// `{0}` cannot be combined with other feature names
+    Combined(&'static str),
+}
+
+impl FromStr for SeccompFeatures {
+    type Err = FeatureListError;
+
+    /// Parse `all`, `none` or a comma-separated list of feature names. Whitespace around the
+    /// names is ignored; an unknown or empty name, or `all` or `none` among other names, is an
+    /// error rather than something that silently selects nothing.
+    fn from_str(list: &str) -> Result<Self, Self::Err> {
+        match list.trim() {
+            "all" => return Ok(SeccompFeatures::all()),
+            "none" => return Ok(SeccompFeatures::empty()),
+            _ => {}
+        }
+        list.split(',')
+            .map(|name| match name.trim() {
+                "" => Err(FeatureListError::EmptyName),
+                "all" => Err(FeatureListError::Combined("all")),
+                "none" => Err(FeatureListError::Combined("none")),
+                name => name.parse().map_err(FeatureListError::UnknownFeature),
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,5 +280,52 @@ mod tests {
             set | SeccompFeature::Vsock,
             set | SeccompFeatures::from(SeccompFeature::Vsock)
         );
+    }
+
+    #[test]
+    fn test_parse_feature_list() {
+        assert_eq!("all".parse(), Ok(SeccompFeatures::all()));
+        assert_eq!(" none ".parse(), Ok(SeccompFeatures::empty()));
+        assert_eq!(
+            "net".parse(),
+            Ok(SeccompFeatures::from(SeccompFeature::Net))
+        );
+        assert_eq!(
+            "net, block,hotplug,net".parse(),
+            Ok(SeccompFeatures::from(SeccompFeature::Net)
+                | SeccompFeature::Block
+                | SeccompFeature::Hotplug)
+        );
+        for list in ["", " ", "net,,block", "net,"] {
+            assert_eq!(
+                list.parse::<SeccompFeatures>(),
+                Err(FeatureListError::EmptyName),
+                "{list:?}"
+            );
+        }
+        assert_eq!(
+            "net,all".parse::<SeccompFeatures>(),
+            Err(FeatureListError::Combined("all"))
+        );
+        assert_eq!(
+            "none, pmem".parse::<SeccompFeatures>(),
+            Err(FeatureListError::Combined("none"))
+        );
+        assert_eq!(
+            "net,warp-drive".parse::<SeccompFeatures>(),
+            Err(FeatureListError::UnknownFeature(UnknownSeccompFeature(
+                "warp-drive".to_string()
+            )))
+        );
+        // Names are case sensitive, like the tags in the JSON filters.
+        assert_eq!(
+            "Net".parse::<SeccompFeatures>(),
+            Err(FeatureListError::UnknownFeature(UnknownSeccompFeature(
+                "Net".to_string()
+            )))
+        );
+        // The Display form of a set parses back into it.
+        let set = SeccompFeatures::from(SeccompFeature::Pmem) | SeccompFeature::AsyncIo;
+        assert_eq!(set.to_string().parse(), Ok(set));
     }
 }

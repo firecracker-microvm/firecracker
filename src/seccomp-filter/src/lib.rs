@@ -12,7 +12,7 @@ mod features;
 mod filter;
 mod format;
 
-pub use features::{SeccompFeature, SeccompFeatures, UnknownSeccompFeature};
+pub use features::{FeatureListError, SeccompFeature, SeccompFeatures, UnknownSeccompFeature};
 pub use filter::{FilterError, FilterFragment, SeccompFilter};
 pub use format::{
     BpfFilter, BpfFragment, BpfMap, FORMAT_MAGIC, FORMAT_VERSION, FormatError, MAX_ENCODED_SIZE,

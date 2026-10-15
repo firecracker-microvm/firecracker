@@ -35,7 +35,7 @@ use vmm::logger::{
 };
 use vmm::persist::SNAPSHOT_VERSION;
 use vmm::resources::VmResources;
-use vmm::seccomp::{BpfThreadMap, SeccompFeatures, UnknownSeccompFeature};
+use vmm::seccomp::{BpfThreadMap, FeatureListError, SeccompFeatures};
 use vmm::signal_handler::register_signal_handlers;
 use vmm::snapshot::{SnapshotError, get_format_version};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
@@ -75,7 +75,7 @@ enum MainError {
     /// Seccomp error: {0}
     SeccompFilter(FilterError),
     /// Invalid value for seccomp-features: {0}
-    SeccompFeatures(SeccompFeaturesArgError),
+    SeccompFeatures(FeatureListError),
     /// Failed to resize fd table: {0}
     ResizeFdtable(ResizeFdTableError),
     /// RunWithApiError error: {0}
@@ -92,17 +92,6 @@ enum ResizeFdTableError {
     Dup2(io::Error),
     /// Failed to close dup2'd file descriptor
     Close(io::Error),
-}
-
-/// Errors parsing the value of `--seccomp-features`.
-#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
-enum SeccompFeaturesArgError {
-    /// {0}. Expected `all` or a comma-separated list of feature names
-    UnknownFeature(UnknownSeccompFeature),
-    /// Empty feature name. Expected `all` or a comma-separated list of feature names
-    EmptyName,
-    /// `all` cannot be combined with other feature names
-    AllCombined,
 }
 
 impl From<MainError> for FcExitCode {
@@ -208,7 +197,8 @@ fn main_exec() -> Result<(), MainError> {
                     .help(
                         "Optional parameter which enables the seccomp rules of additional \
                          features, on top of the ones the microVM configuration needs. Takes \
-                         `all` or a comma-separated list of feature names. For advanced users.",
+                         `all`, `none` or a comma-separated list of feature names. For \
+                         advanced users.",
                     ),
             )
             .arg(
@@ -424,7 +414,7 @@ fn main_exec() -> Result<(), MainError> {
     let api_enabled = !arguments.flag_present("no-api");
     let seccomp_features = arguments
         .single_value("seccomp-features")
-        .map(|list| parse_seccomp_features(list))
+        .map(|list| list.parse::<SeccompFeatures>())
         .transpose()
         .map_err(MainError::SeccompFeatures)?
         .unwrap_or_default();
@@ -504,22 +494,6 @@ fn main_exec() -> Result<(), MainError> {
         )
         .map_err(MainError::RunWithoutApiError)
     }
-}
-
-/// Parse the value of `--seccomp-features`: `all` or a comma-separated list of feature names.
-fn parse_seccomp_features(list: &str) -> Result<SeccompFeatures, SeccompFeaturesArgError> {
-    if list.trim() == "all" {
-        return Ok(SeccompFeatures::all());
-    }
-    list.split(',')
-        .map(|name| match name.trim() {
-            "" => Err(SeccompFeaturesArgError::EmptyName),
-            "all" => Err(SeccompFeaturesArgError::AllCombined),
-            name => name
-                .parse()
-                .map_err(SeccompFeaturesArgError::UnknownFeature),
-        })
-        .collect()
 }
 
 /// Attempts to resize the processes file descriptor table to match RLIMIT_NOFILE or 2048 if no
@@ -741,47 +715,4 @@ fn run_without_api(
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use vmm::seccomp::SeccompFeature;
-
-    use super::*;
-
-    #[test]
-    fn test_parse_seccomp_features() {
-        assert_eq!(
-            parse_seccomp_features("all").unwrap(),
-            SeccompFeatures::all()
-        );
-        assert_eq!(
-            parse_seccomp_features("net").unwrap(),
-            SeccompFeature::Net.into()
-        );
-        assert_eq!(
-            parse_seccomp_features("net, block,hotplug").unwrap(),
-            SeccompFeatures::from(SeccompFeature::Net)
-                | SeccompFeature::Block
-                | SeccompFeature::Hotplug
-        );
-        assert_eq!(
-            parse_seccomp_features("net,all").unwrap_err(),
-            SeccompFeaturesArgError::AllCombined
-        );
-        assert_eq!(
-            parse_seccomp_features("").unwrap_err(),
-            SeccompFeaturesArgError::EmptyName
-        );
-        assert_eq!(
-            parse_seccomp_features("net,,block").unwrap_err(),
-            SeccompFeaturesArgError::EmptyName
-        );
-        assert_eq!(
-            parse_seccomp_features("net,warp-drive").unwrap_err(),
-            SeccompFeaturesArgError::UnknownFeature(UnknownSeccompFeature(
-                "warp-drive".to_string()
-            ))
-        );
-    }
 }

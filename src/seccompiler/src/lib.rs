@@ -64,14 +64,14 @@ pub enum CompilationError {
 /// with features are compiled into separate, position independent BPF fragments that Firecracker
 /// appends to the base program at runtime when one of their features is in use (see
 /// [`SeccompFilter`]). `basic` drops all argument checks (deprecated). With `split_output`, one raw
-/// program per thread composed with the selected fragments is written next to `out_path` instead
-/// of the encoded [`BpfMap`].
+/// program per thread composed with the fragments of the given features is written next to
+/// `out_path` instead of the encoded [`BpfMap`].
 pub fn compile_bpf(
     input_path: &str,
     arch: &str,
     out_path: &str,
     basic: bool,
-    split_output: Option<&FeatureSelection>,
+    split_output: Option<SeccompFeatures>,
 ) -> Result<(), CompilationError> {
     let mut file_content = String::new();
     File::open(input_path)
@@ -88,7 +88,7 @@ pub fn compile_bpf(
         filters.insert(name.clone(), compile_filter(filter, &arch, basic)?);
     }
 
-    if let Some(selection) = split_output {
+    if let Some(features) = split_output {
         // Output individual files for each thread (for testing)
         let base_path = Path::new(out_path);
         let parent = base_path.parent().unwrap_or_else(|| Path::new("."));
@@ -100,7 +100,7 @@ pub fn compile_bpf(
 
             // Write raw BPF data as bytes
             use zerocopy::IntoBytes;
-            let program = filter.compose(selection.features());
+            let program = filter.compose(features);
             std::io::Write::write_all(&mut thread_file, program.as_bytes())
                 .map_err(CompilationError::OutputCreate)?;
         }
@@ -597,24 +597,6 @@ mod tests {
     }
 
     #[test]
-    fn test_feature_selection() {
-        assert_eq!(
-            "all".parse::<FeatureSelection>().unwrap(),
-            FeatureSelection::All
-        );
-        assert_eq!(
-            " none ".parse::<FeatureSelection>().unwrap(),
-            FeatureSelection::None
-        );
-        assert_eq!(
-            "net, pmem".parse::<FeatureSelection>().unwrap(),
-            FeatureSelection::Only(vec!["net".to_string(), "pmem".to_string()])
-        );
-        "".parse::<FeatureSelection>().unwrap_err();
-        "net,,pmem".parse::<FeatureSelection>().unwrap_err();
-    }
-
-    #[test]
     fn test_split_output_selects_fragments() {
         let input = TempFile::new().unwrap();
         input.as_file().write_all(TAGGED_JSON.as_bytes()).unwrap();
@@ -628,16 +610,13 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
-        for (selection, net, getpid) in [
-            (FeatureSelection::All, SECCOMP_RET_ALLOW, SECCOMP_RET_ALLOW),
-            (FeatureSelection::None, SECCOMP_RET_TRAP, SECCOMP_RET_TRAP),
+        let net = SeccompFeatures::from(SeccompFeature::Net);
+        for (features, net, getpid) in [
+            (SeccompFeatures::all(), SECCOMP_RET_ALLOW, SECCOMP_RET_ALLOW),
+            (SeccompFeatures::empty(), SECCOMP_RET_TRAP, SECCOMP_RET_TRAP),
+            (net, SECCOMP_RET_ALLOW, SECCOMP_RET_TRAP),
             (
-                FeatureSelection::Only(vec!["net".to_string()]),
-                SECCOMP_RET_ALLOW,
-                SECCOMP_RET_TRAP,
-            ),
-            (
-                FeatureSelection::Only(vec!["memory-hotplug".to_string(), "pci".to_string()]),
+                SeccompFeatures::from(SeccompFeature::MemoryHotplug) | SeccompFeature::Pci,
                 SECCOMP_RET_TRAP,
                 SECCOMP_RET_ALLOW,
             ),
@@ -647,7 +626,7 @@ mod tests {
                 "x86_64",
                 output.to_str().unwrap(),
                 false,
-                Some(&selection),
+                Some(features),
             )
             .unwrap();
             let program = read_main();
@@ -661,12 +640,12 @@ mod tests {
             assert_eq!(
                 simulate(&program, &ioctl(NR_IOCTL, TUNSETOFFLOAD)),
                 net,
-                "{selection:?}"
+                "{features:?}"
             );
             assert_eq!(
                 simulate(&program, &syscall(NR_GETPID)),
                 getpid,
-                "{selection:?}"
+                "{features:?}"
             );
         }
     }

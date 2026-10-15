@@ -5,7 +5,6 @@ use std::collections::BTreeMap;
 use std::ffi::CString;
 use std::str::FromStr;
 
-use seccomp_filter::{SeccompFeature, SeccompFeatures};
 use serde::*;
 
 use crate::bindings::*;
@@ -199,50 +198,6 @@ pub struct Filter {
 /// Deserializable object that represents the Json filter file.
 #[derive(Debug, Deserialize)]
 pub struct BpfJson(pub BTreeMap<String, Filter>);
-
-/// Which fragments to include when composing a thread's program.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FeatureSelection {
-    /// Every fragment.
-    All,
-    /// No fragment: only the base program and the epilogue.
-    None,
-    /// The fragments tagged with at least one of these features.
-    Only(Vec<String>),
-}
-
-impl FeatureSelection {
-    /// The selected features. Names that are not features select nothing.
-    pub fn features(&self) -> SeccompFeatures {
-        match self {
-            FeatureSelection::All => SeccompFeatures::all(),
-            FeatureSelection::None => SeccompFeatures::empty(),
-            FeatureSelection::Only(names) => names
-                .iter()
-                .filter_map(|name| name.parse::<SeccompFeature>().ok())
-                .collect(),
-        }
-    }
-}
-
-impl FromStr for FeatureSelection {
-    type Err = String;
-
-    /// `all`, `none`, or a comma-separated list of feature names.
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim() {
-            "all" => Ok(FeatureSelection::All),
-            "none" => Ok(FeatureSelection::None),
-            list => {
-                let features: Vec<String> = list.split(',').map(|f| f.trim().to_string()).collect();
-                if features.iter().any(String::is_empty) {
-                    return Err(format!("empty feature name in {s:?}"));
-                }
-                Ok(FeatureSelection::Only(features))
-            }
-        }
-    }
-}
 
 /// Supported target architectures.
 #[derive(Debug)]
