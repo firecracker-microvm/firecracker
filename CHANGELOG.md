@@ -25,8 +25,9 @@ and this project adheres to
 
 - [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
   PL061 GPIO controller backing the new aarch64 power button is always attached
-  and uses one extra GSI, which reduces the GSIs left for VirtIO devices. The
-  new maximum is 91 devices on aarch64; x86_64 is unaffected at 17.
+  and uses one extra GSI, which reduces the GSIs left for VirtIO devices. With
+  the MMIO transport, the new maximum is 91 devices on aarch64; x86_64 is
+  unaffected at 17. The PCI device limit remains 31 on both architectures.
 - [#6201](https://github.com/firecracker-microvm/firecracker/pull/6201):
   Bounds-check every virtio queue access against the ranges validated at
   activation, adding defense in depth against out-of-bounds accesses caused by
@@ -386,8 +387,9 @@ and this project adheres to
 
 - [#5564](https://github.com/firecracker-microvm/firecracker/pull/5564): which
   added support for VMClock, uses one extra GSI for the VMClock device itself
-  which reduces the available GSIs for VirtIO devices. New maximum values is 92
-  devices on Aarch64 and 17 devices on x86.
+  which reduces the available GSIs for VirtIO devices. With the MMIO transport,
+  the new maximum values are 92 devices on Aarch64 and 17 devices on x86. The
+  PCI device limit remains 31 on both architectures.
 - [#5631](https://github.com/firecracker-microvm/firecracker/pull/5631): Update
   binary copy process inside Jailer to disallow symlinks and hardlinks at the
   destination path and change ownership of the copied binary to the specified
