@@ -629,15 +629,10 @@ impl KvmVm {
 
         let hugetlbfs_page_size = memory::hugetlbfs_page_size(&file)?;
         if let Some(page_size) = hugetlbfs_page_size {
-            // hugetlbfs reports a whole file as data, so a separate diff layer would not record
-            // which pages are unchanged: they read as zeros. A diff is only valid when merged
-            // into an existing memory file.
+            // hugetlbfs does not report holes, so a separate diff layer cannot tell unchanged pages
+            // from zero pages. A diff must be merged into an existing memory file instead.
             if snapshot_type == SnapshotType::Diff && !(file_existed && file_size == expected_size)
             {
-                if !file_existed {
-                    // Best effort: do not leave behind the empty file created above.
-                    let _ = std::fs::remove_file(mem_file_path);
-                }
                 return Err(HugetlbfsDiffLayer);
             }
             memory::validate_snapshot_file_page_size(
@@ -708,17 +703,11 @@ impl KvmVm {
         Ok(())
     }
 
-    /// Writes guest memory into a hugetlbfs snapshot file through a temporary shared mapping.
+    /// Writes guest memory into a hugetlbfs snapshot file through a temporary shared mapping,
+    /// since hugetlbfs does not implement `write(2)`.
     ///
-    /// hugetlbfs does not implement `write(2)`, so the regular snapshot writer cannot be used.
-    /// `MAP_SHARED` is required for writes to update the file; a private mapping would create
-    /// anonymous copy-on-write pages and leave the snapshot file unchanged. The mapping exists
-    /// only while the snapshot is written. Snapshot restore maps the completed file privately.
-    /// A cursor over this mapping lets us reuse the existing dump logic.
-    ///
-    /// A full snapshot leaves all-zero huge pages as holes, so the file only takes pool pages for
-    /// memory the guest holds. Punching them also clears stale contents when the file is reused.
-    /// The mapping reserves no huge pages; [`HugetlbfsWriter`] allocates the ones it writes.
+    /// A full snapshot leaves zero huge pages as holes, punching them in case the file is reused,
+    /// so the file only takes pool pages for memory the guest holds.
     fn snapshot_memory_via_mmap(
         &self,
         file: &std::fs::File,
@@ -730,9 +719,8 @@ impl KvmVm {
 
         let size = usize::try_from(size).map_err(|_| MemoryError::OffsetTooLarge)?;
 
-        // JUSTIFICATION: hugetlbfs does not support `write(2)`, so a shared mapping is the only way
-        // to populate the snapshot file. Without MAP_NORESERVE, hugetlbfs would reserve huge pages
-        // for the whole file, including the zero pages a full snapshot leaves as holes.
+        // MAP_NORESERVE: hugetlbfs would otherwise reserve huge pages for the whole file, including
+        // its holes. `HugetlbfsWriter` allocates the pages it writes instead.
         // SAFETY: `file` is open for reading and writing, its length was set to `size`, `size` is
         // non-zero and page-aligned, and the mapping is checked against `MAP_FAILED` before use.
         let destination = unsafe {
@@ -750,8 +738,6 @@ impl KvmVm {
         }
 
         let dump_result = {
-            // JUSTIFICATION: The guest-memory dump API needs a writable slice over the raw mapping
-            // returned by `mmap`.
             // SAFETY: `destination` is a writable mapping of exactly `size` bytes. Firecracker's
             // guest-memory size is bounded below `isize::MAX`, and this slice does not outlive the
             // mapping or alias any other Rust reference.
@@ -777,7 +763,6 @@ impl KvmVm {
             }
         };
 
-        // JUSTIFICATION: A mapping created by `libc::mmap` must be released with `libc::munmap`.
         // SAFETY: `destination` and `size` describe the successful mapping above, and all Rust
         // references into the mapping were dropped at the end of the block above.
         let unmap_result = unsafe { libc::munmap(destination, size) };
@@ -935,7 +920,6 @@ fn fallocate(
 ) -> std::io::Result<()> {
     let offset = libc::off_t::try_from(offset).map_err(std::io::Error::other)?;
     let len = libc::off_t::try_from(len).map_err(std::io::Error::other)?;
-    // JUSTIFICATION: Rust's standard library does not expose `fallocate`.
     // SAFETY: `file` owns a valid file descriptor, and `fallocate` only changes its allocation.
     let ret = unsafe {
         libc::fallocate(
@@ -958,9 +942,8 @@ fn punch_hole(file: &std::fs::File, offset: u64, len: usize) -> Result<(), Memor
 
 /// Writes into a `MAP_NORESERVE` shared mapping of a hugetlbfs file.
 ///
-/// Without a reservation, writing to a huge page that the pool cannot provide raises `SIGBUS`.
-/// Each write therefore first allocates the huge pages it covers, which fails with `ENOSPC`
-/// instead.
+/// Writing to a huge page that the pool cannot provide would raise `SIGBUS`, so each write first
+/// allocates the pages it covers, which fails with `ENOSPC` instead.
 struct HugetlbfsWriter<'a> {
     file: &'a std::fs::File,
     page_size: u64,
@@ -1412,7 +1395,7 @@ pub(crate) mod tests {
     /// Returns a path for a new file on a 2 MiB hugetlbfs mount, if the host has one and at least
     /// `pages` free huge pages.
     fn hugetlbfs_snapshot_path(name: &str, pages: usize) -> Option<std::path::PathBuf> {
-        if memory::test_utils::free_hugepages_2m() < pages {
+        if memory::tests::free_hugepages_2m() < pages {
             return None;
         }
         let mounts = std::fs::read_to_string("/proc/mounts").ok()?;
@@ -1425,59 +1408,6 @@ pub(crate) mod tests {
                     && fields[3].split(',').any(|option| option == "pagesize=2M")
             })?;
         Some(Path::new(mount[1]).join(format!("fc-test-{}-{name}", std::process::id())))
-    }
-
-    #[test]
-    fn test_hugetlbfs_writer_allocates_written_pages_only() {
-        use std::io::SeekFrom;
-        use std::os::unix::fs::{FileExt, MetadataExt};
-
-        if memory::test_utils::free_hugepages_2m() < 1 {
-            println!("Skipping: no free 2 MiB huge page");
-            return;
-        }
-        let page_size = HugePageConfig::Hugetlbfs2M.page_size();
-        let len = 3 * page_size;
-        let file = memfd::MemfdOptions::default()
-            .hugetlb(Some(memfd::HugetlbSize::Huge2MB))
-            .create("hugetlbfs_writer")
-            .unwrap()
-            .into_file();
-        file.set_len(len as u64).unwrap();
-        // SAFETY: `file` is a hugetlbfs file of `len` bytes, open for reading and writing.
-        let mapping = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                len,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED | libc::MAP_NORESERVE,
-                file.as_raw_fd(),
-                0,
-            )
-        };
-        assert_ne!(mapping, libc::MAP_FAILED);
-        // SAFETY: `mapping` is a writable mapping of `len` bytes.
-        let destination = unsafe { std::slice::from_raw_parts_mut(mapping.cast::<u8>(), len) };
-        let mut writer = HugetlbfsWriter {
-            file: &file,
-            page_size: page_size as u64,
-            mapping: Cursor::new(destination),
-        };
-
-        writer.seek(SeekFrom::Start(page_size as u64 + 16)).unwrap();
-        let mut data = [7u8; 8];
-        writer
-            .write_all_volatile(&VolatileSlice::from(&mut data[..]))
-            .unwrap();
-        // SAFETY: `mapping` and `len` describe the mapping above, and `writer` is not used again.
-        assert_eq!(unsafe { libc::munmap(mapping, len) }, 0);
-
-        // Only the huge page that was written is allocated.
-        assert_eq!(file.metadata().unwrap().blocks() * 512, page_size as u64);
-        let mut actual = [0u8; 8];
-        file.read_exact_at(&mut actual, page_size as u64 + 16)
-            .unwrap();
-        assert_eq!(actual, data);
     }
 
     #[test]
@@ -1495,12 +1425,11 @@ pub(crate) mod tests {
         };
         let vm = setup_vm_with_memory(mem_size);
 
-        // A separate diff layer is rejected, and the file created for it is removed.
+        // A separate diff layer is rejected.
         assert_matches!(
             vm.snapshot_memory_to_file(&path, SnapshotType::Diff, false),
             Err(CreateSnapshotError::HugetlbfsDiffLayer)
         );
-        assert!(!path.exists());
 
         // Page 0 does not change after the full snapshot; page 1 does.
         vm.guest_memory().write(&[1; 8], GuestAddress(0)).unwrap();

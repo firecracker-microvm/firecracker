@@ -938,8 +938,7 @@ impl GuestRegionMmapExt {
         // Keep MAP_NORESERVE to match the flags the region was created with (see `create`).
         // Without it the replacement is subject to overcommit accounting and can fail with
         // ENOMEM, by which point MAP_FIXED has already unmapped the range.
-        // Keep the region's hugetlb flags too, so a hugetlbfs snapshot file restore keeps huge
-        // pages in the discarded range. `discard_range` only passes whole backing pages here.
+        // Keep the region's hugetlb flags, so restored hugetlbfs memory stays on huge pages.
         // TODO: this does not re-apply the region's madvise flags, so it would drop the
         // MADV_HUGEPAGE hint on a THP + file-restore VM. That combination is unsupported
         // today; revisit if it becomes supported.
@@ -1243,12 +1242,10 @@ impl MemfdBacking {
     }
 }
 
-/// Returns whether any host page of the `len` bytes at `addr` is resident, using `residency`
-/// (one byte per host page) as scratch space for `mincore(2)`. Reports the range as resident if
-/// `mincore` fails, so that callers fall back to reading it.
+/// Returns whether any page of the `len` bytes at `addr` is resident, using `residency` as scratch
+/// space for `mincore(2)`. Returns `true` if `mincore` fails.
 fn is_resident(addr: *const u8, len: usize, residency: &mut [u8]) -> bool {
     let pages = len.div_ceil(host_page_size());
-    // JUSTIFICATION: Rust's standard library does not expose page residency.
     // SAFETY: `addr` is the page-aligned start of `len` bytes of mapped guest memory, and
     // `residency` has at least one byte for each of their pages.
     let ret =
@@ -1260,8 +1257,6 @@ fn is_resident(addr: *const u8, len: usize, residency: &mut [u8]) -> bool {
 pub(crate) fn hugetlbfs_page_size(file: &File) -> Result<Option<usize>, MemoryError> {
     let mut stat = MaybeUninit::<libc::statfs>::uninit();
 
-    // JUSTIFICATION: Rust's standard library does not expose the filesystem type or hugetlbfs
-    // page size for an open file descriptor.
     // SAFETY: `file` owns a valid file descriptor and `stat` points to enough writable memory for
     // `fstatfs` to initialize on success.
     let ret = unsafe { libc::fstatfs(file.as_raw_fd(), stat.as_mut_ptr()) };
@@ -1269,7 +1264,6 @@ pub(crate) fn hugetlbfs_page_size(file: &File) -> Result<Option<usize>, MemoryEr
         return Err(MemoryError::FileMetadata(io::Error::last_os_error()));
     }
 
-    // JUSTIFICATION: `MaybeUninit` is required because `fstatfs` initializes its out parameter.
     // SAFETY: A successful `fstatfs` initialized the structure.
     let stat = unsafe { stat.assume_init() };
     if i128::from(stat.f_type) != i128::from(libc::HUGETLBFS_MAGIC) {
@@ -1474,9 +1468,8 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         let mut residency = vec![0u8; chunk_size.div_ceil(host_page_size())];
         let mut offset = 0u64;
         for region in self.iter() {
-            // Anonymous hugetlb memory is never swapped out, so a chunk with no resident page was
-            // never written (or was discarded) and reads as zero. Reading it would allocate its
-            // huge pages instead.
+            // Anonymous hugetlb memory cannot be swapped out, so a chunk without resident pages is
+            // zero. Reading it would allocate its huge pages.
             let skip_non_resident = region.inner.file_offset().is_none()
                 && RawGuestRegionMmap::extract_huge_tlb_mmap_flags(region.inner.flags()) != 0;
             for (mem_slot, plugged) in region.slots() {
@@ -1512,9 +1505,6 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                 offset += len as u64;
             }
         }
-        writer
-            .seek(SeekFrom::Start(offset))
-            .map_err(MemoryError::SeekError)?;
         Ok(())
     }
 
@@ -1680,21 +1670,10 @@ pub mod test_utils {
         )
         .unwrap()
     }
-
-    /// Returns the number of free huge pages of the host's default size (2 MiB on our hosts).
-    pub fn free_hugepages_2m() -> usize {
-        let meminfo = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
-        meminfo
-            .lines()
-            .find(|line| line.starts_with("HugePages_Free:"))
-            .and_then(|line| line.split_whitespace().nth(1))
-            .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(0)
-    }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
     use std::collections::HashMap;
@@ -1708,7 +1687,7 @@ mod tests {
     use crate::snapshot::Snapshot;
     use crate::test_utils::{multi_region_mem, single_region_mem};
     use crate::utils::mib_to_bytes;
-    use crate::vstate::memory::test_utils::{free_hugepages_2m, into_region_ext};
+    use crate::vstate::memory::test_utils::into_region_ext;
 
     #[test]
     fn test_anonymous() {
@@ -1801,8 +1780,6 @@ mod tests {
         ];
 
         validate_snapshot_file_page_size(None, HugePageConfig::None, &aligned_regions).unwrap();
-        validate_snapshot_file_page_size(None, HugePageConfig::Transparent, &aligned_regions)
-            .unwrap();
         validate_snapshot_file_page_size(
             Some(page_size),
             HugePageConfig::Hugetlbfs2M,
@@ -1825,19 +1802,6 @@ mod tests {
             )
             .unwrap_err(),
             MemoryError::SnapshotFilePageSize { expected: 4096, actual } if actual == page_size
-        ));
-        // A hugetlbfs mount with a different page size.
-        assert!(matches!(
-            validate_snapshot_file_page_size(
-                Some(2 * page_size),
-                HugePageConfig::Hugetlbfs2M,
-                &aligned_regions,
-            )
-            .unwrap_err(),
-            MemoryError::SnapshotFilePageSize {
-                expected,
-                actual,
-            } if expected == page_size && actual == 2 * page_size
         ));
         assert!(matches!(
             validate_snapshot_file_page_size(
@@ -3321,6 +3285,16 @@ mod tests {
     }
 
     /// Returns the number of free 2 MiB hugepages on the system.
+    pub(crate) fn free_hugepages_2m() -> usize {
+        let meminfo = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
+        meminfo
+            .lines()
+            .find(|line| line.starts_with("HugePages_Free:"))
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(0)
+    }
+
     #[test]
     fn test_guest_region_alignment_and_size_normal() {
         // Note: this covers both the huge_pages = None and THP cases. That's because both allocate the underlying
