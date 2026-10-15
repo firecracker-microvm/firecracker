@@ -46,6 +46,10 @@ and this project adheres to
   partial huge pages either failed or kept their old contents. Because zeroing
   allocates huge pages that were not backed yet, use free page reporting or
   hinting instead of the traditional balloon with hugetlbfs.
+- [#6289](https://github.com/firecracker-microvm/firecracker/pull/6289): The
+  `Sync` block IO engine now reads and writes at the request offset with
+  `pread`/`pwrite` instead of seeking before each request. Custom seccomp
+  filters must allow the `pread64` and `pwrite64` syscalls on the VMM thread.
 
 ### Deprecated
 

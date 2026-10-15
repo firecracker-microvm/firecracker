@@ -100,7 +100,15 @@
             },
             {
                 "syscall": "lseek",
-                "comment": "Used by the block device"
+                "comment": "Used to get the size of an updated drive and to skip clean pages when writing snapshot memory files"
+            },
+            {
+                "syscall": "pread64",
+                "comment": "Used by the block device Sync engine to read at the request offset"
+            },
+            {
+                "syscall": "pwrite64",
+                "comment": "Used by the block device Sync engine to write at the request offset"
             },
             {
                 "syscall": "mremap",
