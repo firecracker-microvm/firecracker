@@ -563,6 +563,12 @@ impl Queue {
         self.used_ring_idx_set(self.next_used.0);
     }
 
+    /// Marks dirty the used ring pages written since the last call.
+    pub fn commit_dirty(&self) {
+        // Only the used-ring; the guest writes the other rings, which KVM tracks.
+        self.used_ring.commit_dirty();
+    }
+
     /// Puts an available descriptor head into the used ring for use by the guest.
     pub fn add_used(&mut self, desc_index: u16, len: u32) -> Result<(), QueueError> {
         self.write_used_element(0, desc_index, len)?;

@@ -190,6 +190,10 @@ pub fn create_snapshot(
             "snapshot requires KVM".into(),
         ))
     })?;
+    // Devices record which queue pages they wrote, but only report them to the dirty bitmap
+    // when asked, to keep the data path free of contention on the bitmap.
+    vmm.device_manager.commit_dirty();
+
     kvm_vm.snapshot_memory_to_file(
         &params.mem_file_path,
         params.snapshot_type,

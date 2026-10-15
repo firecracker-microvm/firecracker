@@ -205,6 +205,8 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
         }
         self.deactivate();
         self.set_acked_features(0);
+        // The queues go with the reset; commit the used ring pages written since the last snapshot
+        self.commit_dirty();
         for queue in self.queues_mut() {
             *queue = Queue::new(queue.max_size);
         }
@@ -227,6 +229,13 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     /// completed.
     /// https://github.com/firecracker-microvm/firecracker/issues/6281
     fn _reset(&mut self) -> bool;
+
+    /// Marks dirty the queue pages written since the last call.
+    fn commit_dirty(&self) {
+        for queue in self.queues() {
+            queue.commit_dirty();
+        }
+    }
 
     /// Notify all queues by writing to the eventfds.
     fn notify_queue_events(&mut self) {
