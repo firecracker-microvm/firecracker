@@ -724,7 +724,7 @@ impl DeviceManager {
 
                 if force {
                     pci_devices
-                        .detach_pci_virtio_device(&vm, device_id, event_manager)
+                        .detach_pci_virtio_device(&vm, &device_id, event_manager)
                         .map_err(VmmActionError::PciManager)
                 } else {
                     pci_devices.request_unplug(&device_id);
@@ -794,9 +794,7 @@ impl DeviceManager {
             };
 
             info!("Completing hot-unplug of {device_id:?}");
-            if let Err(err) =
-                pci_devices.detach_pci_virtio_device(vm, device_id.clone(), event_manager)
-            {
+            if let Err(err) = pci_devices.detach_pci_virtio_device(vm, &device_id, event_manager) {
                 warn!("Failed to complete hot-unplug of {device_id:?}: {err}");
             }
         }
