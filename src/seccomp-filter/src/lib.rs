@@ -7,6 +7,7 @@
 //! Firecracker links this crate, so it must never depend on libseccomp, and therefore not on
 //! seccompiler either.
 
+pub mod bpf;
 mod features;
 mod filter;
 mod format;

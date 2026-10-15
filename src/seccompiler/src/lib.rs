@@ -14,8 +14,8 @@ use bindings::*;
 pub mod bpf;
 pub mod types;
 use seccomp_filter::{
-    BpfFilter, BpfMap, FilterFragment, FormatError, SeccompFeature, SeccompFeatures, SeccompFilter,
-    UnknownSeccompFeature,
+    BpfFilter, BpfMap, FilterError, FilterFragment, FormatError, SeccompFeature, SeccompFeatures,
+    SeccompFilter, UnknownSeccompFeature,
 };
 pub use types::*;
 
@@ -50,6 +50,8 @@ pub enum CompilationError {
     SameActions,
     /// Cannot generate BPF for feature-tagged rules: {0}
     Bpf(bpf::BpfError),
+    /// Invalid compiled filter: {0}
+    InvalidFilter(FilterError),
     /// Cannot create output file: {0}
     OutputCreate(std::io::Error),
     /// Cannot encode the compiled filters: {0}
@@ -154,44 +156,48 @@ fn compile_filter(
     }
 
     let mut base = libseccomp_program(&untagged, arch, default_action, filter_action, basic)?;
-    if tagged.is_empty() {
-        return Ok(SeccompFilter::from_program(base));
-    }
+    let compiled = if tagged.is_empty() {
+        SeccompFilter::from_program(base)
+    } else {
+        // The fragments return the filter action and the epilogue the default action; with
+        // identical actions the tags would be meaningless.
+        if default_action == filter_action {
+            return Err(CompilationError::SameActions);
+        }
 
-    // The fragments return the filter action and the epilogue the default action; with identical
-    // actions the tags would be meaningless.
-    if default_action == filter_action {
-        return Err(CompilationError::SameActions);
-    }
+        // Let the base fall through into the appended code instead of returning the default
+        // action, and re-check the architecture there since libseccomp may share the default and
+        // bad-arch returns.
+        bpf::redirect_default_returns(&mut base, default_action).map_err(CompilationError::Bpf)?;
+        base.extend(bpf::suffix_prologue(arch, default_action));
 
-    // Let the base fall through into the appended code instead of returning the default action,
-    // and re-check the architecture there since libseccomp may share the default and bad-arch
-    // returns.
-    bpf::redirect_default_returns(&mut base, default_action).map_err(CompilationError::Bpf)?;
-    base.extend(bpf::suffix_prologue(arch, default_action));
-
-    let fragments = tagged
-        .iter()
-        .map(|(rule, features)| {
-            let syscall = resolve_syscall_for_arch(arch, &rule.syscall)?;
-            let conditions = match (&rule.args, basic) {
-                (Some(conditions), false) => conditions.as_slice(),
-                _ => &[],
-            };
-            let code = bpf::rule_fragment(syscall, conditions, filter_action)
-                .map_err(CompilationError::Bpf)?;
-            Ok(FilterFragment {
-                features: *features,
-                code,
+        let fragments = tagged
+            .iter()
+            .map(|(rule, features)| {
+                let syscall = resolve_syscall_for_arch(arch, &rule.syscall)?;
+                let conditions = match (&rule.args, basic) {
+                    (Some(conditions), false) => conditions.as_slice(),
+                    _ => &[],
+                };
+                let code = bpf::rule_fragment(syscall, conditions, filter_action)
+                    .map_err(CompilationError::Bpf)?;
+                Ok(FilterFragment {
+                    features: *features,
+                    code,
+                })
             })
-        })
-        .collect::<Result<Vec<_>, CompilationError>>()?;
+            .collect::<Result<Vec<_>, CompilationError>>()?;
 
-    let compiled = SeccompFilter::new(base, fragments, bpf::epilogue(default_action));
+        SeccompFilter::new(base, fragments, bpf::epilogue(default_action))
+    };
 
-    // The program with every fragment included is the longest one Firecracker can install; make
-    // sure the kernel will accept it. Leaving fragments out only shortens it.
-    bpf::validate(&compiled.compose(SeccompFeatures::all())).map_err(CompilationError::Bpf)?;
+    // Check every program Firecracker can compose from the filter, the longest one included,
+    // with the same rules Firecracker applies when it loads the filter. That covers the
+    // libseccomp program of a filter without tagged rules as well: the check accepts only the
+    // instructions these generators emit, which is stricter than the kernel.
+    compiled
+        .validate()
+        .map_err(CompilationError::InvalidFilter)?;
 
     Ok(compiled)
 }

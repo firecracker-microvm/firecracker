@@ -3,6 +3,7 @@
 
 //! The checked form of a compiled filter, from which the installed program is composed.
 
+use crate::bpf::{self, ProgramError};
 use crate::features::{SeccompFeature, SeccompFeatures, UnknownSeccompFeature};
 use crate::format::{BpfFilter, BpfFragment};
 
@@ -38,6 +39,16 @@ pub enum FilterError {
     UntaggedFragment,
     /// Filter with fragments or an epilogue but without a base program
     MissingBase,
+    /// Filter with fragments but without an epilogue
+    MissingEpilogue,
+    /// Invalid base program: {0}
+    InvalidBase(ProgramError),
+    /// Invalid fragment {0}: {1}
+    InvalidFragment(usize, ProgramError),
+    /// Invalid epilogue: {0}
+    InvalidEpilogue(ProgramError),
+    /// Invalid program with every fragment included: {0}
+    InvalidProgram(ProgramError),
 }
 
 impl SeccompFilter {
@@ -111,18 +122,56 @@ impl SeccompFilter {
         program.extend_from_slice(&self.epilogue);
         program
     }
+
+    /// Check that every program [`SeccompFilter::compose`] can assemble from this filter is one
+    /// the kernel accepts and that each part behaves the same whichever fragments are included.
+    ///
+    /// A filter without fragments and epilogue is either empty, i.e. no filter is installed, or
+    /// its base is a complete program. Otherwise every fragment needs a feature, there are a base
+    /// program and an epilogue, the base and each fragment only jump inside themselves or to their
+    /// own end, where the next part starts, the epilogue is a complete program on its own, and the
+    /// program with every fragment included is within the kernel's limits. The last two make
+    /// every composed program end with a return and every jump land inside it; the jump rule
+    /// keeps a part from landing in the middle of whatever happens to follow it.
+    pub fn validate(&self) -> Result<(), FilterError> {
+        if self.fragments.is_empty() && self.epilogue.is_empty() {
+            if self.base.is_empty() {
+                return Ok(());
+            }
+            return bpf::validate(&self.base).map_err(FilterError::InvalidBase);
+        }
+        // Fragments are only ever reached through the base program, and a fragment nothing can
+        // enable is a rule that silently never applies.
+        if self.base.is_empty() {
+            return Err(FilterError::MissingBase);
+        }
+        if self.epilogue.is_empty() {
+            return Err(FilterError::MissingEpilogue);
+        }
+        if self
+            .fragments
+            .iter()
+            .any(|fragment| fragment.features.is_empty())
+        {
+            return Err(FilterError::UntaggedFragment);
+        }
+        bpf::validate_part(&self.base).map_err(FilterError::InvalidBase)?;
+        for (index, fragment) in self.fragments.iter().enumerate() {
+            bpf::validate_part(&fragment.code)
+                .map_err(|err| FilterError::InvalidFragment(index, err))?;
+        }
+        bpf::validate(&self.epilogue).map_err(FilterError::InvalidEpilogue)?;
+        // Leaving fragments out only shortens the program.
+        bpf::validate(&self.compose(SeccompFeatures::all())).map_err(FilterError::InvalidProgram)
+    }
 }
 
 impl TryFrom<BpfFilter> for SeccompFilter {
     type Error = FilterError;
 
-    /// Check the parts of a compiled filter as read from a filter file.
+    /// Check the parts of a compiled filter as read from a filter file, see
+    /// [`SeccompFilter::validate`].
     fn try_from(filter: BpfFilter) -> Result<Self, Self::Error> {
-        // Fragments are only ever reached through the base program, and a fragment nothing can
-        // enable is a rule that silently never applies.
-        if filter.base.is_empty() && !(filter.fragments.is_empty() && filter.epilogue.is_empty()) {
-            return Err(FilterError::MissingBase);
-        }
         let fragments = filter
             .fragments
             .into_iter()
@@ -141,7 +190,9 @@ impl TryFrom<BpfFilter> for SeccompFilter {
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(SeccompFilter::new(filter.base, fragments, filter.epilogue))
+        let filter = SeccompFilter::new(filter.base, fragments, filter.epilogue);
+        filter.validate()?;
+        Ok(filter)
     }
 }
 
@@ -170,6 +221,23 @@ impl From<&SeccompFilter> for BpfFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bpf::{BPF_JA, BPF_JEQ_K, BPF_LD_W_ABS, BPF_MAX_LEN, BPF_RET_K, insn};
+
+    const SECCOMP_RET_TRAP: u32 = 0x0003_0000;
+    const SECCOMP_RET_ALLOW: u32 = 0x7fff_0000;
+
+    fn ret(action: u32) -> u64 {
+        insn(BPF_RET_K, 0, 0, action)
+    }
+
+    fn ld_nr() -> u64 {
+        insn(BPF_LD_W_ABS, 0, 0, 0)
+    }
+
+    /// A position independent part allowing syscall `nr` and falling through otherwise.
+    fn allow(nr: u32) -> Vec<u64> {
+        vec![ld_nr(), insn(BPF_JEQ_K, 0, 1, nr), ret(SECCOMP_RET_ALLOW)]
+    }
 
     fn fragment(features: &[&str], code: Vec<u64>) -> BpfFragment {
         BpfFragment {
@@ -178,31 +246,35 @@ mod tests {
         }
     }
 
+    fn tagged(features: SeccompFeatures, code: Vec<u64>) -> FilterFragment {
+        FilterFragment { features, code }
+    }
+
     #[test]
     fn test_try_from() {
         let serialized = BpfFilter {
-            base: vec![0; 2],
-            fragments: vec![fragment(&["net", "hotplug"], vec![1; 3])],
-            epilogue: vec![2],
+            base: allow(1),
+            fragments: vec![fragment(&["net", "hotplug"], allow(2))],
+            epilogue: vec![ret(SECCOMP_RET_TRAP)],
         };
         let filter = SeccompFilter::try_from(serialized.clone()).unwrap();
         assert_eq!(
             filter,
             SeccompFilter::new(
-                vec![0; 2],
-                vec![FilterFragment {
-                    features: SeccompFeatures::from(SeccompFeature::Net) | SeccompFeature::Hotplug,
-                    code: vec![1; 3],
-                }],
-                vec![2],
+                allow(1),
+                vec![tagged(
+                    SeccompFeatures::from(SeccompFeature::Net) | SeccompFeature::Hotplug,
+                    allow(2)
+                )],
+                vec![ret(SECCOMP_RET_TRAP)],
             )
         );
         // Written back in bit order.
         assert_eq!(
             BpfFilter::from(&filter),
             BpfFilter {
-                fragments: vec![fragment(&["hotplug", "net"], vec![1; 3])],
-                ..serialized
+                fragments: vec![fragment(&["hotplug", "net"], allow(2))],
+                ..serialized.clone()
             }
         );
 
@@ -213,19 +285,18 @@ mod tests {
         );
         assert_eq!(
             SeccompFilter::try_from(BpfFilter {
-                base: vec![3],
+                base: vec![ret(SECCOMP_RET_ALLOW)],
                 ..Default::default()
             })
             .unwrap(),
-            SeccompFilter::from_program(vec![3])
+            SeccompFilter::from_program(vec![ret(SECCOMP_RET_ALLOW)])
         );
 
         // Fragments tagged with a feature this crate does not know are rejected.
         assert_eq!(
             SeccompFilter::try_from(BpfFilter {
-                base: vec![0; 2],
-                fragments: vec![fragment(&["net", "warp-drive"], vec![1])],
-                epilogue: vec![2],
+                fragments: vec![fragment(&["net", "warp-drive"], allow(2))],
+                ..serialized.clone()
             })
             .unwrap_err(),
             FilterError::UnknownFeature(UnknownSeccompFeature("warp-drive".to_string()))
@@ -233,20 +304,104 @@ mod tests {
         // So are fragments nothing can enable, and parts that no base program leads to.
         assert_eq!(
             SeccompFilter::try_from(BpfFilter {
-                base: vec![0; 2],
-                fragments: vec![fragment(&[], vec![1])],
-                epilogue: vec![2],
+                fragments: vec![fragment(&[], allow(2))],
+                ..serialized.clone()
             })
             .unwrap_err(),
             FilterError::UntaggedFragment
         );
         assert_eq!(
             SeccompFilter::try_from(BpfFilter {
-                epilogue: vec![2],
+                epilogue: vec![ret(SECCOMP_RET_TRAP)],
                 ..Default::default()
             })
             .unwrap_err(),
             FilterError::MissingBase
+        );
+        // The parts are checked too.
+        assert_eq!(
+            SeccompFilter::try_from(BpfFilter {
+                epilogue: vec![],
+                ..serialized
+            })
+            .unwrap_err(),
+            FilterError::MissingEpilogue
+        );
+    }
+
+    #[test]
+    fn test_validate() {
+        let trap = vec![ret(SECCOMP_RET_TRAP)];
+        let net = SeccompFeatures::from(SeccompFeature::Net);
+        let pmem = SeccompFeatures::from(SeccompFeature::Pmem);
+        let filter = SeccompFilter::new(
+            allow(1),
+            vec![tagged(net, allow(2)), tagged(pmem, allow(3))],
+            trap.clone(),
+        );
+        filter.validate().unwrap();
+        // Whichever fragments are included, the kernel takes the program.
+        for enabled in [SeccompFeatures::empty(), net, pmem, net | pmem] {
+            bpf::validate(&filter.compose(enabled)).unwrap();
+        }
+
+        // A program without fragments must be complete: a base that falls through its end is not.
+        assert_eq!(
+            SeccompFilter::from_program(allow(1)).validate(),
+            Err(FilterError::InvalidBase(ProgramError::InvalidJump(1)))
+        );
+        assert_eq!(
+            SeccompFilter::from_program(vec![ld_nr()]).validate(),
+            Err(FilterError::InvalidBase(ProgramError::LastNotReturn))
+        );
+        // Fragments need a feature.
+        assert_eq!(
+            SeccompFilter::new(
+                allow(1),
+                vec![tagged(SeccompFeatures::empty(), allow(2))],
+                trap.clone()
+            )
+            .validate(),
+            Err(FilterError::UntaggedFragment)
+        );
+        // A base or fragment jumping past its end would land on different code depending on the
+        // enabled features, or outside of the program.
+        let skips_two = vec![ld_nr(), insn(BPF_JEQ_K, 0, 2, 2), ret(SECCOMP_RET_ALLOW)];
+        assert_eq!(
+            SeccompFilter::new(skips_two.clone(), vec![tagged(net, allow(2))], trap.clone())
+                .validate(),
+            Err(FilterError::InvalidBase(ProgramError::InvalidJump(1)))
+        );
+        assert_eq!(
+            SeccompFilter::new(
+                allow(1),
+                vec![tagged(net, allow(2)), tagged(pmem, skips_two)],
+                trap.clone()
+            )
+            .validate(),
+            Err(FilterError::InvalidFragment(
+                1,
+                ProgramError::InvalidJump(1)
+            ))
+        );
+        // The epilogue ends every program, so it must be complete on its own.
+        assert_eq!(
+            SeccompFilter::new(
+                allow(1),
+                vec![tagged(net, allow(2))],
+                vec![insn(BPF_JA, 0, 0, 0), ld_nr()]
+            )
+            .validate(),
+            Err(FilterError::InvalidEpilogue(ProgramError::LastNotReturn))
+        );
+        // And the longest program must fit in the kernel's limit.
+        let mut long_base = vec![ld_nr(); BPF_MAX_LEN - 3];
+        long_base.extend(allow(1));
+        assert_eq!(
+            SeccompFilter::new(long_base, vec![tagged(net, allow(2))], trap).validate(),
+            Err(FilterError::InvalidProgram(ProgramError::TooLong(
+                BPF_MAX_LEN + 4
+            )))
         );
     }
 

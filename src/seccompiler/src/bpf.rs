@@ -1,48 +1,27 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Generation and validation of classic seccomp-BPF code for feature-tagged rules.
+//! Generation of classic seccomp-BPF code for feature-tagged rules.
 //!
 //! libseccomp compiles the untagged rules of a filter into a *base* program. Every
 //! `ret #default_action` of that program is rewritten by [`redirect_default_returns`] into an
 //! unconditional jump to the end of the program, so that the base falls through into whatever is
 //! appended after it: a [`suffix_prologue`] that re-checks the architecture, one
 //! position-independent [`rule_fragment`] per enabled feature-tagged rule, and an [`epilogue`]
-//! that finally returns the default action. [`validate`] mirrors the kernel checks on the composed
-//! program.
-//!
-//! An instruction is `struct sock_filter { u16 code; u8 jt; u8 jf; u32 k; }`, stored as one
-//! little-endian `u64`: `code | jt << 16 | jf << 24 | k << 32`.
+//! that finally returns the default action. The instructions and the checks the kernel applies
+//! to a program live in [`seccomp_filter::bpf`], which Firecracker shares.
+
+pub use seccomp_filter::bpf::{
+    BPF_AND_K, BPF_JA, BPF_JEQ_K, BPF_JGE_K, BPF_JGT_K, BPF_JSET_K, BPF_LD_W_ABS, BPF_MAX_LEN,
+    BPF_OR_K, BPF_RET_A, BPF_RET_K, ProgramError, decode, insn, validate,
+};
 
 use crate::types::{SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, TargetArch};
-
-/// `BPF_LD | BPF_W | BPF_ABS`: load the 32-bit word at `seccomp_data` offset `k` into `A`.
-pub const BPF_LD_W_ABS: u16 = 0x20;
-/// `BPF_JMP | BPF_JEQ | BPF_K`: jump to `pc + 1 + jt` if `A == k`, else to `pc + 1 + jf`.
-pub const BPF_JEQ_K: u16 = 0x15;
-/// `BPF_JMP | BPF_JGT | BPF_K`: jump to `pc + 1 + jt` if `A > k`, else to `pc + 1 + jf`.
-pub const BPF_JGT_K: u16 = 0x25;
-/// `BPF_JMP | BPF_JGE | BPF_K`: jump to `pc + 1 + jt` if `A >= k`, else to `pc + 1 + jf`.
-pub const BPF_JGE_K: u16 = 0x35;
-/// `BPF_JMP | BPF_JSET | BPF_K`: jump to `pc + 1 + jt` if `A & k != 0`, else to `pc + 1 + jf`.
-pub const BPF_JSET_K: u16 = 0x45;
-/// `BPF_JMP | BPF_JA`: unconditional jump to `pc + 1 + k`.
-pub const BPF_JA: u16 = 0x05;
-/// `BPF_RET | BPF_K`: return `k`.
-pub const BPF_RET_K: u16 = 0x06;
-/// `BPF_RET | BPF_A`: return `A`.
-pub const BPF_RET_A: u16 = 0x16;
-/// `BPF_ALU | BPF_AND | BPF_K`: `A &= k`.
-pub const BPF_AND_K: u16 = 0x54;
-/// `BPF_ALU | BPF_OR | BPF_K`: `A |= k`.
-pub const BPF_OR_K: u16 = 0x44;
 
 /// Offset of `seccomp_data.nr`.
 pub const SECCOMP_DATA_NR_OFFSET: u32 = 0;
 /// Offset of `seccomp_data.arch`.
 pub const SECCOMP_DATA_ARCH_OFFSET: u32 = 4;
-/// `sizeof(struct seccomp_data)`; loads must stay below it.
-pub const SECCOMP_DATA_SIZE: u32 = 64;
 /// Offset of `seccomp_data.args[0]`.
 const SECCOMP_DATA_ARGS_OFFSET: u32 = 16;
 
@@ -52,9 +31,6 @@ pub const AUDIT_ARCH_X86_64: u32 = 0xC000_003E;
 pub const AUDIT_ARCH_AARCH64: u32 = 0xC000_00B7;
 /// On x86_64 a syscall number with this bit set uses the x32 ABI.
 pub const X32_SYSCALL_BIT: u32 = 0x4000_0000;
-
-/// `BPF_MAXINSNS`: the maximum number of instructions in a program.
-pub const BPF_MAX_LEN: usize = 4096;
 
 /// Offset of the low 32 bits of `seccomp_data.args[index]` (little-endian).
 pub const fn seccomp_data_arg_lo_offset(index: u8) -> u32 {
@@ -74,24 +50,6 @@ pub const fn audit_arch(arch: &TargetArch) -> u32 {
     }
 }
 
-/// Encode one `sock_filter` instruction.
-pub const fn insn(code: u16, jt: u8, jf: u8, k: u32) -> u64 {
-    let code = code.to_le_bytes();
-    let k = k.to_le_bytes();
-    u64::from_le_bytes([code[0], code[1], jt, jf, k[0], k[1], k[2], k[3]])
-}
-
-/// Decode one `sock_filter` instruction into `(code, jt, jf, k)`.
-pub const fn decode(insn: u64) -> (u16, u8, u8, u32) {
-    let b = insn.to_le_bytes();
-    (
-        u16::from_le_bytes([b[0], b[1]]),
-        b[2],
-        b[3],
-        u32::from_le_bytes([b[4], b[5], b[6], b[7]]),
-    )
-}
-
 /// Split a 64-bit value into its `(high, low)` 32-bit halves.
 fn halves(value: u64) -> (u32, u32) {
     // Truncation is the purpose of this function.
@@ -99,7 +57,7 @@ fn halves(value: u64) -> (u32, u32) {
     ((value >> 32) as u32, value as u32)
 }
 
-/// BPF generation and validation errors.
+/// BPF generation errors.
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum BpfError {
     /// The program contains no `ret #default_action` instruction
@@ -108,16 +66,6 @@ pub enum BpfError {
     ReturnAccumulator(usize),
     /// Program of {0} instructions exceeds the BPF maximum length
     TooLong(usize),
-    /// Empty program
-    Empty,
-    /// The last instruction of the program is not a return
-    LastNotReturn,
-    /// Jump at {0} targets an instruction outside of the program
-    InvalidJump(usize),
-    /// Load at {0} has an invalid offset
-    InvalidLoad(usize),
-    /// Unknown opcode {1} at {0}
-    UnknownOpcode(usize, u16),
     /// Fragment of {0} instructions needs a jump that does not fit in a u8
     FragmentTooLong(usize),
     /// Invalid syscall argument index {0}
@@ -337,48 +285,6 @@ pub fn rule_fragment(
         .map(|(pc, p)| Ok(insn(p.code, resolve(pc, p.jt)?, resolve(pc, p.jf)?, p.k)))
         .collect()
 }
-
-/// Mirror the kernel checks (`bpf_check_classic` and `seccomp_check_filter`) on a complete
-/// program: `1 <= len <= 4096`, the last instruction is a return, every jump lands strictly
-/// inside the program, loads are `ld [k]` with `k % 4 == 0 && k < 64`, and only the opcodes
-/// defined in this module are used.
-pub fn validate(program: &[u64]) -> Result<(), BpfError> {
-    let len = program.len();
-    if len == 0 {
-        return Err(BpfError::Empty);
-    }
-    if len > BPF_MAX_LEN {
-        return Err(BpfError::TooLong(len));
-    }
-    let last = decode(program[len - 1]).0;
-    if last != BPF_RET_K && last != BPF_RET_A {
-        return Err(BpfError::LastNotReturn);
-    }
-    for (pc, &instruction) in program.iter().enumerate() {
-        let (code, jt, jf, k) = decode(instruction);
-        match code {
-            BPF_LD_W_ABS => {
-                if k % 4 != 0 || k >= SECCOMP_DATA_SIZE {
-                    return Err(BpfError::InvalidLoad(pc));
-                }
-            }
-            BPF_JA => {
-                if usize::try_from(k).map_or(true, |k| k >= len - pc - 1) {
-                    return Err(BpfError::InvalidJump(pc));
-                }
-            }
-            BPF_JEQ_K | BPF_JGT_K | BPF_JGE_K | BPF_JSET_K => {
-                if pc + 1 + usize::from(jt) >= len || pc + 1 + usize::from(jf) >= len {
-                    return Err(BpfError::InvalidJump(pc));
-                }
-            }
-            BPF_RET_K | BPF_RET_A | BPF_AND_K | BPF_OR_K => {}
-            _ => return Err(BpfError::UnknownOpcode(pc, code)),
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -497,18 +403,6 @@ pub(crate) mod tests {
             FALLTHROUGH => false,
             other => panic!("unexpected return {other:#x}"),
         }
-    }
-
-    #[test]
-    fn test_insn_decode_roundtrip() {
-        let encoded = insn(BPF_JEQ_K, 3, 7, 0xC000_003E);
-        assert_eq!(encoded, 0xC000_003E_0703_0015);
-        assert_eq!(decode(encoded), (BPF_JEQ_K, 3, 7, 0xC000_003E));
-        assert_eq!(decode(insn(BPF_RET_K, 0, 0, 0)), (BPF_RET_K, 0, 0, 0));
-        assert_eq!(
-            decode(insn(u16::MAX, u8::MAX, u8::MAX, u32::MAX)),
-            (u16::MAX, u8::MAX, u8::MAX, u32::MAX)
-        );
     }
 
     #[test]
@@ -825,7 +719,7 @@ pub(crate) mod tests {
         expected[9] = insn(BPF_JA, 0, 0, 1);
         assert_eq!(program, expected);
         // Alone, the redirected program jumps past its end and is no longer valid.
-        assert_eq!(validate(&program), Err(BpfError::InvalidJump(6)));
+        assert_eq!(validate(&program), Err(ProgramError::InvalidJump(6)));
 
         // Nothing left to redirect.
         assert_eq!(
@@ -905,54 +799,5 @@ pub(crate) mod tests {
             ..SeccompData::x86_64(NR_OPEN, [0; 6])
         };
         assert_eq!(simulate(&program, &foreign), SECCOMP_RET_KILL_THREAD);
-    }
-
-    #[test]
-    fn test_validate_rejects() {
-        let ret = insn(BPF_RET_K, 0, 0, SECCOMP_RET_ALLOW);
-        let ld_nr = insn(BPF_LD_W_ABS, 0, 0, SECCOMP_DATA_NR_OFFSET);
-
-        assert_eq!(validate(&[]), Err(BpfError::Empty));
-        assert_eq!(validate(&[ret]), Ok(()));
-        assert_eq!(validate(&vec![ret; BPF_MAX_LEN]), Ok(()));
-        assert_eq!(
-            validate(&vec![ret; BPF_MAX_LEN + 1]),
-            Err(BpfError::TooLong(BPF_MAX_LEN + 1))
-        );
-        assert_eq!(validate(&[ret, ld_nr]), Err(BpfError::LastNotReturn));
-        // Conditional jump past the end (on either branch).
-        assert_eq!(
-            validate(&[insn(BPF_JEQ_K, 1, 0, 1), ret]),
-            Err(BpfError::InvalidJump(0))
-        );
-        assert_eq!(
-            validate(&[insn(BPF_JEQ_K, 0, 1, 1), ret]),
-            Err(BpfError::InvalidJump(0))
-        );
-        assert_eq!(validate(&[insn(BPF_JEQ_K, 0, 0, 1), ret]), Ok(()));
-        // `ja` to exactly the end, and to the last instruction.
-        assert_eq!(
-            validate(&[insn(BPF_JA, 0, 0, 1), ret]),
-            Err(BpfError::InvalidJump(0))
-        );
-        assert_eq!(validate(&[insn(BPF_JA, 0, 0, 0), ret]), Ok(()));
-        assert_eq!(validate(&[insn(BPF_JA, 0, 0, 1), ret, ret]), Ok(()));
-        // Misaligned and out-of-struct loads.
-        assert_eq!(
-            validate(&[insn(BPF_LD_W_ABS, 0, 0, 2), ret]),
-            Err(BpfError::InvalidLoad(0))
-        );
-        assert_eq!(
-            validate(&[insn(BPF_LD_W_ABS, 0, 0, 64), ret]),
-            Err(BpfError::InvalidLoad(0))
-        );
-        assert_eq!(validate(&[insn(BPF_LD_W_ABS, 0, 0, 60), ret]), Ok(()));
-        // Unknown opcode (`BPF_LD | BPF_W | BPF_LEN`).
-        assert_eq!(
-            validate(&[ld_nr, insn(0x80, 0, 0, 0), ret]),
-            Err(BpfError::UnknownOpcode(1, 0x80))
-        );
-        // `ret A` is accepted by the kernel.
-        assert_eq!(validate(&[ld_nr, insn(BPF_RET_A, 0, 0, 0)]), Ok(()));
     }
 }

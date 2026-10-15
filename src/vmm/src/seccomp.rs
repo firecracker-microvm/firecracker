@@ -73,7 +73,7 @@ pub enum InstallationError {
 }
 
 /// The maximum seccomp-BPF program length allowed by the linux kernel.
-pub const BPF_MAX_LEN: usize = 4096;
+pub use seccomp_filter::bpf::BPF_MAX_LEN;
 
 /// BPF structure definition for filter array.
 /// See /usr/include/linux/filter.h .
@@ -136,9 +136,26 @@ mod tests {
 
     use std::thread;
 
+    use seccomp_filter::bpf::{BPF_JEQ_K, BPF_LD_W_ABS, BPF_RET_K, ProgramError, insn};
     use seccomp_filter::{BpfFilter, BpfFragment, BpfMap, MAX_ENCODED_SIZE};
 
     use super::*;
+
+    const SECCOMP_RET_TRAP: u32 = 0x0003_0000;
+    const SECCOMP_RET_ALLOW: u32 = 0x7fff_0000;
+
+    /// A position independent part allowing syscall `nr` and falling through otherwise.
+    fn allow(nr: u32) -> Vec<u64> {
+        vec![
+            insn(BPF_LD_W_ABS, 0, 0, 0),
+            insn(BPF_JEQ_K, 0, 1, nr),
+            insn(BPF_RET_K, 0, 0, SECCOMP_RET_ALLOW),
+        ]
+    }
+
+    fn trap() -> Vec<u64> {
+        vec![insn(BPF_RET_K, 0, 0, SECCOMP_RET_TRAP)]
+    }
 
     #[test]
     fn test_deserialize_binary() {
@@ -154,18 +171,18 @@ mod tests {
             (
                 "VcpU".to_string(),
                 BpfFilter {
-                    base: vec![0; 2],
+                    base: allow(1),
                     fragments: vec![BpfFragment {
                         features: vec!["net".to_string(), "hotplug".to_string()],
-                        code: vec![1; 3],
+                        code: allow(2),
                     }],
-                    epilogue: vec![2],
+                    epilogue: trap(),
                 },
             ),
             (
                 "api".to_string(),
                 BpfFilter {
-                    base: vec![3],
+                    base: trap(),
                     ..Default::default()
                 },
             ),
@@ -175,15 +192,15 @@ mod tests {
         expected_res.insert(
             "vcpu".to_string(),
             SeccompFilter::new(
-                vec![0; 2],
+                allow(1),
                 vec![FilterFragment {
                     features: SeccompFeatures::from(SeccompFeature::Net) | SeccompFeature::Hotplug,
-                    code: vec![1; 3],
+                    code: allow(2),
                 }],
-                vec![2],
+                trap(),
             ),
         );
-        expected_res.insert("api".to_string(), SeccompFilter::from_program(vec![3]));
+        expected_res.insert("api".to_string(), SeccompFilter::from_program(trap()));
         expected_res.insert("vmm".to_string(), SeccompFilter::default());
         let bytes = seccomp_filter::encode(&filter_map).unwrap();
         assert_eq!(deserialize_binary(&bytes[..]).unwrap(), expected_res);
@@ -192,12 +209,12 @@ mod tests {
         let filter_map = BpfMap::from([(
             "vmm".to_string(),
             BpfFilter {
-                base: vec![0; 2],
+                base: allow(1),
                 fragments: vec![BpfFragment {
                     features: vec!["warp-drive".to_string()],
-                    code: vec![1],
+                    code: allow(2),
                 }],
-                epilogue: vec![2],
+                epilogue: trap(),
             },
         )]);
         let bytes = seccomp_filter::encode(&filter_map).unwrap();
@@ -205,6 +222,27 @@ mod tests {
             deserialize_binary(&bytes[..]).unwrap_err(),
             DeserializationError::Filter(thread, FilterError::UnknownFeature(UnknownSeccompFeature(name)))
                 if thread == "vmm" && name == "warp-drive"
+        ));
+
+        // So is one whose fragment would jump out of the composed program.
+        let filter_map = BpfMap::from([(
+            "vcpu".to_string(),
+            BpfFilter {
+                base: allow(1),
+                fragments: vec![BpfFragment {
+                    features: vec!["net".to_string()],
+                    code: vec![insn(BPF_JEQ_K, 0, 2, 2)],
+                }],
+                epilogue: trap(),
+            },
+        )]);
+        let bytes = seccomp_filter::encode(&filter_map).unwrap();
+        assert!(matches!(
+            deserialize_binary(&bytes[..]).unwrap_err(),
+            DeserializationError::Filter(
+                thread,
+                FilterError::InvalidFragment(0, ProgramError::InvalidJump(0))
+            ) if thread == "vcpu"
         ));
 
         // Test filter too large - create data that will exceed the deserialization limit
