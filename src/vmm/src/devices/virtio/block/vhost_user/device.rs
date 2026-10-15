@@ -16,7 +16,9 @@ use super::{NUM_QUEUES, QUEUE_SIZE, VhostUserBlockError};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
-use crate::devices::virtio::generated::virtio_blk::{VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO};
+use crate::devices::virtio::generated::virtio_blk::{
+    VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO,
+};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
@@ -58,6 +60,9 @@ pub struct VhostUserBlockConfig {
     /// If set to true, the drive will ignore flush requests coming from
     /// the guest driver.
     pub cache_type: CacheType,
+    /// If set to true, VIRTIO_BLK_F_DISCARD is offered to the backend and,
+    /// if the backend acks it, exposed to the guest.
+    pub discard: bool,
 
     /// Socket path of the vhost-user process
     pub socket: String,
@@ -67,10 +72,9 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
     type Error = VhostUserBlockError;
 
     fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
-        if let (Some(socket), None, None, None, None, None, None, None) = (
+        if let (Some(socket), None, None, None, None, None, None) = (
             &value.socket,
             &value.is_read_only,
-            &value.discard,
             &value.path_on_host,
             &value.rate_limiter,
             &value.file_engine_type,
@@ -82,6 +86,7 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
                 partuuid: value.partuuid.clone(),
                 is_root_device: value.is_root_device,
                 cache_type: value.cache_type,
+                discard: value.discard.unwrap_or(false),
 
                 socket: socket.clone(),
             })
@@ -100,7 +105,7 @@ impl From<VhostUserBlockConfig> for BlockDeviceConfig {
             cache_type: value.cache_type,
 
             is_read_only: None,
-            discard: None,
+            discard: Some(value.discard),
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
@@ -131,6 +136,7 @@ pub struct VhostUserBlockImpl<T: VhostUserHandleBackend> {
     pub id: String,
     pub partuuid: Option<String>,
     pub cache_type: CacheType,
+    pub discard: bool,
     pub root_device: bool,
     pub read_only: bool,
 
@@ -154,6 +160,7 @@ impl<T: VhostUserHandleBackend> std::fmt::Debug for VhostUserBlockImpl<T> {
             .field("id", &self.id)
             .field("partuuid", &self.partuuid)
             .field("cache_type", &self.cache_type)
+            .field("discard", &self.discard)
             .field("root_device", &self.root_device)
             .field("read_only", &self.read_only)
             .field("vu_handle", &self.vu_handle)
@@ -174,6 +181,13 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
 
         if config.cache_type == CacheType::Writeback {
             requested_features |= 1 << VIRTIO_BLK_F_FLUSH;
+        }
+
+        // Like RO, discard is only exposed to the guest if the backend acks
+        // it. The backend owns the discard limits in the config space and the
+        // request data plane, so nothing else is needed on the frontend side.
+        if config.discard {
+            requested_features |= 1 << VIRTIO_BLK_F_DISCARD;
         }
 
         let requested_protocol_features = VhostUserProtocolFeatures::CONFIG;
@@ -239,6 +253,7 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
             id: config.drive_id,
             partuuid: config.partuuid,
             cache_type: config.cache_type,
+            discard: config.discard,
             read_only,
             root_device: config.is_root_device,
 
@@ -259,6 +274,7 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
             partuuid: self.partuuid.clone(),
             is_root_device: self.root_device,
             cache_type: self.cache_type,
+            discard: self.discard,
             socket: self.vu_handle.socket_path.clone(),
         }
     }
@@ -440,6 +456,26 @@ mod tests {
             is_root_device: false,
             cache_type: CacheType::Unsafe,
 
+            is_read_only: None,
+            discard: Some(true),
+            path_on_host: None,
+            rate_limiter: None,
+            file_engine_type: None,
+            blk_size: None,
+            topology: None,
+
+            socket: Some("sock".to_string()),
+        };
+        let vu_config = VhostUserBlockConfig::try_from(&block_config).unwrap();
+        assert!(vu_config.discard);
+        assert_eq!(BlockDeviceConfig::from(vu_config).discard, Some(true));
+
+        let block_config = BlockDeviceConfig {
+            drive_id: "".to_string(),
+            partuuid: None,
+            is_root_device: false,
+            cache_type: CacheType::Unsafe,
+
             is_read_only: Some(true),
             discard: None,
             path_on_host: Some("path".to_string()),
@@ -532,6 +568,7 @@ mod tests {
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            discard: false,
             socket: tmp_socket_path.clone(),
         };
         let vhost_block = VhostUserBlockImpl::<MockMaster>::new(vhost_block_config).unwrap();
@@ -582,7 +619,9 @@ mod tests {
                     sock,
                     max_queue_num,
                     is_owner: std::cell::UnsafeCell::new(false),
-                    features: AVAILABLE_FEATURES | (1 << VIRTIO_BLK_F_FLUSH),
+                    features: AVAILABLE_FEATURES
+                        | (1 << VIRTIO_BLK_F_FLUSH)
+                        | (1 << VIRTIO_BLK_F_DISCARD),
 
                     protocol_features: VhostUserProtocolFeatures::all(),
                     hdr_flags: std::cell::UnsafeCell::new(VhostUserHeaderFlag::empty()),
@@ -637,6 +676,7 @@ mod tests {
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Writeback,
+            discard: true,
             socket: tmp_socket_path.clone(),
         };
         let mut vhost_block = VhostUserBlockImpl::<MockMaster>::new(vhost_block_config).unwrap();
@@ -661,7 +701,7 @@ mod tests {
 
         assert_eq!(
             vhost_block.avail_features,
-            AVAILABLE_FEATURES | (1 << VIRTIO_BLK_F_FLUSH)
+            AVAILABLE_FEATURES | (1 << VIRTIO_BLK_F_FLUSH) | (1 << VIRTIO_BLK_F_DISCARD)
         );
         assert_eq!(
             vhost_block.acked_features,
@@ -682,7 +722,7 @@ mod tests {
         // Test some `VirtioDevice` methods
         assert_eq!(
             vhost_block.avail_features(),
-            AVAILABLE_FEATURES | (1 << VIRTIO_BLK_F_FLUSH)
+            AVAILABLE_FEATURES | (1 << VIRTIO_BLK_F_FLUSH) | (1 << VIRTIO_BLK_F_DISCARD)
         );
         assert_eq!(
             vhost_block.acked_features(),
@@ -832,6 +872,7 @@ mod tests {
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Writeback,
+            discard: false,
             socket: tmp_socket_path,
         };
         let mut vhost_block = VhostUserBlockImpl::<MockMaster>::new(vhost_block_config).unwrap();

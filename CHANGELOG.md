@@ -20,6 +20,10 @@ and this project adheres to
 - [#6237](https://github.com/firecracker-microvm/firecracker/pull/6237): Added
   balloon and virtio-mem memory reclamation for shared memfd-backed guest
   memory, such as memory shared with vhost-user devices.
+- [#6309](https://github.com/firecracker-microvm/firecracker/pull/6309): Added
+  support for the `discard` drive field on vhost-user block devices. When set,
+  Firecracker offers `VIRTIO_BLK_F_DISCARD` to the backend and exposes it to the
+  guest if the backend acks it, so guest `fstrim` reaches the backend.
 
 ### Changed
 
