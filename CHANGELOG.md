@@ -115,6 +115,10 @@ and this project adheres to
   other than a single `Content-Length: 0`, or a header name that is not an HTTP
   token. MMDS requests never carry a body, so no valid request needs any of
   these. Such a request receives a `400` response, and the connection is closed.
+- [#6289](https://github.com/firecracker-microvm/firecracker/pull/6289): The
+  `Sync` block IO engine now reads and writes with `pread`/`pwrite`. Custom
+  seccomp filters must allow the `pread64` and `pwrite64` syscalls on the VMM
+  and block worker threads.
 
 ### Deprecated
 

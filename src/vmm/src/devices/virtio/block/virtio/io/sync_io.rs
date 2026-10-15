@@ -2,16 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fs::File;
-use std::io::{ErrorKind, Seek, SeekFrom, Write};
+use std::io::{ErrorKind, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::FileTypeExt;
 
-use vm_memory::{
-    GuestMemoryBackend, GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice,
-    WriteVolatile,
-};
+use vm_memory::{GuestMemoryBackend, GuestMemoryError, VolatileMemoryError, VolatileSlice};
 
-use crate::vstate::memory::{Bitmap, GuestAddress, GuestMemoryMmap};
+use crate::utils::usize_to_u64;
+use crate::vstate::memory::{Bitmap, BitmapSlice, GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum SyncIoError {
@@ -19,8 +17,6 @@ pub enum SyncIoError {
     Discard(std::io::Error),
     /// Flush: {0}
     Flush(std::io::Error),
-    /// Seek: {0}
-    Seek(std::io::Error),
     /// SyncAll: {0}
     SyncAll(std::io::Error),
     /// Transfer: {0}
@@ -81,6 +77,46 @@ pub(super) fn file_discard_range(file: &File, range: (u64, u32)) -> Result<u32, 
     Ok(discarded)
 }
 
+// Reads and writes are positional (pread/pwrite) rather than lseek() followed by read()/write(),
+// so they neither depend on nor move the shared file position.
+
+/// Reads into `buf` from `file` at `offset` with one `pread()`. Marks nothing dirty; the caller
+/// accounts for the bytes read.
+fn pread_volatile<B: BitmapSlice>(
+    file: &File,
+    buf: &mut VolatileSlice<B>,
+    offset: u64,
+) -> Result<usize, VolatileMemoryError> {
+    let offset = file_offset(offset)?;
+    let guard = buf.ptr_guard_mut();
+    // JUSTIFICATION: There is no safe way to read into guest memory at a file offset.
+    // SAFETY: `file` is an open file, and `guard` points to `buf.len()` bytes of mapped memory,
+    // valid for writes for as long as `guard` lives.
+    let ret = unsafe { libc::pread(file.as_raw_fd(), guard.as_ptr().cast(), buf.len(), offset) };
+    usize::try_from(ret).map_err(|_| VolatileMemoryError::IOError(std::io::Error::last_os_error()))
+}
+
+/// Writes from `buf` to `file` at `offset` with one `pwrite()`.
+fn pwrite_volatile<B: BitmapSlice>(
+    file: &File,
+    buf: &VolatileSlice<B>,
+    offset: u64,
+) -> Result<usize, VolatileMemoryError> {
+    let offset = file_offset(offset)?;
+    let guard = buf.ptr_guard();
+    // JUSTIFICATION: There is no safe way to write from guest memory at a file offset.
+    // SAFETY: `file` is an open file, and `guard` points to `buf.len()` bytes of mapped memory,
+    // valid for reads for as long as `guard` lives.
+    let ret = unsafe { libc::pwrite(file.as_raw_fd(), guard.as_ptr().cast(), buf.len(), offset) };
+    usize::try_from(ret).map_err(|_| VolatileMemoryError::IOError(std::io::Error::last_os_error()))
+}
+
+fn file_offset(offset: u64) -> Result<libc::off_t, VolatileMemoryError> {
+    libc::off_t::try_from(offset).map_err(|_| {
+        VolatileMemoryError::IOError(std::io::Error::from_raw_os_error(libc::EOVERFLOW))
+    })
+}
+
 impl SyncFileEngine {
     pub fn from_file(file: File) -> SyncFileEngine {
         SyncFileEngine { file }
@@ -102,39 +138,27 @@ impl SyncFileEngine {
         addr: GuestAddress,
         count: u32,
     ) -> Result<u32, SyncIoError> {
-        self.file
-            .seek(SeekFrom::Start(offset))
-            .map_err(SyncIoError::Seek)?;
         let slice = mem
             .get_slice(addr, count as usize)
             .map_err(SyncIoError::Transfer)?;
-        // SAFETY: `get_slice` checked that `count` bytes at this address are guest memory, which
-        // the device keeps mapped. The copy carries no bitmap: vm-memory would mark the whole
-        // remainder dirty if a read failed, so marking is done below for the bytes read.
-        let mut unmarked =
-            unsafe { VolatileSlice::new(slice.ptr_guard_mut().as_ptr(), count as usize) };
-
-        // Read until the buffer is full, then mark dirty exactly what was read. A failed `read`
+        // Read until the buffer is full, then mark dirty exactly what was read. A failed `pread`
         // writes nothing, so what the earlier ones filled is all there is to mark either way.
         let mut filled = 0;
         let result = loop {
-            if unmarked.is_empty() {
+            if filled == slice.len() {
                 break Ok(());
             }
-            // `unmarked` carries no bitmap, so vm-memory marks nothing; see above.
-            #[expect(clippy::disallowed_methods)]
-            match self.file.read_volatile(&mut unmarked) {
+            let mut rest = slice
+                .offset(filled)
+                .expect("filled is below the slice length");
+            match pread_volatile(&self.file, &mut rest, offset + usize_to_u64(filled)) {
                 Ok(0) => {
                     break Err(VolatileMemoryError::IOError(std::io::Error::new(
                         ErrorKind::UnexpectedEof,
                         "failed to fill whole buffer",
                     )));
                 }
-                Ok(read) => {
-                    filled += read;
-                    // `read` cannot exceed the slice's length.
-                    unmarked = unmarked.offset(read).unwrap();
-                }
+                Ok(read) => filled += read,
                 Err(VolatileMemoryError::IOError(err)) if err.kind() == ErrorKind::Interrupted => {}
                 Err(err) => break Err(err),
             }
@@ -151,12 +175,29 @@ impl SyncFileEngine {
         addr: GuestAddress,
         count: u32,
     ) -> Result<u32, SyncIoError> {
-        self.file
-            .seek(SeekFrom::Start(offset))
-            .map_err(SyncIoError::Seek)?;
-        mem.get_slice(addr, count as usize)
-            .and_then(|slice| Ok(self.file.write_all_volatile(&slice)?))
+        let slice = mem
+            .get_slice(addr, count as usize)
             .map_err(SyncIoError::Transfer)?;
+        let mut written = 0;
+        while written < slice.len() {
+            let rest = slice
+                .offset(written)
+                .expect("written is below the slice length");
+            match pwrite_volatile(&self.file, &rest, offset + usize_to_u64(written)) {
+                Ok(0) => {
+                    return Err(SyncIoError::Transfer(
+                        VolatileMemoryError::IOError(std::io::Error::new(
+                            ErrorKind::WriteZero,
+                            "failed to write whole buffer",
+                        ))
+                        .into(),
+                    ));
+                }
+                Ok(n) => written += n,
+                Err(VolatileMemoryError::IOError(err)) if err.kind() == ErrorKind::Interrupted => {}
+                Err(err) => return Err(SyncIoError::Transfer(err.into())),
+            }
+        }
         Ok(count)
     }
 
@@ -207,5 +248,41 @@ mod tests {
         assert_eq!(&data[..1024], vec![0x5a; 1024].as_slice());
         assert_eq!(&data[1024..3072], vec![0; 2048].as_slice());
         assert_eq!(&data[3072..], vec![0x5a; 1024].as_slice());
+    }
+
+    #[test]
+    fn test_positional_io_keeps_file_position() {
+        use crate::devices::virtio::block::virtio::io::sync_io::SyncFileEngine;
+        use crate::vmm_config::machine_config::HugePageConfig;
+        use crate::vstate::memory::{
+            self, Bytes, GuestAddress, GuestMemoryMmap, GuestRegionMmapExt,
+        };
+
+        let mem = GuestMemoryMmap::from_regions(
+            memory::anonymous(&[(GuestAddress(0), 4096)], false, HugePageConfig::None)
+                .unwrap()
+                .into_iter()
+                .map(|region| GuestRegionMmapExt::dram_from_mmap_region(region, 0))
+                .collect(),
+        )
+        .unwrap();
+        let mut file = TempFile::new().unwrap().into_file();
+        file.write_all(&[0u8; 1024]).unwrap();
+        file.seek(SeekFrom::Start(7)).unwrap();
+        let mut engine = SyncFileEngine::from_file(file);
+
+        mem.write_slice(&[0xab; 100], GuestAddress(0)).unwrap();
+        assert_eq!(engine.write(512, &mem, GuestAddress(0), 100).unwrap(), 100);
+        assert_eq!(engine.read(512, &mem, GuestAddress(200), 100).unwrap(), 100);
+        let mut buf = [0u8; 100];
+        mem.read_slice(&mut buf, GuestAddress(200)).unwrap();
+        assert_eq!(buf, [0xab; 100]);
+
+        // Reading past the end of the file fails rather than returning a short read.
+        engine.read(1000, &mem, GuestAddress(0), 100).unwrap_err();
+
+        // Positional I/O neither uses nor moves the file position.
+        let mut file = engine.file();
+        assert_eq!(file.stream_position().unwrap(), 7);
     }
 }
