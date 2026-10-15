@@ -63,9 +63,12 @@ untagged or tagged `api`. The features are:
 | `pmem`           | a virtio-pmem device is configured                                                                                                                       |
 | `memory-hotplug` | virtio-mem memory hotplug is configured                                                                                                                  |
 
-Untagged rules are always installed. The set of features a microVM gets is
-logged at `INFO` level when the microVM is built, e.g.
-`Seccomp features required by the microVM: [api,block,net]`.
+Untagged rules are always installed. The features derived from the configuration
+are logged at `INFO` level when the microVM is built, e.g.
+`Seccomp features required by the microVM: [api,block,net]`, followed by
+`Seccomp features added by the command line: [...]` when `--seccomp-features` is
+used, and the filter each thread gets is logged when it is composed, e.g.
+`Seccomp filter of the vmm thread: 211 instructions, features [api,block,net]`.
 
 > [!NOTE]
 >

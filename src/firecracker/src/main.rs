@@ -692,8 +692,9 @@ fn run_without_api(
     let seccomp_features = vmm.lock().expect("Poisoned lock").seccomp_features;
     let vmm_seccomp_filter = seccomp_filters
         .get("vmm")
-        .ok_or(RunWithoutApiError::MissingSeccompFilter)?
-        .compose(seccomp_features);
+        .ok_or(RunWithoutApiError::MissingSeccompFilter)?;
+    let vmm_seccomp_filter =
+        vmm::seccomp::compose_for_thread(vmm_seccomp_filter, "vmm", seccomp_features);
     vmm::seccomp::apply_filter(&vmm_seccomp_filter).map_err(RunWithoutApiError::SeccompFilter)?;
 
     // Start the metrics.

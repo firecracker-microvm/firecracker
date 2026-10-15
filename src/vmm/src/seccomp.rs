@@ -9,6 +9,8 @@ pub use seccomp_filter::{
     SeccompFilter, UnknownSeccompFeature,
 };
 
+use crate::logger::{info, warn};
+
 /// Each BPF instruction is 8 bytes long and 4 byte aligned.
 /// This alignment needs to be satisfied in order for a BPF code to be accepted
 /// by the syscalls. Using u64 here is is safe as it has same size and even bigger alignment.
@@ -22,6 +24,25 @@ pub type BpfProgramRef<'a> = &'a [BpfInstruction];
 
 /// Type that associates a thread category to its seccomp filter.
 pub type BpfThreadMap = HashMap<String, SeccompFilter>;
+
+/// Compose the program the `thread` threads install for a microVM with `features`, and log what
+/// they get, so that a syscall they later trip over can be traced back to the composed filter.
+pub fn compose_for_thread(
+    filter: &SeccompFilter,
+    thread: &str,
+    features: SeccompFeatures,
+) -> BpfProgram {
+    let program = filter.compose(features);
+    if program.is_empty() {
+        warn!("No seccomp filter is installed on the {thread} thread");
+    } else {
+        info!(
+            "Seccomp filter of the {thread} thread: {} instructions, features [{features}]",
+            program.len()
+        );
+    }
+    program
+}
 
 /// Binary filter deserialization errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
