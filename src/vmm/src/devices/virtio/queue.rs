@@ -12,7 +12,7 @@ use vm_memory::GuestMemoryBackend;
 use crate::logger::error;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{ByteValued, GuestAddress};
-use crate::vstate::memory_slice::{GuestMemorySlice, GuestMemorySliceMut};
+use crate::vstate::memory_slice::{DirtyTracking, GuestMemorySlice, GuestMemorySliceMut};
 
 pub const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub const VIRTQ_DESC_F_WRITE: u16 = 0x2;
@@ -313,8 +313,11 @@ impl Queue {
         Ok(())
     }
 
-    /// Resolve the queue objects in the guest memory and mark them dirty.
-    pub fn initialize<M: GuestMemoryBackend>(&mut self, mem: &M) -> Result<(), QueueError> {
+    /// Resolve the queue objects in the guest memory.
+    pub fn initialize<M: GuestMemoryBackend + DirtyTracking>(
+        &mut self,
+        mem: &M,
+    ) -> Result<(), QueueError> {
         if !self.ready {
             return Err(QueueError::NotReady);
         }
@@ -668,6 +671,12 @@ mod verification {
     /// it works identically to `GuestMemoryMmap` with only a single contained region.
     pub struct ProofGuestMemory {
         the_region: vm_memory::GuestRegionMmap,
+    }
+
+    impl DirtyTracking for ProofGuestMemory {
+        fn dirty_tracking(&self) -> Option<crate::vstate::memory::GuestMemoryMmap> {
+            None
+        }
     }
 
     impl GuestMemoryBackend for ProofGuestMemory {
