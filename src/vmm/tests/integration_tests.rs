@@ -436,6 +436,173 @@ fn test_load_snapshot_huge_pages_override() {
 }
 
 #[test]
+#[cfg(target_arch = "x86_64")]
+fn test_snapshot_restore_tsc_deadline_after_offset_sync() {
+    use std::time::Instant;
+
+    use vmm::arch::x86_64::generated::msr_index::{MSR_IA32_TSC, MSR_IA32_TSC_DEADLINE};
+    use vmm::builder::build_microvm_for_boot;
+    use vmm::test_utils::mock_resources::MockBootSourceConfig;
+
+    const TIMER_VECTOR: u32 = 0xec;
+    const APIC_SPIV: usize = 0xf0;
+    const APIC_LVTT: usize = 0x320;
+    const APIC_IRR: usize = 0x200 + (TIMER_VECTOR as usize / 32) * 0x10;
+    const TIMER_BIT: u32 = 1 << (TIMER_VECTOR % 32);
+    const LOOP_ADDRESS: u64 = 0x100000;
+
+    // Older hosts keep the original offsets and cannot exercise this restore path.
+    let kvm = vmm::vstate::kvm::Kvm::new(vec![]).unwrap();
+    let probe_vm = vmm::vstate::vm::KvmVm::new(kvm).unwrap();
+    let probe_vcpu = vmm::arch::x86_64::vcpu::KvmVcpu::new(0, &probe_vm).unwrap();
+    if !probe_vcpu.supports_tsc_offset_attr() {
+        eprintln!("Skipping TSC deadline restore: KVM TSC offset attribute unavailable");
+        return;
+    }
+
+    let resources: VmResources = MockVmResources::new()
+        .with_boot_source(MockBootSourceConfig::new().into())
+        .with_vm_config(MachineConfig {
+            vcpu_count: 2,
+            ..Default::default()
+        })
+        .into();
+    let mut event_manager = EventManager::new().unwrap();
+    let filters = get_empty_filters();
+    let source = build_microvm_for_boot(
+        &InstanceInfo::default(),
+        &resources,
+        &mut event_manager,
+        &filters,
+    )
+    .unwrap();
+    let snapshot_file = TempFile::new().unwrap();
+    let memory_file = TempFile::new().unwrap();
+    {
+        let mut vmm = source.lock().unwrap();
+        // Spin with interrupts disabled so the timer IRQ stays observable in LAPIC IRR.
+        vmm.vm
+            .as_kvm()
+            .unwrap()
+            .guest_memory()
+            .write_slice(&[0xeb, 0xfe], GuestAddress(LOOP_ADDRESS))
+            .unwrap();
+        let vm_info = VmInfo::from(&*vmm);
+        vmm::persist::create_snapshot(
+            &mut vmm,
+            &vm_info,
+            &CreateSnapshotParams {
+                snapshot_type: SnapshotType::Full,
+                snapshot_path: snapshot_file.as_path().to_path_buf(),
+                mem_file_path: memory_file.as_path().to_path_buf(),
+                sync_snapshot_files: false,
+            },
+        )
+        .unwrap();
+        vmm.stop(FcExitCode::Ok);
+    }
+
+    let mut snapshot: Snapshot<MicrovmState> =
+        Snapshot::load(&mut snapshot_file.as_file()).unwrap();
+    let boot_sregs = snapshot.data.vcpu_states[0].sregs;
+    let ticks_per_second = u64::from(snapshot.data.vcpu_states[0].tsc_khz.unwrap()) * 1000;
+    for (index, state) in snapshot.data.vcpu_states.iter_mut().enumerate() {
+        state.sregs = boot_sregs;
+        state.regs.rip = LOOP_ADDRESS;
+        state.regs.rflags = 2;
+        state.mp_state.mp_state = kvm_bindings::KVM_MP_STATE_RUNNABLE;
+        for (offset, value) in [
+            (APIC_SPIV, 0x1ff_u32),
+            (APIC_LVTT, (2 << 17) | TIMER_VECTOR),
+            (APIC_IRR, 0),
+        ] {
+            for (i, byte) in value.to_le_bytes().into_iter().enumerate() {
+                state.lapic.regs[offset + i] = byte.cast_signed();
+            }
+        }
+        let mut found_tsc = false;
+        let mut found_deadline = false;
+        for msr in state
+            .saved_msrs
+            .iter_mut()
+            .flat_map(|msrs| msrs.as_mut_slice())
+        {
+            match msr.index {
+                MSR_IA32_TSC => {
+                    // Exceed KVM's one-second TSC synchronization window. vCPU1's
+                    // timer is initially armed 59 seconds into its future.
+                    msr.data = ticks_per_second * if index == 0 { 120 } else { 60 };
+                    found_tsc = true;
+                }
+                MSR_IA32_TSC_DEADLINE => {
+                    // Already expired on vCPU0's timeline, which both vCPUs must
+                    // adopt. Re-arming after offset synchronization must fire it.
+                    msr.data = ticks_per_second * 119;
+                    found_deadline = true;
+                }
+                _ => {}
+            }
+        }
+        assert!(found_tsc && found_deadline);
+    }
+    snapshot_file.as_file().set_len(0).unwrap();
+    snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
+    snapshot.save(&mut snapshot_file.as_file()).unwrap();
+
+    let mut restored_resources = VmResources::default();
+    let mut controller = PrebootApiController::new(
+        &filters,
+        InstanceInfo::default(),
+        &mut restored_resources,
+        &mut event_manager,
+    );
+    controller
+        .handle_preboot_request(VmmAction::LoadSnapshot(LoadSnapshotParams {
+            snapshot_path: snapshot_file.as_path().to_path_buf(),
+            mem_backend: MemBackendConfig {
+                backend_path: memory_file.as_path().to_path_buf(),
+                backend_type: MemBackendType::File,
+            },
+            resume_vm: true,
+            track_dirty_pages: false,
+            network_overrides: vec![],
+            vsock_override: None,
+            clock_realtime: false,
+            huge_pages: SnapshotLoadHugePageConfig::Snapshot,
+        }))
+        .unwrap();
+    let restored = controller.built_vmm.take().unwrap();
+    let timeout = Instant::now() + Duration::from_secs(2);
+    let pending = loop {
+        thread::sleep(Duration::from_millis(10));
+        let mut vmm = restored.lock().unwrap();
+        vmm.pause_vm().unwrap();
+        let vm_info = VmInfo::from(&*vmm);
+        let state = vmm.save_state(&vm_info).unwrap();
+        let pending: Vec<_> = state
+            .vcpu_states
+            .iter()
+            .map(|vcpu| {
+                let irr = u32::from_le_bytes(std::array::from_fn(|i| {
+                    vcpu.lapic.regs[APIC_IRR + i].cast_unsigned()
+                }));
+                irr & TIMER_BIT != 0
+            })
+            .collect();
+        if pending.iter().all(|&fired| fired) || Instant::now() >= timeout {
+            vmm.stop(FcExitCode::Ok);
+            break pending;
+        }
+        vmm.resume_vm().unwrap();
+    };
+    assert_eq!(
+        pending,
+        vec![true, true],
+        "TSC deadline interrupts did not arrive"
+    );
+}
+
+#[test]
 fn test_load_snapshot_rejects_hugetlbfs_with_file_backend() {
     let (snapshot_file, memory_file) = verify_create_snapshot(false, false, false);
     let mut event_manager = EventManager::new().unwrap();
