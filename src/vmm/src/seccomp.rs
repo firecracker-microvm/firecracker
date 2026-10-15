@@ -2,20 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
-use std::fmt;
 use std::io::Read;
-use std::ops::{BitOr, BitOrAssign};
-use std::str::FromStr;
 
-use serde::Deserialize;
-#[cfg(test)]
-use serde::Serialize;
-
-// This byte limit is passed to `bitcode` to guard against a potential memory
-// allocation DOS caused by binary filters that are too large.
-// This limit can be safely determined since the maximum length of a BPF
-// filter is 4096 instructions and Firecracker has a finite number of threads.
-const DESERIALIZATION_BYTES_LIMIT: usize = 100_000;
+pub use seccomp_filter::{
+    FilterError, FilterFragment, FormatError, SeccompFeature, SeccompFeatures, SeccompFilter,
+    UnknownSeccompFeature,
+};
 
 /// Each BPF instruction is 8 bytes long and 4 byte aligned.
 /// This alignment needs to be satisfied in order for a BPF code to be accepted
@@ -28,358 +20,18 @@ pub type BpfProgram = Vec<BpfInstruction>;
 /// Reference to program made up of a sequence of BPF instructions.
 pub type BpfProgramRef<'a> = &'a [BpfInstruction];
 
-/// A capability of the microVM that some syscall rules are only needed for.
-///
-/// Syscall rules in the JSON filters can be tagged with one or more features. seccompiler compiles
-/// tagged rules into separate BPF fragments which are only included in a thread's filter when one
-/// of their features is enabled for the running microVM, see [`SeccompFilter::compose`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum SeccompFeature {
-    /// Runtime control of the microVM through the API: pausing and resuming it, and saving its
-    /// state for a snapshot.
-    Api = 0,
-    /// VirtIO devices attached over the PCI transport (MSI-X, BAR relocation, teardown).
-    Pci,
-    /// Hot-plugging and unplugging devices through the API after boot, which is possible when the
-    /// API is enabled and the PCI transport is used.
-    Hotplug,
-    /// virtio-block devices.
-    Block,
-    /// virtio-block devices using the asynchronous (io_uring) file engine.
-    AsyncIo,
-    /// virtio-net devices.
-    Net,
-    /// The virtio-vsock device.
-    Vsock,
-    /// virtio-pmem devices.
-    Pmem,
-    /// virtio-mem memory hotplug.
-    MemoryHotplug,
-}
-
-impl SeccompFeature {
-    /// Every feature, in bit order.
-    pub const ALL: [SeccompFeature; 9] = [
-        SeccompFeature::Api,
-        SeccompFeature::Pci,
-        SeccompFeature::Hotplug,
-        SeccompFeature::Block,
-        SeccompFeature::AsyncIo,
-        SeccompFeature::Net,
-        SeccompFeature::Vsock,
-        SeccompFeature::Pmem,
-        SeccompFeature::MemoryHotplug,
-    ];
-
-    /// The name used to tag rules with this feature in the JSON filters.
-    pub const fn name(self) -> &'static str {
-        match self {
-            SeccompFeature::Api => "api",
-            SeccompFeature::Pci => "pci",
-            SeccompFeature::Hotplug => "hotplug",
-            SeccompFeature::Block => "block",
-            SeccompFeature::AsyncIo => "async-io",
-            SeccompFeature::Net => "net",
-            SeccompFeature::Vsock => "vsock",
-            SeccompFeature::Pmem => "pmem",
-            SeccompFeature::MemoryHotplug => "memory-hotplug",
-        }
-    }
-
-    const fn bit(self) -> u32 {
-        1 << (self as u32)
-    }
-}
-
-impl fmt::Display for SeccompFeature {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.name())
-    }
-}
-
-/// Unknown seccomp feature: {0}
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
-pub struct UnknownSeccompFeature(pub String);
-
-impl FromStr for SeccompFeature {
-    type Err = UnknownSeccompFeature;
-
-    fn from_str(name: &str) -> Result<Self, Self::Err> {
-        SeccompFeature::ALL
-            .into_iter()
-            .find(|feature| feature.name() == name)
-            .ok_or_else(|| UnknownSeccompFeature(name.to_string()))
-    }
-}
-
-/// A set of [`SeccompFeature`]s.
-#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct SeccompFeatures(u32);
-
-impl SeccompFeatures {
-    /// The empty set.
-    pub const fn empty() -> Self {
-        SeccompFeatures(0)
-    }
-
-    /// The set of all features.
-    pub const fn all() -> Self {
-        SeccompFeatures((1 << SeccompFeature::ALL.len()) - 1)
-    }
-
-    /// Whether `feature` is in the set.
-    pub const fn contains(self, feature: SeccompFeature) -> bool {
-        self.0 & feature.bit() != 0
-    }
-
-    /// Whether the two sets have a feature in common.
-    pub const fn intersects(self, other: SeccompFeatures) -> bool {
-        self.0 & other.0 != 0
-    }
-
-    /// Whether the set is empty.
-    pub const fn is_empty(self) -> bool {
-        self.0 == 0
-    }
-
-    /// Add `feature` to the set.
-    pub fn insert(&mut self, feature: SeccompFeature) {
-        self.0 |= feature.bit();
-    }
-
-    /// The features in the set, in bit order.
-    pub fn iter(self) -> impl Iterator<Item = SeccompFeature> {
-        SeccompFeature::ALL
-            .into_iter()
-            .filter(move |feature| self.contains(*feature))
-    }
-}
-
-impl From<SeccompFeature> for SeccompFeatures {
-    fn from(feature: SeccompFeature) -> Self {
-        SeccompFeatures(feature.bit())
-    }
-}
-
-impl FromIterator<SeccompFeature> for SeccompFeatures {
-    fn from_iter<I: IntoIterator<Item = SeccompFeature>>(iter: I) -> Self {
-        let mut set = SeccompFeatures::empty();
-        for feature in iter {
-            set.insert(feature);
-        }
-        set
-    }
-}
-
-impl BitOr for SeccompFeatures {
-    type Output = SeccompFeatures;
-
-    fn bitor(self, rhs: SeccompFeatures) -> SeccompFeatures {
-        SeccompFeatures(self.0 | rhs.0)
-    }
-}
-
-impl BitOr<SeccompFeature> for SeccompFeatures {
-    type Output = SeccompFeatures;
-
-    fn bitor(self, rhs: SeccompFeature) -> SeccompFeatures {
-        SeccompFeatures(self.0 | rhs.bit())
-    }
-}
-
-impl BitOrAssign for SeccompFeatures {
-    fn bitor_assign(&mut self, rhs: SeccompFeatures) {
-        self.0 |= rhs.0;
-    }
-}
-
-impl BitOrAssign<SeccompFeature> for SeccompFeatures {
-    fn bitor_assign(&mut self, rhs: SeccompFeature) {
-        self.insert(rhs);
-    }
-}
-
-impl fmt::Debug for SeccompFeatures {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_set().entries(self.iter()).finish()
-    }
-}
-
-impl fmt::Display for SeccompFeatures {
-    /// Comma separated feature names.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (i, feature) in self.iter().enumerate() {
-            if i > 0 {
-                f.write_str(",")?;
-            }
-            f.write_str(feature.name())?;
-        }
-        Ok(())
-    }
-}
-
-/// Part of a seccomp filter that is only needed when one of its features is enabled.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FilterFragment {
-    /// Features that enable this fragment; any one of them is sufficient.
-    pub features: SeccompFeatures,
-    /// Position independent BPF code. It falls through to the next fragment when its rule does
-    /// not match the syscall being filtered.
-    pub code: BpfProgram,
-}
-
-/// The seccomp filter of one thread category, as compiled by seccompiler.
-///
-/// `base` holds the rules that are always needed. When the filter has feature-gated parts, the
-/// base does not return the default action itself but falls through to the code appended after it:
-/// the `fragments` of the enabled features followed by the `epilogue`, which returns the default
-/// action. [`SeccompFilter::compose`] assembles the program that gets installed on a thread.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SeccompFilter {
-    base: BpfProgram,
-    fragments: Vec<FilterFragment>,
-    epilogue: BpfProgram,
-}
-
-impl SeccompFilter {
-    /// Create a filter from its parts.
-    pub fn new(base: BpfProgram, fragments: Vec<FilterFragment>, epilogue: BpfProgram) -> Self {
-        SeccompFilter {
-            base,
-            fragments,
-            epilogue,
-        }
-    }
-
-    /// Create a filter from a complete program that has no feature-gated parts.
-    pub fn from_program(program: BpfProgram) -> Self {
-        SeccompFilter::new(program, Vec::new(), Vec::new())
-    }
-
-    /// Whether composing this filter yields an empty program, i.e. no filter gets installed.
-    pub fn is_empty(&self) -> bool {
-        self.base.is_empty()
-            && self.epilogue.is_empty()
-            && self
-                .fragments
-                .iter()
-                .all(|fragment| fragment.code.is_empty())
-    }
-
-    /// The features for which this filter has fragments.
-    pub fn features(&self) -> SeccompFeatures {
-        self.fragments
-            .iter()
-            .fold(SeccompFeatures::empty(), |set, fragment| {
-                set | fragment.features
-            })
-    }
-
-    /// Assemble the program for a microVM with `enabled` features: the base, the fragments that
-    /// have at least one enabled feature and the epilogue.
-    pub fn compose(&self, enabled: SeccompFeatures) -> BpfProgram {
-        let fragments = self
-            .fragments
-            .iter()
-            .filter(|fragment| fragment.features.intersects(enabled));
-        let mut program = Vec::with_capacity(
-            self.base.len()
-                + self.epilogue.len()
-                + fragments
-                    .clone()
-                    .map(|fragment| fragment.code.len())
-                    .sum::<usize>(),
-        );
-        program.extend_from_slice(&self.base);
-        for fragment in fragments {
-            program.extend_from_slice(&fragment.code);
-        }
-        program.extend_from_slice(&self.epilogue);
-        program
-    }
-}
-
 /// Type that associates a thread category to its seccomp filter.
 pub type BpfThreadMap = HashMap<String, SeccompFilter>;
-
-/// First bytes of a compiled filter file, followed by [`FILTER_FORMAT_VERSION`] as a little
-/// endian `u32` and the bitcode serialized map of thread names to [`SerializedFilter`]s.
-const FILTER_FORMAT_MAGIC: [u8; 4] = *b"FCBF";
-
-/// The compiled filter file format version this Firecracker reads.
-const FILTER_FORMAT_VERSION: u32 = 1;
 
 /// Binary filter deserialization errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum DeserializationError {
     /// Failed to read input: {0}
     InputRead(std::io::Error),
-    /// Input size {0} exceeds limit of {1} bytes
-    SizeLimitExceeded(usize, usize),
-    /// Not a compiled seccomp filter; filters must be compiled with this version's seccompiler-bin
-    UnknownFormat,
-    /// Unsupported compiled filter format version {0}; recompile the filter with this version's seccompiler-bin
-    UnsupportedVersion(u32),
-    /// Bitcode deserialization failed: {0}
-    Bitcode(#[from] bitcode::Error),
-    /// Filter fragment tagged with an unknown feature: {0}
-    UnknownFeature(#[from] UnknownSeccompFeature),
-    /// Filter fragment without a feature tag
-    UntaggedFragment,
-    /// Filter with fragments or an epilogue but without a base program
-    MissingBase,
-}
-
-/// Serialized form of [`FilterFragment`], as written by seccompiler (`BpfFragment` in its types).
-#[derive(Debug, Deserialize)]
-#[cfg_attr(test, derive(Serialize))]
-struct SerializedFragment {
-    features: Vec<String>,
-    code: BpfProgram,
-}
-
-/// Serialized form of [`SeccompFilter`], as written by seccompiler (`BpfFilter` in its types).
-///
-/// Firecracker does not depend on seccompiler, which links libseccomp, so the layout is mirrored
-/// here and must be kept in sync.
-#[derive(Debug, Deserialize)]
-#[cfg_attr(test, derive(Serialize))]
-struct SerializedFilter {
-    base: BpfProgram,
-    fragments: Vec<SerializedFragment>,
-    epilogue: BpfProgram,
-}
-
-impl TryFrom<SerializedFilter> for SeccompFilter {
-    type Error = DeserializationError;
-
-    fn try_from(filter: SerializedFilter) -> Result<Self, Self::Error> {
-        // Fragments are only ever reached through the base program, and a fragment nothing can
-        // enable is a rule that silently never applies.
-        if filter.base.is_empty() && !(filter.fragments.is_empty() && filter.epilogue.is_empty()) {
-            return Err(DeserializationError::MissingBase);
-        }
-        let fragments = filter
-            .fragments
-            .into_iter()
-            .map(|fragment| {
-                if fragment.features.is_empty() {
-                    return Err(DeserializationError::UntaggedFragment);
-                }
-                let features = fragment
-                    .features
-                    .iter()
-                    .map(|name| name.parse::<SeccompFeature>())
-                    .collect::<Result<SeccompFeatures, _>>()?;
-                Ok(FilterFragment {
-                    features,
-                    code: fragment.code,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(SeccompFilter::new(filter.base, fragments, filter.epilogue))
-    }
+    /// {0}
+    Format(#[from] FormatError),
+    /// Invalid filter for the {0} thread: {1}
+    Filter(String, FilterError),
 }
 
 /// Retrieve empty seccomp filters.
@@ -393,38 +45,21 @@ pub fn get_empty_filters() -> BpfThreadMap {
 
 /// Deserialize binary with bpf filters
 pub fn deserialize_binary<R: Read>(reader: R) -> Result<BpfThreadMap, DeserializationError> {
-    // Check size limit before reading the full file to prevent DOS attacks
+    // Read at most one byte more than a compiled filter file can have, so that an oversized
+    // input is reported as such without reading it whole.
     let mut buf = Vec::new();
-    let bytes_read = reader
-        .take((DESERIALIZATION_BYTES_LIMIT + 1) as u64)
+    reader
+        .take((seccomp_filter::MAX_ENCODED_SIZE + 1) as u64)
         .read_to_end(&mut buf)
         .map_err(DeserializationError::InputRead)?;
 
-    if bytes_read > DESERIALIZATION_BYTES_LIMIT {
-        return Err(DeserializationError::SizeLimitExceeded(
-            bytes_read,
-            DESERIALIZATION_BYTES_LIMIT,
-        ));
-    }
-
-    let header_len = FILTER_FORMAT_MAGIC.len() + std::mem::size_of::<u32>();
-    if buf.len() < header_len || buf[..FILTER_FORMAT_MAGIC.len()] != FILTER_FORMAT_MAGIC {
-        return Err(DeserializationError::UnknownFormat);
-    }
-    let version = u32::from_le_bytes(
-        buf[FILTER_FORMAT_MAGIC.len()..header_len]
-            .try_into()
-            .expect("the header length was checked"),
-    );
-    if version != FILTER_FORMAT_VERSION {
-        return Err(DeserializationError::UnsupportedVersion(version));
-    }
-
-    let result: HashMap<String, SerializedFilter> = bitcode::deserialize(&buf[header_len..])?;
-
-    result
+    seccomp_filter::decode(&buf)?
         .into_iter()
-        .map(|(k, v)| Ok((k.to_lowercase(), SeccompFilter::try_from(v)?)))
+        .map(|(thread, filter)| {
+            let filter = SeccompFilter::try_from(filter)
+                .map_err(|err| DeserializationError::Filter(thread.clone(), err))?;
+            Ok((thread.to_lowercase(), filter))
+        })
         .collect()
 }
 
@@ -499,86 +134,43 @@ pub fn apply_filter(bpf_filter: BpfProgramRef) -> Result<(), InstallationError> 
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
-    use std::collections::HashMap;
     use std::thread;
+
+    use seccomp_filter::{BpfFilter, BpfFragment, BpfMap, MAX_ENCODED_SIZE};
 
     use super::*;
 
-    /// Serialize `filters` the way seccompiler writes a compiled filter file.
-    fn encode(filters: &HashMap<String, SerializedFilter>) -> Vec<u8> {
-        let mut bytes = FILTER_FORMAT_MAGIC.to_vec();
-        bytes.extend_from_slice(&FILTER_FORMAT_VERSION.to_le_bytes());
-        bytes.extend_from_slice(&bitcode::serialize(filters).unwrap());
-        bytes
-    }
-
-    fn single(name: &str, filter: SerializedFilter) -> HashMap<String, SerializedFilter> {
-        HashMap::from([(name.to_string(), filter)])
-    }
-
     #[test]
     fn test_deserialize_binary() {
-        // Not a compiled filter at all, or one written without the header by an older
-        // seccompiler.
-        for data in [
-            &b"adassafvc"[..],
-            &b"FCB"[..],
-            &bitcode::serialize(&HashMap::<String, Vec<u64>>::new()).unwrap(),
-        ] {
-            assert!(matches!(
-                deserialize_binary(data).unwrap_err(),
-                DeserializationError::UnknownFormat
-            ));
-        }
-
-        // A format version this Firecracker does not read.
-        let mut bytes = encode(&HashMap::new());
-        bytes[4..8].copy_from_slice(&(FILTER_FORMAT_VERSION + 1).to_le_bytes());
+        // Not a compiled filter at all.
         assert!(matches!(
-            deserialize_binary(&bytes[..]).unwrap_err(),
-            DeserializationError::UnsupportedVersion(version) if version == FILTER_FORMAT_VERSION + 1
-        ));
-
-        // Garbage after a valid header.
-        let mut bytes = encode(&HashMap::new());
-        bytes.extend_from_slice(b"adassafvc");
-        assert!(matches!(
-            deserialize_binary(&bytes[..]).unwrap_err(),
-            DeserializationError::Bitcode(_)
+            deserialize_binary(&b"adassafvc"[..]).unwrap_err(),
+            DeserializationError::Format(FormatError::UnknownFormat)
         ));
 
         // Test that the binary deserialization is correct, and that the thread keys
         // have been lowercased.
-        let mut filter_map: HashMap<String, SerializedFilter> = HashMap::new();
-        filter_map.insert(
-            "VcpU".to_string(),
-            SerializedFilter {
-                base: vec![0; 2],
-                fragments: vec![SerializedFragment {
-                    features: vec!["net".to_string(), "hotplug".to_string()],
-                    code: vec![1; 3],
-                }],
-                epilogue: vec![2],
-            },
-        );
-        filter_map.insert(
-            "api".to_string(),
-            SerializedFilter {
-                base: vec![3],
-                fragments: vec![],
-                epilogue: vec![],
-            },
-        );
-        // An entirely empty filter is how `--no-seccomp` style custom filters look.
-        filter_map.insert(
-            "vmm".to_string(),
-            SerializedFilter {
-                base: vec![],
-                fragments: vec![],
-                epilogue: vec![],
-            },
-        );
-
+        let filter_map = BpfMap::from([
+            (
+                "VcpU".to_string(),
+                BpfFilter {
+                    base: vec![0; 2],
+                    fragments: vec![BpfFragment {
+                        features: vec!["net".to_string(), "hotplug".to_string()],
+                        code: vec![1; 3],
+                    }],
+                    epilogue: vec![2],
+                },
+            ),
+            (
+                "api".to_string(),
+                BpfFilter {
+                    base: vec![3],
+                    ..Default::default()
+                },
+            ),
+            ("vmm".to_string(), BpfFilter::default()),
+        ]);
         let mut expected_res = BpfThreadMap::new();
         expected_res.insert(
             "vcpu".to_string(),
@@ -593,166 +185,34 @@ mod tests {
         );
         expected_res.insert("api".to_string(), SeccompFilter::from_program(vec![3]));
         expected_res.insert("vmm".to_string(), SeccompFilter::default());
-        assert_eq!(
-            deserialize_binary(&encode(&filter_map)[..]).unwrap(),
-            expected_res
-        );
+        let bytes = seccomp_filter::encode(&filter_map).unwrap();
+        assert_eq!(deserialize_binary(&bytes[..]).unwrap(), expected_res);
 
-        // Fragments tagged with a feature this Firecracker does not know are rejected.
-        let filter_map = single(
-            "vmm",
-            SerializedFilter {
+        // An invalid filter is reported with its thread.
+        let filter_map = BpfMap::from([(
+            "vmm".to_string(),
+            BpfFilter {
                 base: vec![0; 2],
-                fragments: vec![SerializedFragment {
+                fragments: vec![BpfFragment {
                     features: vec!["warp-drive".to_string()],
                     code: vec![1],
                 }],
                 epilogue: vec![2],
             },
-        );
+        )]);
+        let bytes = seccomp_filter::encode(&filter_map).unwrap();
         assert!(matches!(
-            deserialize_binary(&encode(&filter_map)[..]).unwrap_err(),
-            DeserializationError::UnknownFeature(UnknownSeccompFeature(name)) if name == "warp-drive"
-        ));
-
-        // So are fragments nothing can enable, and parts that no base program leads to.
-        let filter_map = single(
-            "vmm",
-            SerializedFilter {
-                base: vec![0; 2],
-                fragments: vec![SerializedFragment {
-                    features: vec![],
-                    code: vec![1],
-                }],
-                epilogue: vec![2],
-            },
-        );
-        assert!(matches!(
-            deserialize_binary(&encode(&filter_map)[..]).unwrap_err(),
-            DeserializationError::UntaggedFragment
-        ));
-        let filter_map = single(
-            "vmm",
-            SerializedFilter {
-                base: vec![],
-                fragments: vec![],
-                epilogue: vec![2],
-            },
-        );
-        assert!(matches!(
-            deserialize_binary(&encode(&filter_map)[..]).unwrap_err(),
-            DeserializationError::MissingBase
+            deserialize_binary(&bytes[..]).unwrap_err(),
+            DeserializationError::Filter(thread, FilterError::UnknownFeature(UnknownSeccompFeature(name)))
+                if thread == "vmm" && name == "warp-drive"
         ));
 
         // Test filter too large - create data that will exceed the deserialization limit
-        // Create a large buffer that when serialized will exceed DESERIALIZATION_BYTES_LIMIT
-        let large_data = vec![0u8; DESERIALIZATION_BYTES_LIMIT + 1000];
+        let large_data = vec![0u8; MAX_ENCODED_SIZE + 1000];
         assert!(matches!(
             deserialize_binary(&large_data[..]).unwrap_err(),
-            DeserializationError::SizeLimitExceeded(..)
+            DeserializationError::Format(FormatError::SizeLimitExceeded(..))
         ));
-    }
-
-    #[test]
-    fn test_seccomp_features() {
-        assert!(SeccompFeatures::empty().is_empty());
-        assert!(!SeccompFeatures::all().is_empty());
-        for feature in SeccompFeature::ALL {
-            assert!(SeccompFeatures::all().contains(feature));
-            assert!(!SeccompFeatures::empty().contains(feature));
-            // Names round-trip and are stable identifiers.
-            assert_eq!(feature.name().parse::<SeccompFeature>().unwrap(), feature);
-            assert_eq!(feature.to_string(), feature.name());
-        }
-        assert_eq!(
-            "no-such-feature".parse::<SeccompFeature>().unwrap_err(),
-            UnknownSeccompFeature("no-such-feature".to_string())
-        );
-        assert_eq!(
-            SeccompFeatures::all().iter().collect::<Vec<_>>(),
-            SeccompFeature::ALL.to_vec()
-        );
-
-        let mut set = SeccompFeatures::from(SeccompFeature::Net);
-        set |= SeccompFeature::Block;
-        set |= SeccompFeatures::from(SeccompFeature::Pci);
-        assert!(set.contains(SeccompFeature::Net));
-        assert!(set.contains(SeccompFeature::Block));
-        assert!(set.contains(SeccompFeature::Pci));
-        assert!(!set.contains(SeccompFeature::Vsock));
-        assert!(set.intersects(SeccompFeature::Pci.into()));
-        assert!(!set.intersects(SeccompFeature::Vsock.into()));
-        assert_eq!(set.to_string(), "pci,block,net");
-        assert_eq!(format!("{set:?}"), "{Pci, Block, Net}");
-        assert_eq!(
-            set,
-            [
-                SeccompFeature::Pci,
-                SeccompFeature::Block,
-                SeccompFeature::Net
-            ]
-            .into_iter()
-            .collect()
-        );
-        assert_eq!(
-            set | SeccompFeature::Vsock,
-            set | SeccompFeatures::from(SeccompFeature::Vsock)
-        );
-    }
-
-    #[test]
-    fn test_compose() {
-        let empty = SeccompFilter::default();
-        assert!(empty.is_empty());
-        assert!(empty.compose(SeccompFeatures::all()).is_empty());
-
-        let plain = SeccompFilter::from_program(vec![1, 2, 3]);
-        assert!(!plain.is_empty());
-        assert_eq!(plain.features(), SeccompFeatures::empty());
-        assert_eq!(plain.compose(SeccompFeatures::empty()), vec![1, 2, 3]);
-        assert_eq!(plain.compose(SeccompFeatures::all()), vec![1, 2, 3]);
-
-        let filter = SeccompFilter::new(
-            vec![1, 2],
-            vec![
-                FilterFragment {
-                    features: SeccompFeature::Net.into(),
-                    code: vec![10, 11],
-                },
-                FilterFragment {
-                    features: SeccompFeatures::from(SeccompFeature::Pmem)
-                        | SeccompFeature::MemoryHotplug,
-                    code: vec![20],
-                },
-            ],
-            vec![3],
-        );
-        assert!(!filter.is_empty());
-        assert_eq!(
-            filter.features(),
-            SeccompFeatures::from(SeccompFeature::Net)
-                | SeccompFeature::Pmem
-                | SeccompFeature::MemoryHotplug
-        );
-        assert_eq!(filter.compose(SeccompFeatures::empty()), vec![1, 2, 3]);
-        assert_eq!(
-            filter.compose(SeccompFeature::Net.into()),
-            vec![1, 2, 10, 11, 3]
-        );
-        // Any one of a fragment's features enables it.
-        assert_eq!(
-            filter.compose(SeccompFeature::Pmem.into()),
-            vec![1, 2, 20, 3]
-        );
-        assert_eq!(
-            filter.compose(SeccompFeature::MemoryHotplug.into()),
-            vec![1, 2, 20, 3]
-        );
-        assert_eq!(filter.compose(SeccompFeature::Block.into()), vec![1, 2, 3]);
-        assert_eq!(
-            filter.compose(SeccompFeatures::all()),
-            vec![1, 2, 10, 11, 20, 3]
-        );
     }
 
     #[test]

@@ -1,6 +1,7 @@
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::BTreeMap;
 use std::ffi::CStr;
 use std::fs::File;
 use std::io::Read;
@@ -12,13 +13,11 @@ use bindings::*;
 
 pub mod bpf;
 pub mod types;
+use seccomp_filter::{
+    BpfFilter, BpfMap, FilterFragment, FormatError, SeccompFeature, SeccompFeatures, SeccompFilter,
+    UnknownSeccompFeature,
+};
 pub use types::*;
-
-// This byte limit is passed to `bitcode` to guard against a potential memory
-// allocation DOS caused by binary filters that are too large.
-// This limit can be safely determined since the maximum length of a BPF
-// filter is 4096 instructions and Firecracker has a finite number of threads.
-const DESERIALIZATION_BYTES_LIMIT: usize = 100_000;
 
 /// Binary filter compilation errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -45,16 +44,16 @@ pub enum CompilationError {
     LibSeccompExport,
     /// Rule for {0:?} has an empty feature tag
     EmptyFeatures(String),
+    /// Rule for {0:?} is tagged with an unknown feature: {1}
+    UnknownFeature(String, UnknownSeccompFeature),
     /// A filter with feature-tagged rules needs distinct default and filter actions
     SameActions,
     /// Cannot generate BPF for feature-tagged rules: {0}
     Bpf(bpf::BpfError),
     /// Cannot create output file: {0}
     OutputCreate(std::io::Error),
-    /// Cannot serialize bfp: {0}
-    BitcodeSerialize(bitcode::Error),
-    /// Serialized BPF exceeds size limit of {0} bytes
-    SizeLimitExceeded(usize),
+    /// Cannot encode the compiled filters: {0}
+    Encode(FormatError),
 }
 
 /// Compile the JSON filters in `input_path` for `arch` into `out_path`.
@@ -62,9 +61,9 @@ pub enum CompilationError {
 /// Untagged rules are compiled with libseccomp into the base program of their thread. Rules tagged
 /// with features are compiled into separate, position independent BPF fragments that Firecracker
 /// appends to the base program at runtime when one of their features is in use (see
-/// [`BpfFilter`]). `basic` drops all argument checks (deprecated). With `split_output`, one raw
+/// [`SeccompFilter`]). `basic` drops all argument checks (deprecated). With `split_output`, one raw
 /// program per thread composed with the selected fragments is written next to `out_path` instead
-/// of the serialized [`BpfMap`].
+/// of the encoded [`BpfMap`].
 pub fn compile_bpf(
     input_path: &str,
     arch: &str,
@@ -82,9 +81,9 @@ pub fn compile_bpf(
 
     let arch = TargetArch::from_str(arch).map_err(CompilationError::ArchParse)?;
 
-    let mut bpf_map = BpfMap::new();
+    let mut filters = BTreeMap::new();
     for (name, filter) in bpf_map_json.0.iter() {
-        bpf_map.insert(name.clone(), compile_filter(filter, &arch, basic)?);
+        filters.insert(name.clone(), compile_filter(filter, &arch, basic)?);
     }
 
     if let Some(selection) = split_output {
@@ -92,41 +91,49 @@ pub fn compile_bpf(
         let base_path = Path::new(out_path);
         let parent = base_path.parent().unwrap_or_else(|| Path::new("."));
 
-        for (thread_name, bpf_filter) in &bpf_map {
+        for (thread_name, filter) in &filters {
             let thread_file_path = parent.join(format!("{}.bpf", thread_name));
             let mut thread_file =
                 File::create(&thread_file_path).map_err(CompilationError::OutputCreate)?;
 
             // Write raw BPF data as bytes
             use zerocopy::IntoBytes;
-            std::io::Write::write_all(&mut thread_file, bpf_filter.compose(selection).as_bytes())
+            let program = filter.compose(selection.features());
+            std::io::Write::write_all(&mut thread_file, program.as_bytes())
                 .map_err(CompilationError::OutputCreate)?;
         }
     } else {
         // Create and write the main bitcode output file
+        let bpf_map: BpfMap = filters
+            .iter()
+            .map(|(name, filter)| (name.clone(), BpfFilter::from(filter)))
+            .collect();
+        let encoded = seccomp_filter::encode(&bpf_map).map_err(CompilationError::Encode)?;
         let mut output_file = File::create(out_path).map_err(CompilationError::OutputCreate)?;
-        let encoded = bitcode::serialize(&bpf_map).map_err(CompilationError::BitcodeSerialize)?;
-
-        // Check size limit to prevent DOS attacks
-        let header_len = BPF_FILTER_MAGIC.len() + std::mem::size_of::<u32>();
-        if encoded.len() + header_len > DESERIALIZATION_BYTES_LIMIT {
-            return Err(CompilationError::SizeLimitExceeded(
-                DESERIALIZATION_BYTES_LIMIT,
-            ));
-        }
-
-        std::io::Write::write_all(&mut output_file, &BPF_FILTER_MAGIC)
-            .and_then(|()| {
-                std::io::Write::write_all(
-                    &mut output_file,
-                    &BPF_FILTER_FORMAT_VERSION.to_le_bytes(),
-                )
-            })
-            .and_then(|()| std::io::Write::write_all(&mut output_file, &encoded))
+        std::io::Write::write_all(&mut output_file, &encoded)
             .map_err(CompilationError::OutputCreate)?;
     }
 
     Ok(())
+}
+
+/// The features `rule` is tagged with, `None` for an untagged rule.
+fn rule_features(rule: &SyscallRule) -> Result<Option<SeccompFeatures>, CompilationError> {
+    let Some(names) = &rule.features else {
+        return Ok(None);
+    };
+    let syscall = || rule.syscall.to_string_lossy().into_owned();
+    if names.is_empty() || names.iter().any(String::is_empty) {
+        return Err(CompilationError::EmptyFeatures(syscall()));
+    }
+    names
+        .iter()
+        .map(|name| {
+            name.parse::<SeccompFeature>()
+                .map_err(|err| CompilationError::UnknownFeature(syscall(), err))
+        })
+        .collect::<Result<SeccompFeatures, _>>()
+        .map(Some)
 }
 
 /// Compile the filter of one thread category.
@@ -134,32 +141,21 @@ fn compile_filter(
     filter: &Filter,
     arch: &TargetArch,
     basic: bool,
-) -> Result<BpfFilter, CompilationError> {
+) -> Result<SeccompFilter, CompilationError> {
     let default_action = filter.default_action.to_scmp_type();
     let filter_action = filter.filter_action.to_scmp_type();
+    let mut tagged = Vec::new();
+    let mut untagged = Vec::new();
     for rule in &filter.filter {
-        if rule
-            .features
-            .as_ref()
-            .is_some_and(|features| features.is_empty() || features.iter().any(String::is_empty))
-        {
-            return Err(CompilationError::EmptyFeatures(
-                rule.syscall.to_string_lossy().into_owned(),
-            ));
+        match rule_features(rule)? {
+            Some(features) => tagged.push((rule, features)),
+            None => untagged.push(rule),
         }
     }
-    let (tagged, untagged): (Vec<&SyscallRule>, Vec<&SyscallRule>) = filter
-        .filter
-        .iter()
-        .partition(|rule| rule.features.is_some());
 
     let mut base = libseccomp_program(&untagged, arch, default_action, filter_action, basic)?;
     if tagged.is_empty() {
-        return Ok(BpfFilter {
-            base,
-            fragments: Vec::new(),
-            epilogue: Vec::new(),
-        });
+        return Ok(SeccompFilter::from_program(base));
     }
 
     // The fragments return the filter action and the epilogue the default action; with identical
@@ -176,7 +172,7 @@ fn compile_filter(
 
     let fragments = tagged
         .iter()
-        .map(|rule| {
+        .map(|(rule, features)| {
             let syscall = resolve_syscall_for_arch(arch, &rule.syscall)?;
             let conditions = match (&rule.args, basic) {
                 (Some(conditions), false) => conditions.as_slice(),
@@ -184,23 +180,18 @@ fn compile_filter(
             };
             let code = bpf::rule_fragment(syscall, conditions, filter_action)
                 .map_err(CompilationError::Bpf)?;
-            Ok(BpfFragment {
-                // Tagged rules were partitioned by `features.is_some()`.
-                features: rule.features.clone().unwrap_or_default(),
+            Ok(FilterFragment {
+                features: *features,
                 code,
             })
         })
         .collect::<Result<Vec<_>, CompilationError>>()?;
 
-    let compiled = BpfFilter {
-        base,
-        fragments,
-        epilogue: bpf::epilogue(default_action),
-    };
+    let compiled = SeccompFilter::new(base, fragments, bpf::epilogue(default_action));
 
     // The program with every fragment included is the longest one Firecracker can install; make
     // sure the kernel will accept it. Leaving fragments out only shortens it.
-    bpf::validate(&compiled.compose_all()).map_err(CompilationError::Bpf)?;
+    bpf::validate(&compiled.compose(SeccompFeatures::all())).map_err(CompilationError::Bpf)?;
 
     Ok(compiled)
 }
@@ -381,8 +372,12 @@ mod tests {
         }
     }"#;
 
-    /// Compile `json` for `arch` and read back the serialized map.
-    fn compile(json: &str, arch: &str, basic: bool) -> Result<BpfMap, CompilationError> {
+    /// Compile `json` for `arch` and read back the encoded filters.
+    fn compile(
+        json: &str,
+        arch: &str,
+        basic: bool,
+    ) -> Result<BTreeMap<String, SeccompFilter>, CompilationError> {
         let input = TempFile::new().unwrap();
         input.as_file().write_all(json.as_bytes()).unwrap();
         let output = TempFile::new().unwrap();
@@ -394,9 +389,11 @@ mod tests {
             None,
         )?;
         let encoded = std::fs::read(output.as_path()).unwrap();
-        assert_eq!(&encoded[..4], &BPF_FILTER_MAGIC);
-        assert_eq!(&encoded[4..8], &BPF_FILTER_FORMAT_VERSION.to_le_bytes());
-        Ok(bitcode::deserialize(&encoded[8..]).unwrap())
+        Ok(seccomp_filter::decode(&encoded)
+            .unwrap()
+            .into_iter()
+            .map(|(name, filter)| (name, SeccompFilter::try_from(filter).unwrap()))
+            .collect())
     }
 
     /// The default filter of `arch` as JSON text.
@@ -429,20 +426,14 @@ mod tests {
         SeccompData::x86_64(nr, [0; 6])
     }
 
-    /// The program of `filter` with only the fragments of `enabled` included.
-    fn compose(filter: &BpfFilter, enabled: &[&str]) -> Vec<u64> {
-        let mut program = filter.base.clone();
-        for fragment in &filter.fragments {
-            if fragment
-                .features
+    /// The program of `filter` with only the fragments of the `enabled` features included.
+    fn compose(filter: &SeccompFilter, enabled: &[&str]) -> Vec<u64> {
+        filter.compose(
+            enabled
                 .iter()
-                .any(|feature| enabled.contains(&feature.as_str()))
-            {
-                program.extend_from_slice(&fragment.code);
-            }
-        }
-        program.extend_from_slice(&filter.epilogue);
-        program
+                .map(|name| name.parse::<SeccompFeature>().unwrap())
+                .collect(),
+        )
     }
 
     #[test]
@@ -451,19 +442,19 @@ mod tests {
         let filter = &map["untagged"];
 
         // A filter without tagged rules is a plain libseccomp program.
-        assert!(filter.fragments.is_empty());
-        assert!(filter.epilogue.is_empty());
-        assert_eq!(filter.compose_all(), filter.base);
-        bpf::validate(&filter.base).unwrap();
+        assert!(filter.fragments().is_empty());
+        assert!(filter.epilogue().is_empty());
+        assert_eq!(filter.compose(SeccompFeatures::all()), filter.base());
+        bpf::validate(filter.base()).unwrap();
 
         assert_eq!(
-            simulate(&filter.base, &syscall(NR_WRITE)),
+            simulate(filter.base(), &syscall(NR_WRITE)),
             SECCOMP_RET_ALLOW
         );
-        assert_eq!(simulate(&filter.base, &syscall(NR_OPEN)), SECCOMP_RET_TRAP);
+        assert_eq!(simulate(filter.base(), &syscall(NR_OPEN)), SECCOMP_RET_TRAP);
         assert_eq!(
             simulate(
-                &filter.base,
+                filter.base(),
                 &SeccompData::new(AUDIT_ARCH_I386, NR_WRITE, [0; 6])
             ),
             SECCOMP_RET_KILL_THREAD
@@ -475,14 +466,17 @@ mod tests {
         let map = compile(TAGGED_JSON, "x86_64", false).unwrap();
         let filter = &map["main"];
 
-        assert_eq!(filter.fragments.len(), 2);
-        assert_eq!(filter.fragments[0].features, ["net"]);
-        assert_eq!(filter.fragments[1].features, ["pmem", "memory-hotplug"]);
-        assert_eq!(filter.epilogue, bpf::epilogue(SECCOMP_RET_TRAP));
+        assert_eq!(filter.fragments().len(), 2);
+        assert_eq!(filter.fragments()[0].features, SeccompFeature::Net.into());
+        assert_eq!(
+            filter.fragments()[1].features,
+            SeccompFeatures::from(SeccompFeature::Pmem) | SeccompFeature::MemoryHotplug
+        );
+        assert_eq!(filter.epilogue(), bpf::epilogue(SECCOMP_RET_TRAP));
         // The base no longer returns the default action; its own returns are the filter action
         // and the bad-arch kill, plus the prologue's default returns.
         let returns = filter
-            .base
+            .base()
             .iter()
             .map(|&insn| decode(insn))
             .filter(|(code, ..)| *code == BPF_RET_K)
@@ -549,7 +543,7 @@ mod tests {
     fn test_compile_tagged_filter_aarch64() {
         let map = compile(TAGGED_JSON, "aarch64", false).unwrap();
         let filter = &map["main"];
-        let program = filter.compose_all();
+        let program = filter.compose(SeccompFeatures::all());
         bpf::validate(&program).unwrap();
 
         // Syscalls of tagged rules are resolved for the target architecture, not the host.
@@ -589,11 +583,11 @@ mod tests {
     #[test]
     fn test_compile_basic_drops_conditions() {
         let map = compile(TAGGED_JSON, "x86_64", true).unwrap();
-        let program = map["main"].compose_all();
+        let program = map["main"].compose(SeccompFeatures::all());
         bpf::validate(&program).unwrap();
         assert_eq!(simulate(&program, &ioctl(NR_IOCTL, 7)), SECCOMP_RET_ALLOW);
         // ld nr, jeq nr, ret: no argument checks.
-        assert_eq!(map["main"].fragments[0].code.len(), 3);
+        assert_eq!(map["main"].fragments()[0].code.len(), 3);
     }
 
     #[test]
@@ -691,6 +685,16 @@ mod tests {
         assert!(matches!(
             compile(both_keys, "x86_64", false).unwrap_err(),
             CompilationError::JsonDeserialize(_)
+        ));
+
+        // Tags are checked against the features Firecracker knows when compiling, not only when
+        // Firecracker loads the filter.
+        let unknown_feature = r#"{ "main": { "default_action": "trap", "filter_action": "allow",
+            "filter": [{ "syscall": "write", "features": ["net", "warp-drive"] }] } }"#;
+        assert!(matches!(
+            compile(unknown_feature, "x86_64", false).unwrap_err(),
+            CompilationError::UnknownFeature(syscall, UnknownSeccompFeature(name))
+                if syscall == "write" && name == "warp-drive"
         ));
     }
 
@@ -807,15 +811,14 @@ mod tests {
 
             for (thread, filter) in &tagged {
                 let monolithic = &monolithic[thread];
-                assert!(monolithic.fragments.is_empty());
-                let everything = filter.compose_all();
-                let mut nothing = filter.base.clone();
-                nothing.extend_from_slice(&filter.epilogue);
+                assert!(monolithic.fragments().is_empty());
+                let everything = filter.compose(SeccompFeatures::all());
+                let nothing = filter.compose(SeccompFeatures::empty());
                 bpf::validate(&everything).unwrap();
                 bpf::validate(&nothing).unwrap();
 
                 for data in &corpus {
-                    let expected = simulate(&monolithic.base, data);
+                    let expected = simulate(monolithic.base(), data);
                     assert_eq!(
                         simulate(&everything, data),
                         expected,

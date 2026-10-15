@@ -5,9 +5,9 @@ use std::collections::BTreeMap;
 use std::ffi::CString;
 use std::str::FromStr;
 
+use seccomp_filter::{SeccompFeature, SeccompFeatures};
 use serde::*;
 
-// use libseccomp::{ScmpAction, ScmpArch, ScmpCompareOp};
 use crate::bindings::*;
 
 /// Comparison to perform when matching a condition.
@@ -200,61 +200,6 @@ pub struct Filter {
 #[derive(Debug, Deserialize)]
 pub struct BpfJson(pub BTreeMap<String, Filter>);
 
-/// BPF code of the feature-tagged rules sharing a feature set, as stored in the compiled filter.
-///
-/// The code is position independent and falls through when its rule does not match, so
-/// fragments can be concatenated in any order after the base program.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BpfFragment {
-    /// The features the fragment is needed for; any one of them being in use is sufficient.
-    pub features: Vec<String>,
-    /// The BPF instructions of the fragment.
-    pub code: Vec<u64>,
-}
-
-/// The compiled filter of one thread category.
-///
-/// `base` is the libseccomp program of the untagged rules. When the filter has tagged rules, the
-/// base does not return the default action but falls through to the code appended after it, and
-/// ends with a prologue re-checking the architecture; the enabled `fragments` follow and the
-/// `epilogue` returns the default action. Without tagged rules the base is the whole program and
-/// the other two parts are empty.
-///
-/// Firecracker reads this layout in `vmm::seccomp`, which must be kept in sync with it.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BpfFilter {
-    pub base: Vec<u64>,
-    pub fragments: Vec<BpfFragment>,
-    pub epilogue: Vec<u64>,
-}
-
-impl BpfFilter {
-    /// The program with the fragments `selection` picks included.
-    pub fn compose(&self, selection: &FeatureSelection) -> Vec<u64> {
-        let mut program = self.base.clone();
-        for fragment in &self.fragments {
-            let included = match selection {
-                FeatureSelection::All => true,
-                FeatureSelection::None => false,
-                FeatureSelection::Only(features) => fragment
-                    .features
-                    .iter()
-                    .any(|feature| features.contains(feature)),
-            };
-            if included {
-                program.extend_from_slice(&fragment.code);
-            }
-        }
-        program.extend_from_slice(&self.epilogue);
-        program
-    }
-
-    /// The program with every fragment included.
-    pub fn compose_all(&self) -> Vec<u64> {
-        self.compose(&FeatureSelection::All)
-    }
-}
-
 /// Which fragments to include when composing a thread's program.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeatureSelection {
@@ -264,6 +209,20 @@ pub enum FeatureSelection {
     None,
     /// The fragments tagged with at least one of these features.
     Only(Vec<String>),
+}
+
+impl FeatureSelection {
+    /// The selected features. Names that are not features select nothing.
+    pub fn features(&self) -> SeccompFeatures {
+        match self {
+            FeatureSelection::All => SeccompFeatures::all(),
+            FeatureSelection::None => SeccompFeatures::empty(),
+            FeatureSelection::Only(names) => names
+                .iter()
+                .filter_map(|name| name.parse::<SeccompFeature>().ok())
+                .collect(),
+        }
+    }
 }
 
 impl FromStr for FeatureSelection {
@@ -284,17 +243,6 @@ impl FromStr for FeatureSelection {
         }
     }
 }
-
-/// The compiled filters of all thread categories, keyed by thread name.
-pub type BpfMap = BTreeMap<String, BpfFilter>;
-
-/// First bytes of a compiled filter file, followed by [`BPF_FILTER_FORMAT_VERSION`] as a little
-/// endian `u32` and the bitcode serialized [`BpfMap`].
-pub const BPF_FILTER_MAGIC: [u8; 4] = *b"FCBF";
-
-/// Version of the compiled filter file format, bumped whenever the layout of [`BpfFilter`] or
-/// its serialization changes.
-pub const BPF_FILTER_FORMAT_VERSION: u32 = 1;
 
 /// Supported target architectures.
 #[derive(Debug)]
