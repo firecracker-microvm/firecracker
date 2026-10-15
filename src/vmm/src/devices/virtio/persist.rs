@@ -251,6 +251,12 @@ impl Persist<'_> for MmioTransport {
             .interrupt
             .irq_status
             .store(state.interrupt_status, Ordering::SeqCst);
+        // KVM may still have deferred irqfd work when its state is saved.
+        // Reassert the unacknowledged interrupt on the new eventfd so restore
+        // does not depend on that host-only work surviving the snapshot.
+        if state.interrupt_status != 0 {
+            transport.interrupt.irq_evt.write(1).map_err(|_| ())?;
+        }
         Ok(transport)
     }
 }
@@ -488,6 +494,38 @@ mod tests {
             MmioTransport::new(mem.clone(), interrupt.clone(), vsock.clone(), false);
 
         (mmio_transport, interrupt, mem, vsock)
+    }
+
+    #[test]
+    fn test_restore_replays_unacknowledged_interrupt() {
+        // Bit 0 signals used buffers; bit 1 signals a configuration change.
+        for pending in [0, 1, 2, 3] {
+            let (transport, _, mem, block) = create_default_block();
+            let mut state = transport.save();
+            state.interrupt_status = pending;
+            // The destination eventfd is new, even if the source notification
+            // was still waiting for KVM to inject it when the snapshot was taken.
+            let interrupt = Arc::new(IrqTrigger::new());
+            let restored = MmioTransport::restore(
+                MmioTransportConstructorArgs {
+                    mem,
+                    interrupt: interrupt.clone(),
+                    device: block,
+                    is_vhost_user: false,
+                },
+                &state,
+            )
+            .expect("restore a valid transport state");
+            assert_eq!(restored.save().interrupt_status, pending);
+            if pending == 0 {
+                assert_eq!(
+                    interrupt.irq_evt.read().unwrap_err().kind(),
+                    std::io::ErrorKind::WouldBlock
+                );
+            } else {
+                assert_eq!(interrupt.irq_evt.read().expect("pending interrupt"), 1);
+            }
+        }
     }
 
     #[test]
