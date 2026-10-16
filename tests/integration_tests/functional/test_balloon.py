@@ -14,26 +14,11 @@ from framework.utils import (
     get_stable_rss_mem,
     make_guest_dirty_memory,
     start_fast_page_fault_helper,
+    wait_for_balloon_actual,
 )
 
 STATS_POLLING_INTERVAL_S = 1
 RSS_TEST_BALLOON_SIZE_MIB = 128
-
-
-def wait_for_balloon_actual(vm, target_mib, timeout_s=10):
-    """
-    Poll the balloon device's reported ``actual_mib`` until it reaches target_mib.
-    """
-    actual_mib = None
-    for attempt in Retrying(
-        stop=stop_after_delay(timeout_s), wait=wait_fixed(0.5), reraise=True
-    ):
-        with attempt:
-            actual_mib = vm.api.balloon_stats.get().json()["actual_mib"]
-            assert (
-                actual_mib == target_mib
-            ), f"balloon actual_mib {actual_mib} did not reach {target_mib}"
-    return actual_mib
 
 
 def wait_for_changed_available_memory(vm, previous_stats, timeout_s=10):

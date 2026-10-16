@@ -13,6 +13,7 @@ from framework.utils import (
     get_stable_rss_mem,
     start_fast_page_fault_helper,
     track_cpu_utilization,
+    wait_for_balloon_actual,
 )
 from framework.utils_hugepages import HugePagesConfig, supports_hugetlbfs_discard
 
@@ -209,7 +210,8 @@ def test_size_reduction(uvm, rootfs, method, backing, huge_pages):
     test_microvm.api.balloon.put(
         amount_mib=0,
         deflate_on_oom=True,
-        stats_polling_interval_s=0,
+        # wait_for_balloon_actual reads the balloon size from its statistics.
+        stats_polling_interval_s=1 if traditional_balloon else 0,
         free_page_reporting=free_page_reporting,
         free_page_hinting=free_page_hinting,
     )
@@ -233,15 +235,16 @@ def test_size_reduction(uvm, rootfs, method, backing, huge_pages):
     test_microvm.ssh.run("sync; echo 3 > /proc/sys/vm/drop_caches")
     time.sleep(2)
 
-    # We take the initial reading of the RSS, then calculate the amount
-    # we need to inflate the balloon with by subtracting it from the
-    # VM size and adding an offset of 10 MiB in order to make sure we
-    # get a lower reading than the initial one.
-    inflate_size = 256 - int(first_reading / 1024) + 10
+    # The balloon may first take guest memory that was never touched, which
+    # frees nothing on the host. Inflate past all of it plus 20 MiB, twice the
+    # reduction required below, leaving room for Firecracker's own memory in the
+    # reading and for memory the guest touches in the meantime.
+    inflate_size = 256 - int(first_reading / 1024) + 20
 
     if traditional_balloon:
         # Now inflate the balloon
         test_microvm.api.balloon.patch(amount_mib=inflate_size)
+        wait_for_balloon_actual(test_microvm, inflate_size)
     elif free_page_hinting:
         test_microvm.api.balloon_hinting_start.patch()
 
@@ -254,5 +257,9 @@ def test_size_reduction(uvm, rootfs, method, backing, huge_pages):
     # Check memory usage again.
     second_reading = get_stable_rss_mem(test_microvm)
 
-    # There should be a reduction of at least 10MB.
-    assert first_reading - second_reading >= 10000
+    # There should be a reduction of at least 10 MiB.
+    reduction = first_reading - second_reading
+    assert reduction >= 10 * 1024, (
+        f"resident memory fell by {reduction} KiB "
+        f"({first_reading} -> {second_reading}), expected at least 10 MiB"
+    )

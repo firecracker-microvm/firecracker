@@ -348,7 +348,7 @@ pub mod test {
     }
 
     impl<'a> TestHelper<'a> {
-        const QUEUE_SIZE: u16 = 16;
+        pub const QUEUE_SIZE: u16 = 16;
 
         pub fn get_default(mem: &'a GuestMemoryMmap) -> TestHelper<'a> {
             let mut event_manager = EventManager::new().unwrap();
