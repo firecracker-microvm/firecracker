@@ -5,7 +5,7 @@ use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use utils::time::TimerFd;
+use utils::time::{ClockType, TimerFd, get_time_us};
 use vmm::logger::{IncMetric, METRICS, error_unrestricted, warn_unrestricted};
 use vmm_sys_util::epoll::EventSet;
 
@@ -16,6 +16,8 @@ pub(crate) const WRITE_METRICS_PERIOD_MS: u64 = 60000;
 #[derive(Debug)]
 pub(crate) struct PeriodicMetrics {
     write_metrics_event_fd: TimerFd,
+    // CPU time of the VMM thread at the previous metrics flush, in microseconds.
+    last_thread_cpu_us: u64,
     #[cfg(test)]
     flush_counter: u64,
 }
@@ -26,6 +28,7 @@ impl PeriodicMetrics {
         let write_metrics_event_fd = TimerFd::new();
         PeriodicMetrics {
             write_metrics_event_fd,
+            last_thread_cpu_us: 0,
             #[cfg(test)]
             flush_counter: 0,
         }
@@ -41,7 +44,20 @@ impl PeriodicMetrics {
         self.write_metrics();
     }
 
+    /// Adds the CPU time of the calling thread since the previous call to the `vmm` metrics.
+    ///
+    /// The metrics are flushed from the event loop, so the calling thread is the VMM thread.
+    fn update_thread_cpu_usage(&mut self) {
+        let thread_cpu_us = get_time_us(ClockType::ThreadCpu);
+        METRICS
+            .vmm
+            .thread_cpu_us
+            .add(thread_cpu_us.saturating_sub(self.last_thread_cpu_us));
+        self.last_thread_cpu_us = thread_cpu_us;
+    }
+
     fn write_metrics(&mut self) {
+        self.update_thread_cpu_usage();
         if let Err(err) = METRICS.write() {
             METRICS.logger.missed_metrics_count.inc();
             error_unrestricted!("Failed to write metrics: {}", err);
@@ -113,5 +129,28 @@ pub mod tests {
             .expect("Metrics event timeout or error.");
         // Verify there was another flush.
         assert_eq!(metrics.lock().expect("Unlock failed.").flush_counter, 2);
+    }
+
+    #[test]
+    fn test_thread_cpu_usage() {
+        let thread_cpu_us = &METRICS.vmm.thread_cpu_us;
+        let mut metrics = PeriodicMetrics::new();
+
+        // Use at least 20 ms of CPU time on this thread.
+        let start_us = get_time_us(ClockType::ThreadCpu);
+        while get_time_us(ClockType::ThreadCpu) - start_us < 20_000 {
+            std::hint::black_box(0u64);
+        }
+
+        // Other tests can update the metric concurrently, but only by adding to it, so the
+        // difference is at least the CPU time this thread used since it started.
+        let before = thread_cpu_us.count();
+        metrics.update_thread_cpu_usage();
+        assert!(thread_cpu_us.count() - before >= 20_000);
+
+        // The next update only adds the CPU time used since this one.
+        let last = metrics.last_thread_cpu_us;
+        metrics.update_thread_cpu_usage();
+        assert!(metrics.last_thread_cpu_us >= last);
     }
 }

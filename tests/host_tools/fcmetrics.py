@@ -259,6 +259,7 @@ def validate_fc_metrics(metrics):
         ],
         "vmm": [
             "panic_count",
+            "thread_cpu_us",
         ],
         "uart": [
             "error_count",
