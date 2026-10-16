@@ -169,7 +169,8 @@ impl Endpoint {
 
         // Advance receive_buf_left by how many bytes were actually written.
         if let Some(len) = value {
-            self.receive_buf_left += len.get();
+            // `receive_segment` wrote `len` bytes into `receive_buf[receive_buf_left..]`.
+            self.receive_buf_left = self.receive_buf_left.strict_add(len.get());
         };
 
         // The unwrap here should be safe because we assert the size whenever we append to
@@ -199,14 +200,16 @@ impl Endpoint {
             // parse_request_bytes() expects the entire request contents as parameter.
             if self.receive_buf_left > 2 {
                 let b = self.receive_buf.as_mut();
-                for i in 0..self.receive_buf_left - 1 {
+                for i in 0..self.receive_buf_left.strict_sub(1) {
                     // We're basically looking for a double new line, which can only appear at the
                     // end of a valid request.
                     if b[i] == b'\n' {
-                        let end = if b[i + 1] == b'\n' {
-                            i + 2
-                        } else if i + 3 <= self.receive_buf_left && &b[i + 1..i + 3] == b"\r\n" {
-                            i + 3
+                        let end = if b[i.strict_add(1)] == b'\n' {
+                            i.strict_add(2)
+                        } else if i.strict_add(3) <= self.receive_buf_left
+                            && &b[i.strict_add(1)..i.strict_add(3)] == b"\r\n"
+                        {
+                            i.strict_add(3)
                         } else {
                             continue;
                         };
@@ -225,7 +228,7 @@ impl Endpoint {
                         // others to the beginning of the buffer, and updating receive_buf_left.
                         // Also, advance the rwnd edge of the inner connection.
                         b.copy_within(end.., 0);
-                        self.receive_buf_left -= end;
+                        self.receive_buf_left = self.receive_buf_left.strict_sub(end);
                         // Safe to unwrap because we assert that the response buffer is small
                         // enough.
                         self.connection

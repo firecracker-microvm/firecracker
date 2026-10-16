@@ -232,12 +232,13 @@ impl<T: NetworkBytes + Debug> IPv4Packet<'_, T> {
     /// [here]: https://en.wikipedia.org/wiki/IPv4_header_checksum
     pub fn compute_checksum_unchecked(&self, header_len: usize) -> u16 {
         let mut sum = 0u32;
+        // `header_len` comes from the 4-bit IHL field, so it is at most 60 and `sum` cannot overflow.
         for i in 0..header_len / 2 {
-            sum += u32::from(self.bytes.ntohs_unchecked(i * 2));
+            sum = sum.strict_add(u32::from(self.bytes.ntohs_unchecked(i.strict_mul(2))));
         }
 
         while sum >> 16 != 0 {
-            sum = (sum & 0xffff) + (sum >> 16);
+            sum = (sum & 0xffff).strict_add(sum >> 16);
         }
 
         // Safe to unwrap due to the while loop.
@@ -400,7 +401,7 @@ impl<'a, T: NetworkBytesMut + Debug> Incomplete<IPv4Packet<'a, T>> {
         payload_len: u16,
         compute_checksum: bool,
     ) -> IPv4Packet<'a, T> {
-        let total_len = u16::from(header_len) + payload_len;
+        let total_len = u16::from(header_len).strict_add(payload_len);
         {
             let packet = &mut self.inner;
 
@@ -433,7 +434,8 @@ impl<'a, T: NetworkBytesMut + Debug> Incomplete<IPv4Packet<'a, T>> {
         payload_len: u16,
         compute_checksum: bool,
     ) -> IPv4Packet<'a, T> {
-        let header_len = OPTIONS_OFFSET + options_len;
+        // Caller contract: `options_len` must keep `header_len` within a valid IPv4 header (<= 60).
+        let header_len = OPTIONS_OFFSET.strict_add(options_len);
         self.with_header_and_payload_len_unchecked(header_len, payload_len, compute_checksum)
     }
 
