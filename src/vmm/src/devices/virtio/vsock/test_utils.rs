@@ -3,6 +3,7 @@
 
 #![cfg(test)]
 #![doc(hidden)]
+#![allow(clippy::arithmetic_side_effects)]
 
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::Arc;

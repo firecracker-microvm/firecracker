@@ -869,6 +869,7 @@ impl VsockMuxer {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     use std::io::{Read, Write};
     use std::ops::Drop;
     use std::os::unix::net::{UnixListener, UnixStream};

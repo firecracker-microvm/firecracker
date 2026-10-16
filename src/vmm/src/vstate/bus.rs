@@ -265,6 +265,7 @@ impl Bus {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     use super::*;
 
     struct DummyDevice;

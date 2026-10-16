@@ -157,6 +157,7 @@ impl WriteVolatile for TxBuf {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     use std::io::{Error as IoError, ErrorKind, Write};
 
     use super::*;

@@ -623,6 +623,7 @@ mod verification {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     use linux_loader::loader::bootparam::boot_e820_entry;
 
     use super::*;

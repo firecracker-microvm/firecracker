@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![doc(hidden)]
+#![allow(clippy::arithmetic_side_effects)]
 
 use std::fs::File;
 use std::mem;

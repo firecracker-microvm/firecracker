@@ -1016,6 +1016,7 @@ impl VirtioDevice for Balloon {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     use itertools::iproduct;
 
     use super::super::BALLOON_CONFIG_SPACE_SIZE;

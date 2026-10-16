@@ -290,6 +290,7 @@ fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<(),
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     #![allow(clippy::cast_possible_truncation)]
 
     use kvm_bindings::KVM_MAX_CPUID_ENTRIES;
