@@ -642,7 +642,7 @@ fn vfio_allocate_memory_ranges_for_bars(
                 continue;
             }
 
-            if is_64_bits {
+            if is_64_bits && is_prefetchable {
                 match resource_allocator.mmio64_memory.allocate(
                     size,
                     alignment,
