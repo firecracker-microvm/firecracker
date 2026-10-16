@@ -90,7 +90,7 @@ fn rebase(memory_path: PathBuf, diff_path: PathBuf) -> Result<(), EditMemoryErro
                     base_file.as_raw_fd(),
                     diff_file.as_raw_fd(),
                     (&mut cursor as *mut u64).cast::<i64>(),
-                    u64_to_usize(block_end.saturating_sub(cursor)),
+                    u64_to_usize(block_end.strict_sub(cursor)),
                 )
             };
             if num_transferred_bytes < 0 {

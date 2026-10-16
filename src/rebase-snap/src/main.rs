@@ -101,7 +101,7 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), FileError> {
                     base_file.as_raw_fd(),
                     diff_file.as_raw_fd(),
                     (&mut cursor as *mut u64).cast::<i64>(),
-                    usize::try_from(block_end.saturating_sub(cursor)).unwrap(),
+                    usize::try_from(block_end.strict_sub(cursor)).unwrap(),
                 )
             };
             if num_transferred_bytes < 0 {

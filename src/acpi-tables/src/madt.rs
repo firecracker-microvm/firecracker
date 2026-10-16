@@ -98,7 +98,7 @@ impl Madt {
         base_address: u32,
         interrupt_controllers: Vec<u8>,
     ) -> Self {
-        let length = size_of::<MadtHeader>() + interrupt_controllers.len();
+        let length = size_of::<MadtHeader>().strict_add(interrupt_controllers.len());
         let sdt_header = SdtHeader::new(
             *b"APIC",
             // It is ok to unwrap the conversion of `length` to u32. `SdtHeader` is 36 bytes long,

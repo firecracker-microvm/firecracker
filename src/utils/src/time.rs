@@ -99,8 +99,8 @@ impl fmt::Display for LocalTime {
         write!(
             f,
             "{}-{:02}-{:02}T{:02}:{:02}:{:02}.{:09}",
-            self.year + 1900,
-            self.mon + 1,
+            self.year.strict_add(1900),
+            self.mon.strict_add(1),
             self.mday,
             self.hour,
             self.min,
@@ -157,7 +157,7 @@ pub fn get_time_ns(clock_type: ClockType) -> u64 {
     unsafe { libc::clock_gettime(clock_type.into(), &mut time_struct) };
     u64::try_from(seconds_to_nanoseconds(time_struct.tv_sec).expect("Time conversion overflow"))
         .unwrap()
-        + u64::try_from(time_struct.tv_nsec).unwrap()
+        .strict_add(u64::try_from(time_struct.tv_nsec).unwrap())
 }
 
 /// Returns a timestamp in microseconds based on the provided clock type.
@@ -453,11 +453,15 @@ mod mock {
                 None => 1,
                 // Periodic: the initial expiration plus one per full interval elapsed since.
                 Some(interval) => {
-                    let ticks = 1 + (elapsed - expiry).as_nanos() / interval.as_nanos();
+                    let ticks = 1u128.strict_add(
+                        (elapsed - expiry)
+                            .as_nanos()
+                            .strict_div(interval.as_nanos()),
+                    );
                     u64::try_from(ticks).unwrap_or(u64::MAX)
                 }
             };
-            let new = total - self.fired;
+            let new = total.strict_sub(self.fired);
             // Only report expirations not yet consumed by a previous read.
             self.fired = total;
             new

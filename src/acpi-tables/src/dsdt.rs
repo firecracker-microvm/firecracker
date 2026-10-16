@@ -28,7 +28,7 @@ impl Dsdt {
     ) -> Self {
         let header = SdtHeader::new(
             *b"DSDT",
-            (size_of::<SdtHeader>() + definition_block.len())
+            (size_of::<SdtHeader>().strict_add(definition_block.len()))
                 .try_into()
                 .unwrap(),
             2,

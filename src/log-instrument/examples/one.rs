@@ -18,5 +18,5 @@ fn one(x: u32) -> u32 {
     if cmp {
         return 4;
     }
-    x + 3
+    x.strict_add(3)
 }
