@@ -270,6 +270,7 @@ class Microvm:
         self.metrics_file = None
         self._spawned = False
         self._killed = False
+        self._dumping_debug_information = False
 
         # The spawn/basic_config/start verbs delegate to the configured backend.
         self.backend = backend
@@ -1181,16 +1182,7 @@ class Microvm:
     @property
     def thread_backtraces(self):
         """Return backtraces of all threads"""
-        backtraces = []
-        for thread_name, thread_pids in utils.get_threads(self.firecracker_pid).items():
-            for pid in thread_pids:
-                try:
-                    stack = Path(f"/proc/{pid}/stack").read_text("UTF-8")
-                except FileNotFoundError:
-                    continue  # process might've gone away between get_threads() call and here
-
-                backtraces.append(f"{thread_name} ({pid=}):\n{stack}")
-        return "\n".join(backtraces)
+        return utils.thread_backtraces(self.firecracker_pid)
 
     def _dump_debug_information(self, what: str):
         """
@@ -1198,12 +1190,54 @@ class Microvm:
 
         Used for example when running a command inside the guest via `SSHConnection.check_output` fails.
         """
+        # This runs from the SSH error hook, and it issues SSH commands of its
+        # own, which reach the same hook when they fail.
+        if self._dumping_debug_information:
+            return
+        self._dumping_debug_information = True
+        try:
+            self._dump_debug_information_inner(what)
+        finally:
+            self._dumping_debug_information = False
+
+    def _dump_debug_information_inner(self, what: str):
         LOG.error(what)
         LOG.error("Firecracker logs:\n%s", self.log_data)
         if self.uffd_handler:
             LOG.error("Uffd logs:\n%s", self.uffd_handler.log_data)
         if not self._killed:
             LOG.error("Thread backtraces:\n%s", self.thread_backtraces)
+        # A vhost-user drive serves its queues from a separate process, so a
+        # request the guest is still waiting for is only visible there.
+        for drive_id, backend in self.disks_vhost_user.items():
+            LOG.error("vhost-user backend %s logs:\n%s", drive_id, backend.log_data)
+            LOG.error(
+                "vhost-user backend %s thread backtraces:\n%s",
+                drive_id,
+                backend.thread_backtraces,
+            )
+        LOG.error("Guest blocked tasks:\n%s", self.guest_blocked_tasks())
+
+    def guest_blocked_tasks(self):
+        """Return the guest's own stack trace for each of its blocked tasks.
+
+        A guest waiting on a request that never completed is in
+        uninterruptible sleep, which sysrq-w reports along with the stack it
+        is stuck in. The hung-task detector would report the same thing, but
+        only 120s after the fact, which outlives the command timeout that
+        brings us here.
+        """
+        if self._killed:
+            return "microVM was killed"
+        try:
+            return self.ssh.run(
+                "echo w > /proc/sysrq-trigger; dmesg | sed -n '/sysrq: Show Blocked State/,$p'",
+                timeout=15,
+            ).stdout
+        except Exception as exc:  # pylint: disable=broad-except
+            # A guest that cannot answer is one of the outcomes worth
+            # recording, so report why and leave the original failure intact.
+            return f"unavailable: {exc}"
 
     def wait_for_ssh_up(self):
         """Wait for guest running inside the microVM to come up and respond."""
