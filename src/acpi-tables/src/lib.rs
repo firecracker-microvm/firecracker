@@ -4,6 +4,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::num::TryFromIntError;
+
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryError};
 
 pub mod aml;
@@ -42,6 +44,8 @@ fn checksum(buf: &[&[u8]]) -> u8 {
 pub enum AcpiError {
     /// Guest memory error: {0}
     GuestMemory(#[from] GuestMemoryError),
+    /// Integer conversion error: {0}
+    IntConversion(#[from] TryFromIntError),
     /// Invalid guest address
     InvalidGuestAddress,
     /// Invalid register size

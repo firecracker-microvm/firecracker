@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Read;
+use std::num::TryFromIntError;
 use std::path::Path;
 use std::str::FromStr;
 
@@ -40,6 +41,8 @@ pub enum CompilationError {
     LibSeccompRule,
     /// Cannot export libseccomp bpf
     LibSeccompExport,
+    /// Integer conversion failed: {0}
+    IntConversion(#[from] TryFromIntError),
     /// Cannot create output file: {0}
     OutputCreate(std::io::Error),
     /// Cannot serialize bfp: {0}
@@ -112,16 +115,15 @@ pub fn compile_bpf(
                     .map(|rule| rule.to_scmp_type())
                     .collect::<Vec<scmp_arg_cmp>>();
 
+                let comparator_count = u32::try_from(comparators.len())?;
+
                 // SAFETY: Safe as all args are correct.
-                // We can assume no one will define u32::MAX
-                // filters for a syscall.
-                #[allow(clippy::cast_possible_truncation)]
                 unsafe {
                     if seccomp_rule_add_array(
                         bpf_filter,
                         filter_action,
                         syscall,
-                        comparators.len() as u32,
+                        comparator_count,
                         comparators.as_ptr(),
                     ) != 0
                     {

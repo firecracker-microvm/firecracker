@@ -23,23 +23,41 @@ pub enum Resource {
     RlimitNoFile,
 }
 
+#[cfg(target_env = "musl")]
+#[allow(clippy::cast_sign_loss)]
+fn rlimit_to_u32(resource: libc::c_int) -> u32 {
+    resource as u32
+}
+
+#[cfg(target_env = "gnu")]
+fn rlimit_to_u32(resource: u32) -> u32 {
+    resource
+}
+
+#[cfg(target_env = "musl")]
+fn rlimit_to_i32(resource: libc::c_int) -> i32 {
+    resource
+}
+
+#[cfg(target_env = "gnu")]
+#[allow(clippy::cast_possible_wrap)]
+fn rlimit_to_i32(resource: u32) -> i32 {
+    resource as i32
+}
+
 impl From<Resource> for u32 {
     fn from(resource: Resource) -> u32 {
         match resource {
-            #[allow(clippy::unnecessary_cast)]
-            #[allow(clippy::cast_possible_wrap)]
             // Definition of libc::RLIMIT_FSIZE depends on the target_env:
             //      * when equals to "musl" -> libc::RLIMIT_FSIZE is a c_int (which is an i32)
             //      * when equals to "gnu" -> libc::RLIMIT_FSIZE is __rlimit_resource_t which is a
             //        c_uint (which is an u32)
-            Resource::RlimitFsize => libc::RLIMIT_FSIZE as u32,
-            #[allow(clippy::unnecessary_cast)]
-            #[allow(clippy::cast_possible_wrap)]
+            Resource::RlimitFsize => rlimit_to_u32(libc::RLIMIT_FSIZE),
             // Definition of libc::RLIMIT_NOFILE depends on the target_env:
             //      * when equals to "musl" -> libc::RLIMIT_NOFILE is a c_int (which is an i32)
             //      * when equals to "gnu" -> libc::RLIMIT_NOFILE is __rlimit_resource_t which is a
             //        c_uint (which is an u32)
-            Resource::RlimitNoFile => libc::RLIMIT_NOFILE as u32,
+            Resource::RlimitNoFile => rlimit_to_u32(libc::RLIMIT_NOFILE),
         }
     }
 }
@@ -47,20 +65,16 @@ impl From<Resource> for u32 {
 impl From<Resource> for i32 {
     fn from(resource: Resource) -> i32 {
         match resource {
-            #[allow(clippy::unnecessary_cast)]
-            #[allow(clippy::cast_possible_wrap)]
             // Definition of libc::RLIMIT_FSIZE depends on the target_env:
             //      * when equals to "musl" -> libc::RLIMIT_FSIZE is a c_int (which is an i32)
             //      * when equals to "gnu" -> libc::RLIMIT_FSIZE is __rlimit_resource_t which is a
             //        c_uint (which is an u32)
-            Resource::RlimitFsize => libc::RLIMIT_FSIZE as i32,
-            #[allow(clippy::unnecessary_cast)]
-            #[allow(clippy::cast_possible_wrap)]
+            Resource::RlimitFsize => rlimit_to_i32(libc::RLIMIT_FSIZE),
             // Definition of libc::RLIMIT_NOFILE depends on the target_env:
             //      * when equals to "musl" -> libc::RLIMIT_NOFILE is a c_int (which is an i32)
             //      * when equals to "gnu" -> libc::RLIMIT_NOFILE is __rlimit_resource_t which is a
             //        c_uint (which is an u32)
-            Resource::RlimitNoFile => libc::RLIMIT_NOFILE as i32,
+            Resource::RlimitNoFile => rlimit_to_i32(libc::RLIMIT_NOFILE),
         }
     }
 }
@@ -129,12 +143,14 @@ mod tests {
     use super::*;
 
     #[test]
-    #[allow(clippy::unnecessary_cast)]
     fn test_from_resource() {
-        assert_eq!(u32::from(Resource::RlimitFsize), libc::RLIMIT_FSIZE as u32);
+        assert_eq!(
+            u32::from(Resource::RlimitFsize),
+            rlimit_to_u32(libc::RLIMIT_FSIZE)
+        );
         assert_eq!(
             u32::from(Resource::RlimitNoFile),
-            libc::RLIMIT_NOFILE as u32
+            rlimit_to_u32(libc::RLIMIT_NOFILE)
         );
     }
 
