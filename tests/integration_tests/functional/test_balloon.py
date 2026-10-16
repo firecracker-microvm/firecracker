@@ -613,6 +613,51 @@ def test_hinting_reporting_snapshot(uvm, microvm_factory, method):
     check_guest_dmesg_for_stalls(microvm.ssh)
 
 
+def test_reporting_with_init_on_free(uvm):
+    """
+    Test that free page reporting works on a guest that zeroes pages on free.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.memory_monitor = None
+    boot_args = "reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0 init_on_free=1"
+    if not vm.pci_enabled:
+        boot_args += " pci=off"
+    vm.basic_config(vcpu_count=2, mem_size_mib=256, boot_args=boot_args)
+    vm.add_net_iface()
+    vm.api.balloon.put(
+        amount_mib=0,
+        deflate_on_oom=True,
+        stats_polling_interval_s=0,
+        free_page_reporting=True,
+    )
+    vm.start()
+
+    _, cmdline, _ = vm.ssh.check_output("cat /proc/cmdline")
+    assert "init_on_free=1" in cmdline
+    # Negotiated features of the balloon (virtio device id 5).
+    _, features, _ = vm.ssh.check_output(
+        "grep -l 0x0005 /sys/bus/virtio/devices/*/device"
+        " | sed s/device$/features/ | xargs cat"
+    )
+    assert features[4] == "1", f"page poison not negotiated: {features}"
+    assert features[5] == "1", f"free page reporting not negotiated: {features}"
+    assert "Failed to activate virtio device" not in vm.log_data
+
+    # Blocks until the helper has touched its 128 MiB and is waiting in sigwait.
+    pid = start_fast_page_fault_helper(vm.ssh)
+    first_reading = get_stable_rss_mem(vm)
+
+    # Kill the application which will free the held memory
+    vm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
+    time.sleep(2)
+
+    second_reading = get_stable_rss_mem(vm)
+    assert first_reading > second_reading
+    assert vm.flush_metrics()["balloon"]["free_page_report_count"] > 0
+    check_guest_dmesg_for_stalls(vm.ssh)
+
+
 @pytest.mark.parametrize("method", ["traditional", "hinting", "reporting"])
 def test_memory_scrub(uvm, method):
     """
