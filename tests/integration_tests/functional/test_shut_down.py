@@ -45,9 +45,10 @@ def test_reboot(uvm, huge_pages):
     # actually reboots (reboot=k), so allow 120s like test_send_ctrl_alt_del.
     vm.mark_killed(timeout=120)
 
-    # Consume existing metrics
+    # The exit writes one more datapoint, after any the periodic 60s flush wrote while the
+    # shutdown took its time.
     datapoints = vm.get_all_metrics()
-    assert len(datapoints) == 2
+    assert len(datapoints) >= 2
 
     if platform.machine() != "x86_64":
         message = (
