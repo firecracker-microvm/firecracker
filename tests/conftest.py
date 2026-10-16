@@ -570,6 +570,12 @@ def pci_enabled(request):
 
 
 @pytest.fixture
+def pcie_hotplug_ports(request):
+    """Number of PCIe root ports to reserve for hot-plug."""
+    return getattr(request, "param", 0)
+
+
+@pytest.fixture
 def huge_pages(request):
     """Fixture that allows configuring whether a microVM will have huge pages enabled or not"""
     return getattr(request, "param", HugePagesConfig.NONE)
@@ -636,6 +642,7 @@ def vm_backend(request, record_property):
 #                 guest_kernel + rootfs_mode (Ubuntu for 5.10, AL2023 otherwise)
 #   pci_enabled   True / False                                 auto-multiplied
 #   vm_backend    "kvm"                                        auto-multiplied
+#   pcie_hotplug_ports  int                                    default 0
 #   cpu_template  None | static name | custom dict             default None
 #   huge_pages    HugePagesConfig                              default NONE
 #   vcpu_count    int                                          default 2
@@ -696,7 +703,9 @@ def uvm(microvm_factory, vm_backend, guest_kernel, rootfs, pci_enabled):
 
 
 @pytest.fixture
-def uvm_configured(uvm, vcpu_count, mem_size_mib, huge_pages, cpu_template):
+def uvm_configured(
+    uvm, vcpu_count, mem_size_mib, huge_pages, cpu_template, pcie_hotplug_ports
+):
     """Spawned + basic_config + cpu_template applied. Caller adds devices and starts."""
     uvm.spawn()
     uvm.basic_config(
@@ -704,6 +713,7 @@ def uvm_configured(uvm, vcpu_count, mem_size_mib, huge_pages, cpu_template):
         mem_size_mib=mem_size_mib,
         huge_pages=huge_pages,
         cpu_template=cpu_template,
+        pcie_hotplug_ports=pcie_hotplug_ports,
     )
     return uvm
 
@@ -750,6 +760,7 @@ def uvm_any(
     vcpu_count,
     mem_size_mib,
     huge_pages,
+    pcie_hotplug_ports,
 ):
     """A microVM in either the booted or restored lifecycle state.
 

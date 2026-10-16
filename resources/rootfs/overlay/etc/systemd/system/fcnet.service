@@ -1,6 +1,6 @@
 [Service]
 Type=oneshot
-ExecStartPre=/usr/bin/udevadm settle
+ExecStartPre=/usr/bin/udevadm trigger --settle --subsystem-match=net --action=add
 ExecStart=/usr/local/bin/fcnet-setup.sh
 [Install]
 WantedBy=sshd.service

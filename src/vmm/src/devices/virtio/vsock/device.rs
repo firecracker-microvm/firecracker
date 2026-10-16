@@ -171,8 +171,8 @@ where
         while let Some(head) = queue.pop_or_enable_notification()? {
             let index = head.index;
             let used_len = match self.rx_packet.parse(mem, head) {
-                Ok(()) => match self.backend.recv_pkt(&mut self.rx_packet) {
-                    Ok(()) => match self.rx_packet.commit_hdr() {
+                Ok(()) => match self.backend.recv_pkt(mem, &mut self.rx_packet) {
+                    Ok(()) => match self.rx_packet.commit_hdr(mem) {
                         // This addition cannot overflow, because packet length
                         // is previously validated against `MAX_PKT_BUF_SIZE`
                         // bound as part of `commit_hdr()`.

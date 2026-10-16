@@ -348,6 +348,63 @@ impl PciConfiguration {
         }
     }
 
+    /// Create a new type 1 (PCI-to-PCI bridge) configuration header.
+    pub fn new_type1(
+        vendor_id: u16,
+        device_id: u16,
+        revision_id: u8,
+        class_code: PciClassCode,
+        subclass: u8,
+    ) -> Self {
+        let mut registers = [0u32; NUM_CONFIGURATION_REGISTERS];
+        let mut writable_bits = [0u32; NUM_CONFIGURATION_REGISTERS];
+
+        registers[0] = (u32::from(device_id) << 16) | u32::from(vendor_id);
+        writable_bits[1] = 0x0000_ffff; // Status (r/o), command (r/w)
+        registers[2] = (u32::from(class_code as u8) << 24)
+            | (u32::from(subclass) << 16)
+            | u32::from(revision_id);
+        // Header Type 1 (bridge) in byte 2 of register 3; cacheline size
+        // (byte 0) and latency timer (byte 1) are read/write.
+        registers[3] = 0x0001_0000;
+        writable_bits[3] = 0x0000_ffff;
+
+        // Secondary Latency Timer | Subordinate Bus | Secondary Bus | Primary Bus.
+        writable_bits[6] = 0xffff_ffff;
+
+        // The three forwarding windows (Memory, Prefetchable Memory, I/O) are
+        // all programmed with their base above their limit, which is how a
+        // bridge encodes "this window forwards nothing". The guest will
+        // program these.
+
+        // Secondary Status 0x0000 (r/o) | I/O Limit 0x00 | I/O Base 0xf0
+        registers[7] = 0x0000_00f0;
+        writable_bits[7] = 0x0000_f0f0;
+        // Memory Limit 0x0000 | Memory Base 0xfff0
+        registers[8] = 0x0000_fff0;
+        writable_bits[8] = 0xfff0_fff0;
+        // Prefetchable Memory Limit 0x0001 | Prefetchable Memory Base 0xfff1.
+        // The capability nibbles are hardwired to 1 to advertise a 64-bit
+        // capable window.
+        registers[9] = 0x0001_fff1;
+        writable_bits[9] = 0xfff0_fff0;
+        // Prefetchable Base Upper 32 bits
+        writable_bits[10] = 0xffff_ffff;
+        // Prefetchable Limit Upper 32 bits
+        writable_bits[11] = 0xffff_ffff;
+        // I/O Base/Limit Upper 16 bits
+        writable_bits[12] = 0x0000_0000;
+        // Bridge Control (bytes 2-3) and Interrupt Line (byte 0)
+        // are read/write; Interrupt Pin (byte 1) is read-only.
+        writable_bits[15] = 0xffff_00ff;
+
+        PciConfiguration {
+            registers,
+            writable_bits,
+            last_capability: None,
+        }
+    }
+
     /// Create a type 0 PCI configuration from snapshot state
     pub fn type0_from_state(state: PciConfigurationState) -> Result<Self, PciConfigurationError> {
         let reg_len = state.registers.len();

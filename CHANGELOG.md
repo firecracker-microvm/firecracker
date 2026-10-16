@@ -25,8 +25,9 @@ and this project adheres to
 
 - [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
   PL061 GPIO controller backing the new aarch64 power button is always attached
-  and uses one extra GSI, which reduces the GSIs left for VirtIO devices. The
-  new maximum is 91 devices on aarch64; x86_64 is unaffected at 17.
+  and uses one extra GSI, which reduces the GSIs left for VirtIO devices. With
+  the MMIO transport, the new maximum is 91 devices on aarch64; x86_64 is
+  unaffected at 17. The PCI device limit remains 31 on both architectures.
 - [#6201](https://github.com/firecracker-microvm/firecracker/pull/6201):
   Bounds-check every virtio queue access against the ranges validated at
   activation, adding defense in depth against out-of-bounds accesses caused by
@@ -46,6 +47,12 @@ and this project adheres to
   partial huge pages either failed or kept their old contents. Because zeroing
   allocates huge pages that were not backed yet, use free page reporting or
   hinting instead of the traditional balloon with hugetlbfs.
+- [#6280](https://github.com/firecracker-microvm/firecracker/pull/6280): When
+  the guest negotiates `VIRTIO_NET_F_MRG_RXBUF`, the network device now reads
+  each frame from the TAP device into only as many receive buffers as the
+  largest frame needs, instead of every buffer the guest has made available.
+  This lowers the cost of receiving each frame and improves receive throughput
+  for small packets.
 
 ### Deprecated
 
@@ -88,6 +95,11 @@ and this project adheres to
   migrated between vCPUs. On host kernels supporting `KVM_VCPU_TSC_CTRL` (Linux
   5.16 and later), the restored TSC offset of vCPU 0 is now applied to all vCPUs
   before they start running.
+
+- [#6253](https://github.com/firecracker-microvm/firecracker/pull/6253): Guest
+  memory written by the virtio-net, vsock and entropy devices is now tracked
+  more accurately. This will lead to smaller incremental snapshots when dirty
+  tracking is enabled.
 
 ## [1.17.0]
 
@@ -381,8 +393,9 @@ and this project adheres to
 
 - [#5564](https://github.com/firecracker-microvm/firecracker/pull/5564): which
   added support for VMClock, uses one extra GSI for the VMClock device itself
-  which reduces the available GSIs for VirtIO devices. New maximum values is 92
-  devices on Aarch64 and 17 devices on x86.
+  which reduces the available GSIs for VirtIO devices. With the MMIO transport,
+  the new maximum values are 92 devices on Aarch64 and 17 devices on x86. The
+  PCI device limit remains 31 on both architectures.
 - [#5631](https://github.com/firecracker-microvm/firecracker/pull/5631): Update
   binary copy process inside Jailer to disallow symlinks and hardlinks at the
   destination path and change ownership of the copied binary to the specified
@@ -1498,7 +1511,7 @@ and this project adheres to
 - Added new jailer command line argument `--cgroup` which allow the user to
   specify the cgroups that are going to be set by the Jailer.
 - Added full support for AMD CPUs (General Availability). More details
-  [here](README.md#supported-platforms).
+  [here](README.md#tested-platforms).
 
 ### Fixed
 
