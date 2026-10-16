@@ -11,11 +11,11 @@ pub mod request;
 
 use std::fmt::Debug;
 use std::sync::mpsc;
+use std::time::Instant;
 
 pub use micro_http::{Body, HttpServer, Request, Response, ServerError, StatusCode, Version};
 use parsed_request::{ParsedRequest, RequestAction};
 use serde_json::json;
-use utils::time::{ClockType, get_time_us};
 use vmm::logger::{
     METRICS, ProcessTimeReporter, debug, error_unrestricted, info_unrestricted,
     update_metric_with_elapsed_time, warn_unrestricted,
@@ -104,16 +104,18 @@ impl ApiServer {
                 }
             };
             for server_request in request_vec {
-                let request_processing_start_us = get_time_us(ClockType::Monotonic);
+                let request_processing_start = Instant::now();
                 // Use `self.handle_request()` as the processing callback.
                 let response = server_request
-                    .process(|request| self.handle_request(request, request_processing_start_us));
+                    .process(|request| self.handle_request(request, request_processing_start));
                 if let Err(err) = server.respond(response) {
                     error_unrestricted!("API Server encountered an error on response: {}", err);
                 };
 
-                let delta_us = get_time_us(ClockType::Monotonic) - request_processing_start_us;
-                debug!("Total previous API call duration: {} us.", delta_us);
+                debug!(
+                    "Total previous API call duration: {} us.",
+                    request_processing_start.elapsed().as_micros()
+                );
             }
         }
     }
@@ -122,13 +124,13 @@ impl ApiServer {
     pub fn handle_request(
         &mut self,
         request: &Request,
-        request_processing_start_us: u64,
+        request_processing_start: Instant,
     ) -> Response {
         match ParsedRequest::try_from(request).map(|r| r.into_parts()) {
             Ok((req_action, mut parsing_info)) => {
                 let mut response = match req_action {
                     RequestAction::Sync(vmm_action) => {
-                        self.serve_vmm_action_request(vmm_action, request_processing_start_us)
+                        self.serve_vmm_action_request(vmm_action, request_processing_start)
                     }
                 };
                 if let Some(message) = parsing_info.take_deprecation_message() {
@@ -147,7 +149,7 @@ impl ApiServer {
     fn serve_vmm_action_request(
         &mut self,
         vmm_action: Box<VmmAction>,
-        request_processing_start_us: u64,
+        request_processing_start: Instant,
     ) -> Response {
         let metric_with_action = match *vmm_action {
             VmmAction::CreateSnapshot(ref params) => match params.snapshot_type {
@@ -178,8 +180,7 @@ impl ApiServer {
         if vmm_outcome.is_ok()
             && let Some((metric, action)) = metric_with_action
         {
-            let elapsed_time_us =
-                update_metric_with_elapsed_time(metric, request_processing_start_us);
+            let elapsed_time_us = update_metric_with_elapsed_time(metric, request_processing_start);
             info_unrestricted!("'{}' API request took {} us.", action, elapsed_time_us);
         }
         response
@@ -204,9 +205,9 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::mpsc::channel;
     use std::thread;
+    use std::time::Duration;
 
     use micro_http::HttpConnection;
-    use utils::time::ClockType;
     use vmm::builder::StartMicrovmError;
     use vmm::logger::StoreMetric;
     use vmm::rpc_interface::{VmmActionError, VmmData};
@@ -252,7 +253,8 @@ mod tests {
                 StartMicrovmError::MissingKernelConfig,
             ))))
             .unwrap();
-        let response = api_server.serve_vmm_action_request(Box::new(VmmAction::StartMicroVm), 0);
+        let response =
+            api_server.serve_vmm_action_request(Box::new(VmmAction::StartMicroVm), Instant::now());
         assert_eq!(response.status(), StatusCode::BadRequest);
 
         // Since the vmm side is mocked out in this test, the call to serve_vmm_action_request can
@@ -260,11 +262,10 @@ mod tests {
         // latencies_us.pause_vm metric can be set to 0, failing the assertion below. By
         // subtracting 1 we assure that the metric will always be set to at least 1 (if it gets set
         // at all, which is what this test is trying to prove).
-        let start_time_us = get_time_us(ClockType::Monotonic) - 1;
+        let start_time = Instant::now() - Duration::from_micros(1);
         assert_eq!(METRICS.latencies_us.pause_vm.fetch(), 0);
         to_api.send(Box::new(Ok(VmmData::Empty))).unwrap();
-        let response =
-            api_server.serve_vmm_action_request(Box::new(VmmAction::Pause), start_time_us);
+        let response = api_server.serve_vmm_action_request(Box::new(VmmAction::Pause), start_time);
         assert_eq!(response.status(), StatusCode::NoContent);
         assert_ne!(METRICS.latencies_us.pause_vm.fetch(), 0);
 
@@ -279,7 +280,7 @@ mod tests {
                 mem_file_path: PathBuf::new(),
                 sync_snapshot_files: true,
             })),
-            start_time_us,
+            start_time,
         );
         assert_eq!(response.status(), StatusCode::BadRequest);
         // The metric should not be updated if the request wasn't successful.
@@ -293,7 +294,7 @@ mod tests {
                 mem_file_path: PathBuf::new(),
                 sync_snapshot_files: true,
             })),
-            start_time_us,
+            start_time,
         );
         assert_eq!(response.status(), StatusCode::NoContent);
         assert_ne!(METRICS.latencies_us.diff_create_snapshot.fetch(), 0);
@@ -323,7 +324,7 @@ mod tests {
             .unwrap();
         connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        let response = api_server.handle_request(&req, 0);
+        let response = api_server.handle_request(&req, Instant::now());
         assert_eq!(response.status(), StatusCode::BadRequest);
 
         // Test a Get Info request.
@@ -335,7 +336,7 @@ mod tests {
         sender.write_all(b"GET / HTTP/1.1\r\n\r\n").unwrap();
         connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        let response = api_server.handle_request(&req, 0);
+        let response = api_server.handle_request(&req, Instant::now());
         assert_eq!(response.status(), StatusCode::OK);
 
         // Test erroneous request.
@@ -348,7 +349,7 @@ mod tests {
             .unwrap();
         connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
-        let response = api_server.handle_request(&req, 0);
+        let response = api_server.handle_request(&req, Instant::now());
         assert_eq!(response.status(), StatusCode::BadRequest);
     }
 
