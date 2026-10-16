@@ -140,11 +140,15 @@ impl PciRootPort {
     }
 
     fn slot_reg_idx(&self) -> u16 {
-        (self.pcie_cap_offset + PCI_EXP_SLTCTL) / 4
+        self.pcie_cap_offset
+            .strict_add(PCI_EXP_SLTCTL)
+            .strict_div(4)
     }
 
     fn link_reg_idx(&self) -> u16 {
-        (self.pcie_cap_offset + PCI_EXP_LNKSTA) / 4
+        self.pcie_cap_offset
+            .strict_add(PCI_EXP_LNKSTA)
+            .strict_div(4)
     }
 
     /// Return true if a hot-plug event that set `changed` Slot Status bits
@@ -232,11 +236,11 @@ impl PciRootPort {
         let mut status_w1c: u16 = 0;
 
         for (i, &byte) in data.iter().enumerate() {
-            match usize::from(offset) + i {
-                0 => control_bytes[0] = byte,
-                1 => control_bytes[1] = byte,
-                2 => status_w1c |= u16::from(byte),
-                3 => status_w1c |= u16::from(byte) << 8,
+            match usize::from(offset).checked_add(i) {
+                Some(0) => control_bytes[0] = byte,
+                Some(1) => control_bytes[1] = byte,
+                Some(2) => status_w1c |= u16::from(byte),
+                Some(3) => status_w1c |= u16::from(byte) << 8,
                 _ => {}
             }
         }
@@ -261,11 +265,12 @@ impl PciDevice for PciRootPort {
         let in_bars = (BAR0_REG_IDX..BAR0_REG_IDX + ROOT_PORT_NUM_BARS).contains(&reg_idx);
         // Only capture writes in the first 4 bytes of the capability,
         // everything else is served from `self.configuration`.
-        let in_msix_cap_header = reg_idx * 4 == self.msix_cap_offset;
+        // `reg_idx` is masked to 10 bits by the PCI config address parsers in `pci/bus.rs`.
+        let in_msix_cap_header = reg_idx.strict_mul(4) == self.msix_cap_offset;
 
         if in_bars {
             #[allow(clippy::cast_possible_truncation)]
-            let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
+            let bar_idx = (reg_idx.strict_sub(BAR0_REG_IDX)) as u8;
             self.bars.write(bar_idx, offset, data);
         } else if in_msix_cap_header {
             self.msix_config
@@ -287,7 +292,7 @@ impl PciDevice for PciRootPort {
         let in_bars = (BAR0_REG_IDX..BAR0_REG_IDX + ROOT_PORT_NUM_BARS).contains(&reg_idx);
         if in_bars {
             #[allow(clippy::cast_possible_truncation)]
-            let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
+            let bar_idx = (reg_idx.strict_sub(BAR0_REG_IDX)) as u8;
             let mut value: u32 = 0;
             self.bars.read(bar_idx, 0, value.as_mut_bytes());
             value
@@ -308,10 +313,10 @@ impl PciDevice for PciRootPort {
                 data,
             );
         } else if offset >= u64::from(ROOT_PORT_MSIX_PBA_OFFSET) {
-            self.msix_config
-                .lock()
-                .expect("Poisoned lock")
-                .read_pba(offset - u64::from(ROOT_PORT_MSIX_PBA_OFFSET), data);
+            self.msix_config.lock().expect("Poisoned lock").read_pba(
+                offset.strict_sub(u64::from(ROOT_PORT_MSIX_PBA_OFFSET)),
+                data,
+            );
         }
     }
 
@@ -322,10 +327,10 @@ impl PciDevice for PciRootPort {
                 data,
             );
         } else if offset >= u64::from(ROOT_PORT_MSIX_PBA_OFFSET) {
-            self.msix_config
-                .lock()
-                .expect("Poisoned lock")
-                .write_pba(offset - u64::from(ROOT_PORT_MSIX_PBA_OFFSET), data);
+            self.msix_config.lock().expect("Poisoned lock").write_pba(
+                offset.strict_sub(u64::from(ROOT_PORT_MSIX_PBA_OFFSET)),
+                data,
+            );
         }
         None
     }

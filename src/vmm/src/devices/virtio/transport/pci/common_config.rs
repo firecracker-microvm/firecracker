@@ -260,7 +260,7 @@ impl VirtioPciCommonConfig {
                 // `num_queues + 1` vectors (plus one for configuration updates). If an invalid
                 // vector has been selected, we just store the `NO_VECTOR` value.
                 let msix_queues = self.msix_queues.lock().expect("Poisoned lock");
-                let nr_vectors = msix_queues.len() + 1;
+                let nr_vectors = msix_queues.len().strict_add(1);
 
                 if (value as usize) < nr_vectors {
                     self.msix_config.store(value, Ordering::Release);
@@ -273,7 +273,7 @@ impl VirtioPciCommonConfig {
             QUEUE_SIZE => self.update_queue_field(queues, |q| q.size = value),
             QUEUE_MSIX_VECTOR => {
                 let mut msix_queues = self.msix_queues.lock().expect("Poisoned lock");
-                let nr_vectors = msix_queues.len() + 1;
+                let nr_vectors = msix_queues.len().strict_add(1);
                 // Make sure that `queue_select` points to a valid queue. If not, we won't do
                 // anything here and subsequent reads at 0x1a will return `NO_VECTOR`.
                 if let Some(queue) = msix_queues.get_mut(self.queue_select as usize) {
@@ -306,7 +306,8 @@ impl VirtioPciCommonConfig {
                 // Only 64 bits of features (2 pages) are defined for now, so limit
                 // device_feature_select to avoid shifting by 64 or more bits.
                 if self.device_feature_select < 2 {
-                    ((locked_device.avail_features() >> (self.device_feature_select * 32))
+                    ((locked_device.avail_features()
+                        >> (self.device_feature_select.strict_mul(32)))
                         & 0xffff_ffff) as u32
                 } else {
                     0

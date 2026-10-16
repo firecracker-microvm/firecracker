@@ -243,7 +243,10 @@ impl PciConfigIo {
     // offset is validated to be < 4 at the top of this function.
     #[allow(clippy::cast_possible_truncation)]
     pub fn config_space_write(&mut self, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
-        if u64_to_usize(offset) + data.len() > 4 {
+        if u64_to_usize(offset)
+            .checked_add(data.len())
+            .is_none_or(|end| end > 4)
+        {
             return None;
         }
 
@@ -281,17 +284,20 @@ impl PciConfigIo {
     }
 
     fn set_config_address(&mut self, offset: u64, data: &[u8]) {
-        if u64_to_usize(offset) + data.len() > 4 {
+        if u64_to_usize(offset)
+            .checked_add(data.len())
+            .is_none_or(|end| end > 4)
+        {
             return;
         }
         let (mask, value): (u32, u32) = match data.len() {
             1 => (
-                0x0000_00ff << (offset * 8),
-                u32::from(data[0]) << (offset * 8),
+                0x0000_00ff << (offset.strict_mul(8)),
+                u32::from(data[0]) << (offset.strict_mul(8)),
             ),
             2 => (
-                0x0000_ffff << (offset * 8),
-                ((u32::from(data[1]) << 8) | u32::from(data[0])) << (offset * 8),
+                0x0000_ffff << (offset.strict_mul(8)),
+                ((u32::from(data[1]) << 8) | u32::from(data[0])) << (offset.strict_mul(8)),
             ),
             4 => (0xffff_ffff, LittleEndian::read_u32(data)),
             _ => return,
@@ -304,13 +310,12 @@ impl BusDevice for PciConfigIo {
     fn read(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
         // Only allow reads to the register boundary.
         let start = u64_to_usize(offset) % 4;
-        let end = start + data.len();
-        if end > 4 {
+        let Some(end) = start.checked_add(data.len()).filter(|&end| end <= 4) else {
             for d in data.iter_mut() {
                 *d = 0xff;
             }
             return;
-        }
+        };
 
         // `offset` is relative to 0xcf8
         let value = match offset {
@@ -320,7 +325,7 @@ impl BusDevice for PciConfigIo {
         };
 
         for i in start..end {
-            data[i - start] = ((value >> (i * 8)) & 0xff) as u8;
+            data[i.strict_sub(start)] = ((value >> (i.strict_mul(8))) & 0xff) as u8;
         }
     }
 
@@ -331,7 +336,7 @@ impl BusDevice for PciConfigIo {
                 self.set_config_address(o, data);
                 None
             }
-            o @ 4..=7 => self.config_space_write(o - 4, data),
+            o @ 4..=7 => self.config_space_write(o.strict_sub(4), data),
             _ => None,
         }
     }
@@ -370,7 +375,10 @@ impl PciConfigMmio {
     }
 
     fn config_space_write(&mut self, config_address: u32, offset: u64, data: &[u8]) {
-        if u64_to_usize(offset) + data.len() > 4 {
+        if u64_to_usize(offset)
+            .checked_add(data.len())
+            .is_none_or(|end| end > 4)
+        {
             return;
         }
 
@@ -403,13 +411,15 @@ impl BusDevice for PciConfigMmio {
     fn read(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
         // Only allow reads to the register boundary.
         let start = u64_to_usize(offset) % 4;
-        let end = start + data.len();
-        if end > 4 || offset > u64::from(u32::MAX) {
+        let Some(end) = start
+            .checked_add(data.len())
+            .filter(|&end| end <= 4 && offset <= u64::from(u32::MAX))
+        else {
             for d in data {
                 *d = 0xff;
             }
             return;
-        }
+        };
 
         // offset is checked to fit in u32 before narrowing.
         #[allow(clippy::cast_possible_truncation)]
@@ -417,7 +427,7 @@ impl BusDevice for PciConfigMmio {
 
         let value = self.config_space_read(offset);
         for i in start..end {
-            data[i - start] = ((value >> (i * 8)) & 0xff) as u8;
+            data[i.strict_sub(start)] = ((value >> (i.strict_mul(8))) & 0xff) as u8;
         }
     }
 
