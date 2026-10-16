@@ -330,10 +330,8 @@ impl CgroupV1 {
         let mut path = controller_path.to_path_buf();
         path.push(parent_cg);
         path.push(id);
-        let mut depth = 0;
-        for _ in parent_cg.components() {
-            depth += 1;
-        }
+        let depth = u16::try_from(parent_cg.components().count())
+            .map_err(|_| JailerError::CgroupParentPathTooDeep(parent_cg.to_path_buf()))?;
 
         Ok(CgroupV1 {
             base: CgroupBase {

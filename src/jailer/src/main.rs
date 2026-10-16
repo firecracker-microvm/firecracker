@@ -43,6 +43,8 @@ pub enum JailerError {
     CgroupInvalidVersion(String),
     #[error("Parent cgroup path is invalid. Path should not be absolute or contain '..' or '.'")]
     CgroupInvalidParentPath(),
+    #[error("Parent cgroup path has too many components: {0:?}")]
+    CgroupParentPathTooDeep(PathBuf),
     #[error(
         "Failed to move process to cgroup ({0}): {1}.\nHint: If you intended to create a child \
          cgroup under {0}, pass any --cgroup parameters."
