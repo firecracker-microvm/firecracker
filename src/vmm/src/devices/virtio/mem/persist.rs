@@ -79,12 +79,17 @@ impl Persist<'_> for VirtioMem {
 
         let plugged_blocks = BitVec::from_iter(state.plugged_blocks.iter());
 
+        let plugged_blocks_count = plugged_blocks.count_ones();
+        let plugged_size = usize_to_u64(plugged_blocks_count)
+            .checked_mul(state.block_size)
+            .ok_or(VirtioMemError::BlockCountOverflow(plugged_blocks_count))?;
+
         let config = virtio_mem_config {
             addr: state.addr,
             region_size: state.region_size,
             block_size: state.block_size,
             usable_region_size: state.usable_region_size,
-            plugged_size: usize_to_u64(plugged_blocks.count_ones()) * state.block_size,
+            plugged_size,
             requested_size: state.requested_size,
             ..Default::default()
         };
