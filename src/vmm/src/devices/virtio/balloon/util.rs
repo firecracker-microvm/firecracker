@@ -31,7 +31,7 @@ pub(crate) fn compact_page_frame_numbers(v: &mut [u32]) -> Vec<(u32, u32)> {
 
         // Skip duplicate pages. This will ensure we only consider
         // distinct PFNs.
-        if page_frame_number == v[pfn_index - 1] {
+        if page_frame_number == v[pfn_index.strict_sub(1)] {
             error!("Skipping duplicate PFN {}.", page_frame_number);
             continue;
         }
@@ -43,9 +43,9 @@ pub(crate) fn compact_page_frame_numbers(v: &mut [u32]) -> Vec<(u32, u32)> {
         // since `v[previous]` is before all of them in the sorted array and `length`
         // was incremented for each consecutive one. This is true only because we skip
         // duplicates.
-        if page_frame_number == v[previous] + length {
+        if page_frame_number == v[previous].strict_add(length) {
             // If so, extend that range.
-            length += 1;
+            length = length.strict_add(1);
         } else {
             // Otherwise, push (previous, length) to the result vector.
             result.push((v[previous], length));

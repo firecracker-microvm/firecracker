@@ -181,7 +181,7 @@ impl IoVecBuffer {
         mut offset: usize,
         mut len: usize,
     ) -> Result<usize, VolatileMemoryError> {
-        let mut total_bytes_read = 0;
+        let mut total_bytes_read = 0usize;
 
         for iov in &self.vecs {
             if len == 0 {
@@ -189,7 +189,7 @@ impl IoVecBuffer {
             }
 
             if offset >= iov.iov_len {
-                offset -= iov.iov_len;
+                offset = offset.strict_sub(iov.iov_len);
                 continue;
             }
 
@@ -211,12 +211,12 @@ impl IoVecBuffer {
                 }
             } {
                 Ok(bytes_read) => {
-                    total_bytes_read += bytes_read;
+                    total_bytes_read = total_bytes_read.strict_add(bytes_read);
 
                     if bytes_read < slice.len() {
                         break;
                     }
-                    len -= bytes_read;
+                    len = len.strict_sub(bytes_read);
                 }
                 // exit successfully if we previously managed to write some bytes
                 Err(_) if total_bytes_read > 0 => break,
@@ -308,7 +308,7 @@ impl<const L: u16> IoVecBufferMut<L> {
                 iov_len: desc.len as size_t,
             });
 
-            nr_iovecs += 1;
+            nr_iovecs = nr_iovecs.strict_add(1);
             length = length
                 .checked_add(desc.len)
                 .ok_or(IoVecError::OverflowedDescriptor)
@@ -373,7 +373,8 @@ impl<const L: u16> IoVecBufferMut<L> {
     pub fn drop_chain_front(&mut self) {
         let chain = self.chains.pop_front().expect("no chain to drop");
         self.vecs.pop_front(chain.nr_iovecs);
-        self.len -= chain.length;
+        // `self.len` is the running sum of all live chains' lengths, so it is >= `chain.length`.
+        self.len = self.len.strict_sub(chain.length);
     }
 
     /// Reads from `fd` with a single `readv` into as few `iovec`s from the front of the buffer
@@ -390,14 +391,14 @@ impl<const L: u16> IoVecBufferMut<L> {
         min_capacity: usize,
     ) -> Result<usize, IoError> {
         let vecs = self.vecs.as_slice();
-        let mut nr_iovecs = 0;
-        let mut held = 0;
+        let mut nr_iovecs: usize = 0;
+        let mut held: usize = 0;
         for iov in vecs {
             if held >= min_capacity {
                 break;
             }
-            held += iov.iov_len;
-            nr_iovecs += 1;
+            held = held.strict_add(iov.iov_len);
+            nr_iovecs = nr_iovecs.strict_add(1);
         }
         let iovs = &vecs[..nr_iovecs];
 
@@ -424,7 +425,7 @@ impl<const L: u16> IoVecBufferMut<L> {
             }
             let len = remaining.min(iov.iov_len);
             mark_dirty_host(mem, iov.iov_base.cast(), len);
-            remaining -= len;
+            remaining = remaining.strict_sub(len);
         }
         assert_eq!(remaining, 0, "readv returned more than the iovecs hold");
         Ok(read)
@@ -512,7 +513,7 @@ impl<const L: u16> IoVecBufferMut<L> {
         mut offset: usize,
         mut len: usize,
     ) -> Result<usize, VolatileMemoryError> {
-        let mut total_bytes_read = 0;
+        let mut total_bytes_read = 0usize;
 
         for iov in self.vecs.as_slice() {
             if len == 0 {
@@ -520,7 +521,7 @@ impl<const L: u16> IoVecBufferMut<L> {
             }
 
             if offset >= iov.iov_len {
-                offset -= iov.iov_len;
+                offset = offset.strict_sub(iov.iov_len);
                 continue;
             }
 
@@ -545,12 +546,12 @@ impl<const L: u16> IoVecBufferMut<L> {
                     // Mark what landed in this slice right away, so that nothing written is left
                     // unmarked whichever way the loop exits.
                     mark_dirty_host(mem, slice.ptr_guard().as_ptr(), bytes_read);
-                    total_bytes_read += bytes_read;
+                    total_bytes_read = total_bytes_read.strict_add(bytes_read);
 
                     if bytes_read < slice.len() {
                         break;
                     }
-                    len -= bytes_read;
+                    len = len.strict_sub(bytes_read);
                 }
                 // exit successfully if we previously managed to read some bytes
                 Err(_) if total_bytes_read > 0 => break,

@@ -53,7 +53,7 @@ pub(crate) const fn vnet_hdr_len() -> usize {
 // the maximum L2 frame header bytes which includes the ethernet frame header plus
 // the header IPv4 ARP header which is 28 bytes long.
 const fn frame_hdr_len() -> usize {
-    vnet_hdr_len() + FRAME_HEADER_MAX_LEN
+    vnet_hdr_len().strict_add(FRAME_HEADER_MAX_LEN)
 }
 
 // Frames being sent/received through the network device model have a VNET header. This
@@ -153,9 +153,9 @@ impl RxBuffers {
             rx_queue
                 .write_used_element(self.used_descriptors, parsed_dc.head_index, used_bytes)
                 .unwrap();
-            bytes_written -= used_bytes;
-            self.used_descriptors += 1;
-            used_heads += 1;
+            bytes_written = bytes_written.strict_sub(used_bytes);
+            self.used_descriptors = self.used_descriptors.strict_add(1);
+            used_heads = used_heads.strict_add(1);
 
             if bytes_written == 0 {
                 break;
@@ -477,7 +477,7 @@ impl Net {
                 queue
                     .write_used_element(self.rx_buffer.used_descriptors, index, 0)
                     .unwrap();
-                self.rx_buffer.used_descriptors += 1;
+                self.rx_buffer.used_descriptors = self.rx_buffer.used_descriptors.strict_add(1);
             }
         }
 
@@ -538,7 +538,8 @@ impl Net {
         if let Some(ns) = mmds_ns
             && ns.is_mmds_frame(headers)
         {
-            let mut frame = vec![0u8; frame_iovec.len() as usize - vnet_hdr_len()];
+            // `frame_bytes_from_buf` above guarantees `frame_iovec.len() >= vnet_hdr_len()`.
+            let mut frame = vec![0u8; (frame_iovec.len() as usize).strict_sub(vnet_hdr_len())];
             // Ok to unwrap here, because we are passing a buffer that has the exact size
             // of the `IoVecBuffer` minus the VNET headers.
             frame_iovec
@@ -611,15 +612,16 @@ impl Net {
             METRICS.mmds.tx_frames.inc();
             METRICS.mmds.tx_bytes.add(len as u64);
             init_vnet_hdr(&mut self.rx_frame_buf);
+            // `write_next_frame` wrote `len` bytes into `rx_frame_buf[vnet_hdr_len()..]`.
             self.rx_buffer.iovec.write_all_volatile_at(
                 mem,
-                &self.rx_frame_buf[..vnet_hdr_len() + len],
+                &self.rx_frame_buf[..vnet_hdr_len().strict_add(len)],
                 0,
             )?;
             // SAFETY:
             // * len will never be bigger that u32::MAX because mmds is bound
             // by the size of `self.rx_frame_buf` which is MAX_BUFFER_SIZE size.
-            (vnet_hdr_len() + len).try_into().unwrap()
+            (vnet_hdr_len().strict_add(len)).try_into().unwrap()
         } else {
             // Without VIRTIO_NET_F_MRG_RXBUF a frame must fit in a single chain, so `readv` only
             // gets the first one. With it a frame can span chains but is never longer than
