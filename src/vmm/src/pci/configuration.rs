@@ -106,7 +106,7 @@ impl Bars {
         assert_ne!(size, 0);
         assert!(size.is_power_of_two());
         assert!(addr & 0b1111 == 0);
-        addr.checked_add(size - 1).unwrap();
+        addr.checked_add(size.strict_sub(1)).unwrap();
         assert!(bar_idx < NUM_BAR_REGS);
 
         // Unused BARs will have address and size of 0
@@ -124,7 +124,7 @@ impl Bars {
         assert_ne!(size, 0);
         assert!(size.is_power_of_two());
         assert!(addr & 0b1111 == 0);
-        addr.checked_add(size - 1).unwrap();
+        addr.checked_add(size.strict_sub(1)).unwrap();
         assert!(bar_idx < NUM_BAR_REGS - 1);
 
         // Unused BARs will have address and size of 0
@@ -565,7 +565,10 @@ impl PciConfiguration {
             return;
         }
 
-        if offset as usize + data.len() > 4 {
+        if (offset as usize)
+            .checked_add(data.len())
+            .is_none_or(|end| end > 4)
+        {
             return;
         }
 
