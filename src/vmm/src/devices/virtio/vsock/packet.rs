@@ -254,12 +254,9 @@ impl VsockPacketTx {
         offset: u32,
         count: u32,
     ) -> Result<u32, VsockError> {
-        if count
-            > self
-                .buffer
-                .len()
-                .saturating_sub(VSOCK_PKT_HDR_SIZE)
-                .saturating_sub(offset)
+        if offset
+            .checked_add(count)
+            .is_none_or(|end| end > self.buf_size())
         {
             return Err(VsockError::GuestMemoryBounds);
         }
@@ -367,12 +364,9 @@ impl VsockPacketRx {
         offset: u32,
         count: u32,
     ) -> Result<u32, VsockError> {
-        if count
-            > self
-                .buffer
-                .len()
-                .saturating_sub(VSOCK_PKT_HDR_SIZE)
-                .saturating_sub(offset)
+        if offset
+            .checked_add(count)
+            .is_none_or(|end| end > self.buf_size())
         {
             return Err(VsockError::GuestMemoryBounds);
         }
