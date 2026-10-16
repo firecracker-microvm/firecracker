@@ -23,6 +23,15 @@ and this project adheres to
 
 ### Changed
 
+- [#6303](https://github.com/firecracker-microvm/firecracker/pull/6303):
+  `PUT`/`PATCH /machine-config` now rejects a `mem_size_mib` larger than the
+  architecture can address (1022 GiB on aarch64, `usize::MAX` minus the MMIO
+  gaps on x86_64) instead of silently clamping it and failing later with an
+  out-of-memory error at boot.
+- [#6303](https://github.com/firecracker-microvm/firecracker/pull/6303):
+  Release builds are now compiled with `overflow-checks = true`, so an integer
+  overflow in Firecracker or in one of its dependencies aborts the process
+  instead of silently wrapping.
 - [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
   PL061 GPIO controller backing the new aarch64 power button is always attached
   and uses one extra GSI, which reduces the GSIs left for VirtIO devices. With

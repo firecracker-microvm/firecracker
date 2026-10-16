@@ -168,6 +168,8 @@ pub enum MemoryError {
     FileMetadata(std::io::Error),
     /// Memory region has zero size
     ZeroSize,
+    /// Guest memory size of {0} bytes exceeds the architectural maximum of {1} bytes
+    GuestMemoryTooLarge(usize, usize),
     /// Memory region has zero slots
     ZeroSlots,
     /// Memory region of {region_size} bytes is not evenly divisible into {slot_count} slots
