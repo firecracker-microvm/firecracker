@@ -6,8 +6,9 @@
 
 use std::ops::Deref;
 use std::sync::Arc;
+use std::time::Instant;
 
-use utils::time::{ClockType, get_time_us};
+use utils::time::elapsed_us;
 use vhost::vhost_user::Frontend;
 use vhost::vhost_user::message::*;
 use vmm_sys_util::eventfd::EventFd;
@@ -170,7 +171,7 @@ impl<T: VhostUserHandleBackend> std::fmt::Debug for VhostUserBlockImpl<T> {
 impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
     pub fn new(config: VhostUserBlockConfig) -> Result<Self, VhostUserBlockError> {
         log_dev_preview_warning("vhost-user-blk device", Option::None);
-        let start_time = get_time_us(ClockType::Monotonic);
+        let start_time = Instant::now();
         let mut requested_features = AVAILABLE_FEATURES;
 
         if config.cache_type == CacheType::Writeback {
@@ -224,7 +225,7 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
         let vhost_user_block_metrics_name = format!("block_{}", config.drive_id);
 
         let metrics = VhostUserMetricsPerDevice::alloc(vhost_user_block_metrics_name);
-        let delta_us = get_time_us(ClockType::Monotonic) - start_time;
+        let delta_us = elapsed_us(start_time);
         metrics.init_time_us.store(delta_us);
 
         Ok(Self {
@@ -265,7 +266,7 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
     }
 
     pub fn update_config(&mut self) -> Result<(), VhostUserBlockError> {
-        let start_time = get_time_us(ClockType::Monotonic);
+        let start_time = Instant::now();
 
         let Some(device_state) = self.device_state.active_state() else {
             return Err(VhostUserBlockError::DeviceNotActive);
@@ -289,7 +290,7 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
             .trigger(VirtioInterruptType::Config)
             .map_err(VhostUserBlockError::Interrupt)?;
 
-        let delta_us = get_time_us(ClockType::Monotonic) - start_time;
+        let delta_us = elapsed_us(start_time);
         self.metrics.config_change_time_us.store(delta_us);
 
         Ok(())
@@ -364,7 +365,7 @@ where
                 .map_err(ActivateError::QueueMemoryError)?;
         }
 
-        let start_time = get_time_us(ClockType::Monotonic);
+        let start_time = Instant::now();
         // Setting features again, because now we negotiated them
         // with guest driver as well.
         self.vu_handle
@@ -381,7 +382,7 @@ where
                 ActivateError::VhostUser(err)
             })?;
         self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
-        let delta_us = get_time_us(ClockType::Monotonic) - start_time;
+        let delta_us = elapsed_us(start_time);
         self.metrics.activate_time_us.store(delta_us);
         Ok(())
     }
