@@ -1142,15 +1142,19 @@ pub fn mark_dirty_host(mem: &GuestMemoryMmap, ptr: *const u8, len: usize) {
     if len == 0 {
         return;
     }
+    let start = ptr as usize;
+    let end = start.strict_add(len);
     for region in mem.iter() {
-        let offset = (ptr as usize).wrapping_sub(region.as_ptr() as usize);
-        if offset < region.size() {
-            assert!(offset + len <= region.size(), "range crosses a region end");
-            region.bitmap().mark_dirty(offset, len);
+        let region_start = region.as_ptr() as usize;
+        let region_end = region_start.strict_add(region.size());
+        if region_start <= start && end <= region_end {
+            region
+                .bitmap()
+                .mark_dirty(start.strict_sub(region_start), len);
             return;
         }
     }
-    unreachable!("host address {ptr:p} is not guest memory");
+    unreachable!("host range {ptr:p}+{len:#x} is not within a single guest memory region");
 }
 
 /// Defines the interface for snapshotting memory.
@@ -1657,7 +1661,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "range crosses a region end")]
+    #[should_panic(expected = "is not within a single guest memory region")]
     fn test_mark_dirty_host_crossing_region_end() {
         let page_size = host_page_size();
         let mem = into_region_ext(
@@ -1672,7 +1676,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "is not guest memory")]
+    #[should_panic(expected = "is not within a single guest memory region")]
     fn test_mark_dirty_host_outside_guest_memory() {
         let page_size = host_page_size();
         let mem = into_region_ext(
