@@ -648,7 +648,7 @@ where
         // If we couldn't write the whole slice, we'll need to push the remaining data to our
         // buffer.
         if written < len {
-            pkt.write_from_offset_to(&mut self.tx_buf, written, len - written)?;
+            pkt.write_from_offset_to(&mut self.tx_buf, written, len.strict_sub(written))?;
         }
 
         Ok(())

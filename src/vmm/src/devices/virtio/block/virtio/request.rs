@@ -134,8 +134,9 @@ impl PendingRequest {
         let num_bytes_to_mem = mem
             .write_obj(status_code, self.status_addr)
             .map(|_| {
-                // Account for the status byte
-                num_bytes_to_mem + 1
+                // Account for the status byte. `parse()` only accepts sector-aligned
+                // `data_len`, so `num_bytes_to_mem` is at most `u32::MAX - 511`.
+                num_bytes_to_mem.strict_add(1)
             })
             .unwrap_or_else(|err| {
                 error!("Failed to write virtio block status: {:?}", err);

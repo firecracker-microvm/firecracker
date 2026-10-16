@@ -140,7 +140,7 @@ impl<const L: u16> IovDeque<L> {
         unsafe {
             Self::mmap(
                 std::ptr::null_mut(),
-                pages_bytes * 2,
+                pages_bytes.strict_mul(2),
                 libc::PROT_NONE,
                 libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
                 -1,
@@ -153,15 +153,15 @@ impl<const L: u16> IovDeque<L> {
     /// the type to operate.
     fn pages_bytes() -> usize {
         let host_page_size = host_page_size();
-        let bytes = L as usize * std::mem::size_of::<iovec>();
+        let bytes = (L as usize).strict_mul(std::mem::size_of::<iovec>());
         let num_host_pages = bytes.div_ceil(host_page_size);
-        num_host_pages * host_page_size
+        num_host_pages.strict_mul(host_page_size)
     }
 
     /// Create a new [`IovDeque`] that can hold memory described by a single VirtIO queue.
     pub fn new() -> Result<Self, IovDequeError> {
         let pages_bytes = Self::pages_bytes();
-        let capacity = pages_bytes / std::mem::size_of::<iovec>();
+        let capacity = pages_bytes.strict_div(std::mem::size_of::<iovec>());
         let capacity: u16 = capacity.try_into().unwrap();
         assert!(
             L <= capacity,
@@ -252,10 +252,10 @@ impl<const L: u16> IovDeque<L> {
         // asserted before that the buffer is not full).
         unsafe {
             self.iov
-                .add((self.start + self.len) as usize)
+                .add(usize::from(self.start.strict_add(self.len)))
                 .write_volatile(iov)
         };
-        self.len += 1;
+        self.len = self.len.strict_add(1);
     }
 
     /// Pops the first `nr_iovecs` iovecs from the front of the buffer.
@@ -268,10 +268,10 @@ impl<const L: u16> IovDeque<L> {
             "Internal bug! Trying to drop more iovec objects than what is available"
         );
 
-        self.start += nr_iovecs;
-        self.len -= nr_iovecs;
+        self.start = self.start.strict_add(nr_iovecs);
+        self.len = self.len.strict_sub(nr_iovecs);
         if self.capacity <= self.start {
-            self.start -= self.capacity;
+            self.start = self.start.strict_sub(self.capacity);
         }
     }
 
@@ -285,7 +285,7 @@ impl<const L: u16> IovDeque<L> {
             "Internal bug! Trying to drop more iovec objects than what is available"
         );
 
-        self.len -= nr_iovecs;
+        self.len = self.len.strict_sub(nr_iovecs);
     }
 
     /// Get a slice of the iovec objects currently in the buffer.
@@ -336,7 +336,7 @@ impl<const L: u16> Drop for IovDeque<L> {
         let pages_bytes = Self::pages_bytes();
         // SAFETY: We are passing an address that we got from a previous allocation of `2 *
         // pages_bytes` by calling mmap
-        let _ = unsafe { libc::munmap(self.iov.cast(), 2 * pages_bytes) };
+        let _ = unsafe { libc::munmap(self.iov.cast(), pages_bytes.strict_mul(2)) };
     }
 }
 

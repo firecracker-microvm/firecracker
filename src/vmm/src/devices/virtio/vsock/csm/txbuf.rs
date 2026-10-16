@@ -50,7 +50,7 @@ impl TxBuf {
     /// there isn't enough room, in which case `Err(Error::TxBufFull)` is returned.
     pub fn push(&mut self, src: &VolatileSlice<impl BitmapSlice>) -> Result<(), VsockCsmError> {
         // Error out if there's no room to push the entire slice.
-        if self.len() + src.len() > Self::SIZE {
+        if self.len().strict_add(src.len()) > Self::SIZE {
             return Err(VsockCsmError::TxBufFull);
         }
 
@@ -66,14 +66,14 @@ impl TxBuf {
         // ring-buffer head wraps around.
 
         // First copy length: we can only go from the head offset up to the total buffer size.
-        let len = std::cmp::min(Self::SIZE - head_ofs, src.len());
+        let len = std::cmp::min(Self::SIZE.strict_sub(head_ofs), src.len());
 
-        let _ = src.read(&mut data[head_ofs..(head_ofs + len)], 0);
+        let _ = src.read(&mut data[head_ofs..(head_ofs.strict_add(len))], 0);
 
         // If the slice didn't fit, the buffer head will wrap around, and pushing continues
         // from the start of the buffer (`&self.data[0]`).
         if len < src.len() {
-            let _ = src.read(&mut data[..(src.len() - len)], len);
+            let _ = src.read(&mut data[..(src.len().strict_sub(len))], len);
         }
 
         // Either way, we've just pushed exactly `src.len()` bytes, so that's the amount by
@@ -101,7 +101,7 @@ impl TxBuf {
         // - two writes, if the tail would wrap around: tail to slice end, then slice end to head.
 
         // First write length: the lesser of tail to slice end, or tail to head.
-        let len_to_write = std::cmp::min(Self::SIZE - tail_ofs, self.len());
+        let len_to_write = std::cmp::min(Self::SIZE.strict_sub(tail_ofs), self.len());
 
         // It's safe to unwrap here, since we've already checked if the buffer was empty.
         let data = self.data.as_ref().unwrap();
@@ -109,7 +109,7 @@ impl TxBuf {
         // Issue the first write and absorb any `WouldBlock` error (we can just try again
         // later).
         let written = sink
-            .write(&data[tail_ofs..(tail_ofs + len_to_write)])
+            .write(&data[tail_ofs..(tail_ofs.strict_add(len_to_write))])
             .map_err(VsockCsmError::TxBufFlush)?;
 
         // Move the buffer tail ahead by the amount (of bytes) we were able to flush out.
@@ -128,7 +128,7 @@ impl TxBuf {
         // Interesting corner case: if we've already written some data in the first pass,
         // and then the second write fails, we will consider the flush action a success
         // and return the number of bytes written in the first pass.
-        Ok(written + self.flush_to(sink).unwrap_or(0))
+        Ok(written.strict_add(self.flush_to(sink).unwrap_or(0)))
     }
 
     /// Check if the buffer holds any data that hasn't yet been flushed out.

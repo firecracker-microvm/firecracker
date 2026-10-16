@@ -176,7 +176,7 @@ where
                         // This addition cannot overflow, because packet length
                         // is previously validated against `MAX_PKT_BUF_SIZE`
                         // bound as part of `commit_hdr()`.
-                        Ok(()) => VSOCK_PKT_HDR_SIZE + self.rx_packet.hdr.len(),
+                        Ok(()) => VSOCK_PKT_HDR_SIZE.strict_add(self.rx_packet.hdr.len()),
                         Err(err) => {
                             warn!(
                                 "vsock: Error writing packet header to guest memory: \

@@ -113,7 +113,10 @@ impl Drop for GuestPmemRegion {
     fn drop(&mut self) {
         let range = RangeInclusive::new(
             self.config_space.start,
-            self.config_space.start + self.config_space.size - 1,
+            self.config_space
+                .start
+                .strict_add(self.config_space.size)
+                .strict_sub(1),
         )
         .expect("Invalid config_space range");
         let mut alloc = self.vm.resource_allocator();
