@@ -589,6 +589,33 @@ def test_snapshot_overwrite_self(uvm, microvm_factory):
     # restored, with a new snapshot of this vm, does not break the VM
 
 
+def test_restore_mem_file_on_block_device(uvm, microvm_factory):
+    """Tests restoring a snapshot whose memory file is a read-only block device.
+
+    `fstat` reports a size of 0 for a block device, so the check that guest
+    memory fits in the memory file must not rely on it."""
+    base_vm = uvm
+    base_vm.spawn()
+    base_vm.basic_config()
+    base_vm.add_net_iface()
+    base_vm.start()
+
+    snapshot = base_vm.snapshot_full()
+    base_vm.kill()
+
+    loop_device = check_output(
+        f"losetup --find --show --read-only {snapshot.mem}"
+    ).stdout.strip()
+    try:
+        vm = microvm_factory.build_from_snapshot(
+            dataclasses.replace(snapshot, mem=Path(loop_device))
+        )
+        vm.ssh.check_output("true")
+        vm.kill()
+    finally:
+        check_output(f"losetup --detach {loop_device}")
+
+
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_vmgenid(uvm, microvm_factory, snapshot_type):
     """
