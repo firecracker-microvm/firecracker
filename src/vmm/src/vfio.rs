@@ -88,7 +88,6 @@ pub type VfioBarEmulatedAreas = ArrayVec<VfioBarEmulatedArea, { NUM_BAR_REGS as 
 #[derive(Debug, Copy, Clone)]
 pub struct VfioBarEmulatedArea {
     bar_idx: u8,
-    in_bar_offset: u64,
     /// GPA of the area
     pub gpa: u64,
     /// Size of the area
@@ -214,7 +213,7 @@ enum HandleBarAccessResult {
     // Need to access MSIx table at some offset
     MsixTable(u64),
     // Need to pass access to the device to the specific BAR at specific offset
-    Device { bar_idx: u8, in_bar_offset: u64 },
+    Device { bar_idx: u8, offset: u64 },
 }
 
 // Distribute BAR access aiming at the BAR containing MSIx table.
@@ -236,9 +235,7 @@ fn vfio_distribute_msix_access(
     assert!(data_end <= emulated_area.size);
 
     let (t_off, t_size) = msix_cap.table_bar_offset_and_size();
-    let (t_off, t_size) = (t_off as u64, t_size as u64);
-    assert!(emulated_area.in_bar_offset <= t_off);
-    let t_start = t_off - emulated_area.in_bar_offset;
+    let (t_start, t_size) = (t_off as u64, t_size as u64);
     let t_end = t_start + t_size;
     if t_start <= data_start && data_end <= t_end {
         return HandleBarAccessResult::MsixTable(offset - t_start);
@@ -253,7 +250,7 @@ fn vfio_distribute_msix_access(
 
     HandleBarAccessResult::Device {
         bar_idx: emulated_area.bar_idx,
-        in_bar_offset: emulated_area.in_bar_offset + offset,
+        offset,
     }
 }
 
@@ -272,7 +269,7 @@ fn vfio_distribute_emulated_access(
             } else {
                 HandleBarAccessResult::Device {
                     bar_idx: area.bar_idx,
-                    in_bar_offset: area.in_bar_offset + offset,
+                    offset,
                 }
             };
             return result;
@@ -302,15 +299,12 @@ impl BusDevice for VfioDevice {
             HandleBarAccessResult::MsixTable(offset) => {
                 self.msix_state.config.read_table(offset, data);
             }
-            HandleBarAccessResult::Device {
-                bar_idx,
-                in_bar_offset,
-            } => {
+            HandleBarAccessResult::Device { bar_idx, offset } => {
                 let region_size = self.device.get_region_size(bar_idx as u32);
                 // If this ever fires, we have a bug in emulated area calculation code since
                 // the area expands past the region end
-                assert!(in_bar_offset + usize_to_u64(data.len()) <= region_size);
-                self.device.region_read(bar_idx as u32, data, in_bar_offset);
+                assert!(offset + usize_to_u64(data.len()) <= region_size);
+                self.device.region_read(bar_idx as u32, data, offset);
             }
         }
     }
@@ -333,16 +327,12 @@ impl BusDevice for VfioDevice {
             HandleBarAccessResult::MsixTable(offset) => {
                 self.msix_state.config.write_table(offset, data);
             }
-            HandleBarAccessResult::Device {
-                bar_idx,
-                in_bar_offset,
-            } => {
+            HandleBarAccessResult::Device { bar_idx, offset } => {
                 let region_size = self.device.get_region_size(bar_idx as u32);
                 // If this ever fires, we have a bug in emulated area calculation code since
                 // the area expands past the region end
-                assert!(in_bar_offset + usize_to_u64(data.len()) <= region_size);
-                self.device
-                    .region_write(bar_idx as u32, data, in_bar_offset);
+                assert!(offset + usize_to_u64(data.len()) <= region_size);
+                self.device.region_write(bar_idx as u32, data, offset);
             }
         }
         None
@@ -846,7 +836,6 @@ fn vfio_calculate_bar_areas(
             );
             emulated_areas.push(VfioBarEmulatedArea {
                 bar_idx,
-                in_bar_offset: 0,
                 gpa: bar_gpa,
                 size: bar_size,
             });
@@ -1330,13 +1319,11 @@ mod tests {
     fn test_vfio_distribute_emulated_access_routes_by_bar_idx() {
         let msix_area = VfioBarEmulatedArea {
             bar_idx: 0,
-            in_bar_offset: 0,
             gpa: 0x1000,
             size: 0x1000,
         };
         let plain_area = VfioBarEmulatedArea {
             bar_idx: 2,
-            in_bar_offset: 0,
             gpa: 0x5000,
             size: 0x2000,
         };
@@ -1353,7 +1340,7 @@ mod tests {
             result,
             HandleBarAccessResult::Device {
                 bar_idx: 2,
-                in_bar_offset: 0x40
+                offset: 0x40
             }
         ));
     }
@@ -1799,7 +1786,6 @@ mod tests {
         // The kernel can mmap the BAR, but it is smaller than the host page, so it is not mapped
         assert!(areas.is_empty());
         assert_eq!(emulated_areas.len(), 1);
-        assert_eq!(emulated_areas[0].in_bar_offset, 0);
         assert_eq!(emulated_areas[0].gpa, host_page_size);
         assert_eq!(emulated_areas[0].size, host_page_size / 16);
     }
@@ -1819,7 +1805,6 @@ mod tests {
         // The page aligned table area is bigger than the BAR, so only the BAR itself is emulated
         assert!(areas.is_empty());
         assert_eq!(emulated_areas.len(), 1);
-        assert_eq!(emulated_areas[0].in_bar_offset, 0);
         assert_eq!(emulated_areas[0].gpa, host_page_size);
         assert_eq!(emulated_areas[0].size, host_page_size / 2);
     }
@@ -1839,7 +1824,6 @@ mod tests {
         assert!(areas.is_empty());
         assert_eq!(emulated_areas.len(), 1);
         assert_eq!(emulated_areas[0].bar_idx, 0);
-        assert_eq!(emulated_areas[0].in_bar_offset, 0);
         assert_eq!(emulated_areas[0].gpa, 0x1000);
         assert_eq!(emulated_areas[0].size, 0x2000);
     }
@@ -1859,7 +1843,6 @@ mod tests {
         // plus the whole BAR) would be rejected by the mmio bus.
         assert!(areas.is_empty());
         assert_eq!(emulated_areas.len(), 1);
-        assert_eq!(emulated_areas[0].in_bar_offset, 0);
         assert_eq!(emulated_areas[0].gpa, 0x1000);
         assert_eq!(emulated_areas[0].size, 0x2000);
     }
@@ -1878,7 +1861,6 @@ mod tests {
         // Table page cannot be mmapped, so nothing is mapped and the whole BAR is emulated
         assert!(areas.is_empty());
         assert_eq!(emulated_areas.len(), 1);
-        assert_eq!(emulated_areas[0].in_bar_offset, 0);
         assert_eq!(emulated_areas[0].gpa, 0x1000);
         assert_eq!(emulated_areas[0].size, 0x4000);
     }
@@ -1995,7 +1977,6 @@ mod tests {
             // The whole BAR is emulated to cover gaps between sparse areas
             assert_eq!(emulated_areas.len(), 1);
             assert_eq!(emulated_areas[0].bar_idx, 0);
-            assert_eq!(emulated_areas[0].in_bar_offset, 0);
             assert_eq!(emulated_areas[0].gpa, 0x1000);
             assert_eq!(emulated_areas[0].size, 0x4000);
         }
@@ -2148,7 +2129,6 @@ mod tests {
             // The whole BAR is emulated, including the MSI-X table
             assert_eq!(emulated_areas.len(), 1);
             assert_eq!(emulated_areas[0].bar_idx, 0);
-            assert_eq!(emulated_areas[0].in_bar_offset, 0);
             assert_eq!(emulated_areas[0].gpa, 0x1000);
             assert_eq!(emulated_areas[0].size, 0x4000);
         }
@@ -2183,7 +2163,7 @@ mod tests {
             result,
             HandleBarAccessResult::Device {
                 bar_idx: 0,
-                in_bar_offset: 0x800
+                offset: 0x800
             }
         ));
         // Access to the gap between table page and sparse area goes to the device
@@ -2192,7 +2172,7 @@ mod tests {
             result,
             HandleBarAccessResult::Device {
                 bar_idx: 0,
-                in_bar_offset: 0x1040
+                offset: 0x1040
             }
         ));
     }
@@ -2230,7 +2210,6 @@ mod tests {
     fn emulated_area_table_bar() -> VfioBarEmulatedArea {
         VfioBarEmulatedArea {
             bar_idx: 0,
-            in_bar_offset: 0,
             gpa: BAR_GPA,
             size: 0x1000,
         }
@@ -2253,7 +2232,7 @@ mod tests {
             result,
             HandleBarAccessResult::Device {
                 bar_idx: 0,
-                in_bar_offset: 0x100
+                offset: 0x100
             }
         ));
     }
