@@ -134,7 +134,8 @@ impl<T: NetworkBytes + Debug> TcpSegment<'_, T> {
     pub fn header_len_rsvd_ns(&self) -> (u8, u8, bool) {
         let value = self.bytes[DATAOFF_RSVD_NS_OFFSET];
         let data_offset = value >> 4;
-        let header_len = data_offset * 4;
+        // `data_offset` is a 4-bit field (0..=15), so `data_offset * 4 <= 60`: no u8 overflow.
+        let header_len = data_offset.strict_mul(4);
         let rsvd = value & 0x0e;
         let ns = (value & 1) != 0;
         (header_len, rsvd, ns)
@@ -210,7 +211,8 @@ impl<T: NetworkBytes + Debug> TcpSegment<'_, T> {
     /// Returns the length of the payload.
     #[inline]
     pub fn payload_len(&self) -> u16 {
-        self.len() - u16::from(self.header_len())
+        // `from_bytes` validated `header_len <= self.len()`, so this cannot underflow.
+        self.len().strict_sub(u16::from(self.header_len()))
     }
 
     /// Computes the TCP checksum of the segment. More details about TCP checksum computation can
@@ -234,7 +236,7 @@ impl<T: NetworkBytes + Debug> TcpSegment<'_, T> {
         header_len: usize,
     ) -> Result<Option<NonZeroU16>, TcpError> {
         let b = self.options_unchecked(header_len);
-        let mut i = 0;
+        let mut i: usize = 0;
 
         // All TCP options (except EOL and NOP) are encoded using x bytes (x >= 2), where the first
         // byte represents the option kind, the second is the option length (including these first
@@ -242,18 +244,18 @@ impl<T: NetworkBytes + Debug> TcpSegment<'_, T> {
         // the MSS option is 4, so the option data encodes an u16 in network order.
 
         // The MSS option is 4 bytes wide, so we need at least 4 more bytes to look for it.
-        while i + 3 < b.len() {
+        while i.strict_add(3) < b.len() {
             match b[i] {
                 OPTION_KIND_EOL => break,
                 OPTION_KIND_NOP => {
-                    i += 1;
+                    i = i.strict_add(1);
                     continue;
                 }
                 OPTION_KIND_MSS => {
                     // Read from option data (we skip checking if the len is valid).
                     // TODO: To be super strict, we should make sure there aren't additional MSS
                     // options present (which would be super wrong). Should we be super strict?
-                    let mss = b.ntohs_unchecked(i + 2);
+                    let mss = b.ntohs_unchecked(i.strict_add(2));
                     if !(MSS_MIN..=MSS_MAX).contains(&mss) {
                         return Err(TcpError::MssOption);
                     }
@@ -264,11 +266,11 @@ impl<T: NetworkBytes + Debug> TcpSegment<'_, T> {
                     // Some other option; just skip opt_len bytes in total.
                     // Per RFC 9293 (MUST-7), opt_len includes the kind and
                     // length bytes so the minimum valid value is 2.
-                    let opt_len = b[i + 1] as usize;
+                    let opt_len = b[i.strict_add(1)] as usize;
                     if opt_len < 2 {
                         return Err(TcpError::MssOption);
                     }
-                    i += opt_len;
+                    i = i.strict_add(opt_len);
                     continue;
                 }
             }
@@ -509,7 +511,7 @@ impl<T: NetworkBytesMut + Debug> TcpSegment<'_, T> {
             0
         };
 
-        segment_len += u16::from(options_len);
+        segment_len = segment_len.strict_add(u16::from(options_len));
 
         if buf.len() < usize::from(segment_len) {
             return Err(TcpError::SliceTooShort);
@@ -521,7 +523,7 @@ impl<T: NetworkBytesMut + Debug> TcpSegment<'_, T> {
         segment
             .set_sequence_number(seq_number)
             .set_ack_number(ack_number)
-            .set_header_len_rsvd_ns(OPTIONS_OFFSET + options_len, false)
+            .set_header_len_rsvd_ns(OPTIONS_OFFSET.strict_add(options_len), false)
             .set_flags_after_ns(flags_after_ns)
             .set_window_size(window_size)
             .set_urgent_pointer(0);
@@ -540,8 +542,10 @@ impl<T: NetworkBytesMut + Debug> TcpSegment<'_, T> {
 
             // The subtraction makes sense because we previously checked that
             // buf.len() >= segment_len, and segment_len <= MAX_SEGMENT_LEN.
-            let mut room_for_payload =
-                min(segment.len().min(MAX_SEGMENT_LEN) - segment_len, mss_left);
+            let mut room_for_payload = min(
+                segment.len().min(MAX_SEGMENT_LEN).strict_sub(segment_len),
+                mss_left,
+            );
             // The unwrap is safe because room_for_payload is a u16.
             room_for_payload =
                 u16::try_from(min(usize::from(room_for_payload), left_to_read)).unwrap();
@@ -555,14 +559,14 @@ impl<T: NetworkBytesMut + Debug> TcpSegment<'_, T> {
             // `offset + room_for_payload <= payload_buf.len()`.
             payload_buf.read_to_slice(
                 0,
-                &mut segment.bytes
-                    [usize::from(segment_len)..usize::from(segment_len + room_for_payload)],
+                &mut segment.bytes[usize::from(segment_len)
+                    ..usize::from(segment_len.strict_add(room_for_payload))],
             );
             room_for_payload
         } else {
             0
         };
-        segment_len += payload_bytes_count;
+        segment_len = segment_len.strict_add(payload_bytes_count);
 
         // This is ok because segment_len <= buf.len().
         segment.bytes.shrink_unchecked(segment_len.into());

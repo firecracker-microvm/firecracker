@@ -175,7 +175,7 @@ impl<'a, T: NetworkBytes + Debug> Incomplete<EthernetFrame<'a, T>> {
         let payload_offset = self.inner.payload_offset();
         self.inner
             .bytes
-            .shrink_unchecked(payload_offset + payload_len);
+            .shrink_unchecked(payload_offset.strict_add(payload_len));
         self.inner
     }
 }

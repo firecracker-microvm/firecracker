@@ -117,7 +117,7 @@ pub trait NetworkBytesMut: NetworkBytes + DerefMut<Target = [u8]> {
     /// (e.g. if `offset > self.len() - size_of::<u16>()`).
     #[inline]
     fn htons_unchecked(&mut self, offset: usize, value: u16) {
-        assert!(offset <= self.len() - std::mem::size_of::<u16>());
+        assert!(offset <= self.len().strict_sub(std::mem::size_of::<u16>()));
         byte_order::write_be_u16(&mut self[offset..], value)
     }
 
@@ -129,7 +129,7 @@ pub trait NetworkBytesMut: NetworkBytes + DerefMut<Target = [u8]> {
     /// (e.g. if `offset > self.len() - size_of::<u32>()`).
     #[inline]
     fn htonl_unchecked(&mut self, offset: usize, value: u32) {
-        assert!(offset <= self.len() - std::mem::size_of::<u32>());
+        assert!(offset <= self.len().strict_sub(std::mem::size_of::<u32>()));
         byte_order::write_be_u32(&mut self[offset..], value)
     }
 }

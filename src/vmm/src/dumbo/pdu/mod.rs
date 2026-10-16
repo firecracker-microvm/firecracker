@@ -80,27 +80,27 @@ fn compute_checksum<T: NetworkBytes + Debug>(
     let mut sum = 0usize;
 
     let a = u32::from(src_addr) as usize;
-    sum += a & 0xffff;
-    sum += a >> 16;
+    sum = sum.strict_add(a & 0xffff);
+    sum = sum.strict_add(a >> 16);
 
     let b = u32::from(dst_addr) as usize;
-    sum += b & 0xffff;
-    sum += b >> 16;
+    sum = sum.strict_add(b & 0xffff);
+    sum = sum.strict_add(b >> 16);
 
     let len = bytes.len();
-    sum += protocol as usize;
-    sum += len;
+    sum = sum.strict_add(protocol as usize);
+    sum = sum.strict_add(len);
 
     for i in 0..len / 2 {
-        sum += usize::from(bytes.ntohs_unchecked(i * 2));
+        sum = sum.strict_add(usize::from(bytes.ntohs_unchecked(i.strict_mul(2))));
     }
 
     if !len.is_multiple_of(2) {
-        sum += usize::from(bytes[len - 1]) << 8;
+        sum = sum.strict_add(usize::from(bytes[len.strict_sub(1)]) << 8);
     }
 
     while sum >> 16 != 0 {
-        sum = (sum & 0xffff) + (sum >> 16);
+        sum = (sum & 0xffff).strict_add(sum >> 16);
     }
 
     // Safe to unwrap due to the while loop above
