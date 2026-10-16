@@ -156,6 +156,8 @@ pub enum CreateSnapshotError {
     DirtyBitmap(#[from] VmError),
     /// Cannot write memory file: {0}
     Memory(#[from] MemoryError),
+    /// A diff snapshot on hugetlbfs must be merged into an existing memory file of the same size; create a full snapshot instead
+    HugetlbfsDiffLayer,
     /// Cannot perform {0} on the memory backing file: {1}
     MemoryBackingFile(&'static str, io::Error),
     /// Cannot save the microVM state: {0}
@@ -474,24 +476,16 @@ pub fn restore_from_snapshot(
     let mem_state = &microvm_state.vm_state.memory;
 
     let (guest_memory, uffd) = match params.mem_backend.backend_type {
-        MemBackendType::File => {
-            if vm_resources.machine_config.huge_pages.is_hugetlbfs() {
-                return Err(RestoreFromSnapshotGuestMemoryError::File(
-                    GuestMemoryFromFileError::HugetlbfsSnapshot,
-                )
-                .into());
-            }
-            (
-                guest_memory_from_file(
-                    mem_backend_path,
-                    mem_state,
-                    track_dirty_pages,
-                    vm_resources.machine_config.huge_pages,
-                )
-                .map_err(RestoreFromSnapshotGuestMemoryError::File)?,
-                None,
+        MemBackendType::File => (
+            guest_memory_from_file(
+                mem_backend_path,
+                mem_state,
+                track_dirty_pages,
+                vm_resources.machine_config.huge_pages,
             )
-        }
+            .map_err(RestoreFromSnapshotGuestMemoryError::File)?,
+            None,
+        ),
         MemBackendType::Uffd => guest_memory_from_uffd(
             mem_backend_path,
             mem_state,
@@ -542,8 +536,6 @@ pub enum GuestMemoryFromFileError {
     File(#[from] std::io::Error),
     /// Failed to restore guest memory: {0}
     Restore(#[from] MemoryError),
-    /// Cannot restore hugetlbfs backed snapshot by mapping the memory file. Please use uffd.
-    HugetlbfsSnapshot,
 }
 
 fn guest_memory_from_file(

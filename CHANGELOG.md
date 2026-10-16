@@ -155,6 +155,9 @@ and this project adheres to
   opt-in virtio-blk discard support for writable `Sync` IO engine drives through
   the `discard` drive configuration field. See the
   [block discard documentation](docs/api_requests/block-discard.md).
+- [#6099](https://github.com/firecracker-microvm/firecracker/issues/6099): Added
+  support for creating snapshot memory files on 2 MiB hugetlbfs mounts and
+  restoring them directly with the `File` memory backend.
 
 ### Changed
 
