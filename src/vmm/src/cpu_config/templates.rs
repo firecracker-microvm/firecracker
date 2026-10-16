@@ -240,11 +240,11 @@ where
                 b'_' => continue,
                 b'x' => {}
                 b'0' => {
-                    filter |= V::one() << i;
+                    filter |= V::one().strict_shl(i);
                 }
                 b'1' => {
-                    filter |= V::one() << i;
-                    value |= V::one() << i;
+                    filter |= V::one().strict_shl(i);
+                    value |= V::one().strict_shl(i);
                 }
                 c => {
                     return Err(D::Error::custom(format!(
@@ -270,13 +270,14 @@ pub trait Numeric:
     + std::ops::BitOr<Output = Self>
     + std::ops::BitOrAssign<Self>
     + std::ops::BitXor<Output = Self>
-    + std::ops::Shl<u32, Output = Self>
     + std::ops::AddAssign<Self>
 {
     /// Number of bits for type
     const BITS: u32;
     /// Value of bit at pos
     fn bit(&self, pos: u32) -> bool;
+    /// `self << rhs`.
+    fn strict_shl(self, rhs: u32) -> Self;
     /// Returns 0 of the type
     fn zero() -> Self;
     /// Returns 1 of the type
@@ -288,7 +289,10 @@ macro_rules! impl_numeric {
         impl Numeric for $type {
             const BITS: u32 = $type::BITS;
             fn bit(&self, pos: u32) -> bool {
-                (self & (Self::one() << pos)) != 0
+                (self & Self::one().strict_shl(pos)) != 0
+            }
+            fn strict_shl(self, rhs: u32) -> Self {
+                $type::strict_shl(self, rhs)
             }
             fn zero() -> Self {
                 0
