@@ -64,6 +64,13 @@ and this project adheres to
 
 ### Fixed
 
+- [#6292](https://github.com/firecracker-microvm/firecracker/pull/6292): Fixed
+  the guest's TSC deadline timers firing at the wrong time after a snapshot
+  restore that changed the vCPUs' TSC offsets (see #6200). KVM arms the timer
+  against the TSC at the time the deadline is restored, so the timer was off by
+  as much as the offset changed afterwards. Each vCPU's TSC deadline is now
+  restored again once its TSC offset is synchronized.
+
 - [#6254](https://github.com/firecracker-microvm/firecracker/pull/6254) Fixed
   pausing a vCPU with an unfinished MMIO or port-I/O instruction. Pending I/O
   now completes before the vCPU pauses, so snapshots include its effects without
