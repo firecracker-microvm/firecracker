@@ -136,8 +136,9 @@ impl<T: Debug> IoUring<T> {
 
         let squeue = SubmissionQueue::new(fd, &params).map_err(IoUringError::SQueue)?;
         let cqueue = CompletionQueue::new(fd, &params).map_err(IoUringError::CQueue)?;
-        let slab =
-            slab::Slab::with_capacity(params.sq_entries as usize + params.cq_entries as usize);
+        let slab = slab::Slab::with_capacity(
+            (params.sq_entries as usize).strict_add(params.cq_entries as usize),
+        );
 
         let mut instance = Self {
             squeue,
