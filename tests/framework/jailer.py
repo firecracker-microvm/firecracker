@@ -32,6 +32,7 @@ class JailerContext:
     chroot_base = None
     daemonize = None
     new_pid_ns = None
+    landlock = None
     extra_args = None
     api_socket_name = None
     cgroups = None
@@ -49,6 +50,7 @@ class JailerContext:
         netns=None,
         daemonize=True,
         new_pid_ns=False,
+        landlock=False,
         cgroups=None,
         resource_limits=None,
         cgroup_ver=None,
@@ -70,6 +72,7 @@ class JailerContext:
         self.netns = netns
         self.daemonize = daemonize
         self.new_pid_ns = new_pid_ns
+        self.landlock = landlock
         self.extra_args = extra_args
         self.api_socket_name = DEFAULT_USOCKET_NAME
         self.cgroups = cgroups or []
@@ -108,6 +111,8 @@ class JailerContext:
             jailer_param_list.append("--daemonize")
         if self.new_pid_ns:
             jailer_param_list.append("--new-pid-ns")
+        if self.landlock:
+            jailer_param_list.append("--landlock-restrict-fs")
         if self.parent_cgroup:
             jailer_param_list.extend(["--parent-cgroup", str(self.parent_cgroup)])
         if self.cgroup_ver:
