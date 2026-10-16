@@ -10,6 +10,14 @@ and this project adheres to
 
 ### Added
 
+- [#6226](https://github.com/firecracker-microvm/firecracker/pull/6226),
+  [#6227](https://github.com/firecracker-microvm/firecracker/pull/6227),
+  [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228),
+  [#6229](https://github.com/firecracker-microvm/firecracker/pull/6229): Added
+  PCIe device hotplug auto-discovery. A manual bus rescan is no longer needed
+  after hot-plugging a device. New configuration options have been added
+  (`pcie_hotplug_ports` and a `force` option for `DELETE`). See the
+  [Device Hotplugging](docs/device-hotplug.md) documentation page for details.
 - [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
   `SendCtrlAltDel` action is now supported on aarch64. It injects a virtual
   power-button press through a new PL061 GPIO controller exposed to the guest as
@@ -23,6 +31,9 @@ and this project adheres to
 
 ### Changed
 
+- [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228): Device
+  hotplug now requires `pcie_hotplug_ports` to be set in the machine
+  configuration, and only devices behind a PCIe root port can be hot-unplugged.
 - [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
   PL061 GPIO controller backing the new aarch64 power button is always attached
   and uses one extra GSI, which reduces the GSIs left for VirtIO devices. With
