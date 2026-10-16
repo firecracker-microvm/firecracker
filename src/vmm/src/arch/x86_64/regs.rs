@@ -179,7 +179,7 @@ fn write_gdt_table(table: &[u64], guest_mem: &GuestMemoryMmap) -> Result<(), Reg
     let boot_gdt_addr = GuestAddress(BOOT_GDT_OFFSET);
     for (index, entry) in table.iter().enumerate() {
         let addr = guest_mem
-            .checked_offset(boot_gdt_addr, index * mem::size_of::<u64>())
+            .checked_offset(boot_gdt_addr, index.strict_mul(mem::size_of::<u64>()))
             .ok_or(RegsError::WriteGDT)?;
         guest_mem
             .write_obj(*entry, addr)
@@ -228,7 +228,9 @@ fn configure_segments_and_sregs(
     // Write segments
     write_gdt_table(&gdt_table[..], mem)?;
     sregs.gdt.base = BOOT_GDT_OFFSET;
-    sregs.gdt.limit = u16::try_from(mem::size_of_val(&gdt_table)).unwrap() - 1;
+    sregs.gdt.limit = u16::try_from(mem::size_of_val(&gdt_table))
+        .unwrap()
+        .strict_sub(1);
 
     write_idt_value(0, mem)?;
     sregs.idt.base = BOOT_IDT_OFFSET;
@@ -272,9 +274,12 @@ fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<(),
         .map_err(|_| RegsError::WritePDPTEAddress)?;
     // 512 2MB entries together covering VA [0..1GB). Note we are assuming
     // CPU supports 2MB pages (/proc/cpuinfo has 'pse'). All modern CPUs do.
-    for i in 0..512 {
-        mem.write_obj((i << 21) + 0x83u64, boot_pde_addr.unchecked_add(i * 8))
-            .map_err(|_| RegsError::WritePDEAddress)?;
+    for i in 0u64..512 {
+        mem.write_obj(
+            (i.strict_shl(21)).strict_add(0x83u64),
+            boot_pde_addr.unchecked_add(i.strict_mul(8)),
+        )
+        .map_err(|_| RegsError::WritePDEAddress)?;
     }
 
     sregs.cr3 = boot_pml4_addr.raw_value();

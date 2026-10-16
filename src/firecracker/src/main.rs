@@ -508,12 +508,12 @@ fn resize_fdtable() -> Result<(), ResizeFdTableError> {
     // was responsible for a 30ms-70ms impact on snapshot restore times).
     if limit > 3 {
         // SAFETY: Duplicating stdin is safe
-        if unsafe { libc::dup2(0, limit - 1) } < 0 {
+        if unsafe { libc::dup2(0, limit.strict_sub(1)) } < 0 {
             return Err(ResizeFdTableError::Dup2(io::Error::last_os_error()));
         }
 
         // SAFETY: Closing the just created duplicate is safe
-        if unsafe { libc::close(limit - 1) } < 0 {
+        if unsafe { libc::close(limit.strict_sub(1)) } < 0 {
             return Err(ResizeFdTableError::Close(io::Error::last_os_error()));
         }
     }

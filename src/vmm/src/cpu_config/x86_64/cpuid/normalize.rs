@@ -112,7 +112,7 @@ pub fn set_range(
     // Note that
     // - 1 <= `num_bits` <= 32 from the above assertion
     // - if `num_bits` equals to 32, `y` always fits within it since `y` is `u32`.
-    let num_bits = end - start + 1;
+    let num_bits = end.strict_sub(start).strict_add(1);
     if num_bits < 32 && y >= (1u32 << num_bits) {
         return Err(CheckedAssignError);
     }
@@ -137,13 +137,13 @@ pub fn get_range(x: u32, range: std::ops::RangeInclusive<u8>) -> u32 {
 
 /// Returns a mask where the given range is ones.
 const fn get_mask(range: std::ops::RangeInclusive<u8>) -> u32 {
-    let num_bits = *range.end() - *range.start() + 1;
+    let num_bits = (*range.end()).strict_sub(*range.start()).strict_add(1);
     let shift = *range.start();
 
     if num_bits == 32 {
         u32::MAX
     } else {
-        ((1u32 << num_bits) - 1) << shift
+        ((1u32 << num_bits).strict_sub(1)) << shift
     }
 }
 

@@ -139,11 +139,11 @@ pub fn setup_mptable(
     let mut mp_num_entries: u16 = 0;
 
     let mut checksum: u8 = 0;
-    let ioapicid: u8 = num_cpus + 1;
+    let ioapicid: u8 = num_cpus.strict_add(1);
 
     // The checked_add here ensures the all of the following base_mp.unchecked_add's will be without
     // overflow.
-    if let Some(end_mp) = base_mp.checked_add((mp_size - 1) as u64) {
+    if let Some(end_mp) = base_mp.checked_add((mp_size.strict_sub(1)) as u64) {
         if !mem.address_in_range(end_mp) {
             return Err(MptableError::NotEnoughMemory);
         }
@@ -158,7 +158,7 @@ pub fn setup_mptable(
         let size = mem::size_of::<mpspec::mpf_intel>() as u64;
         let mut mpf_intel = mpspec::mpf_intel {
             signature: SMP_MAGIC_IDENT,
-            physptr: u32::try_from(base_mp.raw_value() + size).unwrap(),
+            physptr: u32::try_from(base_mp.raw_value().strict_add(size)).unwrap(),
             length: 1,
             specification: 4,
             ..mpspec::mpf_intel::default()
@@ -167,7 +167,7 @@ pub fn setup_mptable(
         mem.write_obj(mpf_intel, base_mp)
             .map_err(|_| MptableError::WriteMpfIntel)?;
         base_mp = base_mp.unchecked_add(size);
-        mp_num_entries += 1;
+        mp_num_entries = mp_num_entries.strict_add(1);
     }
 
     // We set the location of the mpc_table here but we can't fill it out until we have the length
@@ -196,7 +196,7 @@ pub fn setup_mptable(
                 .map_err(|_| MptableError::WriteMpcCpu)?;
             base_mp = base_mp.unchecked_add(size);
             checksum = checksum.wrapping_add(compute_checksum(&mpc_cpu));
-            mp_num_entries += 1;
+            mp_num_entries = mp_num_entries.strict_add(1);
         }
     }
     {
@@ -210,7 +210,7 @@ pub fn setup_mptable(
             .map_err(|_| MptableError::WriteMpcBus)?;
         base_mp = base_mp.unchecked_add(size);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_bus));
-        mp_num_entries += 1;
+        mp_num_entries = mp_num_entries.strict_add(1);
     }
     {
         let size = mem::size_of::<mpspec::mpc_ioapic>() as u64;
@@ -225,7 +225,7 @@ pub fn setup_mptable(
             .map_err(|_| MptableError::WriteMpcIoapic)?;
         base_mp = base_mp.unchecked_add(size);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_ioapic));
-        mp_num_entries += 1;
+        mp_num_entries = mp_num_entries.strict_add(1);
     }
     // Per kvm_setup_default_irq_routing() in kernel
     for i in 0..=u8::try_from(GSI_LEGACY_END).map_err(|_| MptableError::TooManyIrqs)? {
@@ -243,7 +243,7 @@ pub fn setup_mptable(
             .map_err(|_| MptableError::WriteMpcIntsrc)?;
         base_mp = base_mp.unchecked_add(size);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_intsrc));
-        mp_num_entries += 1;
+        mp_num_entries = mp_num_entries.strict_add(1);
     }
     {
         let size = mem::size_of::<mpspec::mpc_lintsrc>() as u64;
@@ -260,7 +260,7 @@ pub fn setup_mptable(
             .map_err(|_| MptableError::WriteMpcLintsrc)?;
         base_mp = base_mp.unchecked_add(size);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_lintsrc));
-        mp_num_entries += 1;
+        mp_num_entries = mp_num_entries.strict_add(1);
     }
     {
         let size = mem::size_of::<mpspec::mpc_lintsrc>() as u64;
@@ -277,7 +277,7 @@ pub fn setup_mptable(
             .map_err(|_| MptableError::WriteMpcLintsrc)?;
         base_mp = base_mp.unchecked_add(size);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_lintsrc));
-        mp_num_entries += 1;
+        mp_num_entries = mp_num_entries.strict_add(1);
     }
 
     // At this point we know the size of the mp_table.
@@ -299,8 +299,8 @@ pub fn setup_mptable(
             lapic: APIC_DEFAULT_PHYS_BASE,
             ..Default::default()
         };
-        debug_assert_eq!(
-            mpc_table.length as usize + size_of::<mpspec::mpf_intel>(),
+        assert_eq!(
+            (mpc_table.length as usize).strict_add(size_of::<mpspec::mpf_intel>()),
             mp_size
         );
         checksum = checksum.wrapping_add(compute_checksum(&mpc_table));
