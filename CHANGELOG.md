@@ -34,6 +34,11 @@ and this project adheres to
 - [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228): Device
   hotplug now requires `pcie_hotplug_ports` to be set in the machine
   configuration, and only devices behind a PCIe root port can be hot-unplugged.
+- [#6303](https://github.com/firecracker-microvm/firecracker/pull/6303):
+  `PUT`/`PATCH /machine-config` now rejects a `mem_size_mib` larger than the
+  architecture can address (1022 GiB on aarch64, `usize::MAX` minus the MMIO
+  gaps on x86_64) instead of silently clamping it and failing later with an
+  out-of-memory error at boot.
 - [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
   PL061 GPIO controller backing the new aarch64 power button is always attached
   and uses one extra GSI, which reduces the GSIs left for VirtIO devices. With
