@@ -1251,9 +1251,18 @@ pub fn mark_dirty_host(mem: &GuestMemoryMmap, ptr: *const u8, len: usize) {
         return;
     }
     for region in mem.iter() {
-        let offset = (ptr as usize).wrapping_sub(region.as_ptr() as usize);
+        let Some(offset) = (ptr as usize).checked_sub(region.as_ptr() as usize) else {
+            continue;
+        };
         if offset < region.size() {
-            assert!(offset + len <= region.size(), "range crosses a region end");
+            // `len` derives from guest-supplied iovec/descriptor lengths; a checked add stops a
+            // near-`usize::MAX` `len` from wrapping past zero and slipping under `region.size()`.
+            assert!(
+                offset
+                    .checked_add(len)
+                    .is_some_and(|end| end <= region.size()),
+                "range crosses a region end"
+            );
             region.bitmap().mark_dirty(offset, len);
             return;
         }
