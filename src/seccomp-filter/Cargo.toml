@@ -1,0 +1,19 @@
+[package]
+name = "seccomp-filter"
+version = "0.1.0"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+edition = "2024"
+description = "The compiled seccomp filter format shared by seccompiler and Firecracker."
+license = "Apache-2.0"
+
+[lib]
+bench = false
+
+[dependencies]
+bitcode = { version = "0.6.9", features = ["serde"] }
+displaydoc = "0.2.6"
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.18"
+
+[lints]
+workspace = true

@@ -7,7 +7,6 @@ use std::str::FromStr;
 
 use serde::*;
 
-// use libseccomp::{ScmpAction, ScmpArch, ScmpCompareOp};
 use crate::bindings::*;
 
 /// Comparison to perform when matching a condition.
@@ -34,13 +33,19 @@ pub enum SeccompCmpArgLen {
 }
 
 /// Condition that syscall must match in order to satisfy a rule.
+///
+/// Unknown keys are rejected, so that a misspelled key cannot silently drop a condition.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SeccompCondition {
     pub index: u8,
     pub op: SeccompCmpOp,
     pub val: u64,
     #[serde(rename = "type")]
     pub val_len: SeccompCmpArgLen,
+    /// Free-form documentation of the condition, ignored by the compiler.
+    #[serde(default)]
+    pub comment: Option<String>,
 }
 
 impl SeccompCondition {
@@ -146,14 +151,44 @@ impl SeccompAction {
 /// If all conditions match then rule gets matched.
 /// The action of the first rule that matches will be applied to the calling process.
 /// If no rule matches the default action is applied.
+///
+/// A rule can be tagged with the features of the microVM it is needed for, either as
+/// `"feature": "net"` or as `"features": ["pmem", "memory-hotplug"]`. Tagged rules are compiled
+/// into separate BPF fragments which Firecracker only installs when one of the features is in use;
+/// untagged rules are always installed. Unknown keys are rejected, so that a misspelled tag key
+/// cannot silently turn a tagged rule into an always installed one.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SyscallRule {
     pub syscall: CString,
     pub args: Option<Vec<SeccompCondition>>,
+    #[serde(default, alias = "feature", deserialize_with = "deserialize_features")]
+    pub features: Option<Vec<String>>,
+    /// Free-form documentation of the rule, ignored by the compiler.
+    #[serde(default)]
+    pub comment: Option<String>,
+}
+
+/// Accept a single feature name as well as a list of them.
+fn deserialize_features<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Vec<String>>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Features {
+        One(String),
+        Many(Vec<String>),
+    }
+
+    Ok(Some(match Features::deserialize(deserializer)? {
+        Features::One(feature) => vec![feature],
+        Features::Many(features) => features,
+    }))
 }
 
 /// Filter containing rules assigned to syscall numbers.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Filter {
     pub default_action: SeccompAction,
     pub filter_action: SeccompAction,

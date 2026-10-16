@@ -3,13 +3,13 @@
 
 use std::collections::HashMap;
 use std::io::Read;
-use std::sync::Arc;
 
-// This byte limit is passed to `bitcode` to guard against a potential memory
-// allocation DOS caused by binary filters that are too large.
-// This limit can be safely determined since the maximum length of a BPF
-// filter is 4096 instructions and Firecracker has a finite number of threads.
-const DESERIALIZATION_BYTES_LIMIT: usize = 100_000;
+pub use seccomp_filter::{
+    FeatureListError, FilterError, FilterFragment, FormatError, SeccompFeature, SeccompFeatures,
+    SeccompFilter, UnknownSeccompFeature,
+};
+
+use crate::logger::{info, warn};
 
 /// Each BPF instruction is 8 bytes long and 4 byte aligned.
 /// This alignment needs to be satisfied in order for a BPF code to be accepted
@@ -22,51 +22,66 @@ pub type BpfProgram = Vec<BpfInstruction>;
 /// Reference to program made up of a sequence of BPF instructions.
 pub type BpfProgramRef<'a> = &'a [BpfInstruction];
 
-/// Type that associates a thread category to a BPF program.
-pub type BpfThreadMap = HashMap<String, Arc<BpfProgram>>;
+/// Type that associates a thread category to its seccomp filter.
+pub type BpfThreadMap = HashMap<String, SeccompFilter>;
+
+/// Compose the program the `thread` threads install for a microVM with `features`, and log what
+/// they get, so that a syscall they later trip over can be traced back to the composed filter.
+pub fn compose_for_thread(
+    filter: &SeccompFilter,
+    thread: &str,
+    features: SeccompFeatures,
+) -> BpfProgram {
+    let program = filter.compose(features);
+    if program.is_empty() {
+        warn!("No seccomp filter is installed on the {thread} thread");
+    } else {
+        info!(
+            "Seccomp filter of the {thread} thread: {} instructions, features [{features}]",
+            program.len()
+        );
+    }
+    program
+}
 
 /// Binary filter deserialization errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum DeserializationError {
     /// Failed to read input: {0}
     InputRead(std::io::Error),
-    /// Input size {0} exceeds limit of {1} bytes
-    SizeLimitExceeded(usize, usize),
-    /// Bitcode deserialization failed: {0}
-    Bitcode(#[from] bitcode::Error),
+    /// {0}
+    Format(#[from] FormatError),
+    /// Invalid filter for the {0} thread: {1}
+    Filter(String, FilterError),
 }
 
 /// Retrieve empty seccomp filters.
 pub fn get_empty_filters() -> BpfThreadMap {
     let mut map = BpfThreadMap::new();
-    map.insert("vmm".to_string(), Arc::new(vec![]));
-    map.insert("api".to_string(), Arc::new(vec![]));
-    map.insert("vcpu".to_string(), Arc::new(vec![]));
+    map.insert("vmm".to_string(), SeccompFilter::default());
+    map.insert("api".to_string(), SeccompFilter::default());
+    map.insert("vcpu".to_string(), SeccompFilter::default());
     map
 }
 
 /// Deserialize binary with bpf filters
 pub fn deserialize_binary<R: Read>(reader: R) -> Result<BpfThreadMap, DeserializationError> {
-    // Check size limit before reading the full file to prevent DOS attacks
+    // Read at most one byte more than a compiled filter file can have, so that an oversized
+    // input is reported as such without reading it whole.
     let mut buf = Vec::new();
-    let bytes_read = reader
-        .take((DESERIALIZATION_BYTES_LIMIT + 1) as u64)
+    reader
+        .take((seccomp_filter::MAX_ENCODED_SIZE + 1) as u64)
         .read_to_end(&mut buf)
         .map_err(DeserializationError::InputRead)?;
 
-    if bytes_read > DESERIALIZATION_BYTES_LIMIT {
-        return Err(DeserializationError::SizeLimitExceeded(
-            bytes_read,
-            DESERIALIZATION_BYTES_LIMIT,
-        ));
-    }
-
-    let result: HashMap<String, _> = bitcode::deserialize(&buf)?;
-
-    Ok(result
+    seccomp_filter::decode(&buf)?
         .into_iter()
-        .map(|(k, v)| (k.to_lowercase(), Arc::new(v)))
-        .collect())
+        .map(|(thread, filter)| {
+            let filter = SeccompFilter::try_from(filter)
+                .map_err(|err| DeserializationError::Filter(thread.clone(), err))?;
+            Ok((thread.to_lowercase(), filter))
+        })
+        .collect()
 }
 
 /// Filter installation errors.
@@ -79,7 +94,7 @@ pub enum InstallationError {
 }
 
 /// The maximum seccomp-BPF program length allowed by the linux kernel.
-pub const BPF_MAX_LEN: usize = 4096;
+pub use seccomp_filter::bpf::BPF_MAX_LEN;
 
 /// BPF structure definition for filter array.
 /// See /usr/include/linux/filter.h .
@@ -140,33 +155,123 @@ pub fn apply_filter(bpf_filter: BpfProgramRef) -> Result<(), InstallationError> 
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
-    use std::collections::HashMap;
-    use std::sync::Arc;
     use std::thread;
+
+    use seccomp_filter::bpf::{BPF_JEQ_K, BPF_LD_W_ABS, BPF_RET_K, ProgramError, insn};
+    use seccomp_filter::{BpfFilter, BpfFragment, BpfMap, MAX_ENCODED_SIZE};
 
     use super::*;
 
+    const SECCOMP_RET_TRAP: u32 = 0x0003_0000;
+    const SECCOMP_RET_ALLOW: u32 = 0x7fff_0000;
+
+    /// A position independent part allowing syscall `nr` and falling through otherwise.
+    fn allow(nr: u32) -> Vec<u64> {
+        vec![
+            insn(BPF_LD_W_ABS, 0, 0, 0),
+            insn(BPF_JEQ_K, 0, 1, nr),
+            insn(BPF_RET_K, 0, 0, SECCOMP_RET_ALLOW),
+        ]
+    }
+
+    fn trap() -> Vec<u64> {
+        vec![insn(BPF_RET_K, 0, 0, SECCOMP_RET_TRAP)]
+    }
+
     #[test]
     fn test_deserialize_binary() {
-        // Malformed bitcode binary.
-        let data = "adassafvc".to_string();
-        deserialize_binary(data.as_bytes()).unwrap_err();
+        // Not a compiled filter at all.
+        assert!(matches!(
+            deserialize_binary(&b"adassafvc"[..]).unwrap_err(),
+            DeserializationError::Format(FormatError::UnknownFormat)
+        ));
 
         // Test that the binary deserialization is correct, and that the thread keys
         // have been lowercased.
-        let bpf_prog = vec![0; 2];
-        let mut filter_map: HashMap<String, BpfProgram> = HashMap::new();
-        filter_map.insert("VcpU".to_string(), bpf_prog.clone());
-        let bytes = bitcode::serialize(&filter_map).unwrap();
-
+        let filter_map = BpfMap::from([
+            (
+                "VcpU".to_string(),
+                BpfFilter {
+                    base: allow(1),
+                    fragments: vec![BpfFragment {
+                        features: vec!["net".to_string(), "hotplug".to_string()],
+                        code: allow(2),
+                    }],
+                    epilogue: trap(),
+                },
+            ),
+            (
+                "api".to_string(),
+                BpfFilter {
+                    base: trap(),
+                    ..Default::default()
+                },
+            ),
+            ("vmm".to_string(), BpfFilter::default()),
+        ]);
         let mut expected_res = BpfThreadMap::new();
-        expected_res.insert("vcpu".to_string(), Arc::new(bpf_prog));
+        expected_res.insert(
+            "vcpu".to_string(),
+            SeccompFilter::new(
+                allow(1),
+                vec![FilterFragment {
+                    features: SeccompFeatures::from(SeccompFeature::Net) | SeccompFeature::Hotplug,
+                    code: allow(2),
+                }],
+                trap(),
+            ),
+        );
+        expected_res.insert("api".to_string(), SeccompFilter::from_program(trap()));
+        expected_res.insert("vmm".to_string(), SeccompFilter::default());
+        let bytes = seccomp_filter::encode(&filter_map).unwrap();
         assert_eq!(deserialize_binary(&bytes[..]).unwrap(), expected_res);
 
+        // An invalid filter is reported with its thread.
+        let filter_map = BpfMap::from([(
+            "vmm".to_string(),
+            BpfFilter {
+                base: allow(1),
+                fragments: vec![BpfFragment {
+                    features: vec!["warp-drive".to_string()],
+                    code: allow(2),
+                }],
+                epilogue: trap(),
+            },
+        )]);
+        let bytes = seccomp_filter::encode(&filter_map).unwrap();
+        assert!(matches!(
+            deserialize_binary(&bytes[..]).unwrap_err(),
+            DeserializationError::Filter(thread, FilterError::UnknownFeature(UnknownSeccompFeature(name)))
+                if thread == "vmm" && name == "warp-drive"
+        ));
+
+        // So is one whose fragment would jump out of the composed program.
+        let filter_map = BpfMap::from([(
+            "vcpu".to_string(),
+            BpfFilter {
+                base: allow(1),
+                fragments: vec![BpfFragment {
+                    features: vec!["net".to_string()],
+                    code: vec![insn(BPF_JEQ_K, 0, 2, 2)],
+                }],
+                epilogue: trap(),
+            },
+        )]);
+        let bytes = seccomp_filter::encode(&filter_map).unwrap();
+        assert!(matches!(
+            deserialize_binary(&bytes[..]).unwrap_err(),
+            DeserializationError::Filter(
+                thread,
+                FilterError::InvalidFragment(0, ProgramError::InvalidJump(0))
+            ) if thread == "vcpu"
+        ));
+
         // Test filter too large - create data that will exceed the deserialization limit
-        // Create a large buffer that when serialized will exceed DESERIALIZATION_BYTES_LIMIT
-        let large_data = vec![0u8; DESERIALIZATION_BYTES_LIMIT + 1000];
-        deserialize_binary(&large_data[..]).unwrap_err();
+        let large_data = vec![0u8; MAX_ENCODED_SIZE + 1000];
+        assert!(matches!(
+            deserialize_binary(&large_data[..]).unwrap_err(),
+            DeserializationError::Format(FormatError::SizeLimitExceeded(..))
+        ));
     }
 
     #[test]

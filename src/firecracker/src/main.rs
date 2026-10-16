@@ -35,7 +35,7 @@ use vmm::logger::{
 };
 use vmm::persist::SNAPSHOT_VERSION;
 use vmm::resources::VmResources;
-use vmm::seccomp::BpfThreadMap;
+use vmm::seccomp::{BpfThreadMap, FeatureListError, SeccompFeatures};
 use vmm::signal_handler::register_signal_handlers;
 use vmm::snapshot::{SnapshotError, get_format_version};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
@@ -74,6 +74,8 @@ enum MainError {
     MetricsInitialization(MetricsConfigError),
     /// Seccomp error: {0}
     SeccompFilter(FilterError),
+    /// Invalid value for seccomp-features: {0}
+    SeccompFeatures(FeatureListError),
     /// Failed to resize fd table: {0}
     ResizeFdtable(ResizeFdTableError),
     /// RunWithApiError error: {0}
@@ -96,7 +98,9 @@ impl From<MainError> for FcExitCode {
     fn from(value: MainError) -> Self {
         match value {
             MainError::ParseArguments(_) => FcExitCode::ArgParsing,
-            MainError::InvalidLogLevel(_) => FcExitCode::BadConfiguration,
+            MainError::InvalidLogLevel(_) | MainError::SeccompFeatures(_) => {
+                FcExitCode::BadConfiguration
+            }
             MainError::RunWithApi(ApiServerError::MicroVMStoppedWithError(code)) => code,
             MainError::RunWithoutApiError(RunWithoutApiError::Shutdown(code)) => code,
             _ => FcExitCode::GenericError,
@@ -180,10 +184,21 @@ fn main_exec() -> Result<(), MainError> {
             .arg(
                 Argument::new("no-seccomp")
                     .takes_value(false)
-                    .forbids(vec!["seccomp-filter"])
+                    .forbids(vec!["seccomp-filter", "seccomp-features"])
                     .help(
                         "Optional parameter which allows starting and using a microVM without \
                          seccomp filtering. Not recommended.",
+                    ),
+            )
+            .arg(
+                Argument::new("seccomp-features")
+                    .takes_value(true)
+                    .forbids(vec!["no-seccomp"])
+                    .help(
+                        "Optional parameter which enables the seccomp rules of additional \
+                         features, on top of the ones the microVM configuration needs. Takes \
+                         `all`, `none` or a comma-separated list of feature names. For \
+                         advanced users.",
                     ),
             )
             .arg(
@@ -397,6 +412,12 @@ fn main_exec() -> Result<(), MainError> {
     let boot_timer_enabled = arguments.flag_present("boot-timer");
     let pci_enabled = arguments.flag_present("enable-pci");
     let api_enabled = !arguments.flag_present("no-api");
+    let seccomp_features = arguments
+        .single_value("seccomp-features")
+        .map(|list| list.parse::<SeccompFeatures>())
+        .transpose()
+        .map_err(MainError::SeccompFeatures)?
+        .unwrap_or_default();
     let api_payload_limit = arg_parser
         .arguments()
         .single_value("http-api-max-payload-size")
@@ -450,6 +471,7 @@ fn main_exec() -> Result<(), MainError> {
             process_time_reporter,
             boot_timer_enabled,
             pci_enabled,
+            seccomp_features,
             api_payload_limit,
             mmds_size_limit,
             metadata_json.as_deref(),
@@ -466,6 +488,7 @@ fn main_exec() -> Result<(), MainError> {
             instance_info,
             boot_timer_enabled,
             pci_enabled,
+            seccomp_features,
             mmds_size_limit,
             metadata_json.as_deref(),
         )
@@ -591,6 +614,8 @@ fn build_microvm_from_json(
     instance_info: InstanceInfo,
     boot_timer_enabled: bool,
     pci_enabled: bool,
+    api_enabled: bool,
+    seccomp_features: SeccompFeatures,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
 ) -> Result<Arc<Mutex<vmm::Vmm>>, BuildFromJsonError> {
@@ -603,6 +628,8 @@ fn build_microvm_from_json(
     )
     .map_err(BuildFromJsonError::ParseFromJson)?;
     vm_resources.boot_timer = boot_timer_enabled;
+    vm_resources.api_enabled = api_enabled;
+    vm_resources.seccomp_features = seccomp_features;
     let vmm = vmm::builder::build_and_boot_microvm(
         &instance_info,
         &vm_resources,
@@ -628,12 +655,14 @@ enum RunWithoutApiError {
     SeccompFilter(vmm::seccomp::InstallationError),
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_without_api(
     seccomp_filters: &BpfThreadMap,
     config_json: Option<String>,
     instance_info: InstanceInfo,
     bool_timer_enabled: bool,
     pci_enabled: bool,
+    seccomp_features: SeccompFeatures,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
 ) -> Result<(), RunWithoutApiError> {
@@ -652,18 +681,21 @@ fn run_without_api(
         instance_info,
         bool_timer_enabled,
         pci_enabled,
+        false,
+        seccomp_features,
         mmds_size_limit,
         metadata_json,
     )
     .map_err(RunWithoutApiError::BuildMicroVMFromJson)?;
 
     // INVARIANT: seccomp must be applied before entering the event loop.
-    vmm::seccomp::apply_filter(
-        seccomp_filters
-            .get("vmm")
-            .ok_or(RunWithoutApiError::MissingSeccompFilter)?,
-    )
-    .map_err(RunWithoutApiError::SeccompFilter)?;
+    let seccomp_features = vmm.lock().expect("Poisoned lock").seccomp_features;
+    let vmm_seccomp_filter = seccomp_filters
+        .get("vmm")
+        .ok_or(RunWithoutApiError::MissingSeccompFilter)?;
+    let vmm_seccomp_filter =
+        vmm::seccomp::compose_for_thread(vmm_seccomp_filter, "vmm", seccomp_features);
+    vmm::seccomp::apply_filter(&vmm_seccomp_filter).map_err(RunWithoutApiError::SeccompFilter)?;
 
     // Start the metrics.
     firecracker_metrics

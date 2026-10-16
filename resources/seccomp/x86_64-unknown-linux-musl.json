@@ -60,19 +60,23 @@
             },
             {
                 "syscall": "eventfd2",
-                "comment": "Used for creating io_uring completion event, on drive patch"
+                "comment": "Used for creating the eventfds of a device hot-plugged after boot (queue, activation and interrupt events, and the io_uring completion event of an async drive)",
+                "feature": "hotplug"
             },
             {
                 "syscall": "io_uring_enter",
-                "comment": "Used for submitting io_uring requests"
+                "comment": "Used for submitting io_uring requests",
+                "feature": "async-io"
             },
             {
                 "syscall": "io_uring_setup",
-                "comment": "Used on drive patch"
+                "comment": "Used on drive patch",
+                "feature": "async-io"
             },
             {
                 "syscall": "io_uring_register",
-                "comment": "Used on drive patch"
+                "comment": "Used on drive patch",
+                "feature": "async-io"
             },
             {
                 "syscall": "brk",
@@ -88,7 +92,8 @@
             },
             {
                 "syscall": "connect",
-                "comment": "Needed for vsock"
+                "comment": "Needed for vsock, and to connect to the backend of a vhost-user drive hot-plugged after boot",
+                "features": ["hotplug", "vsock"]
             },
             {
                 "syscall": "fstat",
@@ -112,7 +117,8 @@
             },
             {
                 "syscall": "recvfrom",
-                "comment": "Used by vsock to retrieve data from the socket"
+                "comment": "Used by vsock to retrieve data from the socket",
+                "feature": "vsock"
             },
             {
                 "syscall": "rt_sigprocmask",
@@ -133,6 +139,7 @@
             {
                 "syscall": "accept4",
                 "comment": "Called to accept vsock connections",
+                "feature": "vsock",
                 "args": [
                     {
                         "index": 3,
@@ -235,6 +242,7 @@
             {
                 "syscall": "msync",
                 "comment": "Used by the VirtIO pmem device to sync the file content with the backing file.",
+                "feature": "pmem",
                 "args": [
                     {
                         "index": 2,
@@ -328,6 +336,7 @@
             {
                 "syscall": "mmap",
                 "comment": "Used by pmem device to mmap the backing file",
+                "feature": "pmem",
                 "args": [
                     {
                         "index": 3,
@@ -348,6 +357,7 @@
             {
                 "syscall": "mmap",
                 "comment": "Used by pmem device for aligned anonymous mapping",
+                "feature": "pmem",
                 "args": [
                     {
                         "index": 3,
@@ -368,6 +378,7 @@
             {
                 "syscall": "mmap",
                 "comment": "Used by pmem device to overlay file mapping on anonymous region",
+                "feature": "pmem",
                 "args": [
                     {
                         "index": 3,
@@ -388,6 +399,7 @@
             {
                 "syscall": "mmap",
                 "comment": "Used by IovDeque ring buffer for net device hotplug",
+                "feature": "hotplug",
                 "args": [
                     {
                         "index": 3,
@@ -408,6 +420,7 @@
             {
                 "syscall": "memfd_create",
                 "comment": "Used by IovDeque ring buffer for net device hotplug",
+                "feature": "hotplug",
                 "args": [
                     {
                         "index": 1,
@@ -421,6 +434,7 @@
             {
                 "syscall": "fcntl",
                 "comment": "Used by IovDeque to seal memfd during net device hotplug",
+                "feature": "hotplug",
                 "args": [
                     {
                         "index": 1,
@@ -446,7 +460,8 @@
             },
             {
                 "syscall": "socket",
-                "comment": "Called to open the vsock UDS",
+                "comment": "Called to open the vsock UDS, and the backend socket of a vhost-user drive hot-plugged after boot",
+                "features": ["hotplug", "vsock"],
                 "args": [
                     {
                         "index": 0,
@@ -503,6 +518,7 @@
             {
                 "syscall": "timerfd_create",
                 "comment": "Needed for creating rate limiters during device hotplug",
+                "feature": "hotplug",
                 "args": [
                     {
                         "index": 0,
@@ -535,6 +551,7 @@
             {
                 "syscall": "ioctl",
                 "comment": "Used to make vsock UDS nonblocking",
+                "feature": "vsock",
                 "args": [
                     {
                         "index": 1,
@@ -587,6 +604,7 @@
             {
                 "syscall": "ioctl",
                 "comment": "Used by the VirtIO block device to pass discard through to block-device backing files",
+                "feature": "block",
                 "args": [
                     {
                         "index": 1,
@@ -599,6 +617,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -611,6 +630,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -623,6 +643,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -635,6 +656,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -647,19 +669,21 @@
             },
             {
                 "syscall": "ioctl",
+                "features": ["memory-hotplug", "pmem"],
                 "args": [
                     {
                         "index": 1,
                         "type": "dword",
                         "op": "eq",
                         "val": 1075883590,
-                        "comment": "KVM_SET_USER_MEMORY_REGION, used to (un)plug memory for the virtio-mem device"
+                        "comment": "KVM_SET_USER_MEMORY_REGION, used to (un)plug memory for the virtio-mem device and to map and unmap virtio-pmem devices"
                     }
                 ]
             },
             {
                 "syscall": "ioctl",
                 "comment": "Needed for registering ioeventfds during device hotplug",
+                "feature": "hotplug",
                 "args": [
                     {
                         "index": 1,
@@ -673,6 +697,7 @@
             {
                 "syscall": "ioctl",
                 "comment": "Needed for unregistering irqfds during device hot-unplug and VM teardown (called from MsixVectorGroup::drop)",
+                "feature": "pci",
                 "args": [
                     {
                         "index": 1,
@@ -686,6 +711,7 @@
             {
                 "syscall": "ioctl",
                 "comment": "Needed for opening tap device during net hotplug",
+                "feature": "hotplug",
                 "args": [
                     {
                         "index": 1,
@@ -699,6 +725,7 @@
             {
                 "syscall": "ioctl",
                 "comment": "Needed for configuring tap offload during net hotplug",
+                "feature": "hotplug",
                 "args": [
                     {
                         "index": 1,
@@ -712,6 +739,7 @@
             {
                 "syscall": "ioctl",
                 "comment": "Needed for setting tap vnet header size during net hotplug",
+                "feature": "hotplug",
                 "args": [
                     {
                         "index": 1,
@@ -725,6 +753,7 @@
             {
                 "syscall": "ioctl",
                 "comment": "Needed for querying the logical sector size when opening a virtio-block backing file",
+                "feature": "hotplug",
                 "args": [
                     {
                         "index": 1,
@@ -738,6 +767,7 @@
             {
                 "syscall": "ioctl",
                 "comment": "Needed for querying the physical block size of a block-device backing file during virtio-block init",
+                "feature": "hotplug",
                 "args": [
                     {
                         "index": 1,
@@ -751,6 +781,7 @@
             {
                 "syscall": "ioctl",
                 "comment": "Needed for querying the minimum I/O size of a block-device backing file during virtio-block init",
+                "feature": "hotplug",
                 "args": [
                     {
                         "index": 1,
@@ -764,6 +795,7 @@
             {
                 "syscall": "ioctl",
                 "comment": "Needed for querying the optimal I/O size of a block-device backing file during virtio-block init",
+                "feature": "hotplug",
                 "args": [
                     {
                         "index": 1,
@@ -793,6 +825,7 @@
             {
                 "syscall": "mprotect",
                 "comment": "Used by memory hotplug to protect access to underlying host memory",
+                "feature": "memory-hotplug",
                 "args": [
                     {
                         "index": 2,
@@ -1125,15 +1158,18 @@
             },
             {
                 "syscall": "eventfd2",
-                "comment": "Needed for recreating the MSI-X vector eventfds when a PCI device is reset by the guest (MsixVectorGroup recreated from the vCPU thread)"
+                "comment": "Needed for recreating the MSI-X vector eventfds when a PCI device is reset by the guest (MsixVectorGroup recreated from the vCPU thread)",
+                "feature": "pci"
             },
             {
                 "syscall": "io_uring_enter",
-                "comment": "Needed to drain the async block IO engine's io_uring when the device is reset by the guest (from the vCPU thread)"
+                "comment": "Needed to drain the async block IO engine's io_uring when the device is reset by the guest (from the vCPU thread)",
+                "feature": "async-io"
             },
             {
                 "syscall": "epoll_ctl",
-                "comment": "Needed to remove the vsock muxer's connection and listener epoll listeners when the device is reset by the guest (from the vCPU thread)"
+                "comment": "Needed to add and remove the vsock muxer's epoll listeners when the guest activates or resets the device",
+                "feature": "vsock"
             },
             {
                 "syscall": "fstat",
@@ -1330,6 +1366,7 @@
             {
                 "syscall": "ioctl",
                 "comment": "Needed to relocate notify ioeventfds when the guest reprograms a BAR",
+                "feature": "pci",
                 "args": [
                     {
                         "index": 1,
@@ -1354,6 +1391,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -1366,6 +1404,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -1378,6 +1417,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -1390,6 +1430,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -1402,6 +1443,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -1414,6 +1456,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -1426,6 +1469,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -1438,6 +1482,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -1450,6 +1495,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -1462,6 +1508,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -1474,6 +1521,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -1486,6 +1534,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -1498,6 +1547,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "net",
                 "args": [
                     {
                         "index": 1,
@@ -1510,6 +1560,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "api",
                 "args": [
                     {
                         "index": 1,
@@ -1534,6 +1585,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "pci",
                 "args": [
                     {
                         "index": 1,
@@ -1553,6 +1605,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "pci",
                 "args": [
                     {
                         "index": 1,
@@ -1565,6 +1618,7 @@
             },
             {
                 "syscall": "ioctl",
+                "feature": "pci",
                 "args": [
                     {
                         "index": 1,

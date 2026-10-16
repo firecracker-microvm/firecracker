@@ -104,6 +104,21 @@ unsafe extern "C" {
     /// specified architecture is already present, other negative values on failure.
     pub fn seccomp_arch_add(ctx: scmp_filter_ctx, arch_token: u32) -> c_int;
 
+    /// Query the native architecture
+    ///
+    /// Returns the architecture token of the build host.
+    pub fn seccomp_arch_native() -> u32;
+
+    /// Remove an architecture from the filter
+    ///
+    /// - `ctx`: the filter context
+    /// - `arch_token`: the architecture token, e.g. `SCMP_ARCH_*`
+    ///
+    /// Removes the given architecture from the seccomp filter context. Returns zero on
+    /// success, `-libc::EEXIST` if the architecture is not present, other negative values on
+    /// failure.
+    pub fn seccomp_arch_remove(ctx: scmp_filter_ctx, arch_token: u32) -> c_int;
+
     /// Resolve a syscall name to a number
     ///
     /// - `name`: the syscall name
@@ -112,6 +127,16 @@ unsafe extern "C" {
     /// number on success, including negative pseudo syscall numbers (e.g. `__PNR_*`);
     /// returns [`__NR_SCMP_ERROR`] on failure.
     pub fn seccomp_syscall_resolve_name(name: *const c_char) -> c_int;
+
+    /// Resolve a syscall name to a number for a given architecture
+    ///
+    /// - `arch_token`: the architecture token, e.g. `SCMP_ARCH_*`
+    /// - `name`: the syscall name
+    ///
+    /// Resolve the given syscall name to the syscall number for the given
+    /// architecture.  Returns the syscall number on success, including negative
+    /// pseudo syscall numbers (e.g. `__PNR_*`); returns [`__NR_SCMP_ERROR`] on failure.
+    pub fn seccomp_syscall_resolve_name_arch(arch_token: u32, name: *const c_char) -> c_int;
 
     /// Add a new rule to the filter
     ///
