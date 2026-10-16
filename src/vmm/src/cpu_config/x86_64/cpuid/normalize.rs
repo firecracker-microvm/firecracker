@@ -87,10 +87,13 @@ pub enum ExtendedCacheFeaturesError {
 pub struct CheckedAssignError;
 
 /// Sets a given bit to a true or false (1 or 0).
-#[allow(clippy::arithmetic_side_effects)]
+///
+/// # Panics
+///
+/// If `bit >= 32`.
 pub fn set_bit(x: &mut u32, bit: u8, y: bool) {
-    debug_assert!(bit < 32);
-    *x = (*x & !(1 << bit)) | ((u32::from(u8::from(y))) << bit);
+    let mask = 1u32.strict_shl(u32::from(bit));
+    *x = (*x & !mask) | (u32::from(u8::from(y)).strict_shl(u32::from(bit)));
 }
 
 /// Sets a given range to a given value.
@@ -102,8 +105,8 @@ pub fn set_range(
     let start = *range.start();
     let end = *range.end();
 
-    debug_assert!(end >= start);
-    debug_assert!(end < 32);
+    assert!(end >= start);
+    assert!(end < 32);
 
     // Ensure `y` fits within the number of bits in the specified range.
     // Note that
@@ -125,8 +128,8 @@ pub fn get_range(x: u32, range: std::ops::RangeInclusive<u8>) -> u32 {
     let start = *range.start();
     let end = *range.end();
 
-    debug_assert!(end >= start);
-    debug_assert!(end < 32);
+    assert!(end >= start);
+    assert!(end < 32);
 
     let mask = get_mask(range);
     (x & mask) >> start
