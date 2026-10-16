@@ -407,17 +407,9 @@ impl DeviceManager {
         self.for_each_virtio_device_mut(|_, device| device.kick());
     }
 
-    /// Mark queue memory dirty for activated VirtIO devices
-    pub fn mark_virtio_queue_memory_dirty(&self, mem: &GuestMemoryMmap) {
-        self.for_each_virtio_device_mut(|_, device| {
-            if device.is_activated() {
-                // SAFETY:
-                // This should never fail as we mark pages only if device has already been
-                // activated, and the address validation was already performed on device
-                // activation.
-                device.mark_queue_memory_dirty(mem).unwrap();
-            }
-        });
+    /// Marks dirty the queue memory the VirtIO devices wrote since the last call.
+    pub fn commit_dirty(&self) {
+        self.for_each_virtio_device(|_, device| device.commit_dirty());
     }
 
     /// Get a VirtIO device of type `virtio_type` with ID `device_id`
@@ -1043,6 +1035,59 @@ pub(crate) mod tests {
         let cfg = HotplugDeviceConfig::Block(make_hotplug_block_cfg("block1", &f, false));
         vmm.hotplug_device(cfg, &mut evt_manager).unwrap();
         assert_eq!(bar_addr(&vmm, "block1"), first_addr);
+    }
+
+    #[test]
+    fn test_unplug_marks_used_rings_dirty() {
+        use crate::arch::host_page_size;
+        use vm_memory::GuestMemoryBackend;
+
+        use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt};
+        use crate::test_utils::single_region_mem_dirty_tracking;
+        use crate::utils::u64_to_usize;
+        use crate::vstate::memory::{Address, Bitmap, GuestAddress, GuestMemoryExtension};
+
+        let mut evt_manager = EventManager::new().unwrap();
+        let mut vmm = default_vmm_with_pci();
+        let f = TempFile::new().unwrap();
+        let cfg = HotplugDeviceConfig::Block(make_hotplug_block_cfg("block0", &f, false));
+        vmm.hotplug_device(cfg, &mut evt_manager).unwrap();
+
+        // Activate the device on memory with dirty page tracking, with its queue on page 1, and
+        // write a used element.
+        let page_size = host_page_size();
+        let mem = single_region_mem_dirty_tracking(16 * page_size);
+        let vq = VirtQueue::new(GuestAddress(page_size as u64), &mem, 16);
+        let device = pci_devices(&vmm.device_manager)
+            .get_virtio_device(VirtioDeviceType::Block, "block0")
+            .unwrap()
+            .lock()
+            .unwrap()
+            .virtio_device();
+        {
+            let mut device = device.lock().unwrap();
+            device.queues_mut()[0] = vq.create_queue();
+            device.activate(mem.clone(), default_interrupt()).unwrap();
+            mem.reset_dirty();
+            device.queues_mut()[0].add_used(0, 0).unwrap();
+        }
+        drop(device);
+        let used_ring = u64_to_usize(vq.used_start().raw_value());
+        let dirty_at = |addr: usize| {
+            mem.find_region(GuestAddress(0))
+                .unwrap()
+                .bitmap()
+                .dirty_at(addr)
+        };
+        assert!(!dirty_at(used_ring));
+
+        // Unplugging the device reports the write.
+        vmm.hot_unplug_device(
+            (VirtioDeviceType::Block, "block0".to_string()),
+            &mut evt_manager,
+        )
+        .unwrap();
+        assert!(dirty_at(used_ring));
     }
 
     #[test]

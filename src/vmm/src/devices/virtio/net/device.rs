@@ -1707,6 +1707,10 @@ pub mod tests {
                 addr = page_of(addr) + page_size;
             }
         }
+
+        // The helper drops the queue at the end of the test, and a queue must not be dropped
+        // with uncommitted used ring writes.
+        th.net().commit_dirty();
     }
 
     /// Frame sizes exercising the dirty tracking: within a page, spanning a page boundary,
@@ -2755,5 +2759,33 @@ pub mod tests {
         assert!(th.net().reset());
         assert!(!th.net().is_activated());
         assert_eq!(th.net().acked_features(), 0);
+    }
+
+    #[test]
+    fn test_reset_marks_used_rings_dirty() {
+        use crate::arch::host_page_size;
+        use crate::vstate::memory::{Bitmap, GuestMemoryExtension};
+
+        let page_size = host_page_size();
+        let mem = single_region_mem_dirty_tracking(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
+        th.activate_net();
+        let used_ring = th.net().queues[RX_INDEX].used_ring_address.0 as usize;
+        let dirty_at = |addr: usize| {
+            mem.find_region(GuestAddress(0))
+                .unwrap()
+                .bitmap()
+                .dirty_at(addr)
+        };
+
+        // Write a used element and let the guest reset the device before any snapshot.
+        mem.reset_dirty();
+        th.net().queues[RX_INDEX].add_used(0, 0).unwrap();
+        assert!(!dirty_at(used_ring));
+        assert!(th.net().reset());
+
+        // The reset reported the write; nothing else on the page was touched.
+        assert!(dirty_at(used_ring));
+        assert!(!dirty_at(used_ring + page_size));
     }
 }
