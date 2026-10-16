@@ -213,3 +213,46 @@ def pin_pci(enabled):
 def pin_hotplug_ports(count):
     """Convenience marker for reserving PCIe root ports for hot-plug."""
     return pytest.mark.parametrize("pcie_hotplug_ports", [count], indirect=True)
+
+
+def pin_dirty_tracking(argnames=(), tracking_by_value=None, ids=None):
+    """Convenience marker for pinning the `track_dirty_pages` dim, per value of `argnames` if given.
+
+    With no arguments, the test runs once with tracking off and once with it
+    on. Otherwise each value of `argnames`, a tuple when it names several
+    parameters, runs once per `track_dirty_pages` setting it maps to. When a
+    value runs both ways, its run with tracking on is marked
+    `dirty_tracking_on`.
+
+    Usage:
+        @pin_dirty_tracking()
+        def test_foo(uvm, track_dirty_pages): ...
+
+        @pin_dirty_tracking("mode", {"g2h": [False], "h2g": [False, True]})
+        def test_bar(uvm, mode, track_dirty_pages): ...
+    """
+    if tracking_by_value is None:
+        tracking_by_value = {(): [False, True]}
+    if isinstance(argnames, str):
+        argnames = (argnames,)
+        tracking_by_value = {
+            (value,): settings for value, settings in tracking_by_value.items()
+        }
+    return pytest.mark.parametrize(
+        (*argnames, "track_dirty_pages"),
+        [
+            pytest.param(
+                *values,
+                track_dirty_pages,
+                marks=(
+                    pytest.mark.dirty_tracking_on
+                    if track_dirty_pages and False in settings
+                    else ()
+                ),
+            )
+            for values, settings in tracking_by_value.items()
+            for track_dirty_pages in settings
+        ],
+        indirect=["track_dirty_pages"],
+        ids=ids,
+    )
