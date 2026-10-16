@@ -129,42 +129,42 @@ impl VirtioDevice for Block {
     fn avail_features(&self) -> u64 {
         match self {
             Self::Virtio(b) => b.avail_features,
-            Self::VhostUser(b) => b.avail_features,
+            Self::VhostUser(b) => b.avail_features(),
         }
     }
 
     fn acked_features(&self) -> u64 {
         match self {
             Self::Virtio(b) => b.acked_features,
-            Self::VhostUser(b) => b.acked_features,
+            Self::VhostUser(b) => b.acked_features(),
         }
     }
 
     fn set_acked_features(&mut self, acked_features: u64) {
         match self {
             Self::Virtio(b) => b.acked_features = acked_features,
-            Self::VhostUser(b) => b.acked_features = acked_features,
+            Self::VhostUser(b) => b.set_acked_features(acked_features),
         }
     }
 
     fn queues(&self) -> &[Queue] {
         match self {
             Self::Virtio(b) => &b.queues,
-            Self::VhostUser(b) => &b.queues,
+            Self::VhostUser(b) => b.queues(),
         }
     }
 
     fn queues_mut(&mut self) -> &mut [Queue] {
         match self {
             Self::Virtio(b) => &mut b.queues,
-            Self::VhostUser(b) => &mut b.queues,
+            Self::VhostUser(b) => b.queues_mut(),
         }
     }
 
     fn queue_events(&self) -> &[EventFd] {
         match self {
             Self::Virtio(b) => &b.queue_evts,
-            Self::VhostUser(b) => &b.queue_evts,
+            Self::VhostUser(b) => b.queue_events(),
         }
     }
 
@@ -203,7 +203,7 @@ impl VirtioDevice for Block {
     fn is_activated(&self) -> bool {
         match self {
             Self::Virtio(b) => b.device_state.is_activated(),
-            Self::VhostUser(b) => b.device_state.is_activated(),
+            Self::VhostUser(b) => b.is_activated(),
         }
     }
 
