@@ -64,6 +64,11 @@ and this project adheres to
 
 ### Fixed
 
+- [#6263](https://github.com/firecracker-microvm/firecracker/pull/6263): Fixed
+  the `min_us` field of latency aggregate metrics, such as
+  `vcpu.exit_mmio_write_agg` and `block.read_agg`, which was overwritten by the
+  next sample after a 0us sample instead of staying at 0.
+
 - [#6254](https://github.com/firecracker-microvm/firecracker/pull/6254) Fixed
   pausing a vCPU with an unfinished MMIO or port-I/O instruction. Pending I/O
   now completes before the vCPU pauses, so snapshots include its effects without

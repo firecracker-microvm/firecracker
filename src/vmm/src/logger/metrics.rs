@@ -769,15 +769,7 @@ impl Drop for LatencyMetricsRecorder<'_> {
     ///  self.start_time is recorded in new() and metrics are updated in drop
     fn drop(&mut self) {
         let delta_us = get_time_us(ClockType::Monotonic) - self.start_time;
-        self.metric.sum_us.add(delta_us);
-        let min_us = self.metric.min_us.fetch();
-        let max_us = self.metric.max_us.fetch();
-        if (0 == min_us) || (min_us > delta_us) {
-            self.metric.min_us.store(delta_us);
-        }
-        if (0 == max_us) || (max_us < delta_us) {
-            self.metric.max_us.store(delta_us);
-        }
+        self.metric.record(delta_us);
     }
 }
 
@@ -790,6 +782,9 @@ pub struct LatencyAggregateMetrics {
     pub max_us: SharedStoreMetric,
     /// represents sum of the metrics in microseconds
     pub sum_us: SharedIncMetric,
+    /// whether any value has been recorded, since 0 is a valid minimum
+    #[serde(skip)]
+    has_samples: AtomicBool,
 }
 impl LatencyAggregateMetrics {
     /// Const default construction.
@@ -798,6 +793,19 @@ impl LatencyAggregateMetrics {
             min_us: SharedStoreMetric::new(),
             max_us: SharedStoreMetric::new(),
             sum_us: SharedIncMetric::new(),
+            has_samples: AtomicBool::new(false),
+        }
+    }
+
+    /// Records one value, in microseconds, updating min/max/sum.
+    fn record(&self, delta_us: u64) {
+        self.sum_us.add(delta_us);
+        let first_sample = !self.has_samples.swap(true, Ordering::Relaxed);
+        if first_sample || self.min_us.fetch() > delta_us {
+            self.min_us.store(delta_us);
+        }
+        if self.max_us.fetch() < delta_us {
+            self.max_us.store(delta_us);
         }
     }
 
@@ -1198,6 +1206,24 @@ mod tests {
         m1.store(1);
         fence(Ordering::SeqCst);
         assert_eq!(1, m1.fetch());
+    }
+
+    #[test]
+    fn test_latency_aggregate_metrics() {
+        let metric = LatencyAggregateMetrics::new();
+        assert_eq!(metric.min_us.fetch(), 0);
+        assert_eq!(metric.max_us.fetch(), 0);
+
+        metric.record(4);
+        assert_eq!(metric.min_us.fetch(), 4);
+        assert_eq!(metric.max_us.fetch(), 4);
+
+        // A 0us value is a valid minimum and must not be overwritten by later values.
+        metric.record(0);
+        metric.record(7);
+        assert_eq!(metric.min_us.fetch(), 0);
+        assert_eq!(metric.max_us.fetch(), 7);
+        assert_eq!(metric.sum_us.count(), 11);
     }
 
     #[test]
