@@ -238,7 +238,7 @@ impl VsockPacketTx {
             return Err(VsockError::InvalidPktLen(hdr.len));
         }
 
-        if hdr.len > self.buffer.len() - VSOCK_PKT_HDR_SIZE {
+        if hdr.len > self.buffer.len().strict_sub(VSOCK_PKT_HDR_SIZE) {
             return Err(VsockError::DescChainTooShortForPacket(
                 self.buffer.len(),
                 hdr.len,
@@ -254,18 +254,17 @@ impl VsockPacketTx {
         offset: u32,
         count: u32,
     ) -> Result<u32, VsockError> {
-        if count
-            > self
-                .buffer
-                .len()
-                .saturating_sub(VSOCK_PKT_HDR_SIZE)
-                .saturating_sub(offset)
+        if offset
+            .checked_add(count)
+            .is_none_or(|end| end > self.buf_size())
         {
             return Err(VsockError::GuestMemoryBounds);
         }
+        // `offset <= buf_size() == buffer.len() - VSOCK_PKT_HDR_SIZE`.
+        let start = offset.strict_add(VSOCK_PKT_HDR_SIZE);
 
         self.buffer
-            .read_volatile_at(dst, (offset + VSOCK_PKT_HDR_SIZE) as usize, count as usize)
+            .read_volatile_at(dst, start as usize, count as usize)
             .map_err(|err| VsockError::GuestMemoryMmap(GuestMemoryError::from(err)))
             .and_then(|read| read.try_into().map_err(|_| VsockError::DescChainOverflow))
     }
@@ -275,8 +274,12 @@ impl VsockPacketTx {
     ///
     /// Return value will equal the total length of the underlying descriptor chain's buffers,
     /// minus the length of the vsock header.
+    ///
+    /// ## Panics
+    /// Panics if called before a successful [`VsockPacketTx::parse`] or after
+    /// [`VsockPacketTx::clear`], when the buffer is shorter than the vsock header.
     pub fn buf_size(&self) -> u32 {
-        self.buffer.len() - VSOCK_PKT_HDR_SIZE
+        self.buffer.len().strict_sub(VSOCK_PKT_HDR_SIZE)
     }
 }
 
@@ -356,8 +359,12 @@ impl VsockPacketRx {
     ///
     /// Return value will equal the total length of the underlying descriptor chain's buffers,
     /// minus the length of the vsock header.
+    ///
+    /// ## Panics
+    /// Panics if called before a successful [`VsockPacketRx::parse`] or after
+    /// [`VsockPacketRx::clear`], when the buffer is shorter than the vsock header.
     pub fn buf_size(&self) -> u32 {
-        self.buffer.len() - VSOCK_PKT_HDR_SIZE
+        self.buffer.len().strict_sub(VSOCK_PKT_HDR_SIZE)
     }
 
     pub fn read_at_offset_from<T: ReadVolatile + Debug>(
@@ -367,23 +374,17 @@ impl VsockPacketRx {
         offset: u32,
         count: u32,
     ) -> Result<u32, VsockError> {
-        if count
-            > self
-                .buffer
-                .len()
-                .saturating_sub(VSOCK_PKT_HDR_SIZE)
-                .saturating_sub(offset)
+        if offset
+            .checked_add(count)
+            .is_none_or(|end| end > self.buf_size())
         {
             return Err(VsockError::GuestMemoryBounds);
         }
+        // `offset <= buf_size() == buffer.len() - VSOCK_PKT_HDR_SIZE`.
+        let start = offset.strict_add(VSOCK_PKT_HDR_SIZE);
 
         self.buffer
-            .write_volatile_at(
-                mem,
-                src,
-                (offset + VSOCK_PKT_HDR_SIZE) as usize,
-                count as usize,
-            )
+            .write_volatile_at(mem, src, start as usize, count as usize)
             .map_err(|err| VsockError::GuestMemoryMmap(GuestMemoryError::from(err)))
             .and_then(|read| read.try_into().map_err(|_| VsockError::DescChainOverflow))
     }
