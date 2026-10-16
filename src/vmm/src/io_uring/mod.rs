@@ -183,7 +183,7 @@ impl<T: Debug> IoUring<T> {
                     .push(op.into_sqe(&mut self.slab))
                     .inspect(|_| {
                         // This is safe since self.num_ops < IORING_MAX_CQ_ENTRIES (65536)
-                        self.num_ops += 1;
+                        self.num_ops = self.num_ops.strict_add(1);
                     })
                     .map_err(|(sqe_err, user_data_key)| -> (IoUringError, T) {
                         (
@@ -213,9 +213,8 @@ impl<T: Debug> IoUring<T> {
             .pop(&mut self.slab)
             .map(|maybe_cqe| {
                 maybe_cqe.inspect(|_| {
-                    // This is safe since the pop-ed CQEs have been previously pushed. However
-                    // we use a saturating_sub for extra safety.
-                    self.num_ops = self.num_ops.saturating_sub(1);
+                    // Every popped CQE corresponds to a previously pushed SQE.
+                    self.num_ops = self.num_ops.strict_sub(1);
                 })
             })
             .map_err(IoUringError::CQueue)
@@ -293,7 +292,9 @@ impl<T: Debug> IoUring<T> {
         .map_err(IoUringError::RegisterFile)?;
 
         // Safe to truncate since files.len() < IORING_MAX_FIXED_FILES
-        self.registered_fds_count += u32::try_from(files.len()).unwrap();
+        self.registered_fds_count = self
+            .registered_fds_count
+            .strict_add(u32::try_from(files.len()).unwrap());
         Ok(())
     }
 

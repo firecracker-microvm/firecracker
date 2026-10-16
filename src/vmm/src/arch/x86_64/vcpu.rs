@@ -563,7 +563,7 @@ impl KvmVcpu {
         let num_chunks = msr_index_iter.len().div_ceil(KVM_MAX_MSR_ENTRIES);
 
         // + 1 for the chunk of deferred MSRs
-        let mut msr_chunks: Vec<Msrs> = Vec::with_capacity(num_chunks + 1);
+        let mut msr_chunks: Vec<Msrs> = Vec::with_capacity(num_chunks.strict_add(1));
 
         for _ in 0..num_chunks {
             let chunk_len = msr_index_iter.len().min(KVM_MAX_MSR_ENTRIES);
@@ -730,9 +730,12 @@ impl KvmVcpu {
         // We accept values within a tolerance of 250 parts
         // per million because it is common for TSC frequency
         // to differ due to calibration at boot time.
-        let diff = (i64::from(self.get_tsc_khz()?) - i64::from(state_tsc_freq)).abs();
+        let diff = (i64::from(self.get_tsc_khz()?).strict_sub(i64::from(state_tsc_freq))).abs();
         // Cannot overflow since u32::MAX * 250 < i64::MAX
-        Ok(diff > i64::from(state_tsc_freq) * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR)
+        Ok(diff
+            > i64::from(state_tsc_freq)
+                .strict_mul(TSC_KHZ_TOL_NUMERATOR)
+                .strict_div(TSC_KHZ_TOL_DENOMINATOR))
     }
 
     /// Scale the TSC frequency of this vCPU to the one provided as a parameter.

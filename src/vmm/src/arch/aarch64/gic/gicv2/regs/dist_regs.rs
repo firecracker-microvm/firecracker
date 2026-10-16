@@ -62,15 +62,19 @@ impl MmioReg for SharedIrqReg {
         // read-as-zero/write-ignore (RAZ/WI) policy.
         // The first part of a shared-irq register, the one corresponding to the
         // SGI and PPI IRQs (0-32) is RAZ/WI, so we skip it.
-        let start = self.offset + u64::from(SPI_START) * u64::from(self.bits_per_irq) / 8;
+        let start = self.offset.strict_add(
+            u64::from(SPI_START)
+                .strict_mul(u64::from(self.bits_per_irq))
+                .strict_div(8),
+        );
 
-        let size_in_bits = u64::from(self.bits_per_irq) * u64::from(GSI_LEGACY_NUM);
-        let mut size_in_bytes = size_in_bits / 8;
-        if size_in_bits % 8 > 0 {
-            size_in_bytes += 1;
+        let size_in_bits = u64::from(self.bits_per_irq).strict_mul(u64::from(GSI_LEGACY_NUM));
+        let mut size_in_bytes = size_in_bits.strict_div(8);
+        if size_in_bits.strict_rem(8) > 0 {
+            size_in_bytes = size_in_bytes.strict_add(1);
         }
 
-        start..start + size_in_bytes
+        start..start.strict_add(size_in_bytes)
     }
 }
 

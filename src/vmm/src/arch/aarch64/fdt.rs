@@ -63,6 +63,10 @@ const GPIO_ACTIVE_HIGH: u32 = 0;
 pub enum FdtError {
     /// Create FDT error: {0}
     CreateFdt(#[from] VmFdtError),
+    /// Guest memory region is smaller than the reserved system memory size.
+    GuestMemoryTooSmall,
+    /// Initrd size and load address overflow when computing the end address.
+    InitrdEndOverflow,
     /// Read cache info error: {0}
     ReadCacheInfo(String),
     /// Failure in writing FDT in memory.
@@ -177,12 +181,15 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtEr
             // in the list of shared cpus so it needs to be at least 1. Firecracker trusts the host.
             // The operation is safe since we already checked when creating cache attributes that
             // cpus_per_unit is not 0 (.e look for mask_str2bit_count function).
-            let cache_phandle = LAST_CACHE_PHANDLE
-                - u32::try_from(
-                    num_cpus * (cache.level - 2) as usize
-                        + cpu_index / cache.cpus_per_unit as usize,
+            let cpus_per_unit = cache.cpus_per_unit as usize;
+            let cache_phandle = LAST_CACHE_PHANDLE.strict_sub(
+                u32::try_from(
+                    num_cpus
+                        .strict_mul((cache.level as usize).strict_sub(2))
+                        .strict_add(cpu_index.strict_div(cpus_per_unit)),
                 )
-                .unwrap(); // Safe because the number of CPUs is bounded
+                .unwrap(), // Safe because the number of CPUs is bounded
+            );
 
             if prev_level != cache.level {
                 fdt.property_u32("next-level-cache", cache_phandle)?;
@@ -191,11 +198,11 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtEr
                 }
             }
 
-            if cpu_index % cache.cpus_per_unit as usize == 0 {
+            if cpu_index.strict_rem(cpus_per_unit) == 0 {
                 cache_node = Some(fdt.begin_node(&format!(
                     "l{}-{}-cache",
                     cache.level,
-                    cpu_index / cache.cpus_per_unit as usize
+                    cpu_index.strict_div(cpus_per_unit)
                 ))?);
                 fdt.property_u32("phandle", cache_phandle)?;
                 fdt.property_string("compatible", "cache")?;
@@ -248,8 +255,12 @@ fn create_memory_node(fdt: &mut FdtWriter, guest_mem: &GuestMemoryMmap) -> Resul
     let start_addr = dram_region
         .start_addr()
         .unchecked_add(super::layout::SYSTEM_MEM_SIZE);
-    // Size of the memory is the region size minus the system memory size
-    let mem_size = dram_region.len() - super::layout::SYSTEM_MEM_SIZE;
+    // Size of the memory is the region size minus the system memory size, which the
+    // API-supplied `mem_size_mib` does not guarantee to fit.
+    let mem_size = dram_region
+        .len()
+        .checked_sub(super::layout::SYSTEM_MEM_SIZE)
+        .ok_or(FdtError::GuestMemoryTooSmall)?;
 
     let mem_reg_prop = &[start_addr.raw_value(), mem_size];
     let mem = fdt.begin_node("memory@ram")?;
@@ -275,10 +286,13 @@ fn create_chosen_node(
 
     if let Some(initrd_config) = initrd {
         fdt.property_u64("linux,initrd-start", initrd_config.address.raw_value())?;
-        fdt.property_u64(
-            "linux,initrd-end",
-            initrd_config.address.raw_value() + initrd_config.size as u64,
-        )?;
+        // `size` is the length of a user-supplied file.
+        let initrd_end = initrd_config
+            .address
+            .raw_value()
+            .checked_add(initrd_config.size as u64)
+            .ok_or(FdtError::InitrdEndOverflow)?;
+        fdt.property_u64("linux,initrd-end", initrd_end)?;
     }
 
     // Prevent the kernel from reassigning PCI BAR addresses.
@@ -594,7 +608,7 @@ fn create_pci_nodes(fdt: &mut FdtWriter, segment: &PciSegment) -> Result<(), Fdt
     ];
 
     let pci_node = fdt.begin_node(&pci_node_name)?;
-    let last_bus = u32::from(segment.pci_buses.num_buses() - 1);
+    let last_bus = u32::from(segment.pci_buses.num_buses().strict_sub(1));
 
     fdt.property_string("compatible", "pci-host-ecam-generic")?;
     fdt.property_string("device_type", "pci")?;
@@ -632,8 +646,36 @@ mod tests {
     use crate::device_manager::mmio::tests::DummyDevice;
     use crate::device_manager::tests::{default_device_manager, mmio_devices_mut};
     use crate::test_utils::arch_mem;
+    use crate::utils::u64_to_usize;
     use crate::vstate::memory::GuestAddress;
     use crate::{EventManager, Kvm};
+
+    #[test]
+    fn test_memory_node_rejects_guest_smaller_than_system_mem() {
+        let mem = arch_mem(u64_to_usize(crate::arch::aarch64::layout::SYSTEM_MEM_SIZE) - 0x1000);
+        let mut fdt = FdtWriter::new().unwrap();
+        assert!(matches!(
+            create_memory_node(&mut fdt, &mem),
+            Err(FdtError::GuestMemoryTooSmall)
+        ));
+    }
+
+    #[test]
+    fn test_chosen_node_rejects_initrd_end_overflow() {
+        let initrd = InitrdConfig {
+            address: GuestAddress(u64::MAX - 0x100),
+            size: 0x1000,
+        };
+        let mut fdt = FdtWriter::new().unwrap();
+        assert!(matches!(
+            create_chosen_node(
+                &mut fdt,
+                CString::new("console=tty0").unwrap(),
+                &Some(initrd)
+            ),
+            Err(FdtError::InitrdEndOverflow)
+        ));
+    }
 
     #[test]
     fn test_create_fdt() {

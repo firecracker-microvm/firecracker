@@ -168,7 +168,7 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Opti
     }
 
     Some(align_down!(
-        usize_to_u64(lowmem_size - initrd_size),
+        usize_to_u64(lowmem_size.strict_sub(initrd_size)),
         usize_to_u64(super::GUEST_PAGE_SIZE)
     ))
 }
@@ -349,7 +349,7 @@ fn configure_pvh(
         let addr = max(himem_start, region.start_addr());
         memmap.push(hvm_memmap_table_entry {
             addr: addr.raw_value(),
-            size: region.last_addr().unchecked_offset_from(addr) + 1,
+            size: region.last_addr().unchecked_offset_from(addr).strict_add(1),
             type_: MEMMAP_TYPE_RAM,
             ..Default::default()
         });
@@ -452,7 +452,7 @@ fn configure_64bit_boot(
         add_e820_entry(
             &mut params,
             addr.raw_value(),
-            region.last_addr().unchecked_offset_from(addr) + 1,
+            region.last_addr().unchecked_offset_from(addr).strict_add(1),
             E820_RAM,
         )?;
     }
@@ -479,7 +479,7 @@ fn add_e820_entry(
     params.e820_table[params.e820_entries as usize].addr = addr;
     params.e820_table[params.e820_entries as usize].size = size;
     params.e820_table[params.e820_entries as usize].r#type = mem_type;
-    params.e820_entries += 1;
+    params.e820_entries = params.e820_entries.strict_add(1);
 
     Ok(())
 }

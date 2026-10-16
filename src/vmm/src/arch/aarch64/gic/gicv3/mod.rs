@@ -47,17 +47,17 @@ impl GICv3 {
 
     /// Get the address of the GIC redistributors.
     fn get_redists_addr(vcpu_count: u64) -> u64 {
-        GICv3::get_dist_addr() - GICv3::get_redists_size(vcpu_count)
+        GICv3::get_dist_addr().strict_sub(GICv3::get_redists_size(vcpu_count))
     }
 
     /// Get the size of the GIC redistributors.
     fn get_redists_size(vcpu_count: u64) -> u64 {
-        vcpu_count * GICv3::KVM_VGIC_V3_REDIST_SIZE
+        vcpu_count.strict_mul(GICv3::KVM_VGIC_V3_REDIST_SIZE)
     }
 
     /// Get the MSI address
     fn get_msi_address(vcpu_count: u64) -> u64 {
-        Self::get_redists_addr(vcpu_count) - GICv3::GIC_V3_ITS_SIZE
+        Self::get_redists_addr(vcpu_count).strict_sub(GICv3::GIC_V3_ITS_SIZE)
     }
 
     /// Get the MSI size

@@ -164,6 +164,6 @@ impl SimpleReg {
 
 impl MmioReg for SimpleReg {
     fn range(&self) -> Range<u64> {
-        self.offset..self.offset + u64::from(self.size)
+        self.offset..self.offset.strict_add(u64::from(self.size))
     }
 }

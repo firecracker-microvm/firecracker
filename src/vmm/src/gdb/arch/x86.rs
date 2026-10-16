@@ -61,7 +61,7 @@ fn set_kvm_debug(
     for (i, addr) in addrs.iter().enumerate() {
         dbg.arch.debugreg[i] = addr.0;
         // Set global breakpoint enable flag for the specific breakpoint number by setting the bit
-        dbg.arch.debugreg[7] |= 2 << (i * 2);
+        dbg.arch.debugreg[7] |= 2 << (i.strict_mul(2));
     }
 
     vcpu_fd.set_guest_debug(&dbg)?;

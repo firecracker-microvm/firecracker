@@ -90,7 +90,7 @@ impl VgicRegEngine for VgicSysRegEngine {
 fn num_priority_bits(fd: &DeviceFd, mpidr: u64) -> Result<u64, GicError> {
     let reg_val = &VgicSysRegEngine::get_reg_data(fd, &SYS_ICC_CTLR_EL1, mpidr)?.chunks[0];
 
-    Ok(((reg_val & ICC_CTLR_EL1_PRIBITS_MASK) >> ICC_CTLR_EL1_PRIBITS_SHIFT) + 1)
+    Ok(((reg_val & ICC_CTLR_EL1_PRIBITS_MASK) >> ICC_CTLR_EL1_PRIBITS_SHIFT).strict_add(1))
 }
 
 fn is_ap_reg_available(reg: &SimpleReg, num_priority_bits: u64) -> bool {

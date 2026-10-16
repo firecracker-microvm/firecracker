@@ -344,7 +344,7 @@ impl KvmVcpu {
         let kreg_off = offset_of!(kvm_regs, regs);
 
         // Get the register index of the PSTATE (Processor State) register.
-        let pstate = offset_of!(user_pt_regs, pstate) + kreg_off;
+        let pstate = offset_of!(user_pt_regs, pstate).strict_add(kreg_off);
         let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, pstate);
         self.fd
             .set_one_reg(id, &PSTATE_FAULT_BITS_64.to_le_bytes())
@@ -355,7 +355,7 @@ impl KvmVcpu {
         // Other vCPUs are powered off initially awaiting PSCI wakeup.
         if self.index == 0 {
             // Setting the PC (Processor Counter) to the current program address (kernel address).
-            let pc = offset_of!(user_pt_regs, pc) + kreg_off;
+            let pc = offset_of!(user_pt_regs, pc).strict_add(kreg_off);
             let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, pc);
             self.fd
                 .set_one_reg(id, &boot_ip.to_le_bytes())
@@ -365,7 +365,7 @@ impl KvmVcpu {
             // "The device tree blob (dtb) must be placed on an 8-byte boundary and must
             // not exceed 2 megabytes in size." -> https://www.kernel.org/doc/Documentation/arm64/booting.txt.
             // We are choosing to place it the end of DRAM. See `get_fdt_addr`.
-            let regs0 = offset_of!(user_pt_regs, regs) + kreg_off;
+            let regs0 = offset_of!(user_pt_regs, regs).strict_add(kreg_off);
             let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, regs0);
             let fdt_addr = get_fdt_addr(mem);
             self.fd
@@ -591,8 +591,12 @@ pub(crate) mod tests {
 
     /// Returns (loaded byte, marker, PC) from x1, x2 and PC.
     pub(crate) fn read_mmio_load_regs(vcpu: &crate::vstate::vcpu::Vcpu) -> (u64, u64, u64) {
-        let x =
-            |n: usize| arm64_core_reg_id!(KVM_REG_SIZE_U64, offset_of!(user_pt_regs, regs) + n * 8);
+        let x = |n: usize| {
+            arm64_core_reg_id!(
+                KVM_REG_SIZE_U64,
+                offset_of!(user_pt_regs, regs).strict_add(n.strict_mul(8))
+            )
+        };
         let [loaded, marker, pc] = [x(1), x(2), PC].map(|id| {
             let mut value = [0u8; 8];
             vcpu.kvm_vcpu.fd.get_one_reg(id, &mut value).unwrap();

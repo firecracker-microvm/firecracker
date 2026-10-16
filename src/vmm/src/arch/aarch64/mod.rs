@@ -254,7 +254,7 @@ fn get_fdt_addr(mem: &GuestMemoryMmap) -> u64 {
     // we allow the code to try and load the FDT.
     dram_region
         .last_addr()
-        .checked_sub(layout::FDT_MAX_SIZE as u64 - 1)
+        .checked_sub(layout::FDT_MAX_SIZE.strict_sub(1) as u64)
         .filter(|&addr| mem.address_in_range(addr))
         .map(|addr| addr.raw_value())
         .unwrap_or(layout::DRAM_MEM_START)
