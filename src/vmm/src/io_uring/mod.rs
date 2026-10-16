@@ -59,6 +59,8 @@ pub enum IoUringError {
     Setup(IOError),
     /// Error originating in the submission queue: {0}
     SQueue(SQueueError),
+    /// Host kernel returned a combined SQ/CQ entry count that overflows
+    QueueSizeOverflow,
     /// Required feature is not supported on the host kernel: {0}
     UnsupportedFeature(&'static str),
     /// Required operation is not supported on the host kernel: {0}
@@ -136,8 +138,11 @@ impl<T: Debug> IoUring<T> {
 
         let squeue = SubmissionQueue::new(fd, &params).map_err(IoUringError::SQueue)?;
         let cqueue = CompletionQueue::new(fd, &params).map_err(IoUringError::CQueue)?;
-        let slab =
-            slab::Slab::with_capacity(params.sq_entries as usize + params.cq_entries as usize);
+        let slab = slab::Slab::with_capacity(
+            (params.sq_entries as usize)
+                .checked_add(params.cq_entries as usize)
+                .ok_or(IoUringError::QueueSizeOverflow)?,
+        );
 
         let mut instance = Self {
             squeue,
