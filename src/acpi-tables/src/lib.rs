@@ -31,10 +31,11 @@ const FC_ACPI_CREATOR_ID: [u8; 4] = *b"FCAT";
 const FC_ACPI_CREATOR_REVISION: u32 = 0x20240119;
 
 fn checksum(buf: &[&[u8]]) -> u8 {
-    (255 - buf
-        .iter()
-        .flat_map(|b| b.iter())
-        .fold(0u8, |acc, x| acc.wrapping_add(*x)))
+    (255u8.strict_sub(
+        buf.iter()
+            .flat_map(|b| b.iter())
+            .fold(0u8, |acc, x| acc.wrapping_add(*x)),
+    ))
     .wrapping_add(1)
 }
 

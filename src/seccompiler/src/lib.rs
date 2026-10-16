@@ -150,7 +150,7 @@ pub fn compile_bpf(
         assert!(len.is_multiple_of(std::mem::size_of::<u64>()));
         // Bpf instructions are 8 byte values and 4 byte alignment.
         // We use u64 to satisfy these requirements.
-        let mut bpf = vec![0_u64; len / std::mem::size_of::<u64>()];
+        let mut bpf = vec![0_u64; len.strict_div(std::mem::size_of::<u64>())];
         // SAFETY: safe as all args are correct
         unsafe {
             if seccomp_export_bpf_mem(bpf_filter, bpf.as_mut_ptr().cast(), &mut len) != 0 {
