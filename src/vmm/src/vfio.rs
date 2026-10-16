@@ -641,7 +641,7 @@ fn vfio_allocate_memory_ranges_for_bars(
                 continue;
             }
 
-            if is_64_bits {
+            if is_64_bits && is_prefetchable {
                 match resource_allocator.mmio64_memory.allocate(
                     size,
                     alignment,
@@ -1707,7 +1707,10 @@ mod tests {
 
     #[test]
     fn test_vfio_deallocate_memory_ranges_for_bars_64bit() {
-        let bar_infos = dummy_bar_infos([dummy_raw_bar_info(PCI_CONFIG_MEMORY_BAR_64BIT, 0x10000)]);
+        let bar_infos = dummy_bar_infos([dummy_raw_bar_info(
+            PCI_CONFIG_MEMORY_BAR_64BIT | PCI_CONFIG_BAR_PREFETCHABLE,
+            0x10000,
+        )]);
 
         let mut resource_allocator = ResourceAllocator::new();
         let bars =
