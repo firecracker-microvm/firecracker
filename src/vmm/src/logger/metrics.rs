@@ -254,7 +254,10 @@ impl IncMetric for SharedIncMetric {
         self.0.load(Ordering::Relaxed)
     }
     fn fetch_diff(&self) -> u64 {
-        self.0.load(Ordering::Relaxed) - self.1.load(Ordering::Relaxed)
+        // `self.1` holds an earlier load of the monotonically-increasing `self.0`.
+        self.0
+            .load(Ordering::Relaxed)
+            .strict_sub(self.1.load(Ordering::Relaxed))
     }
 }
 
@@ -274,7 +277,8 @@ impl Serialize for SharedIncMetric {
     /// !!! Any print of the metrics will also reset them. Use with caution !!!
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let snapshot = self.0.load(Ordering::Relaxed);
-        let res = serializer.serialize_u64(snapshot - self.1.load(Ordering::Relaxed));
+        // `self.1` holds an earlier `snapshot` of the monotonically-increasing `self.0`.
+        let res = serializer.serialize_u64(snapshot.strict_sub(self.1.load(Ordering::Relaxed)));
 
         if res.is_ok() {
             self.1.store(snapshot, Ordering::Relaxed);

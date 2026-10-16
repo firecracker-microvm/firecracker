@@ -180,7 +180,9 @@ impl IdAllocator {
             ));
         }
 
-        let num_ids = u64::from(range_end) - u64::from(range_base) + 1;
+        let num_ids = u64::from(range_end)
+            .strict_sub(u64::from(range_base))
+            .strict_add(1);
         let num_ids = usize::try_from(num_ids).map_err(|_| vm_allocator::Error::Overflow)?;
         let mut allocated = BitVec::with_capacity(num_ids);
         allocated.resize(num_ids, false);
