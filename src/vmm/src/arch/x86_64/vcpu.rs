@@ -92,6 +92,8 @@ pub enum KvmVcpuError {
     VcpuGetXsave(kvm_ioctls::Error),
     /// Failed to get KVM vcpu xsave via KVM_GET_XSAVE2: {0}
     VcpuGetXsave2(kvm_ioctls::Error),
+    /// Host kernel reported an XSAVE2 size smaller than `kvm_xsave`
+    InvalidXsave2Size,
     /// Failed to get KVM vcpu cpuid: {0}
     VcpuGetCpuid(kvm_ioctls::Error),
     /// Failed to get KVM TSC frequency: {0}
@@ -367,10 +369,11 @@ impl KvmVcpu {
             Some(xsave2_size) => {
                 // Convert the `kvm_xsave` size in bytes to the length of FAM (i.e. `extra`).
                 let fam_len =
-                    // Calculate the size of FAM (`extra`) area in bytes. Note that the subtraction
-                    // never underflows because `KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2)` always returns
-                    // at least 4096 bytes that is the size of `kvm_xsave` without FAM area.
-                    (xsave2_size - std::mem::size_of::<kvm_xsave>())
+                    // Size of the FAM (`extra`) area. The kernel is documented to report at least
+                    // `size_of::<kvm_xsave>()`, but don't trust an ioctl result.
+                    (xsave2_size
+                        .checked_sub(std::mem::size_of::<kvm_xsave>())
+                        .ok_or(KvmVcpuError::InvalidXsave2Size)?)
                     // Divide by the size of FAM (`extra`) entry (i.e. `__u32`).
                     .div_ceil(std::mem::size_of::<<kvm_xsave2 as FamStruct>::Entry>());
                 let mut xsave = Xsave::new(fam_len).map_err(KvmVcpuError::Fam)?;
