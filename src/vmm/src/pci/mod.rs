@@ -11,6 +11,8 @@ pub mod bus;
 pub mod configuration;
 /// MSI-X logic
 pub mod msix;
+/// PCI Express Capability structure
+pub mod pcie_cap;
 
 use std::fmt::{Debug, Display};
 use std::sync::{Arc, Barrier};

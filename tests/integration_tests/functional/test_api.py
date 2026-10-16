@@ -1428,6 +1428,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
         "smt": True,
         "track_dirty_pages": False,
         "huge_pages": "None",
+        "pcie_hotplug_ports": 0,
     }
 
     if len(SUPPORTED_CPU_TEMPLATES) != 0:
@@ -1578,6 +1579,7 @@ def test_get_full_config(uvm):
         "smt": False,
         "track_dirty_pages": False,
         "huge_pages": "None",
+        "pcie_hotplug_ports": 0,
     }
     expected_cfg["cpu-config"] = None
     expected_cfg["boot-source"] = {
