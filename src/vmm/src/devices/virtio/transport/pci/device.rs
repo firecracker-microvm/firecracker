@@ -10,6 +10,7 @@
 use std::cmp;
 use std::fmt::{Debug, Formatter};
 use std::io::Write;
+use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 
@@ -229,6 +230,20 @@ const COMMAND_REG: u16 = 1;
 /// Command register "Memory Space Enable" bit
 const COMMAND_MEMORY_SPACE_ENABLE: u32 = 0x0000_0002;
 
+
+/// `[offset, offset + size)` of each BAR region, as `u64` for comparison with BAR offsets.
+const COMMON_CONFIG_BAR_RANGE: Range<u64> = (COMMON_CONFIG_BAR_OFFSET as u64)
+    ..(COMMON_CONFIG_BAR_OFFSET as u64 + COMMON_CONFIG_SIZE as u64);
+const ISR_CONFIG_BAR_RANGE: Range<u64> =
+    (ISR_CONFIG_BAR_OFFSET as u64)..(ISR_CONFIG_BAR_OFFSET as u64 + ISR_CONFIG_SIZE as u64);
+const DEVICE_CONFIG_BAR_RANGE: Range<u64> = (DEVICE_CONFIG_BAR_OFFSET as u64)
+    ..(DEVICE_CONFIG_BAR_OFFSET as u64 + DEVICE_CONFIG_SIZE as u64);
+const NOTIFICATION_BAR_RANGE: Range<u64> =
+    (NOTIFICATION_BAR_OFFSET as u64)..(NOTIFICATION_BAR_OFFSET as u64 + NOTIFICATION_SIZE as u64);
+const MSIX_TABLE_BAR_RANGE: Range<u64> =
+    (MSIX_TABLE_BAR_OFFSET as u64)..(MSIX_TABLE_BAR_OFFSET as u64 + MSIX_TABLE_SIZE as u64);
+const MSIX_PBA_BAR_RANGE: Range<u64> =
+    (MSIX_PBA_BAR_OFFSET as u64)..(MSIX_PBA_BAR_OFFSET as u64 + MSIX_PBA_SIZE as u64);
 const NOTIFY_OFF_MULTIPLIER: u32 = 4; // A dword per notification address.
 
 const VIRTIO_PCI_VENDOR_ID: u16 = 0x1af4;
@@ -1035,39 +1050,25 @@ impl PciDevice for VirtioPciDevice {
 
     fn read_bar(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
         match offset {
-            o if o < u64::from(COMMON_CONFIG_BAR_OFFSET + COMMON_CONFIG_SIZE) => {
-                self.common_config.read(
-                    o - u64::from(COMMON_CONFIG_BAR_OFFSET),
-                    data,
-                    self.device.clone(),
-                )
-            }
-            o if (u64::from(ISR_CONFIG_BAR_OFFSET)
-                ..u64::from(ISR_CONFIG_BAR_OFFSET + ISR_CONFIG_SIZE))
-                .contains(&o) =>
-            {
+            o if COMMON_CONFIG_BAR_RANGE.contains(&o) => self.common_config.read(
+                o.strict_sub(u64::from(COMMON_CONFIG_BAR_OFFSET)),
+                data,
+                self.device.clone(),
+            ),
+            o if ISR_CONFIG_BAR_RANGE.contains(&o) => {
                 // We don't actually support legacy INT#x interrupts for VirtIO PCI devices
                 warn!("pci: read access to unsupported ISR status field");
                 data.fill(0);
             }
-            o if (u64::from(DEVICE_CONFIG_BAR_OFFSET)
-                ..u64::from(DEVICE_CONFIG_BAR_OFFSET + DEVICE_CONFIG_SIZE))
-                .contains(&o) =>
-            {
+            o if DEVICE_CONFIG_BAR_RANGE.contains(&o) => {
                 let device = self.device.lock().unwrap();
                 device.read_config(o - u64::from(DEVICE_CONFIG_BAR_OFFSET), data);
             }
-            o if (u64::from(NOTIFICATION_BAR_OFFSET)
-                ..u64::from(NOTIFICATION_BAR_OFFSET + NOTIFICATION_SIZE))
-                .contains(&o) =>
-            {
+            o if NOTIFICATION_BAR_RANGE.contains(&o) => {
                 // Handled with ioeventfds.
                 warn!("pci: unexpected read to notification BAR. Offset {o:#x}");
             }
-            o if (u64::from(MSIX_TABLE_BAR_OFFSET)
-                ..u64::from(MSIX_TABLE_BAR_OFFSET + MSIX_TABLE_SIZE))
-                .contains(&o) =>
-            {
+            o if MSIX_TABLE_BAR_RANGE.contains(&o) => {
                 if let Some(interrupt) = &self.virtio_interrupt {
                     interrupt
                         .msix_config
@@ -1076,10 +1077,7 @@ impl PciDevice for VirtioPciDevice {
                         .read_table(o - u64::from(MSIX_TABLE_BAR_OFFSET), data);
                 }
             }
-            o if (u64::from(MSIX_PBA_BAR_OFFSET)
-                ..u64::from(MSIX_PBA_BAR_OFFSET + MSIX_PBA_SIZE))
-                .contains(&o) =>
-            {
+            o if MSIX_PBA_BAR_RANGE.contains(&o) => {
                 if let Some(interrupt) = &self.virtio_interrupt {
                     interrupt
                         .msix_config
@@ -1094,39 +1092,25 @@ impl PciDevice for VirtioPciDevice {
 
     fn write_bar(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
         match offset {
-            o if o < u64::from(COMMON_CONFIG_BAR_OFFSET + COMMON_CONFIG_SIZE) => {
-                self.common_config.write(
-                    o - u64::from(COMMON_CONFIG_BAR_OFFSET),
-                    data,
-                    self.device.clone(),
-                    self.device_activated.load(Ordering::SeqCst),
-                )
-            }
-            o if (u64::from(ISR_CONFIG_BAR_OFFSET)
-                ..u64::from(ISR_CONFIG_BAR_OFFSET + ISR_CONFIG_SIZE))
-                .contains(&o) =>
-            {
+            o if COMMON_CONFIG_BAR_RANGE.contains(&o) => self.common_config.write(
+                o.strict_sub(u64::from(COMMON_CONFIG_BAR_OFFSET)),
+                data,
+                self.device.clone(),
+                self.device_activated.load(Ordering::SeqCst),
+            ),
+            o if ISR_CONFIG_BAR_RANGE.contains(&o) => {
                 // We don't actually support legacy INT#x interrupts for VirtIO PCI devices
                 warn!("pci: access to unsupported ISR status field");
             }
-            o if (u64::from(DEVICE_CONFIG_BAR_OFFSET)
-                ..u64::from(DEVICE_CONFIG_BAR_OFFSET + DEVICE_CONFIG_SIZE))
-                .contains(&o) =>
-            {
+            o if DEVICE_CONFIG_BAR_RANGE.contains(&o) => {
                 let mut device = self.device.lock().unwrap();
                 device.write_config(o - u64::from(DEVICE_CONFIG_BAR_OFFSET), data);
             }
-            o if (u64::from(NOTIFICATION_BAR_OFFSET)
-                ..u64::from(NOTIFICATION_BAR_OFFSET + NOTIFICATION_SIZE))
-                .contains(&o) =>
-            {
+            o if NOTIFICATION_BAR_RANGE.contains(&o) => {
                 // Handled with ioeventfds.
                 warn!("pci: unexpected write to notification BAR. Offset {o:#x}");
             }
-            o if (u64::from(MSIX_TABLE_BAR_OFFSET)
-                ..u64::from(MSIX_TABLE_BAR_OFFSET + MSIX_TABLE_SIZE))
-                .contains(&o) =>
-            {
+            o if MSIX_TABLE_BAR_RANGE.contains(&o) => {
                 if let Some(interrupt) = &self.virtio_interrupt {
                     interrupt
                         .msix_config
@@ -1135,10 +1119,7 @@ impl PciDevice for VirtioPciDevice {
                         .write_table(o - u64::from(MSIX_TABLE_BAR_OFFSET), data);
                 }
             }
-            o if (u64::from(MSIX_PBA_BAR_OFFSET)
-                ..u64::from(MSIX_PBA_BAR_OFFSET + MSIX_PBA_SIZE))
-                .contains(&o) =>
-            {
+            o if MSIX_PBA_BAR_RANGE.contains(&o) => {
                 if let Some(interrupt) = &self.virtio_interrupt {
                     interrupt
                         .msix_config

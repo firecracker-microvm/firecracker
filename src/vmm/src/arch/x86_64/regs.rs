@@ -162,6 +162,8 @@ pub fn setup_sregs(
 
 const BOOT_GDT_OFFSET: u64 = 0x500;
 const BOOT_IDT_OFFSET: u64 = 0x520;
+/// Limit of the single-entry boot IDT: one 8-byte descriptor, minus one.
+const BOOT_IDT_LIMIT: u16 = 7;
 
 const BOOT_GDT_MAX: usize = 4;
 
@@ -230,7 +232,7 @@ fn configure_segments_and_sregs(
 
     write_idt_value(0, mem)?;
     sregs.idt.base = BOOT_IDT_OFFSET;
-    sregs.idt.limit = u16::try_from(mem::size_of::<u64>()).unwrap() - 1;
+    sregs.idt.limit = BOOT_IDT_LIMIT;
 
     sregs.cs = code_seg;
     sregs.ds = data_seg;

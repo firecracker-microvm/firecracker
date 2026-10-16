@@ -36,6 +36,9 @@ const ROOT_PORT_MSIX_VECTORS: u16 = 1;
 // both of them (BAR0 and BAR1).
 const ROOT_PORT_NUM_BARS: u16 = 2;
 const MSIX_TABLE_ENTRY_SIZE: u64 = 16;
+/// End (exclusive) of the MSI-X table in the root port's BAR.
+const ROOT_PORT_MSIX_TABLE_END: u64 =
+    ROOT_PORT_MSIX_TABLE_OFFSET as u64 + ROOT_PORT_MSIX_VECTORS as u64 * MSIX_TABLE_ENTRY_SIZE;
 
 const LINK_STATUS_UP: u16 = PCI_EXP_LNKSTA_DLLLA | PCI_EXP_LNKSTA_CLS_2_5GB | PCI_EXP_LNKSTA_NLW_X1;
 
@@ -299,13 +302,11 @@ impl PciDevice for PciRootPort {
     }
 
     fn read_bar(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
-        let table_end = u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)
-            + u64::from(ROOT_PORT_MSIX_VECTORS) * MSIX_TABLE_ENTRY_SIZE;
-        if (u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)..table_end).contains(&offset) {
-            self.msix_config
-                .lock()
-                .expect("Poisoned lock")
-                .read_table(offset - u64::from(ROOT_PORT_MSIX_TABLE_OFFSET), data);
+        if (u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)..ROOT_PORT_MSIX_TABLE_END).contains(&offset) {
+            self.msix_config.lock().expect("Poisoned lock").read_table(
+                offset.strict_sub(u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)),
+                data,
+            );
         } else if offset >= u64::from(ROOT_PORT_MSIX_PBA_OFFSET) {
             self.msix_config
                 .lock()
@@ -315,13 +316,11 @@ impl PciDevice for PciRootPort {
     }
 
     fn write_bar(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
-        let table_end = u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)
-            + u64::from(ROOT_PORT_MSIX_VECTORS) * MSIX_TABLE_ENTRY_SIZE;
-        if (u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)..table_end).contains(&offset) {
-            self.msix_config
-                .lock()
-                .expect("Poisoned lock")
-                .write_table(offset - u64::from(ROOT_PORT_MSIX_TABLE_OFFSET), data);
+        if (u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)..ROOT_PORT_MSIX_TABLE_END).contains(&offset) {
+            self.msix_config.lock().expect("Poisoned lock").write_table(
+                offset.strict_sub(u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)),
+                data,
+            );
         } else if offset >= u64::from(ROOT_PORT_MSIX_PBA_OFFSET) {
             self.msix_config
                 .lock()
