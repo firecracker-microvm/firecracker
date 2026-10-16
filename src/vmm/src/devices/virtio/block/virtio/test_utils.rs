@@ -74,7 +74,7 @@ pub fn default_config(path: String, file_engine_type: FileEngineType) -> VirtioB
         cache_type: CacheType::Unsafe,
         dmb_size_mib: None,
         // Rate limiting is enabled but with a high operation rate (10 million ops/s).
-        rate_limiter: Some(RateLimiterConfig {
+        rate_limiter_config: Some(RateLimiterConfig {
             bandwidth: Some(TokenBucketConfig {
                 size: 0,
                 one_time_burst: Some(0),

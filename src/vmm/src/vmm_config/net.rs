@@ -33,9 +33,11 @@ pub struct NetworkInterfaceConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dmb_size_mib: Option<DmbSizeMib>,
     /// Rate Limiter for received packages.
-    pub rx_rate_limiter: Option<RateLimiterConfig>,
+    #[serde(rename = "rx_rate_limiter")]
+    pub rx_rate_limiter_config: Option<RateLimiterConfig>,
     /// Rate Limiter for transmitted packages.
-    pub tx_rate_limiter: Option<RateLimiterConfig>,
+    #[serde(rename = "tx_rate_limiter")]
+    pub tx_rate_limiter_config: Option<RateLimiterConfig>,
 }
 
 impl From<&Net> for NetworkInterfaceConfig {
@@ -48,8 +50,8 @@ impl From<&Net> for NetworkInterfaceConfig {
             guest_mac: net.guest_mac().copied(),
             mtu: net.mtu(),
             dmb_size_mib: net.dmb_size_mib(),
-            rx_rate_limiter: rx_rl.into_option(),
-            tx_rate_limiter: tx_rl.into_option(),
+            rx_rate_limiter_config: rx_rl.into_option(),
+            tx_rate_limiter_config: tx_rl.into_option(),
         }
     }
 }
@@ -63,10 +65,12 @@ pub struct NetworkInterfaceUpdateConfig {
     pub iface_id: String,
     /// New RX rate limiter config. Only provided data will be updated. I.e. if any optional data
     /// is missing, it will not be nullified, but left unchanged.
-    pub rx_rate_limiter: Option<RateLimiterConfig>,
+    #[serde(rename = "rx_rate_limiter")]
+    pub rx_rate_limiter_config: Option<RateLimiterConfig>,
     /// New TX rate limiter config. Only provided data will be updated. I.e. if any optional data
     /// is missing, it will not be nullified, but left unchanged.
-    pub tx_rate_limiter: Option<RateLimiterConfig>,
+    #[serde(rename = "tx_rate_limiter")]
+    pub tx_rate_limiter_config: Option<RateLimiterConfig>,
 }
 
 /// Errors associated with the operations allowed on a net device.
@@ -153,11 +157,11 @@ impl NetBuilder {
     /// Creates a Net device from a NetworkInterfaceConfig.
     pub fn create_net(cfg: NetworkInterfaceConfig) -> Result<Net, NetworkInterfaceError> {
         let rx_rate_limiter = cfg
-            .rx_rate_limiter
+            .rx_rate_limiter_config
             .map(RateLimiter::from)
             .unwrap_or_default();
         let tx_rate_limiter = cfg
-            .tx_rate_limiter
+            .tx_rate_limiter_config
             .map(RateLimiter::from)
             .unwrap_or_default();
 
@@ -204,8 +208,8 @@ mod tests {
             guest_mac: Some(MacAddr::from_str(mac).unwrap()),
             mtu: None,
             dmb_size_mib: None,
-            rx_rate_limiter: RateLimiterConfig::default().into_option(),
-            tx_rate_limiter: RateLimiterConfig::default().into_option(),
+            rx_rate_limiter_config: RateLimiterConfig::default().into_option(),
+            tx_rate_limiter_config: RateLimiterConfig::default().into_option(),
         }
     }
 
@@ -217,8 +221,8 @@ mod tests {
                 guest_mac: self.guest_mac,
                 mtu: self.mtu,
                 dmb_size_mib: self.dmb_size_mib,
-                rx_rate_limiter: None,
-                tx_rate_limiter: None,
+                rx_rate_limiter_config: None,
+                tx_rate_limiter_config: None,
             }
         }
     }

@@ -689,8 +689,8 @@ mod tests {
                 .to_string(),
             guest_mac: Some(MacAddr::from_str("01:23:45:67:89:0a").unwrap()),
             mtu: None,
-            rx_rate_limiter: Some(RateLimiterConfig::default()),
-            tx_rate_limiter: Some(RateLimiterConfig::default()),
+            rx_rate_limiter_config: Some(RateLimiterConfig::default()),
+            tx_rate_limiter_config: Some(RateLimiterConfig::default()),
             dmb_size_mib: None,
         }
     }
@@ -715,7 +715,7 @@ mod tests {
                 discard: None,
                 num_queues: None,
                 path_on_host: Some(tmp_file.as_path().to_str().unwrap().to_string()),
-                rate_limiter: Some(RateLimiterConfig::default()),
+                rate_limiter_config: Some(RateLimiterConfig::default()),
                 file_engine_type: None,
                 image_format: None,
                 blk_size: None,

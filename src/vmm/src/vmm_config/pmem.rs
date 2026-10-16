@@ -29,7 +29,8 @@ pub struct PmemDeviceUpdateConfig {
     /// The pmem device ID.
     pub id: String,
     /// New rate limiter config.
-    pub rate_limiter: Option<RateLimiterConfig>,
+    #[serde(rename = "rate_limiter")]
+    pub rate_limiter_config: Option<RateLimiterConfig>,
 }
 
 /// Use this structure to setup a Pmem device before boothing the kernel.
@@ -47,7 +48,8 @@ pub struct PmemConfig {
     #[serde(default)]
     pub read_only: bool,
     /// Rate Limiter for flush operations.
-    pub rate_limiter: Option<RateLimiterConfig>,
+    #[serde(rename = "rate_limiter")]
+    pub rate_limiter_config: Option<RateLimiterConfig>,
 }
 
 /// Wrapper for the collection that holds all the Pmem device configs.

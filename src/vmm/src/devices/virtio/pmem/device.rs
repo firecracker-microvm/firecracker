@@ -334,7 +334,7 @@ impl Pmem {
         let kvm_mem_slot = KvmMemSlot::new(vm, cs.start, cs.size, mmap.mmap_ptr, flags)?;
 
         let rate_limiter = config
-            .rate_limiter
+            .rate_limiter_config
             .map(RateLimiter::from)
             .unwrap_or_default();
 

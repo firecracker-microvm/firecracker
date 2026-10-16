@@ -16,14 +16,15 @@ use crate::rate_limiter::RateLimiter;
 #[serde(deny_unknown_fields)]
 pub struct EntropyDeviceConfig {
     /// Configuration for RateLimiter of Entropy device
-    pub rate_limiter: Option<RateLimiterConfig>,
+    #[serde(rename = "rate_limiter")]
+    pub rate_limiter_config: Option<RateLimiterConfig>,
 }
 
 impl From<&Entropy> for EntropyDeviceConfig {
     fn from(dev: &Entropy) -> Self {
         let rate_limiter: RateLimiterConfig = dev.rate_limiter().into();
         EntropyDeviceConfig {
-            rate_limiter: rate_limiter.into_option(),
+            rate_limiter_config: rate_limiter.into_option(),
         }
     }
 }
@@ -52,7 +53,7 @@ impl EntropyDeviceBuilder {
         config: EntropyDeviceConfig,
     ) -> Result<Arc<Mutex<Entropy>>, EntropyDeviceError> {
         let rate_limiter = config
-            .rate_limiter
+            .rate_limiter_config
             .map(RateLimiter::from)
             .unwrap_or_default();
         let dev = Arc::new(Mutex::new(Entropy::new(rate_limiter)?));

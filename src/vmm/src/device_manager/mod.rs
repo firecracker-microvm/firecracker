@@ -1238,7 +1238,7 @@ pub(crate) mod tests {
             discard: None,
             num_queues: None,
             path_on_host: Some(f.as_path().to_str().unwrap().to_string()),
-            rate_limiter: None,
+            rate_limiter_config: None,
             file_engine_type: None,
             image_format: None,
             blk_size: None,
@@ -1568,8 +1568,8 @@ pub(crate) mod tests {
             host_dev_name: "hostname".to_string(),
             guest_mac: Some(mac.parse().unwrap()),
             mtu: None,
-            rx_rate_limiter: None,
-            tx_rate_limiter: None,
+            rx_rate_limiter_config: None,
+            tx_rate_limiter_config: None,
             dmb_size_mib: None,
         });
         vmm.hotplug_device(cfg, &mut evt_manager).unwrap();
@@ -1585,8 +1585,8 @@ pub(crate) mod tests {
             host_dev_name: "hostname2".to_string(),
             guest_mac: Some(mac.parse().unwrap()),
             mtu: None,
-            rx_rate_limiter: None,
-            tx_rate_limiter: None,
+            rx_rate_limiter_config: None,
+            tx_rate_limiter_config: None,
             dmb_size_mib: None,
         });
         assert!(matches!(

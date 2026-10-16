@@ -817,8 +817,8 @@ mod tests {
             host_dev_name: String::from("hostname"),
             guest_mac: None,
             mtu: None,
-            rx_rate_limiter: None,
-            tx_rate_limiter: None,
+            rx_rate_limiter_config: None,
+            tx_rate_limiter_config: None,
             dmb_size_mib: None,
         };
         insert_net_device(
@@ -842,7 +842,7 @@ mod tests {
             path_on_host: String::new(),
             root_device: false,
             read_only: false,
-            rate_limiter: None,
+            rate_limiter_config: None,
         };
         insert_pmem_devices(
             &mut vmm,

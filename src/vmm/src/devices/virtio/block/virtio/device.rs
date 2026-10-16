@@ -395,7 +395,8 @@ pub struct VirtioBlockConfig {
     /// Path of the backing file on the host
     pub path_on_host: String,
     /// Rate Limiter for I/O operations.
-    pub rate_limiter: Option<RateLimiterConfig>,
+    #[serde(rename = "rate_limiter")]
+    pub rate_limiter_config: Option<RateLimiterConfig>,
     /// The type of IO engine used by the device.
     #[serde(default)]
     #[serde(rename = "io_engine")]
@@ -425,7 +426,7 @@ impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
                 discard: value.discard.unwrap_or(false),
                 num_queues: value.num_queues,
                 path_on_host: path_on_host.clone(),
-                rate_limiter: value.rate_limiter,
+                rate_limiter_config: value.rate_limiter_config,
                 file_engine_type: value.file_engine_type.unwrap_or_default(),
                 image_format: value.image_format.unwrap_or_default(),
                 blk_size: value.blk_size,
@@ -450,7 +451,7 @@ impl From<VirtioBlockConfig> for BlockDeviceConfig {
             discard: Some(value.discard),
             num_queues: value.num_queues,
             path_on_host: Some(value.path_on_host),
-            rate_limiter: value.rate_limiter,
+            rate_limiter_config: value.rate_limiter_config,
             file_engine_type: Some(value.file_engine_type),
             image_format: (value.image_format != DiskImageFormat::Raw)
                 .then_some(value.image_format),
@@ -560,11 +561,11 @@ impl VirtioBlock {
         }
 
         let rate_limiter = config
-            .rate_limiter
+            .rate_limiter_config
             .map(RateLimiter::from)
             .unwrap_or_default();
         let rate_limiter_config: RateLimiterConfig = (&rate_limiter).into();
-        config.rate_limiter = rate_limiter_config.into_option();
+        config.rate_limiter_config = rate_limiter_config.into_option();
 
         let mut avail_features = (1u64 << VIRTIO_F_VERSION_1)
             | (1u64 << VIRTIO_RING_F_EVENT_IDX)
@@ -774,7 +775,7 @@ impl VirtioBlock {
             .lock()
             .expect("Poisoned block rate limiter lock");
         rate_limiter.update_buckets(bytes, ops);
-        self.config.rate_limiter = RateLimiterConfig::from(&*rate_limiter).into_option();
+        self.config.rate_limiter_config = RateLimiterConfig::from(&*rate_limiter).into_option();
     }
 
     /// Retrieve the file engine type, which is fixed for the device lifetime.
@@ -1219,7 +1220,7 @@ mod tests {
             discard: None,
             num_queues: None,
             path_on_host: Some("path".to_string()),
-            rate_limiter: None,
+            rate_limiter_config: None,
             file_engine_type: Default::default(),
             image_format: None,
             blk_size: None,
@@ -1240,7 +1241,7 @@ mod tests {
             discard: None,
             num_queues: None,
             path_on_host: None,
-            rate_limiter: None,
+            rate_limiter_config: None,
             file_engine_type: Default::default(),
             image_format: None,
             blk_size: None,
@@ -1261,7 +1262,7 @@ mod tests {
             discard: None,
             num_queues: None,
             path_on_host: Some("path".to_string()),
-            rate_limiter: None,
+            rate_limiter_config: None,
             file_engine_type: Default::default(),
             image_format: None,
             blk_size: None,
@@ -1433,7 +1434,7 @@ mod tests {
             num_queues: None,
             cache_type: CacheType::Unsafe,
             dmb_size_mib: None,
-            rate_limiter: None,
+            rate_limiter_config: None,
             file_engine_type: FileEngineType::Sync,
             image_format: DiskImageFormat::Raw,
             blk_size: Some(4096),
@@ -1464,7 +1465,7 @@ mod tests {
             num_queues: None,
             cache_type: CacheType::Unsafe,
             dmb_size_mib: None,
-            rate_limiter: None,
+            rate_limiter_config: None,
             file_engine_type: FileEngineType::Async,
             image_format: DiskImageFormat::Raw,
             blk_size: None,
@@ -1487,7 +1488,7 @@ mod tests {
             num_queues: None,
             cache_type: CacheType::Unsafe,
             dmb_size_mib: None,
-            rate_limiter: None,
+            rate_limiter_config: None,
             file_engine_type: FileEngineType::Sync,
             image_format: DiskImageFormat::Raw,
             blk_size: None,
@@ -1513,7 +1514,7 @@ mod tests {
             num_queues: None,
             cache_type: CacheType::Unsafe,
             dmb_size_mib: None,
-            rate_limiter: None,
+            rate_limiter_config: None,
             file_engine_type: FileEngineType::Sync,
             image_format: DiskImageFormat::Raw,
             blk_size: None,
@@ -2640,7 +2641,7 @@ mod tests {
         // Reset the device before reactivation.
         assert!(block.reset());
         assert_eq!(
-            block.config().rate_limiter,
+            block.config().rate_limiter_config,
             RateLimiterConfig::from(&*block.lock_rate_limiter()).into_option()
         );
 
@@ -2649,7 +2650,7 @@ mod tests {
         block.update_rate_limiter(BucketUpdate::Disabled, BucketUpdate::Disabled);
 
         assert!(block.reset());
-        assert_eq!(block.config().rate_limiter, None);
+        assert_eq!(block.config().rate_limiter_config, None);
         assert!(block.lock_rate_limiter().bandwidth().is_none());
         assert!(block.lock_rate_limiter().ops().is_none());
     }
