@@ -94,8 +94,9 @@ const VIRTIO_PCI_CAP_LEN_OFFSET: u8 = 2;
 impl VirtioPciCap {
     pub fn new(cfg_type: PciCapabilityType, offset: u32, length: u32) -> Self {
         VirtioPciCap {
-            cap_len: u8::try_from(std::mem::size_of::<VirtioPciCap>()).unwrap()
-                + VIRTIO_PCI_CAP_LEN_OFFSET,
+            cap_len: u8::try_from(std::mem::size_of::<VirtioPciCap>())
+                .unwrap()
+                .strict_add(VIRTIO_PCI_CAP_LEN_OFFSET),
             cfg_type: cfg_type as u8,
             pci_bar: VIRTIO_BAR_INDEX,
             id: 0,
@@ -129,8 +130,9 @@ impl VirtioPciNotifyCap {
     pub fn new(cfg_type: PciCapabilityType, offset: u32, length: u32, multiplier: Le32) -> Self {
         VirtioPciNotifyCap {
             cap: VirtioPciCap {
-                cap_len: u8::try_from(std::mem::size_of::<VirtioPciNotifyCap>()).unwrap()
-                    + VIRTIO_PCI_CAP_LEN_OFFSET,
+                cap_len: u8::try_from(std::mem::size_of::<VirtioPciNotifyCap>())
+                    .unwrap()
+                    .strict_add(VIRTIO_PCI_CAP_LEN_OFFSET),
                 cfg_type: cfg_type as u8,
                 pci_bar: VIRTIO_BAR_INDEX,
                 id: 0,
@@ -166,7 +168,9 @@ impl VirtioPciCfgCap {
     fn new() -> Self {
         VirtioPciCfgCap {
             cap: VirtioPciCap {
-                cap_len: u8::try_from(size_of::<Self>()).unwrap() + VIRTIO_PCI_CAP_LEN_OFFSET,
+                cap_len: u8::try_from(size_of::<Self>())
+                    .unwrap()
+                    .strict_add(VIRTIO_PCI_CAP_LEN_OFFSET),
                 cfg_type: PciCapabilityType::Pci as u8,
                 pci_bar: VIRTIO_BAR_INDEX,
                 id: 0,
@@ -187,11 +191,13 @@ struct VirtioPciCfgCapInfo {
 
 impl VirtioPciCfgCapInfo {
     fn in_range(&self, reg_idx: u16, offset: u8, data_len: usize) -> bool {
-        let base = reg_idx * 4;
+        // `reg_idx` is masked to 10 bits by the PCI config address parsers (bus.rs), and
+        // `offset + data_len <= 4` is enforced before dispatch.
+        let base = reg_idx.strict_mul(4);
         let cap_start = self.offset;
-        let cap_end = self.offset as usize + self.cap.bytes().len();
-        let start = base + u16::from(offset);
-        let end = (base + u16::from(offset)) as usize + data_len;
+        let cap_end = (self.offset as usize).strict_add(self.cap.bytes().len());
+        let start = base.strict_add(u16::from(offset));
+        let end = (start as usize).strict_add(data_len);
         cap_start <= start && end <= cap_end
     }
 }
@@ -338,7 +344,7 @@ impl Debug for VirtioPciDevice {
 
 impl VirtioPciDevice {
     fn pci_configuration(device_type: VirtioDeviceType) -> PciConfiguration {
-        let pci_device_id = VIRTIO_PCI_DEVICE_ID_BASE + device_type as u16;
+        let pci_device_id = VIRTIO_PCI_DEVICE_ID_BASE.strict_add(device_type as u16);
         let (class, subclass) = match device_type {
             VirtioDeviceType::Net => (
                 PciClassCode::NetworkController,
@@ -441,7 +447,7 @@ impl VirtioPciDevice {
         sbdf: PciSBDF,
     ) -> Self {
         let num_queues = device.lock().expect("Poisoned lock").queues().len();
-        assert_eq!(msix_vectors.vectors.len(), num_queues + 1);
+        assert_eq!(msix_vectors.vectors.len(), num_queues.strict_add(1));
 
         let msix_config = Arc::new(Mutex::new(MsixConfig::new(msix_vectors.clone(), sbdf)));
         let pci_config =
@@ -491,7 +497,12 @@ impl VirtioPciDevice {
         let vectors = msix_config.vectors.clone();
 
         // Expecting one vector per queue, plus one for the configuration
-        let expected_num_vectors = device.lock().expect("Poisoned lock").queues().len() + 1;
+        let expected_num_vectors = device
+            .lock()
+            .expect("Poisoned lock")
+            .queues()
+            .len()
+            .strict_add(1);
         if vectors.vectors.len() != expected_num_vectors {
             return Err(VirtioPciDeviceError::UnexpectedMsixVectorCount(
                 vectors.vectors.len(),
@@ -666,7 +677,7 @@ impl VirtioPciDevice {
         let cap_slice = self.cap_pci_cfg_info.cap.as_slice();
         let data_len = data.len();
         let cap_len = cap_slice.len();
-        if offset + data_len > cap_len {
+        if offset.checked_add(data_len).is_none_or(|end| end > cap_len) {
             error!("Failed to read cap_pci_cfg from config space");
             return;
         }
@@ -693,7 +704,7 @@ impl VirtioPciDevice {
         let cap_slice = self.cap_pci_cfg_info.cap.as_mut_slice();
         let data_len = data.len();
         let cap_len = cap_slice.len();
-        if offset + data_len > cap_len {
+        if offset.checked_add(data_len).is_none_or(|end| end > cap_len) {
             error!("Failed to write cap_pci_cfg to config space");
             return None;
         }
@@ -739,9 +750,11 @@ impl VirtioPciDevice {
             .iter()
             .enumerate()
         {
-            let notify_base = bar_addr + u64::from(NOTIFICATION_BAR_OFFSET);
-            let io_addr =
-                IoEventAddress::Mmio(notify_base + i as u64 * u64::from(NOTIFY_OFF_MULTIPLIER));
+            // `bar_addr` is validated against the 32-bit MMIO allocator range before this runs.
+            let notify_base = bar_addr.strict_add(u64::from(NOTIFICATION_BAR_OFFSET));
+            let io_addr = IoEventAddress::Mmio(
+                notify_base.strict_add((i as u64).strict_mul(u64::from(NOTIFY_OFF_MULTIPLIER))),
+            );
             if assign {
                 vm.fd().register_ioevent(queue_evt, &io_addr, NoDatamatch)?;
             } else {
@@ -1018,12 +1031,13 @@ impl PciDevice for VirtioPciDevice {
         data: &[u8],
     ) -> Option<Arc<Barrier>> {
         let in_bars = BAR0_REG_IDX <= reg_idx && reg_idx < BAR0_REG_IDX + u16::from(NUM_BAR_REGS);
-        let in_msix_cap_header = reg_idx * 4 == self.msix_config_cap_offset;
+        // `reg_idx` is masked to 10 bits by the PCI config address parsers (bus.rs).
+        let in_msix_cap_header = reg_idx.strict_mul(4) == self.msix_config_cap_offset;
         let in_pci_cfg = self.cap_pci_cfg_info.in_range(reg_idx, offset, data.len());
         if in_bars {
             // reg_idx is in [BAR0_REG_IDX, BAR0_REG_IDX+NUM_BAR_REGS), so the difference is 0..5.
             #[allow(clippy::cast_possible_truncation)]
-            let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
+            let bar_idx = (reg_idx.strict_sub(BAR0_REG_IDX)) as u8;
             self.bars.write(bar_idx, offset, data);
             None
         } else if in_msix_cap_header {
@@ -1038,7 +1052,8 @@ impl PciDevice for VirtioPciDevice {
                 .write_config_register(reg_idx, offset, data);
             None
         } else if in_pci_cfg {
-            let offset = (reg_idx * 4 + u16::from(offset) - self.cap_pci_cfg_info.offset) as usize;
+            let offset = (reg_idx.strict_mul(4).strict_add(u16::from(offset)))
+                .strict_sub(self.cap_pci_cfg_info.offset) as usize;
             self.write_cap_pci_cfg(offset, data)
         } else {
             let mem_enabled_before = self.memory_space_enabled();
@@ -1058,7 +1073,7 @@ impl PciDevice for VirtioPciDevice {
         if in_bars {
             // reg_idx is in [BAR0_REG_IDX, BAR0_REG_IDX+NUM_BAR_REGS), so the difference is 0..5.
             #[allow(clippy::cast_possible_truncation)]
-            let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
+            let bar_idx = (reg_idx.strict_sub(BAR0_REG_IDX)) as u8;
             let mut value: u32 = 0;
             self.bars.read(bar_idx, 0, value.as_mut_bytes());
             value
@@ -1066,7 +1081,7 @@ impl PciDevice for VirtioPciDevice {
             // Handle the special case where the capability VIRTIO_PCI_CAP_PCI_CFG
             // is accessed. This capability has a special meaning as it allows the
             // guest to access other capabilities without mapping the PCI BAR.
-            let offset = (reg_idx * 4 - self.cap_pci_cfg_info.offset) as usize;
+            let offset = (reg_idx.strict_mul(4)).strict_sub(self.cap_pci_cfg_info.offset) as usize;
             let mut data = [0u8; 4];
             let len = u32::from(self.cap_pci_cfg_info.cap.cap.length) as usize;
             if len <= 4 {
@@ -1094,7 +1109,7 @@ impl PciDevice for VirtioPciDevice {
             }
             o if DEVICE_CONFIG_BAR_RANGE.contains(&o) => {
                 let device = self.device.lock().unwrap();
-                device.read_config(o - u64::from(DEVICE_CONFIG_BAR_OFFSET), data);
+                device.read_config(o.strict_sub(u64::from(DEVICE_CONFIG_BAR_OFFSET)), data);
             }
             o if NOTIFICATION_BAR_RANGE.contains(&o) => {
                 // Handled with ioeventfds.
@@ -1106,7 +1121,7 @@ impl PciDevice for VirtioPciDevice {
                         .msix_config
                         .lock()
                         .unwrap()
-                        .read_table(o - u64::from(MSIX_TABLE_BAR_OFFSET), data);
+                        .read_table(o.strict_sub(u64::from(MSIX_TABLE_BAR_OFFSET)), data);
                 }
             }
             o if MSIX_PBA_BAR_RANGE.contains(&o) => {
@@ -1115,7 +1130,7 @@ impl PciDevice for VirtioPciDevice {
                         .msix_config
                         .lock()
                         .unwrap()
-                        .read_pba(o - u64::from(MSIX_PBA_BAR_OFFSET), data);
+                        .read_pba(o.strict_sub(u64::from(MSIX_PBA_BAR_OFFSET)), data);
                 }
             }
             _ => (),
@@ -1136,7 +1151,7 @@ impl PciDevice for VirtioPciDevice {
             }
             o if DEVICE_CONFIG_BAR_RANGE.contains(&o) => {
                 let mut device = self.device.lock().unwrap();
-                device.write_config(o - u64::from(DEVICE_CONFIG_BAR_OFFSET), data);
+                device.write_config(o.strict_sub(u64::from(DEVICE_CONFIG_BAR_OFFSET)), data);
             }
             o if NOTIFICATION_BAR_RANGE.contains(&o) => {
                 // Handled with ioeventfds.
@@ -1148,7 +1163,7 @@ impl PciDevice for VirtioPciDevice {
                         .msix_config
                         .lock()
                         .unwrap()
-                        .write_table(o - u64::from(MSIX_TABLE_BAR_OFFSET), data);
+                        .write_table(o.strict_sub(u64::from(MSIX_TABLE_BAR_OFFSET)), data);
                 }
             }
             o if MSIX_PBA_BAR_RANGE.contains(&o) => {
@@ -1157,7 +1172,7 @@ impl PciDevice for VirtioPciDevice {
                         .msix_config
                         .lock()
                         .unwrap()
-                        .write_pba(o - u64::from(MSIX_PBA_BAR_OFFSET), data);
+                        .write_pba(o.strict_sub(u64::from(MSIX_PBA_BAR_OFFSET)), data);
                 }
             }
             _ => (),

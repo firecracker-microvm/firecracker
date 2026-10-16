@@ -130,8 +130,8 @@ impl Bars {
         // Unused BARs will have address and size of 0
         assert_eq!(self.bars[bar_idx as usize].encoded_addr, 0);
         assert_eq!(self.bars[bar_idx as usize].encoded_size, 0);
-        assert_eq!(self.bars[bar_idx as usize + 1].encoded_addr, 0);
-        assert_eq!(self.bars[bar_idx as usize + 1].encoded_size, 0);
+        assert_eq!(self.bars[bar_idx.strict_add(1) as usize].encoded_addr, 0);
+        assert_eq!(self.bars[bar_idx.strict_add(1) as usize].encoded_size, 0);
 
         let (size_hi, size_lo) = encode_64_bits_bar_size(size);
         let addr_lo = (addr & 0xfffffff0) as u32;
@@ -141,8 +141,8 @@ impl Bars {
 
         self.bars[bar_idx as usize].encoded_addr = addr_lo | prefetchable | is_64_bit;
         self.bars[bar_idx as usize].encoded_size = size_lo;
-        self.bars[(bar_idx + 1) as usize].encoded_addr = addr_hi;
-        self.bars[(bar_idx + 1) as usize].encoded_size = size_hi;
+        self.bars[bar_idx.strict_add(1) as usize].encoded_addr = addr_hi;
+        self.bars[bar_idx.strict_add(1) as usize].encoded_size = size_hi;
     }
 
     /// Get the address of the 32bit or 64bit BAR
@@ -180,9 +180,9 @@ impl Bars {
         let mut i: u8 = 0;
         while i < bar_idx {
             if self.bars[i as usize].is_64bit() {
-                i += 2;
+                i = i.strict_add(2);
             } else {
-                i += 1;
+                i = i.strict_add(1);
             }
         }
         i == bar_idx
@@ -202,7 +202,7 @@ impl Bars {
         assert!(self.bar_idx_valid(bar_idx));
         let bar_lo = &self.bars[bar_idx as usize];
         assert!(bar_lo.is_64bit());
-        let addr_hi = self.bars[(bar_idx + 1) as usize].encoded_addr;
+        let addr_hi = self.bars[bar_idx.strict_add(1) as usize].encoded_addr;
         let addr_lo = bar_lo.encoded_addr & !0b1111;
         (addr_hi as u64) << 32 | (addr_lo as u64)
     }
@@ -221,7 +221,7 @@ impl Bars {
         assert!(self.bar_idx_valid(bar_idx));
         let bar_lo = &self.bars[bar_idx as usize];
         assert!(bar_lo.is_64bit());
-        let size_hi = self.bars[(bar_idx + 1) as usize].encoded_size;
+        let size_hi = self.bars[bar_idx.strict_add(1) as usize].encoded_size;
         let size_lo = self.bars[bar_idx as usize].encoded_size;
         decode_64_bits_bar_size(size_hi, size_lo)
     }
@@ -230,7 +230,7 @@ impl Bars {
     pub fn write(&mut self, bar_idx: u8, offset: u8, data: &[u8]) {
         // There are only 6 registers each 4 bytes long
         assert!(bar_idx < NUM_BAR_REGS);
-        assert!(offset as usize + data.len() <= 4);
+        assert!((offset as usize).strict_add(data.len()) <= 4);
 
         let bar = &mut self.bars[bar_idx as usize];
 
@@ -253,7 +253,7 @@ impl Bars {
     pub fn read(&self, bar_idx: u8, offset: u8, data: &mut [u8]) {
         // There are only 6 registers each 4 bytes long
         assert!(bar_idx < NUM_BAR_REGS);
-        assert!(offset as usize + data.len() <= 4);
+        assert!((offset as usize).strict_add(data.len()) <= 4);
         let bar = &self.bars[bar_idx as usize];
         let bytes = bar.encoded_addr.as_bytes();
         data.copy_from_slice(&bytes[offset as usize..][..data.len()]);
@@ -272,7 +272,7 @@ pub trait PciCapability {
 // It assumes that bar_size is not 0
 fn encode_32_bits_bar_size(bar_size: u32) -> u32 {
     assert_ne!(bar_size, 0);
-    !(bar_size - 1)
+    !(bar_size.strict_sub(1))
 }
 
 /// Decode 32bit BAR size
@@ -284,7 +284,7 @@ pub fn decode_32_bits_bar_size(encoded_size: u32) -> u32 {
 // It assumes that bar_size is not 0
 fn encode_64_bits_bar_size(bar_size: u64) -> (u32, u32) {
     assert_ne!(bar_size, 0);
-    let result = !(bar_size - 1);
+    let result = !(bar_size.strict_sub(1));
     let result_hi = (result >> 32) as u32;
     let result_lo = (result & 0xffff_ffff) as u32;
     (result_hi, result_lo)
@@ -489,7 +489,7 @@ impl PciConfiguration {
 
     /// Writes a byte to `offset`, optionally enforcing read-only bits.
     fn write_byte_internal(&mut self, offset: u16, value: u8, apply_writable_mask: bool) {
-        let shift = (offset as usize % 4) * 8;
+        let shift = (offset as usize % 4).strict_mul(8);
         let reg_idx = offset as usize / 4;
 
         if let Some(r) = self.registers.get_mut(reg_idx) {
@@ -512,31 +512,35 @@ impl PciConfiguration {
     /// Correct values will be generated automatically based on `cap_data.id()` and
     /// `cap_data.len()`.
     pub fn add_capability(&mut self, cap_data: &dyn PciCapability) -> u8 {
-        let total_len = cap_data.bytes().len() + 2;
+        let total_len = cap_data.bytes().len().strict_add(2);
         assert!(total_len < usize::from(u8::MAX));
         // We assert that the len fit in u8
         #[allow(clippy::cast_possible_truncation)]
         let total_len = total_len as u8;
 
         let (cap_offset, tail_offset) = match self.last_capability {
-            Some((offset, len)) => (Self::next_dword(offset, len), offset + 1),
+            Some((offset, len)) => (Self::next_dword(offset, len), offset.strict_add(1)),
             None => (FIRST_CAPABILITY_OFFSET, CAPABILITY_LIST_HEAD_OFFSET),
         };
 
         // We know that the capabilities we are using have a valid size (doesn't overflow) and that
         // we add capabilities that fit in the available space. If any of these requirements don't
         // hold, this is due to a Firecracker bug.
-        let end_offset = u16::from(cap_offset) + u16::from(total_len);
+        let end_offset = u16::from(cap_offset).strict_add(u16::from(total_len));
         assert!(end_offset <= CAPABILITY_MAX_OFFSET);
         self.registers[STATUS_REG] |= STATUS_REG_CAPABILITIES_USED_MASK;
         self.write_byte_internal(u16::from(tail_offset), cap_offset, false);
         self.write_byte_internal(u16::from(cap_offset), cap_data.id() as u8, false);
-        self.write_byte_internal(u16::from(cap_offset) + 1, 0, false); // Next pointer.
+        self.write_byte_internal(u16::from(cap_offset).strict_add(1), 0, false); // Next pointer.
         for (i, byte) in cap_data.bytes().iter().enumerate() {
             // We asserted that the number of bytes fit into u8 and so in u16
             #[allow(clippy::cast_possible_truncation)]
             let i = i as u16;
-            self.write_byte_internal(u16::from(cap_offset) + i + 2, *byte, false);
+            self.write_byte_internal(
+                u16::from(cap_offset).strict_add(i).strict_add(2),
+                *byte,
+                false,
+            );
         }
         self.last_capability = Some((cap_offset, total_len));
 
@@ -555,8 +559,8 @@ impl PciConfiguration {
 
     // Find the next aligned offset after the one given.
     fn next_dword(offset: u8, len: u8) -> u8 {
-        let next = offset + len;
-        (next + 3) & !3
+        let next = offset.strict_add(len);
+        (next.strict_add(3)) & !3
     }
 
     /// Write a PCI configuration register
@@ -573,9 +577,9 @@ impl PciConfiguration {
         }
 
         match data.len() {
-            1 => self.write_byte(reg_idx * 4 + offset as u16, data[0]),
+            1 => self.write_byte(reg_idx.strict_mul(4).strict_add(offset as u16), data[0]),
             2 => self.write_word(
-                reg_idx * 4 + offset as u16,
+                reg_idx.strict_mul(4).strict_add(offset as u16),
                 u16::from(data[0]) | (u16::from(data[1]) << 8),
             ),
             4 => self.write_reg(reg_idx, LittleEndian::read_u32(data)),
