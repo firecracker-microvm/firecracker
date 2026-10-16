@@ -102,14 +102,16 @@ fn mpf_intel_compute_checksum(v: &mpspec::mpf_intel) -> u8 {
     (!checksum).wrapping_add(1)
 }
 
+/// Size of the MP table parts that do not depend on the number of CPUs.
+const MP_TABLE_FIXED_SIZE: usize = mem::size_of::<mpspec::mpf_intel>()
+    + mem::size_of::<mpspec::mpc_table>()
+    + mem::size_of::<mpspec::mpc_ioapic>()
+    + mem::size_of::<mpspec::mpc_bus>()
+    + mem::size_of::<mpspec::mpc_intsrc>() * (GSI_LEGACY_END as usize + 1)
+    + mem::size_of::<mpspec::mpc_lintsrc>() * 2;
+
 fn compute_mp_size(num_cpus: u8) -> usize {
-    mem::size_of::<mpspec::mpf_intel>()
-        + mem::size_of::<mpspec::mpc_table>()
-        + mem::size_of::<mpspec::mpc_cpu>() * (num_cpus as usize)
-        + mem::size_of::<mpspec::mpc_ioapic>()
-        + mem::size_of::<mpspec::mpc_bus>()
-        + mem::size_of::<mpspec::mpc_intsrc>() * (GSI_LEGACY_END as usize + 1)
-        + mem::size_of::<mpspec::mpc_lintsrc>() * 2
+    MP_TABLE_FIXED_SIZE.strict_add(mem::size_of::<mpspec::mpc_cpu>().strict_mul(num_cpus as usize))
 }
 
 /// Performs setup of the MP table for the given `num_cpus`.
