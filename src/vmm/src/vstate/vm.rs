@@ -852,7 +852,7 @@ pub(crate) mod tests {
         // memfd-backed: what a VM configured with a vhost-user block before boot
         // gets.
         let mut vm = setup_vm();
-        let regions = arch::arch_memory_regions(mib_to_bytes(128));
+        let regions = arch::arch_memory_regions(mib_to_bytes(128)).unwrap();
         let total: u64 = regions.iter().map(|&(_, size)| size as u64).sum();
         let gm = crate::vstate::memory::MemfdBacking::new(total, HugePageConfig::None)
             .unwrap()
@@ -865,7 +865,7 @@ pub(crate) mod tests {
         // rejected.
         let mut vm = setup_vm();
         let file = vmm_sys_util::tempfile::TempFile::new().unwrap().into_file();
-        let regions = arch::arch_memory_regions(mib_to_bytes(128));
+        let regions = arch::arch_memory_regions(mib_to_bytes(128)).unwrap();
         let total: u64 = regions.iter().map(|&(_, size)| size as u64).sum();
         file.set_len(total).unwrap();
         let gm = crate::vstate::memory::snapshot_file(file, &regions, false, HugePageConfig::None)

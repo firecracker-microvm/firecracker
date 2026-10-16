@@ -5,8 +5,10 @@ use std::num::NonZeroU16;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::arch::MAX_GUEST_MEM_SIZE;
 use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
 use crate::pci::bus::MAX_PCI_BUSES;
+use crate::utils::checked_mib_to_bytes;
 
 /// The default memory size of the VM, in MiB.
 pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
@@ -23,7 +25,7 @@ pub const MAX_PCIE_HOTPLUG_PORTS: u8 = MAX_PCI_BUSES - 1;
 pub enum MachineConfigError {
     /// The memory size (MiB) is smaller than the previously set balloon device target size.
     IncompatibleBalloonSize,
-    /// The memory size (MiB) is either 0, or not a multiple of the configured page size.
+    /// The memory size (MiB) is either 0, not a multiple of the configured page size, or exceeds the architectural maximum.
     InvalidMemorySize,
     /// The number of vCPUs must be greater than 0, less than {MAX_SUPPORTED_VCPUS:} and must be 1 or an even number if SMT is enabled.
     InvalidVcpuCount,
@@ -296,7 +298,10 @@ impl MachineConfig {
         let mem_size_mib = update.mem_size_mib.unwrap_or(self.mem_size_mib);
         let page_config = update.huge_pages.unwrap_or(self.huge_pages);
 
-        if mem_size_mib == 0 || !page_config.is_valid_mem_size(mem_size_mib) {
+        if mem_size_mib == 0
+            || checked_mib_to_bytes(mem_size_mib).is_none_or(|bytes| bytes > MAX_GUEST_MEM_SIZE)
+            || !page_config.is_valid_mem_size(mem_size_mib)
+        {
             return Err(MachineConfigError::InvalidMemorySize);
         }
 
@@ -348,7 +353,21 @@ mod tests {
     use std::num::NonZeroU16;
 
     use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
-    use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError};
+    use crate::vmm_config::machine_config::{
+        MachineConfig, MachineConfigError, MachineConfigUpdate,
+    };
+
+    #[test]
+    fn test_mem_size_byte_count_must_fit_usize() {
+        let update = MachineConfigUpdate {
+            mem_size_mib: Some((usize::MAX >> 20) + 1),
+            ..MachineConfigUpdate::from(MachineConfig::default())
+        };
+        assert_eq!(
+            MachineConfig::default().update(&update),
+            Err(MachineConfigError::InvalidMemorySize)
+        );
+    }
 
     // Ensure the special (de)serialization logic for the cpu_template field works:
     // only static cpu templates can be specified via the machine-config endpoint, but
