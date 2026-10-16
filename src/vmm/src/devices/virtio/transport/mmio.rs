@@ -176,13 +176,20 @@ impl MmioTransport {
         ];
 
         if (status & FAILED) != 0 {
-            // TODO: notify backend driver to stop the device
             self.device_status |= FAILED;
         } else if status == INIT {
             if self.device_status != INIT {
                 if self.device.lock().expect("Poisoned lock").reset() {
                     self.reset();
                 } else {
+                    // The guest never looks at this. The Linux MMIO driver writes 0 and
+                    // returns without reading the status back. Setting FAILED does stop any
+                    // re-initialization, since no transition out of it is valid. The work we
+                    // could not stop may still write into guest memory that the guest has
+                    // freed and reused.
+                    //
+                    // TODO: decide what Firecracker should do when a reset cannot be completed.
+                    // https://github.com/firecracker-microvm/firecracker/issues/6281
                     self.device_status |= FAILED;
                 }
             }
