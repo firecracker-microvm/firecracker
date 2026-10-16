@@ -1060,7 +1060,7 @@ impl VirtioDevice for Net {
 
 #[cfg(test)]
 #[macro_use]
-#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_truncation, clippy::arithmetic_side_effects)]
 pub mod tests {
     use std::mem;
     use std::net::Ipv4Addr;

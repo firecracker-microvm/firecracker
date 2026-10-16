@@ -1467,6 +1467,7 @@ pub mod test_utils {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     #![allow(clippy::undocumented_unsafe_blocks)]
 
     use std::collections::HashMap;

@@ -567,7 +567,7 @@ impl<const L: u16> IoVecBufferMut<L> {
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_truncation, clippy::arithmetic_side_effects)]
 mod tests {
     use std::io::Write;
 

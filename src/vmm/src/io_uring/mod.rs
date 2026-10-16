@@ -386,6 +386,7 @@ impl<T: Debug> IoUring<T> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::fs::FileExt;
 

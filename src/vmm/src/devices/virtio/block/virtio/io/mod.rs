@@ -199,6 +199,7 @@ impl FileEngine {
 #[cfg(test)]
 pub mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
+    #![allow(clippy::arithmetic_side_effects)]
     use std::os::unix::ffi::OsStrExt;
 
     use vm_memory::{GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion};

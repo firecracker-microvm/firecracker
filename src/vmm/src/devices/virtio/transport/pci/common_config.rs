@@ -434,6 +434,7 @@ impl VirtioPciCommonConfig {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     use vm_memory::ByteValued;
 
     use super::*;

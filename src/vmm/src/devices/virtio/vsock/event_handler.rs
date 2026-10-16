@@ -244,6 +244,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     use std::sync::{Arc, Mutex};
 
     use event_manager::{EventManager, SubscriberOps};

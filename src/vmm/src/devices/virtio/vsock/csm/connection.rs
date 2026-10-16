@@ -687,6 +687,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     use std::io::{Error as IoError, ErrorKind, Write};
     use std::os::unix::io::RawFd;
     use std::time::{Duration, Instant};
