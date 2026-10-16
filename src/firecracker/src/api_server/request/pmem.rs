@@ -100,7 +100,7 @@ mod tests {
             path_on_host: "dummy".to_string(),
             root_device: true,
             read_only: true,
-            rate_limiter: Some(Default::default()),
+            rate_limiter_config: Some(Default::default()),
         };
         assert_eq!(r, VmmAction::InsertPmemDevice(expected_config));
     }
@@ -127,7 +127,7 @@ mod tests {
 
         let expected_config = PmemDeviceUpdateConfig {
             id: "1000".to_string(),
-            rate_limiter: Some(Default::default()),
+            rate_limiter_config: Some(Default::default()),
         };
         assert_eq!(r, VmmAction::UpdatePmemDevice(expected_config));
     }

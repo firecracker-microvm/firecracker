@@ -1090,7 +1090,7 @@ pub(crate) mod tests {
                         .unwrap()
                         .to_string(),
                 ),
-                rate_limiter: None,
+                rate_limiter_config: None,
                 file_engine_type: None,
                 image_format: None,
                 blk_size: None,
@@ -1297,8 +1297,8 @@ pub(crate) mod tests {
             host_dev_name: String::from("hostname"),
             guest_mac: None,
             mtu: None,
-            rx_rate_limiter: None,
-            tx_rate_limiter: None,
+            rx_rate_limiter_config: None,
+            tx_rate_limiter_config: None,
             dmb_size_mib: None,
         };
 

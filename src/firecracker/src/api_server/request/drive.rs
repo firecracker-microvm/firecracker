@@ -136,7 +136,7 @@ mod tests {
         let expected_config = BlockDeviceUpdateConfig {
             drive_id: "foo".to_string(),
             path_on_host: Some("dummy".to_string()),
-            rate_limiter: None,
+            rate_limiter_config: None,
         };
         assert_eq!(
             vmm_action_from_request(parse_patch_drive(&Body::new(body), Some("foo")).unwrap()),

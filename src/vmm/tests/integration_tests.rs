@@ -573,7 +573,7 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
         discard: None,
         num_queues: None,
         path_on_host: Some(tmp_file),
-        rate_limiter: None,
+        rate_limiter_config: None,
         file_engine_type: None,
         image_format: None,
         blk_size: None,
@@ -591,8 +591,8 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
         host_dev_name: String::new(),
         guest_mac: None,
         mtu: None,
-        rx_rate_limiter: None,
-        tx_rate_limiter: None,
+        rx_rate_limiter_config: None,
+        tx_rate_limiter_config: None,
         dmb_size_mib: None,
     });
     verify_load_snap_disallowed_after_boot_resources(req, "InsertNetworkDevice");
