@@ -367,10 +367,9 @@ impl KvmVcpu {
             Some(xsave2_size) => {
                 // Convert the `kvm_xsave` size in bytes to the length of FAM (i.e. `extra`).
                 let fam_len =
-                    // Calculate the size of FAM (`extra`) area in bytes. Note that the subtraction
-                    // never underflows because `KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2)` always returns
-                    // at least 4096 bytes that is the size of `kvm_xsave` without FAM area.
-                    (xsave2_size - std::mem::size_of::<kvm_xsave>())
+                    // Size of the FAM (`extra`) area. `KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2)`
+                    // reports at least the size of `kvm_xsave` without the FAM area.
+                    xsave2_size.strict_sub(std::mem::size_of::<kvm_xsave>())
                     // Divide by the size of FAM (`extra`) entry (i.e. `__u32`).
                     .div_ceil(std::mem::size_of::<<kvm_xsave2 as FamStruct>::Entry>());
                 let mut xsave = Xsave::new(fam_len).map_err(KvmVcpuError::Fam)?;
