@@ -156,7 +156,7 @@ pub enum VmmAction {
     /// action can only be called before the microVM has booted.
     UpdateMachineConfiguration(MachineConfigUpdate),
     /// Hot-unplug a device.
-    HotUnplugDevice(VirtioDeviceId),
+    HotUnplugDevice(VirtioDeviceId, bool),
 }
 
 /// Wrapper for all errors associated with VMM actions.
@@ -218,6 +218,8 @@ pub enum VmmActionError {
     DeviceNotFound,
     /// Cannot unplug root device
     CannotUnplugRootDevice,
+    /// Device '{0}' is not removable because it's not plugged to a PCIe root port.
+    DeviceNotRemovable(String),
     /// PCI is not enabled
     PciNotEnabled,
     /// PCI manager error: {0}
@@ -519,7 +521,7 @@ impl<'a> PrebootApiController<'a> {
             | StartFreePageHinting(_)
             | GetFreePageHintingStatus
             | StopFreePageHinting
-            | HotUnplugDevice(_)
+            | HotUnplugDevice(..)
             | SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
     }
@@ -782,11 +784,11 @@ impl RuntimeApiController {
                 .expect("Poisoned lock")
                 .hotplug_device(HotplugDeviceConfig::Net(config), event_manager)
                 .map(|()| VmmData::Empty),
-            HotUnplugDevice(device_id) => self
+            HotUnplugDevice(device_id, force) => self
                 .vmm
                 .lock()
                 .expect("Poisoned lock")
-                .hot_unplug_device(device_id, event_manager)
+                .hot_unplug_device(device_id, event_manager, force)
                 .map(|()| VmmData::Empty),
             Pause => self.pause(),
             PutMMDS(value) => mmds_put_data(
@@ -866,6 +868,14 @@ impl RuntimeApiController {
     /// Creates a new `RuntimeApiController`.
     pub fn new(vmm: Arc<Mutex<Vmm>>) -> Self {
         Self { vmm }
+    }
+
+    /// Tears down the devices whose removal the guest has acknowledged.
+    pub fn complete_hotplug_removals(&mut self, event_manager: &mut EventManager) {
+        self.vmm
+            .lock()
+            .expect("Poisoned lock")
+            .complete_hotplug_removals(event_manager);
     }
 
     /// Pauses the microVM by pausing the vCPUs.
