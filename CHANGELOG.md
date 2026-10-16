@@ -64,6 +64,12 @@ and this project adheres to
 
 ### Fixed
 
+- [#6256](https://github.com/firecracker-microvm/firecracker/pull/6256): Fixed
+  host sockets that never send their `CONNECT <port>\n` command piling up
+  without limit on the vsock Unix socket. Such sockets now count towards the
+  vsock connection limit. When the limit is reached, a new connection from
+  either the host or the guest closes the oldest such socket to make room.
+
 - [#6254](https://github.com/firecracker-microvm/firecracker/pull/6254) Fixed
   pausing a vCPU with an unfinished MMIO or port-I/O instruction. Pending I/O
   now completes before the vCPU pauses, so snapshots include its effects without
