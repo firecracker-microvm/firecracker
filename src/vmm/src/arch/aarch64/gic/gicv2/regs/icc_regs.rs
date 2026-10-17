@@ -27,9 +27,6 @@ static MAIN_VGIC_ICC_REGS: &[SimpleReg] = &[
     GICC_CTLR, GICC_PMR, GICC_BPR, GICC_APBR, GICC_APR1, GICC_APR2, GICC_APR3, GICC_APR4,
 ];
 
-const KVM_DEV_ARM_VGIC_CPUID_SHIFT: u32 = 32;
-const KVM_DEV_ARM_VGIC_OFFSET_SHIFT: u32 = 0;
-
 struct VgicSysRegEngine {}
 
 impl VgicRegEngine for VgicSysRegEngine {
@@ -40,16 +37,8 @@ impl VgicRegEngine for VgicSysRegEngine {
         KVM_DEV_ARM_VGIC_GRP_CPU_REGS
     }
 
-    fn kvm_device_attr(offset: u64, val: &mut Self::RegChunk, cpuid: u64) -> kvm_device_attr {
-        kvm_device_attr {
-            group: Self::group(),
-            attr: ((cpuid << KVM_DEV_ARM_VGIC_CPUID_SHIFT)
-                & (0xff << KVM_DEV_ARM_VGIC_CPUID_SHIFT))
-                | ((offset << KVM_DEV_ARM_VGIC_OFFSET_SHIFT)
-                    & (0xffffffff << KVM_DEV_ARM_VGIC_OFFSET_SHIFT)),
-            addr: val as *mut Self::RegChunk as u64,
-            flags: 0,
-        }
+    fn mpidr_mask() -> u64 {
+        KVM_DEV_ARM_VGIC_CPUID_MASK
     }
 }
 
