@@ -36,7 +36,7 @@ use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vsock::VsockError;
-use crate::devices::virtio::vsock::metrics::METRICS;
+use crate::devices::virtio::vsock::metrics::VsockDeviceMetrics;
 use crate::impl_device_type;
 use crate::logger::{IncMetric, error, info, warn};
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};
@@ -79,6 +79,7 @@ pub struct Vsock<B> {
 
     /// Gates RX delivery while a TRANSPORT_RESET is awaiting guest ack.
     pub(crate) pending_event_ack: bool,
+    pub(crate) metrics: Arc<VsockDeviceMetrics>,
 }
 
 impl<B> Vsock<B>
@@ -91,6 +92,7 @@ where
         cid: u64,
         backend: B,
         queues: Vec<VirtQueue>,
+        metrics: Arc<VsockDeviceMetrics>,
     ) -> Result<Vsock<B>, VsockError> {
         let mut queue_events = Vec::new();
         for _ in 0..queues.len() {
@@ -109,16 +111,21 @@ where
             rx_packet: VsockPacketRx::new()?,
             tx_packet: VsockPacketTx::default(),
             pending_event_ack: false,
+            metrics,
         })
     }
 
     /// Create a new virtio-vsock device with the given VM CID and vsock backend.
-    pub fn new(cid: u64, backend: B) -> Result<Vsock<B>, VsockError> {
+    pub fn new(
+        cid: u64,
+        backend: B,
+        metrics: Arc<VsockDeviceMetrics>,
+    ) -> Result<Vsock<B>, VsockError> {
         let queues: Vec<VirtQueue> = defs::VSOCK_QUEUE_SIZES
             .iter()
             .map(|&max_size| VirtQueue::new(max_size))
             .collect();
-        Self::with_queues(cid, backend, queues)
+        Self::with_queues(cid, backend, queues, metrics)
     }
 
     /// Retrieve the cid associated with this vsock device.
@@ -253,12 +260,13 @@ where
     // connections and the guest_cid configuration field is fetched again. Existing listen sockets
     // remain but their CID is updated to reflect the current guest_cid.
     pub fn send_transport_reset_event(&mut self) -> Result<(), DeviceError> {
+        let metrics = Arc::clone(&self.metrics);
         // This is safe since we checked in the caller function that the device is activated.
         let mem = &self.device_state.active_state().unwrap().mem;
 
         let queue = &mut self.queues[EVQ_INDEX];
         let head = queue.pop()?.ok_or_else(|| {
-            METRICS.ev_queue_event_fails.inc();
+            metrics.ev_queue_event_fails.inc();
             DeviceError::VsockError(VsockError::EmptyQueue)
         })?;
 
@@ -343,7 +351,7 @@ where
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
-        METRICS.cfg_fails.inc();
+        self.metrics.cfg_fails.inc();
         warn!(
             "vsock: guest driver attempted to write device config (offset={:#x}, len={:#x})",
             offset,
@@ -364,7 +372,7 @@ where
         }
 
         if self.queues.len() != defs::VSOCK_NUM_QUEUES {
-            METRICS.activate_fails.inc();
+            self.metrics.activate_fails.inc();
             return Err(ActivateError::QueueMismatch {
                 expected: defs::VSOCK_NUM_QUEUES,
                 got: self.queues.len(),
@@ -377,13 +385,14 @@ where
             }
         }
 
+        let metrics = Arc::clone(&self.metrics);
         self.backend.activate().map_err(|err| {
-            METRICS.activate_fails.inc();
+            metrics.activate_fails.inc();
             ActivateError::VsockBackend(err)
         })?;
 
         if self.activate_evt.write(1).is_err() {
-            METRICS.activate_fails.inc();
+            self.metrics.activate_fails.inc();
             return Err(ActivateError::EventFd);
         }
 
