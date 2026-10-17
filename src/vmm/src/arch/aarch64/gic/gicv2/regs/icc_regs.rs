@@ -27,9 +27,6 @@ static MAIN_VGIC_ICC_REGS: &[SimpleReg] = &[
     GICC_CTLR, GICC_PMR, GICC_BPR, GICC_APBR, GICC_APR1, GICC_APR2, GICC_APR3, GICC_APR4,
 ];
 
-const KVM_DEV_ARM_VGIC_CPUID_SHIFT: u32 = 32;
-const KVM_DEV_ARM_VGIC_OFFSET_SHIFT: u32 = 0;
-
 struct VgicSysRegEngine {}
 
 impl VgicRegEngine for VgicSysRegEngine {
@@ -40,16 +37,8 @@ impl VgicRegEngine for VgicSysRegEngine {
         KVM_DEV_ARM_VGIC_GRP_CPU_REGS
     }
 
-    fn kvm_device_attr(offset: u64, val: &mut Self::RegChunk, cpuid: u64) -> kvm_device_attr {
-        kvm_device_attr {
-            group: Self::group(),
-            attr: ((cpuid << KVM_DEV_ARM_VGIC_CPUID_SHIFT)
-                & (0xff << KVM_DEV_ARM_VGIC_CPUID_SHIFT))
-                | ((offset << KVM_DEV_ARM_VGIC_OFFSET_SHIFT)
-                    & (0xffffffff << KVM_DEV_ARM_VGIC_OFFSET_SHIFT)),
-            addr: val as *mut Self::RegChunk as u64,
-            flags: 0,
-        }
+    fn mpidr_mask() -> u64 {
+        KVM_DEV_ARM_VGIC_CPUID_MASK
     }
 }
 
@@ -123,5 +112,32 @@ mod tests {
 
         // dropping gic_fd would double close the gic fd, so leak it
         std::mem::forget(gic_fd);
+    }
+
+    #[test]
+    fn test_access_icc_regs_per_vcpu() {
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let _ = vm.create_vcpu(0).unwrap();
+        let _ = vm.create_vcpu(1).unwrap();
+        let gic_fd = match create_gic(&vm, 2, Some(GICVersion::GICV2)) {
+            Ok(gic_fd) => gic_fd,
+            Err(GicError::CreateGIC(_)) => return,
+            _ => panic!("Failed to open setup GICv2"),
+        };
+
+        let cpu_id = 1 << 32;
+        let gicc_pmr = |cpu_id| {
+            get_icc_regs(gic_fd.device_fd(), cpu_id)
+                .unwrap()
+                .main_icc_regs[1]
+                .chunks[0]
+        };
+        let mut state = get_icc_regs(gic_fd.device_fd(), cpu_id).unwrap();
+        state.main_icc_regs[1].chunks[0] = 0x1f;
+        set_icc_regs(gic_fd.device_fd(), cpu_id, &state).unwrap();
+
+        assert_eq!(gicc_pmr(0), 0);
+        assert_eq!(gicc_pmr(cpu_id), 0x1f);
     }
 }
