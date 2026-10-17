@@ -70,7 +70,7 @@ Firecracker implementation exposes these config options for the `virtio-pmem`
 device:
 
 - `id` - id of the device for internal use
-- `path_on_host` - path to the backing file
+- `path_on_host` - path to the backing file or block device
 - `root_device` - toggle to use this device as root device. Device will be
   marked as `rw` in the kernel arguments
 - `read_only` - tells Firecracker to `mmap` the backing file in read-only mode.
