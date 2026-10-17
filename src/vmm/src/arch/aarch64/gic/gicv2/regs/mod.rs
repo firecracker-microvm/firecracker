@@ -14,8 +14,8 @@ pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState, GicError> {
     let mut vcpu_states = Vec::with_capacity(mpidrs.len());
     for mpidr in mpidrs {
         vcpu_states.push(GicVcpuState {
-            rdist: Vec::new(),
             icc: icc_regs::get_icc_regs(fd, *mpidr)?,
+            rdist: dist_regs::get_banked_dist_regs(fd, *mpidr)?,
         })
     }
 
@@ -34,6 +34,7 @@ pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<
         return Err(GicError::InconsistentVcpuCount);
     }
     for (mpidr, vcpu_state) in mpidrs.iter().zip(&state.gic_vcpu_states) {
+        dist_regs::set_banked_dist_regs(fd, *mpidr, &vcpu_state.rdist)?;
         icc_regs::set_icc_regs(fd, *mpidr, &vcpu_state.icc)?;
     }
 
