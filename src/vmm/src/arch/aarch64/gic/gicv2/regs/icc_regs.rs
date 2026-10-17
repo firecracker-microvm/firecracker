@@ -124,4 +124,31 @@ mod tests {
         // dropping gic_fd would double close the gic fd, so leak it
         std::mem::forget(gic_fd);
     }
+
+    #[test]
+    fn test_access_icc_regs_per_vcpu() {
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let _ = vm.create_vcpu(0).unwrap();
+        let _ = vm.create_vcpu(1).unwrap();
+        let gic_fd = match create_gic(&vm, 2, Some(GICVersion::GICV2)) {
+            Ok(gic_fd) => gic_fd,
+            Err(GicError::CreateGIC(_)) => return,
+            _ => panic!("Failed to open setup GICv2"),
+        };
+
+        let cpu_id = 1 << 32;
+        let gicc_pmr = |cpu_id| {
+            get_icc_regs(gic_fd.device_fd(), cpu_id)
+                .unwrap()
+                .main_icc_regs[1]
+                .chunks[0]
+        };
+        let mut state = get_icc_regs(gic_fd.device_fd(), cpu_id).unwrap();
+        state.main_icc_regs[1].chunks[0] = 0x1f;
+        set_icc_regs(gic_fd.device_fd(), cpu_id, &state).unwrap();
+
+        assert_eq!(gicc_pmr(0), 0);
+        assert_eq!(gicc_pmr(cpu_id), 0x1f);
+    }
 }
