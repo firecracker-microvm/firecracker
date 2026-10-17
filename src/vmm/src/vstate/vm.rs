@@ -10,7 +10,9 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Barrier, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::KVM_IRQCHIP_IOAPIC;
@@ -28,7 +30,7 @@ use vmm_sys_util::terminal::Terminal;
 
 use crate::arch::{GSI_MSI_END, host_page_size};
 pub use crate::arch::{KvmVm, KvmVmError, VmState};
-use crate::logger::{debug, info};
+use crate::logger::{debug, info, warn};
 use crate::pci::PciSBDF;
 use crate::pci::msix::MsixTableEntry;
 use crate::persist::CreateSnapshotError;
@@ -41,7 +43,7 @@ use crate::vstate::memory::{
     GuestRegionMmapExt, MemoryError,
 };
 use crate::vstate::resources::ResourceAllocator;
-use crate::vstate::vcpu::{StartThreadedError, VcpuError, VcpuHandle};
+use crate::vstate::vcpu::{StartThreadedError, VcpuError, VcpuHandle, VcpuSendEventError};
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
 /// Error type for [`KvmVm::start_vcpus`].
@@ -282,47 +284,47 @@ impl KvmVm {
     }
 
     /// Sends a pause event to all vCPUs and waits for acknowledgement.
+    ///
+    /// If any vCPU fails to acknowledge the pause, vCPUs that already paused are
+    /// resumed. The caller leaves the microVM in the running state on error, so a
+    /// partial pause would otherwise park some vCPUs while the API still reports
+    /// the VM as running.
     pub fn pause_vcpus(&self) -> Result<(), crate::VmmError> {
         let mut handles = self.vcpus_handles();
-        handles
-            .iter_mut()
-            .try_for_each(|handle| handle.send_event(crate::VcpuEvent::Pause))
-            .map_err(|_| crate::VmmError::VcpuMessage)?;
+        let responses = match request_vcpu_responses(&mut handles, crate::VcpuEvent::Pause) {
+            Ok(responses) => responses,
+            Err(err) => {
+                warn!("Failed to send pause to vCPUs: {err}");
+                resume_vcpus_after_failed_pause(&mut handles);
+                return Err(crate::VmmError::VcpuMessage);
+            }
+        };
 
-        if handles
+        if responses
             .iter()
-            .map(|handle| {
-                handle
-                    .response_receiver()
-                    .recv_timeout(crate::RECV_TIMEOUT_SEC)
-            })
-            .any(|response| !matches!(response, Ok(crate::VcpuResponse::Paused)))
+            .all(|response| matches!(response, Ok(crate::VcpuResponse::Paused)))
         {
-            return Err(crate::VmmError::VcpuMessage);
+            return Ok(());
         }
-        Ok(())
+
+        resume_vcpus_after_failed_pause(&mut handles);
+        Err(crate::VmmError::VcpuMessage)
     }
 
     /// Sends a resume event to all vCPUs and waits for acknowledgement.
     pub fn resume_vcpus(&self) -> Result<(), crate::VmmError> {
         let mut handles = self.vcpus_handles();
-        handles
-            .iter_mut()
-            .try_for_each(|handle| handle.send_event(crate::VcpuEvent::Resume))
+        let responses = request_vcpu_responses(&mut handles, crate::VcpuEvent::Resume)
             .map_err(|_| crate::VmmError::VcpuMessage)?;
 
-        if handles
+        if responses
             .iter()
-            .map(|handle| {
-                handle
-                    .response_receiver()
-                    .recv_timeout(crate::RECV_TIMEOUT_SEC)
-            })
-            .any(|response| !matches!(response, Ok(crate::VcpuResponse::Resumed)))
+            .all(|response| matches!(response, Ok(crate::VcpuResponse::Resumed)))
         {
-            return Err(crate::VmmError::VcpuMessage);
+            Ok(())
+        } else {
+            Err(crate::VmmError::VcpuMessage)
         }
-        Ok(())
     }
 
     /// Saves vCPU states by requesting each vCPU thread to serialize its state.
@@ -332,20 +334,10 @@ impl KvmVm {
         use crate::persist::MicrovmStateError;
 
         let mut handles = self.vcpus_handles();
-        for handle in handles.iter_mut() {
-            handle
-                .send_event(crate::VcpuEvent::SaveState)
-                .map_err(MicrovmStateError::SignalVcpu)?;
-        }
-
-        let vcpu_responses = handles
-            .iter()
-            .map(|handle| {
-                handle
-                    .response_receiver()
-                    .recv_timeout(crate::RECV_TIMEOUT_SEC)
-            })
-            .collect::<Result<Vec<crate::VcpuResponse>, _>>()
+        let vcpu_responses = request_vcpu_responses(&mut handles, crate::VcpuEvent::SaveState)
+            .map_err(MicrovmStateError::SignalVcpu)?
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
             .map_err(|_| MicrovmStateError::UnexpectedVcpuResponse)?;
 
         vcpu_responses
@@ -369,20 +361,10 @@ impl KvmVm {
         use crate::DumpCpuConfigError;
 
         let mut handles = self.vcpus_handles();
-        for handle in handles.iter_mut() {
-            handle
-                .send_event(crate::VcpuEvent::DumpCpuConfig)
-                .map_err(DumpCpuConfigError::SendEvent)?;
-        }
-
-        let vcpu_responses = handles
-            .iter()
-            .map(|handle| {
-                handle
-                    .response_receiver()
-                    .recv_timeout(crate::RECV_TIMEOUT_SEC)
-            })
-            .collect::<Result<Vec<crate::VcpuResponse>, _>>()
+        let vcpu_responses = request_vcpu_responses(&mut handles, crate::VcpuEvent::DumpCpuConfig)
+            .map_err(DumpCpuConfigError::SendEvent)?
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
             .map_err(|_| DumpCpuConfigError::UnexpectedResponse)?;
 
         vcpu_responses
@@ -764,6 +746,90 @@ impl KvmVm {
     }
 }
 
+/// Drop replies that arrived after an earlier request stopped waiting.
+///
+/// A reply that lands after the wait timed out stays in that vCPU's channel. The
+/// next request would read it as its own acknowledgement and every later pause,
+/// resume, and snapshot would stay one reply behind.
+fn discard_pending_vcpu_responses(receivers: &[&Receiver<crate::VcpuResponse>]) {
+    for receiver in receivers {
+        for response in receiver.try_iter() {
+            warn!("Discarding stale vCPU response left by a previous request: {response:?}");
+        }
+    }
+}
+
+fn vcpu_response_receivers(handles: &[VcpuHandle]) -> Vec<&Receiver<crate::VcpuResponse>> {
+    handles.iter().map(VcpuHandle::response_receiver).collect()
+}
+
+/// Send `event` to every vCPU, then read every reply.
+///
+/// Replies are read from all vCPUs even when an earlier one times out, so the
+/// timed-out request cannot leave the remaining acknowledgements queued.
+fn request_vcpu_responses(
+    handles: &mut [VcpuHandle],
+    event: crate::VcpuEvent,
+) -> Result<Vec<Result<crate::VcpuResponse, RecvTimeoutError>>, VcpuSendEventError> {
+    {
+        let receivers = vcpu_response_receivers(handles);
+        discard_pending_vcpu_responses(&receivers);
+    }
+    handles
+        .iter_mut()
+        .try_for_each(|handle| handle.send_event(event.clone()))?;
+    let receivers = vcpu_response_receivers(handles);
+    Ok(recv_vcpu_responses(&receivers, crate::RECV_TIMEOUT_SEC))
+}
+
+fn recv_vcpu_responses(
+    receivers: &[&Receiver<crate::VcpuResponse>],
+    timeout: Duration,
+) -> Vec<Result<crate::VcpuResponse, RecvTimeoutError>> {
+    receivers
+        .iter()
+        .map(|receiver| receiver.recv_timeout(timeout))
+        .collect()
+}
+
+/// Resume vCPUs that may already have parked for a pause that is about to fail.
+///
+/// A vCPU that has not yet handled that pause still has it queued, so it answers
+/// with a pause acknowledgement and then a resume acknowledgement. Keep reading
+/// until the resume acknowledgement.
+fn resume_vcpus_after_failed_pause(handles: &mut [VcpuHandle]) {
+    {
+        let receivers = vcpu_response_receivers(handles);
+        discard_pending_vcpu_responses(&receivers);
+    }
+    for (idx, handle) in handles.iter_mut().enumerate() {
+        if let Err(err) = handle.send_event(crate::VcpuEvent::Resume) {
+            warn!("Failed to resume vCPU {idx} after a failed pause: {err}");
+        }
+    }
+    let receivers = vcpu_response_receivers(handles);
+    recv_until_resume_ack(&receivers, crate::RECV_TIMEOUT_SEC);
+}
+
+fn recv_until_resume_ack(receivers: &[&Receiver<crate::VcpuResponse>], timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    for receiver in receivers {
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match receiver.recv_timeout(remaining) {
+                Ok(crate::VcpuResponse::Resumed | crate::VcpuResponse::Exited(_)) => break,
+                Ok(response) => {
+                    warn!(
+                        "Discarding stale vCPU response while rolling back a failed pause: \
+                         {response:?}"
+                    );
+                }
+                Err(_) => break,
+            }
+        }
+    }
+}
+
 /// Use `mincore(2)` to overapproximate the dirty bitmap for the given memslot. To be used
 /// if a diff snapshot is requested, but dirty page tracking wasn't enabled.
 fn mincore_bitmap(addr: *mut u8, len: usize) -> Result<Vec<u64>, VmError> {
@@ -816,6 +882,58 @@ pub(crate) mod tests {
     use crate::vmm_config::machine_config::HugePageConfig;
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::anonymous;
+
+    #[test]
+    fn test_discard_pending_vcpu_responses_drops_late_replies() {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        sender.send(crate::VcpuResponse::Paused).unwrap();
+
+        super::discard_pending_vcpu_responses(&[&receiver]);
+
+        assert_matches!(
+            receiver.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        );
+    }
+
+    #[test]
+    fn test_recv_vcpu_responses_reads_every_channel_after_timeout() {
+        let (_slow_sender, slow_receiver) = std::sync::mpsc::channel();
+        let (fast_sender, fast_receiver) = std::sync::mpsc::channel();
+        fast_sender.send(crate::VcpuResponse::Paused).unwrap();
+
+        // The first vCPU never replies. Reading must still take the second vCPU's
+        // acknowledgement instead of leaving it queued for the next request.
+        let responses = super::recv_vcpu_responses(
+            &[&slow_receiver, &fast_receiver],
+            std::time::Duration::from_millis(20),
+        );
+
+        assert_matches!(
+            responses[0],
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        );
+        assert_matches!(responses[1], Ok(crate::VcpuResponse::Paused));
+        assert_matches!(
+            fast_receiver.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        );
+    }
+
+    #[test]
+    fn test_recv_until_resume_ack_skips_stale_pause_reply() {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        // A vCPU that had not yet applied the failed pause answers Paused, then Resumed.
+        sender.send(crate::VcpuResponse::Paused).unwrap();
+        sender.send(crate::VcpuResponse::Resumed).unwrap();
+
+        super::recv_until_resume_ack(&[&receiver], std::time::Duration::from_secs(1));
+
+        assert_matches!(
+            receiver.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        );
+    }
 
     // Auxiliary function being used throughout the tests.
     pub(crate) fn setup_vm() -> KvmVm {

@@ -1113,6 +1113,34 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_unread_reply_does_not_desync_later_requests() {
+        let (vm, mut vcpu_handle, _vcpu_exit_evt) = vcpu_configured_for_boot();
+        queue_event_expect_response(&mut vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+
+        // Leave the reply unread, as a pause that timed out does.
+        vcpu_handle
+            .send_event(VcpuEvent::Pause)
+            .expect("failed to send pause");
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        vm.common
+            .vcpus_handles
+            .lock()
+            .expect("Poisoned lock")
+            .push(vcpu_handle);
+
+        let results = [
+            vm.resume_vcpus().map(|_| ()).map_err(|err| err.to_string()),
+            vm.pause_vcpus().map(|_| ()).map_err(|err| err.to_string()),
+            vm.save_vcpu_states()
+                .map(|_| ())
+                .map_err(|err| err.to_string()),
+            vm.resume_vcpus().map(|_| ()).map_err(|err| err.to_string()),
+        ];
+        vm.shutdown_vcpus();
+        assert_eq!(results, [Ok(()), Ok(()), Ok(()), Ok(())]);
+    }
+
+    #[test]
     fn test_vcpu_save_state_events() {
         let (_vm, mut vcpu_handle, _vcpu_exit_evt) = vcpu_configured_for_boot();
 
