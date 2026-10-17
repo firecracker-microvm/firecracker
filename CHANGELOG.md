@@ -197,6 +197,12 @@ and this project adheres to
   creating the vCPUs and the devices. Intel hosts still pay one ~25 ms wait at
   vCPU creation, which only a kernel fix can remove.
 
+- [#6301](https://github.com/firecracker-microvm/firecracker/pull/6301): Fixed
+  snapshot restore on aarch64 hosts with a GICv2 interrupt controller, such as
+  the Raspberry Pi 5. The previous implementation accidentally shifted the vCPU
+  number bits twice, making all of the vCPU numbers 0 and breaking snapshot
+  restore of VMs with more than one vCPU.
+
 ## [1.18.0]
 
 ### Added
