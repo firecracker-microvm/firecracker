@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fs::OpenOptions;
+use std::io::{Seek, SeekFrom};
 use std::ops::Deref;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
@@ -179,12 +180,14 @@ impl PmemMmap {
     const ALIGNMENT: u64 = Pmem::ALIGNMENT;
 
     pub fn new(path: &str, read_only: bool) -> Result<Self, PmemError> {
-        let file = OpenOptions::new()
+        let mut file = OpenOptions::new()
             .read(true)
             .write(!read_only)
             .open(path)
             .map_err(PmemError::BackingFile)?;
-        let file_len = file.metadata().unwrap().len();
+        let file_len = file
+            .seek(SeekFrom::End(0))
+            .map_err(PmemError::BackingFile)?;
         if file_len == 0 {
             return Err(PmemError::BackingFileZeroSize);
         }

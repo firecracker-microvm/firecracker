@@ -75,6 +75,31 @@ def test_pmem_zero_size_backing_file(uvm, huge_pages):
         vm.start()
 
 
+def test_pmem_block_device_backing(uvm, huge_pages):
+    """
+    Test that a block device can be used as pmem backing.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config(add_root_device=True, huge_pages=huge_pages)
+    vm.add_net_iface()
+
+    size_mb = 2
+    fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch"), size=size_mb)
+    _, stdout, _ = utils.check_output(["losetup", "--find", "--show", fs.path])
+    loop_device = stdout.rstrip()
+    try:
+        vm.add_pmem("pmem", loop_device, False, False)
+        vm.start()
+        check_pmem_exist(vm, 0, False, False, align(size_mb << 20), "ext4")
+        vm.ssh.check_output("mkdir /tmp/pmem")
+        vm.ssh.check_output("mount -t ext4 /dev/pmem0 /tmp/pmem")
+        vm.ssh.check_output("umount /tmp/pmem")
+    finally:
+        vm.kill()
+        utils.check_output(["losetup", "--detach", loop_device])
+
+
 def test_pmem_add(uvm, huge_pages, microvm_factory):
     """
     Test addition of pmem devices to the VM and
