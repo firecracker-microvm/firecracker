@@ -45,6 +45,8 @@ pub enum VhostUserError {
     VhostUserSetVringAddr(VhostError),
     /// Set vring base failed: {0}
     VhostUserSetVringBase(VhostError),
+    /// Get vring base failed: {0}
+    VhostUserGetVringBase(VhostError),
     /// Set vring call failed: {0}
     VhostUserSetVringCall(VhostError),
     /// Set vring kick failed: {0}
@@ -108,6 +110,11 @@ pub trait VhostUserHandleBackend: Sized {
 
     /// Sets the base offset in the available vring.
     fn set_vring_base(&self, _queue_index: usize, _base: u16) -> Result<(), vhost::Error> {
+        unimplemented!()
+    }
+
+    /// Gets the available vring base offset and stops the ring on the backend.
+    fn get_vring_base(&self, _queue_index: usize) -> Result<u32, vhost::Error> {
         unimplemented!()
     }
 
@@ -209,6 +216,11 @@ impl VhostUserHandleBackend for Frontend {
     /// Sets the base offset in the available vring.
     fn set_vring_base(&self, queue_index: usize, base: u16) -> Result<(), vhost::Error> {
         <Frontend as VhostBackend>::set_vring_base(self, queue_index, base)
+    }
+
+    /// Gets the available vring base offset and stops the ring on the backend.
+    fn get_vring_base(&self, queue_index: usize) -> Result<u32, vhost::Error> {
+        <Frontend as VhostBackend>::get_vring_base(self, queue_index)
     }
 
     /// Set the event file descriptor to signal when buffers are used.
@@ -460,6 +472,21 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
             self.vu
                 .set_vring_enable(*queue_index, true)
                 .map_err(VhostUserError::VhostUserSetVringEnable)?;
+        }
+
+        Ok(())
+    }
+
+    /// Stop all virtqueues on the vhost-user backend by disabling each vring
+    /// (`SET_VRING_ENABLE 0`) and stopping each ring via `GET_VRING_BASE`.
+    pub fn reset_backend(&mut self, num_queues: usize) -> Result<(), VhostUserError> {
+        for queue_index in 0..num_queues {
+            self.vu
+                .set_vring_enable(queue_index, false)
+                .map_err(VhostUserError::VhostUserSetVringEnable)?;
+            self.vu
+                .get_vring_base(queue_index)
+                .map_err(VhostUserError::VhostUserGetVringBase)?;
         }
 
         Ok(())

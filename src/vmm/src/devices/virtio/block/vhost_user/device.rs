@@ -25,7 +25,7 @@ use crate::devices::virtio::vhost_user::{VhostUserHandleBackend, VhostUserHandle
 use crate::devices::virtio::vhost_user_metrics::{
     VhostUserDeviceMetrics, VhostUserMetricsPerDevice,
 };
-use crate::logger::{IncMetric, StoreMetric, log_dev_preview_warning};
+use crate::logger::{IncMetric, StoreMetric, error, log_dev_preview_warning};
 use crate::utils::u64_to_usize;
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -391,7 +391,13 @@ where
     }
 
     fn _reset(&mut self) -> bool {
-        false
+        if self.is_activated()
+            && let Err(err) = self.vu_handle.reset_backend(self.queues.len())
+        {
+            error!("Failed to reset vhost-user block backend: {:?}", err);
+            return false;
+        }
+        true
     }
 }
 
@@ -723,6 +729,7 @@ mod tests {
             features_are_set: std::cell::UnsafeCell<bool>,
             memory_is_set: std::cell::UnsafeCell<bool>,
             vring_enabled: std::cell::UnsafeCell<bool>,
+            vring_stopped: std::cell::UnsafeCell<bool>,
         }
 
         impl VhostUserHandleBackend for MockMaster {
@@ -731,6 +738,7 @@ mod tests {
                     features_are_set: std::cell::UnsafeCell::new(false),
                     memory_is_set: std::cell::UnsafeCell::new(false),
                     vring_enabled: std::cell::UnsafeCell::new(false),
+                    vring_stopped: std::cell::UnsafeCell::new(false),
                 }
             }
 
@@ -794,6 +802,13 @@ mod tests {
                 Ok(())
             }
 
+            fn get_vring_base(&self, _queue_index: usize) -> Result<u32, vhost::Error> {
+                // Verify vring was disabled before get_vring_base is invoked.
+                assert!(!unsafe { *self.vring_enabled.get() });
+                unsafe { (*self.vring_stopped.get()) = true };
+                Ok(0)
+            }
+
             fn set_vring_call(
                 &self,
                 _queue_index: usize,
@@ -813,9 +828,9 @@ mod tests {
             fn set_vring_enable(
                 &mut self,
                 _queue_index: usize,
-                _enable: bool,
+                enable: bool,
             ) -> Result<(), vhost::Error> {
-                unsafe { (*self.vring_enabled.get()) = true };
+                unsafe { (*self.vring_enabled.get()) = enable };
                 Ok(())
             }
         }
@@ -852,5 +867,12 @@ mod tests {
         assert!(unsafe { *vhost_block.vu_handle.vu.memory_is_set.get() });
         assert!(unsafe { *vhost_block.vu_handle.vu.vring_enabled.get() });
         assert!(vhost_block.is_activated());
+
+        // During reset of an activated device, vrings are disabled (`SET_VRING_ENABLE 0`),
+        // stopped (`GET_VRING_BASE`), and generic teardown deactivates the device.
+        assert!(vhost_block.reset());
+        assert!(!unsafe { *vhost_block.vu_handle.vu.vring_enabled.get() });
+        assert!(unsafe { *vhost_block.vu_handle.vu.vring_stopped.get() });
+        assert!(!vhost_block.is_activated());
     }
 }
