@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::device::DiskProperties;
+use super::io::DiskImageFormat;
 use super::*;
 use crate::devices::virtio::block::persist::BlockConstructorArgs;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
@@ -64,6 +65,8 @@ pub struct VirtioBlockState {
     blk_size: u32,
     topology: VirtioBlkTopology,
     discard_sector_alignment: u32,
+    #[serde(default)]
+    disk_image_format: DiskImageFormat,
 }
 
 impl Persist<'_> for VirtioBlock {
@@ -85,6 +88,7 @@ impl Persist<'_> for VirtioBlock {
             blk_size: self.config_space.blk_size,
             topology: self.config_space.topology,
             discard_sector_alignment: self.config_space.discard_sector_alignment,
+            disk_image_format: DiskImageFormat::from(&self.disk.file_engine),
         }
     }
 
@@ -100,6 +104,7 @@ impl Persist<'_> for VirtioBlock {
             state.disk_path.clone(),
             is_read_only,
             state.file_engine_type.into(),
+            state.disk_image_format,
         )?;
 
         let queue_evts = [EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?];
@@ -174,6 +179,7 @@ mod tests {
             cache_type: CacheType::Writeback,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            image_format: DiskImageFormat::Raw,
             blk_size: None,
             topology: None,
         };
@@ -218,6 +224,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            image_format: DiskImageFormat::Raw,
             blk_size: None,
             topology: None,
         };
