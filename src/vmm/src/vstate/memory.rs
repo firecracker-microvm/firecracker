@@ -3295,3 +3295,62 @@ mod tests {
         );
     }
 }
+
+#[cfg(kani)]
+mod verification {
+    use std::num::NonZeroUsize;
+
+    use super::*;
+
+    fn is_set(bits: &[u64], bit: usize) -> bool {
+        bits[bit / 64] & (1 << (bit % 64)) != 0
+    }
+
+    #[kani::proof]
+    #[kani::unwind(3)]
+    fn verify_or_bit_range() {
+        let src: [u64; 3] = kani::any();
+        let first = kani::any_where(|first: &usize| *first < 128);
+        let len = kani::any_where(|len: &usize| (1..=128).contains(len) && first + len <= 192);
+        let words = len.div_ceil(64);
+        // KVM's bits for the slot, if any.
+        let mut dst: [u64; 2] = kani::any();
+        let bit = kani::any_where(|bit: &usize| *bit < words * 64);
+        let before = is_set(&dst, bit);
+
+        or_bit_range(&mut dst[..words], &src, first, len);
+
+        let expected = before || (bit < len && is_set(&src, first + bit));
+        assert_eq!(is_set(&dst, bit), expected);
+        kani::cover!(first % 64 != 0 && bit < len && is_set(&src, first + bit));
+    }
+
+    #[kani::proof]
+    #[kani::unwind(4)]
+    fn verify_set_bits() {
+        const PAGES: usize = 192;
+        let bitmap = AtomicBitmap::new(PAGES, NonZeroUsize::MIN);
+        let first = kani::any_where(|first: &usize| *first < PAGES);
+        let len = kani::any_where(|len: &usize| (1..=128).contains(len) && first + len <= PAGES);
+        // A slot's bitmap never has bits past its last page. Where its bits are is arbitrary, but
+        // at most two per word keep the proof small: `set_bits` sets each bit independently.
+        let mut bits: [u64; 2] = kani::any();
+        for (word, bits) in bits.iter_mut().enumerate() {
+            let valid = len.saturating_sub(word * 64).min(64);
+            *bits &= u64::MAX.checked_shr(64 - valid as u32).unwrap_or(0);
+            kani::assume(bits.count_ones() <= 2);
+        }
+        // A page some device marked meanwhile.
+        let page = kani::any_where(|page: &usize| *page < PAGES);
+        let marked: bool = kani::any();
+        if marked {
+            bitmap.set_bit(page);
+        }
+
+        set_bits(&bitmap, &bits[..len.div_ceil(64)], first);
+
+        let in_slot = (first..first + len).contains(&page) && is_set(&bits, page - first);
+        assert_eq!(bitmap.is_bit_set(page), marked || in_slot);
+        kani::cover!(first % 64 != 0 && page >= 64 && in_slot);
+    }
+}
