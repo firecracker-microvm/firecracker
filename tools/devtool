@@ -531,7 +531,8 @@ cmd_help() {
         'checkbuild' already covers.
 
     checkbuild [--all|-m x86_64|aarch64]
-        Run cargo check on the target architecture (supports cross compilation).
+        Run cargo clippy on the target architecture(s) (supports cross
+        compilation). '-m' may be given more than once.
 
     setup_kvm
         Ensure KVM is available on the host by loading kernel modules if needed.
@@ -1287,36 +1288,35 @@ cmd_checkstyle() {
 }
 
 cmd_checkbuild() {
-    TARGET_ARCH=$(uname -m)
     SUPPORTED_ARCHS=(x86_64 aarch64)
+    local archs=()
     while [ $# -gt 0 ]; do
         case "$1" in
             "-h"|"--help") { cmd_help; exit 1; } ;;
-            "-m"|"--arch") { TARGET_ARCH=$2; shift; } ;;
-            "--all") {
-                for arch in ${SUPPORTED_ARCHS[*]}; do
-                    say "Running checkbuild -m $arch"
-                    cmd_checkbuild -m $arch || return $?
-                    done
-                }
-                say "Build check passed for ${SUPPORTED_ARCHS[*]}"
-                return 0
-                ;;
+            "-m"|"--arch") { archs+=("$2"); shift; } ;;
+            "--all")       { archs=("${SUPPORTED_ARCHS[@]}"); } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
         ;;
         esac
         shift
     done
+    [ ${#archs[@]} -gt 0 ] || archs=("$(uname -m)")
 
-    if ! grep -q $TARGET_ARCH <<< "${SUPPORTED_ARCHS[*]}"; then
-        die "Unknown architecture: $TARGET_ARCH. Supported architectures: ${SUPPORTED_ARCHS[*]}"
-    fi
+    local targets=()
+    for arch in "${archs[@]}"; do
+        if ! grep -q "$arch" <<< "${SUPPORTED_ARCHS[*]}"; then
+            die "Unknown architecture: $arch. Supported architectures: ${SUPPORTED_ARCHS[*]}"
+        fi
+        # Use GNU target to check build as musl has issues with cross-compilation
+        targets+=("--target" "${arch}-unknown-linux-gnu")
+    done
 
-    # Use GNU target to check build as musl has issues with cross-compilation
-    cmd_sh "cargo clippy --target ${TARGET_ARCH}-unknown-linux-gnu --all --all-targets --all-features -- -D warnings" \
-        || die "Error running build checks for $TARGET_ARCH"
-    say "Build check passed for $TARGET_ARCH"
+    # One cargo invocation for all architectures: they share the host-side
+    # artifacts (build scripts, proc macros) and run concurrently.
+    cmd_sh "cargo clippy ${targets[*]} --all --all-targets --all-features -- -D warnings" \
+        || die "Error running build checks for ${archs[*]}"
+    say "Build check passed for ${archs[*]}"
 }
 
 # Check if able to run firecracker.
