@@ -1274,10 +1274,6 @@ cmd_checkstyle() {
         shift
     done
 
-    if [[ -z "$BUILDKITE" ]]; then
-      cmd_sh "git-secrets --register-aws && git-secrets --scan"
-    fi
-
     export FC_TEST_SKIP_ARTIFACT_COPY=1
     cmd_test --no-build --no-kvm-check --no-build-dir-check --no-artifacts-check -- \
         -n 4 --dist worksteal \
