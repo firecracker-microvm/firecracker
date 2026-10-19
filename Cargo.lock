@@ -1560,17 +1560,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vm-allocator"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2feb549d049009150155ab6e1b0c8c0db9ea6805ba5bdc57a27a3b7466e80f5"
-dependencies = [
- "libc",
- "serde",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "vm-fdt"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1630,7 +1619,6 @@ dependencies = [
  "userfaultfd",
  "utils",
  "vhost",
- "vm-allocator",
  "vm-fdt",
  "vm-memory",
  "vm-superio",

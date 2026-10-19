@@ -48,7 +48,6 @@ thiserror = "2.0.18"
 userfaultfd = "0.9.0"
 utils = { path = "../utils" }
 vhost = { version = "0.17.0", features = ["vhost-user-frontend"] }
-vm-allocator = { version = "0.1.4", features = ["serde"] }
 vm-memory = { version = "0.18.0", features = [
   "backend-mmap",
   "backend-bitmap",
