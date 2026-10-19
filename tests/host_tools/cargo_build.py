@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Functionality for a shared binary build and release path for all tests."""
 
-import os
 import platform
 from pathlib import Path
 
@@ -46,23 +45,30 @@ def get_rustflags():
     return ""
 
 
-def cargo_test(path, extra_args=""):
-    """Trigger unit tests depending on flags provided."""
+def cargo_test(target_dir, extra_args="", env=None):
+    """Run the unit, doc and example tests of all crates.
+
+    `env` overrides the defaults below (e.g. RUSTFLAGS for coverage).
+    """
     env = {
-        "CARGO_TARGET_DIR": os.path.join(path, "unit-tests"),
+        "CARGO_TARGET_DIR": target_dir,
         "RUST_TEST_THREADS": 1,
         "RUST_BACKTRACE": "1",
         "RUSTFLAGS": get_rustflags(),
+        **(env or {}),
     }
-    cargo(
-        "test",
-        extra_args + " --profile ci --all --no-fail-fast",
-        subcommand_args="--nocapture",
-        env=env,
-        # Kill cargo test 60s before pytest's 600s timeout, so pytest can report
-        # the failure and upload artifacts cleanly instead of being killed itself.
-        timeout=540,
-    )
+    # By default cargo only builds the examples, and selecting `--examples`
+    # drops the doc tests, so the examples' tests need a second run.
+    for targets in ("", " --examples"):
+        cargo(
+            "test",
+            extra_args + " --profile ci --all --no-fail-fast" + targets,
+            subcommand_args="--nocapture",
+            env=env,
+            # Kill cargo test 60s before pytest's 600s timeout, so pytest can report
+            # the failure and upload artifacts cleanly instead of being killed itself.
+            timeout=540,
+        )
 
 
 def get_binary(name, *, binary_dir=DEFAULT_BINARY_DIR, example=None):
