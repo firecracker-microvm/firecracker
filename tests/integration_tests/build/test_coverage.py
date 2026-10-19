@@ -10,7 +10,7 @@ import pytest
 from framework import utils
 from framework.properties import global_props
 from host_tools import proc
-from host_tools.cargo_build import cargo
+from host_tools.cargo_build import cargo_test, get_rustflags
 
 PROC_MODEL = proc.proc_type()
 
@@ -27,26 +27,25 @@ elif "ARM" in PROC_MODEL:
 else:
     raise Exception(f"Unsupported processor model ({PROC_MODEL})")
 
-# Toolchain target.
-# Currently profiling with `aarch64-unknown-linux-musl` is unsupported (see
-# https://github.com/rust-lang/rustup/issues/3095#issuecomment-1280705619) therefore we profile and
-# run coverage with the `gnu` toolchains and run unit tests with the `musl` toolchains.
-TARGET = f"{ARCH}-unknown-linux-gnu"
+# The target we ship.
+TARGET = f"{ARCH}-unknown-linux-musl"
 
 
 @pytest.mark.timeout(600)
 def test_coverage(monkeypatch):
-    """Test code coverage"""
+    """Run the unit tests instrumented for coverage and report the coverage.
+
+    This is also the CI run of the unit tests: it fails if any of them fails.
+    """
     # Re-direct to repository root.
     monkeypatch.chdir("..")
 
     # Generate test profiles.
-    cargo(
-        "test",
-        f"--profile ci --all --target {TARGET}",
-        "--test-threads=1",
+    cargo_test(
+        "./build/cargo_target",
+        f"--target {TARGET}",
         env={
-            "RUSTFLAGS": "-Cinstrument-coverage",
+            "RUSTFLAGS": get_rustflags() + "-Cinstrument-coverage",
             "LLVM_PROFILE_FILE": "coverage-%p-%m.profraw",
         },
     )
