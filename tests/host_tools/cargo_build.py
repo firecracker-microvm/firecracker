@@ -141,11 +141,14 @@ def gcc_compile(src_file, output_file, extra_flags="-static -O3"):
         utils.check_output(compile_cmd)
 
 
-def build_gdb():
-    """Builds Firecracker with GDB feature enabled. Returns the binary dir"""
+def build_gdb(check_only=False):
+    """Builds Firecracker with GDB feature enabled. Returns the binary dir.
+
+    `check_only` runs `cargo check` instead: no binaries.
+    """
     build_path = LOCAL_BUILD_PATH / "gdb"
     cargo(
-        "build",
+        "check --profile ci" if check_only else "build",
         f"--features gdb --target {DEFAULT_TARGET} --all",
         env={"CARGO_TARGET_DIR": build_path},
     )
@@ -153,15 +156,22 @@ def build_gdb():
     return build_path / DEFAULT_TARGET / "debug"
 
 
-def build_fuzzing(release=False):
-    """Builds Firecracker with fuzzing feature enabled. Returns the binary dir"""
-    profile = "release" if release else "debug"
+def build_fuzzing(release=False, check_only=False):
+    """Builds Firecracker with fuzzing feature enabled. Returns the binary dir.
+
+    `check_only` runs `cargo check` instead: no binaries.
+    """
     build_path = LOCAL_BUILD_PATH / "fuzzing"
-    release_flag = " --release" if release else ""
+    if release:
+        # The `compile_error!` the release check looks for is gated on
+        # `not(debug_assertions)`, so this stays on `release`.
+        profile = "--release"
+    else:
+        profile = "--profile ci" if check_only else ""
     cargo(
-        "build",
-        f"--features fuzzing{release_flag} --target {DEFAULT_TARGET} --all",
+        "check" if check_only else "build",
+        f"{profile} --features fuzzing --target {DEFAULT_TARGET} --all",
         env={"CARGO_TARGET_DIR": build_path},
     )
 
-    return build_path / DEFAULT_TARGET / profile
+    return build_path / DEFAULT_TARGET / ("release" if release else "debug")
