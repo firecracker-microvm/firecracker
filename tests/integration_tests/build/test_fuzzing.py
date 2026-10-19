@@ -10,11 +10,13 @@ import host_tools.cargo_build
 def test_fuzzing_compiles():
     """Checks that Firecracker compiles with fuzzing enabled"""
 
-    host_tools.cargo_build.build_fuzzing()
+    # The functional tests build and run the binaries; a type-check is enough here.
+    host_tools.cargo_build.build_fuzzing(check_only=True)
 
 
 def test_fuzzing_does_not_compile_release():
     """Checks that Firecracker refuses to compile with fuzzing in release mode"""
 
+    # `compile_error!` fires at type-check time; no need for a release build.
     with pytest.raises(ChildProcessError, match="fuzzing.*must not be used in release"):
-        host_tools.cargo_build.build_fuzzing(release=True)
+        host_tools.cargo_build.build_fuzzing(release=True, check_only=True)
