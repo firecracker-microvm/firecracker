@@ -1627,6 +1627,7 @@ pub mod tests {
         chain_lens: &[u32],
         frame_len: usize,
     ) {
+        use crate::DirtyBitmap;
         use crate::arch::host_page_size;
         use crate::vstate::memory::{Bitmap, GuestMemoryExtension};
 
@@ -1644,7 +1645,7 @@ pub mod tests {
                 &[(i as u16, len, VIRTQ_DESC_F_WRITE)],
             );
         }
-        mem.reset_dirty();
+        mem.take_dirty(&mut DirtyBitmap::new());
 
         let frame = inject_tap_tx_frame(&th.net(), frame_len);
         check_metric_after_block!(

@@ -276,7 +276,7 @@ pub enum VmmError {
     VirtioMem(#[from] VirtioMemError),
 }
 
-/// Shorthand type for KVM dirty page bitmap.
+/// Dirty pages per KVM slot, one bit per page.
 pub type DirtyBitmap = HashMap<u32, Vec<u64>>;
 
 /// Returns the size of guest memory, in MiB.

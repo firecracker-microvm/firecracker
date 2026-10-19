@@ -695,6 +695,7 @@ mod tests {
 
     #[test]
     fn test_iovec_mut_dirty_tracking() {
+        use crate::DirtyBitmap;
         use crate::arch::host_page_size;
         use crate::vstate::memory::{Bitmap, GuestMemoryExtension};
 
@@ -721,7 +722,7 @@ mod tests {
         vq.avail.ring[1].set(2);
         vq.avail.idx.set(2);
 
-        mem.reset_dirty();
+        mem.take_dirty(&mut DirtyBitmap::new());
         let mut iovec = IoVecBufferMutDefault::new().unwrap();
         // SAFETY: the two chains do not overlap.
         unsafe {
@@ -746,7 +747,7 @@ mod tests {
         assert!(!dirty_at(6));
 
         // A write past the first descriptor leaves that descriptor's page alone.
-        mem.reset_dirty();
+        mem.take_dirty(&mut DirtyBitmap::new());
         iovec.write_all_volatile_at(&mem, &[2u8; 10], 64).unwrap();
         assert!(!dirty_at(4));
         assert!(dirty_at(5));
@@ -754,7 +755,7 @@ mod tests {
 
         // `readv` into the first chain marks as many bytes as were read, and only those: a pipe
         // holding 64 + 8 bytes fills the first descriptor and 8 bytes of the second.
-        mem.reset_dirty();
+        mem.take_dirty(&mut DirtyBitmap::new());
         let (rx, mut tx) = std::io::pipe().unwrap();
         tx.write_all(&[3u8; 64 + 8]).unwrap();
         assert_eq!(iovec.readv_from(&mem, &rx, 2 * 64).unwrap(), 64 + 8);
@@ -766,7 +767,7 @@ mod tests {
 
         // With more bytes in the pipe than the first chain holds, reading into all chains spills
         // into the second one...
-        mem.reset_dirty();
+        mem.take_dirty(&mut DirtyBitmap::new());
         tx.write_all(&[4u8; 2 * 64 + 10]).unwrap();
         assert_eq!(
             iovec.readv_from(&mem, &rx, usize::MAX).unwrap(),
@@ -779,7 +780,7 @@ mod tests {
         assert!(dirty_at(6));
 
         // ...while reading into the first chain only stops at its end.
-        mem.reset_dirty();
+        mem.take_dirty(&mut DirtyBitmap::new());
         tx.write_all(&[5u8; 2 * 64 + 10]).unwrap();
         assert_eq!(iovec.readv_from(&mem, &rx, 2 * 64).unwrap(), 2 * 64);
         vq.dtable[1].check_data(&[5u8; 64]);
@@ -800,7 +801,7 @@ mod tests {
 
         // A read that returns nothing (the pipe is drained and closed) marks nothing.
         drop(tx);
-        mem.reset_dirty();
+        mem.take_dirty(&mut DirtyBitmap::new());
         assert_eq!(iovec.readv_from(&mem, &rx, usize::MAX).unwrap(), 0);
         assert!(clean());
 
