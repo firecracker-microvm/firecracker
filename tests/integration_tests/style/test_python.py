@@ -31,7 +31,7 @@ def test_python_pylint():
     # `jobs = 0` in pyproject.toml is meant to auto-detect the CPU count, but
     # pylint reads it from cgroup v1 `cpu.shares`, which Docker leaves at 1024,
     # so it settles on one job in the dev container however many CPUs we have.
-    jobs = min(len(os.sched_getaffinity(0)), 32)
+    jobs = min(len(os.sched_getaffinity(0)), 96)
 
     # List of linter commands that should be executed for each file
     linter_cmd = f"pylint --rcfile tests/pyproject.toml -j {jobs} --output-format=colorized tests/ tools/ .buildkite/*.py"
