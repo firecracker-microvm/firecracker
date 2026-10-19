@@ -15,7 +15,6 @@ use event_manager::SubscriberOps;
 use kvm_ioctls::IoEventAddress;
 use linux_loader::cmdline as kernel_cmdline;
 use serde::{Deserialize, Serialize};
-use vm_allocator::AllocPolicy;
 
 use crate::EventManager;
 use crate::arch::BOOT_DEVICE_MEM_START;
@@ -28,6 +27,7 @@ use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceT
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
 #[cfg(target_arch = "x86_64")]
 use crate::logger::debug;
+use crate::vstate::address_allocator::{AllocPolicy, AllocatorError};
 use crate::vstate::bus::{Bus, BusError};
 #[cfg(target_arch = "x86_64")]
 use crate::vstate::memory::GuestAddress;
@@ -38,7 +38,7 @@ use crate::vstate::vm::KvmVm;
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum MmioError {
     /// Failed to allocate requested resource: {0}
-    Allocator(#[from] vm_allocator::Error),
+    Allocator(#[from] AllocatorError),
     /// Failed to insert device on the bus: {0}
     BusInsert(#[from] BusError),
     /// Failed to allocate requested resourc: {0}
@@ -172,13 +172,13 @@ impl MMIOVirtioDevices {
             _ => return Err(MmioError::InvalidIrqConfig),
         };
 
-        let range = resource_allocator.mmio32_memory.allocate(
+        let addr = resource_allocator.mmio32_memory.allocate(
             MMIO_LEN,
             MMIO_LEN,
             AllocPolicy::FirstMatch,
         )?;
         let device_info = MMIODeviceInfo {
-            addr: range.start(),
+            addr,
             len: MMIO_LEN,
             gsi,
         };

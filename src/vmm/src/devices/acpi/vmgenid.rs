@@ -11,6 +11,7 @@ use vmm_sys_util::eventfd::EventFd;
 use super::super::legacy::EventFdTrigger;
 use crate::logger::debug;
 use crate::snapshot::Persist;
+use crate::vstate::address_allocator::{AllocPolicy, AllocatorError};
 use crate::vstate::memory::{Bytes, GuestMemoryExtension, GuestMemoryMmap};
 use crate::vstate::resources::ResourceAllocator;
 
@@ -22,9 +23,9 @@ pub enum VmGenIdError {
     /// Could not create EventFd: {0}
     CreateEventFd(std::io::Error),
     /// Could not allocate GSI: {0}
-    AllocateGsi(vm_allocator::Error),
+    AllocateGsi(AllocatorError),
     /// Could not allocate guest memory: {0}
-    AllocateMemory(vm_allocator::Error),
+    AllocateMemory(AllocatorError),
     /// Could not write generation ID to guest memory: {0}
     WriteGuestMemory(#[from] GuestMemoryError),
     /// Could not notify guest: {0}
@@ -82,9 +83,8 @@ impl VmGenId {
         // The generation ID needs to live in an 8-byte aligned buffer
         let addr = resource_allocator
             .system_memory
-            .allocate(VMGENID_MEM_SIZE, 8, vm_allocator::AllocPolicy::LastMatch)
-            .map_err(VmGenIdError::AllocateMemory)?
-            .start();
+            .allocate(VMGENID_MEM_SIZE, 8, AllocPolicy::LastMatch)
+            .map_err(VmGenIdError::AllocateMemory)?;
 
         Self::from_parts(GuestAddress(addr), gsi)
     }

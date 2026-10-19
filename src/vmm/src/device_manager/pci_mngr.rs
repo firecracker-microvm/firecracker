@@ -41,6 +41,7 @@ use crate::seccomp::BpfProgram;
 use crate::snapshot::Persist;
 use crate::vmm_config::machine_config::MAX_PCIE_HOTPLUG_PORTS;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
+use crate::vstate::address_allocator::AllocatorError;
 use crate::vstate::bus::BusError;
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -66,7 +67,7 @@ pub struct PciDevices {
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum PciManagerError {
     /// Resource allocation error: {0}
-    ResourceAllocation(#[from] vm_allocator::Error),
+    ResourceAllocation(#[from] AllocatorError),
     /// Bus error: {0}
     Bus(#[from] BusError),
     /// PCI bus error: {0}
