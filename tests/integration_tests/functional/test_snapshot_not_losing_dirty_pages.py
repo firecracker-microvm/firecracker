@@ -9,6 +9,7 @@ import psutil
 import pytest
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.microvm import SnapshotType
 
 
 @pytest.fixture
@@ -27,11 +28,12 @@ def mount_tmpfs_small(worker_id):
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pytest.mark.parametrize("failed_snapshot_type", [SnapshotType.DIFF, SnapshotType.FULL])
 def test_diff_snapshot_works_after_error(
-    microvm_factory, guest_kernel, rootfs, mount_tmpfs_small
+    microvm_factory, guest_kernel, rootfs, mount_tmpfs_small, failed_snapshot_type
 ):
     """
-    Test that if a partial snapshot errors it will work after and not lose data
+    Test that if a snapshot errors, a diff snapshot after it works and loses no data
     """
     uvm = microvm_factory.build(
         guest_kernel,
@@ -56,7 +58,7 @@ def test_diff_snapshot_works_after_error(
     subprocess.check_call(f"fallocate -l {target_size} {fill}", shell=True)
 
     with pytest.raises(RuntimeError, match="No space left on device"):
-        uvm.snapshot_diff()
+        uvm.make_snapshot(failed_snapshot_type)
 
     fill.unlink()
 
