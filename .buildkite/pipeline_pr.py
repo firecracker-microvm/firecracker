@@ -99,13 +99,27 @@ if run_all_tests(changed_files):
         ),
     )
 
+    # Tests marked `serial` need the host to themselves (timing assertions,
+    # CPU pinning); the rest run in parallel on the regular agents, in a group
+    # of their own so the two overlap. They need a hugetlbfs pool, which
+    # `--huge-pages` sets up once per host. `-m` on the command line replaces
+    # the one in pytest.ini, so repeat its exclusions.
+    PR_MARKERS = "not nonci and not no_block_pr"
     pipeline.build_group(
         "performance",
         pipeline.devtool_test(
             devtool_opts="--performance -c 1-10 -m 0",
-            pytest_opts="../tests/integration_tests/performance/",
+            pytest_opts=f"-m 'serial and {PR_MARKERS}' ../tests/integration_tests/performance/",
         ),
         **DEFAULTS_PERF,
+    )
+
+    pipeline.build_group(
+        "performance-parallel",
+        pipeline.devtool_test(
+            devtool_opts="--huge-pages",
+            pytest_opts=f"-m 'not serial and {PR_MARKERS}' -n 12 --dist worksteal ../tests/integration_tests/performance/",
+        ),
     )
 
 print(pipeline.to_json())

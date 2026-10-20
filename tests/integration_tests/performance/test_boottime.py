@@ -143,6 +143,8 @@ def launch_vm_with_boot_timer(
     return (vm, boot_time_us, cpu_boot_time_us)
 
 
+# Asserts on measured boot times.
+@pytest.mark.serial
 def test_boot_timer(microvm_factory, guest_kernel, rootfs, pci_enabled):
     """Tests that the boot timer device works"""
     launch_vm_with_boot_timer(

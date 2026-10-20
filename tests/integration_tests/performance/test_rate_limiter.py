@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that fail if network throughput does not obey rate limits."""
 
+import pytest
+
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from host_tools import cpu_load
@@ -49,6 +51,8 @@ MAX_TIME_DIFF = 25
 pytestmark = pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 
 
+# Assumes it can do a fixed amount of work in a fixed time.
+@pytest.mark.serial
 def test_tx_rate_limiting(uvm):
     """
     Run iperf tx with and without rate limiting; check limiting effect.
@@ -71,6 +75,8 @@ def test_tx_rate_limiting(uvm):
     _check_tx_rate_limit_patch(test_microvm)
 
 
+# Assumes it can do a fixed amount of work in a fixed time.
+@pytest.mark.serial
 def test_rx_rate_limiting(uvm):
     """
     Run iperf rx with and without rate limiting; check limiting effect.
@@ -94,6 +100,8 @@ def test_rx_rate_limiting(uvm):
     _check_rx_rate_limit_patch(test_microvm)
 
 
+# Assumes it can do a fixed amount of work in a fixed time.
+@pytest.mark.serial
 def test_rx_rate_limiting_cpu_load(uvm):
     """
     Run iperf rx with rate limiting; verify cpu load is below threshold.
