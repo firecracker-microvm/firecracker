@@ -49,6 +49,9 @@ use crate::devices::virtio::vsock::packet::{VsockPacketRx, VsockPacketTx};
 use crate::logger::{IncMetric, debug, error, info, warn};
 use crate::vstate::memory::GuestMemoryMmap;
 
+const HOST_PORT_RANGE_START: u32 = 1 << 30;
+const HOST_PORT_RANGE_END: u32 = 1 << 31;
+
 /// A unique identifier of a `MuxerConnection` object. Connections are stored in a hash map,
 /// keyed by a `ConnMapKey` object.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -620,7 +623,8 @@ impl VsockMuxer {
         //
 
         loop {
-            self.local_port_last = (self.local_port_last + 1) & !(1 << 31) | (1 << 30);
+            self.local_port_last =
+                (self.local_port_last + 1) & !HOST_PORT_RANGE_END | HOST_PORT_RANGE_START;
             if self.local_port_set.insert(self.local_port_last) {
                 break;
             }
@@ -691,7 +695,7 @@ impl VsockMuxer {
     /// RST packet will be scheduled for delivery to the guest.
     fn handle_peer_request_pkt(&mut self, pkt: &VsockPacketTx) {
         // Host-side ports in [1 << 30, 1 << 31) are reserved for host-initiated connections.
-        if (1 << 30..1 << 31).contains(&pkt.hdr.dst_port()) {
+        if (HOST_PORT_RANGE_START..HOST_PORT_RANGE_END).contains(&pkt.hdr.dst_port()) {
             self.enq_rst(pkt.hdr.dst_port(), pkt.hdr.src_port());
         } else {
             let port_path = format!("{}_{}", self.host_sock_path, pkt.hdr.dst_port());
@@ -1162,7 +1166,7 @@ mod tests {
         const PEER_PORT: u32 = 52;
 
         let mut ctx = MuxerTestContext::new("peer_request_reserved_port");
-        for local_port in [1 << 30, (1 << 31) - 1] {
+        for local_port in [HOST_PORT_RANGE_START, HOST_PORT_RANGE_END - 1] {
             let _listener = ctx.create_local_listener(local_port);
             ctx.init_tx_pkt(local_port, PEER_PORT, uapi::VSOCK_OP_REQUEST);
             ctx.send();
@@ -1175,7 +1179,7 @@ mod tests {
 
         // A host-initiated connection to the same guest port can't collide with a guest one.
         let (_stream, local_port) = ctx.local_connect(PEER_PORT);
-        assert_eq!(local_port, 1 << 30);
+        assert_eq!(local_port, HOST_PORT_RANGE_START);
         assert_eq!(ctx.muxer.conn_map.len(), 1);
     }
 
