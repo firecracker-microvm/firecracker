@@ -285,6 +285,7 @@ fn setup_page_tables(mem: &GuestMemoryMmap, sregs: &mut kvm_sregs) -> Result<(),
 mod tests {
     #![allow(clippy::cast_possible_truncation)]
 
+    use kvm_bindings::KVM_MAX_CPUID_ENTRIES;
     use kvm_ioctls::Kvm;
 
     use super::*;
@@ -402,6 +403,10 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
+        // KVM checks the EFER bits set by `setup_sregs` against the guest CPUID, which has to
+        // be set first, as it is on the boot path.
+        let cpuid = kvm.get_supported_cpuid(KVM_MAX_CPUID_ENTRIES).unwrap();
+        vcpu.set_cpuid2(&cpuid).unwrap();
         let gm = single_region_mem(0x10000);
 
         [BootProtocol::LinuxBoot, BootProtocol::PvhBoot]

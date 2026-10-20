@@ -376,24 +376,30 @@ impl<const L: u16> IoVecBufferMut<L> {
         self.len -= chain.length;
     }
 
-    /// Reads from `fd` with a single `readv` into the first descriptor chain of the buffer, or
-    /// into all of them if `all_chains`, and marks the bytes read dirty in `mem`.
+    /// Reads from `fd` with a single `readv` into as few `iovec`s from the front of the buffer
+    /// as hold at least `min_capacity` bytes, or into all of them if the buffer holds less, and
+    /// marks the bytes read dirty in `mem`.
     ///
-    /// # Panics
-    ///
-    /// Panics if the buffer holds no chain.
+    /// The read can fill all of these `iovec`s, so it can return more than `min_capacity` bytes.
+    /// `readv` gets no more `iovec`s than these because the kernel copies in and checks every
+    /// `iovec` it is given, however short the read.
     pub fn readv_from<F: AsRawFd>(
         &mut self,
         mem: &GuestMemoryMmap,
         fd: &F,
-        all_chains: bool,
+        min_capacity: usize,
     ) -> Result<usize, IoError> {
-        let iovs = if all_chains {
-            self.vecs.as_slice()
-        } else {
-            let first = self.chains.front().expect("no chain to read into");
-            &self.vecs.as_slice()[..usize::from(first.nr_iovecs)]
-        };
+        let vecs = self.vecs.as_slice();
+        let mut nr_iovecs = 0;
+        let mut held = 0;
+        for iov in vecs {
+            if held >= min_capacity {
+                break;
+            }
+            held += iov.iov_len;
+            nr_iovecs += 1;
+        }
+        let iovs = &vecs[..nr_iovecs];
 
         // SAFETY: `readv` is called with a valid fd and `iovec`s that the constructors checked
         // point into valid guest memory; the return value is checked.
@@ -751,7 +757,7 @@ mod tests {
         mem.reset_dirty();
         let (rx, mut tx) = std::io::pipe().unwrap();
         tx.write_all(&[3u8; 64 + 8]).unwrap();
-        assert_eq!(iovec.readv_from(&mem, &rx, false).unwrap(), 64 + 8);
+        assert_eq!(iovec.readv_from(&mem, &rx, 2 * 64).unwrap(), 64 + 8);
         vq.dtable[0].check_data(&[3u8; 64]);
         vq.dtable[1].check_data(&[3u8; 8]);
         assert!(dirty_at(4));
@@ -762,7 +768,10 @@ mod tests {
         // into the second one...
         mem.reset_dirty();
         tx.write_all(&[4u8; 2 * 64 + 10]).unwrap();
-        assert_eq!(iovec.readv_from(&mem, &rx, true).unwrap(), 2 * 64 + 10);
+        assert_eq!(
+            iovec.readv_from(&mem, &rx, usize::MAX).unwrap(),
+            2 * 64 + 10
+        );
         vq.dtable[1].check_data(&[4u8; 64]);
         vq.dtable[2].check_data(&[4u8; 10]);
         assert!(dirty_at(4));
@@ -772,18 +781,27 @@ mod tests {
         // ...while reading into the first chain only stops at its end.
         mem.reset_dirty();
         tx.write_all(&[5u8; 2 * 64 + 10]).unwrap();
-        assert_eq!(iovec.readv_from(&mem, &rx, false).unwrap(), 2 * 64);
+        assert_eq!(iovec.readv_from(&mem, &rx, 2 * 64).unwrap(), 2 * 64);
         vq.dtable[1].check_data(&[5u8; 64]);
         vq.dtable[2].check_data(&[4u8; 10]);
         assert!(dirty_at(4));
         assert!(dirty_at(5));
         assert!(!dirty_at(6));
-        assert_eq!(iovec.readv_from(&mem, &rx, true).unwrap(), 10);
+        assert_eq!(iovec.readv_from(&mem, &rx, usize::MAX).unwrap(), 10);
+
+        // A minimum capacity ending inside a descriptor takes the whole descriptor and nothing
+        // past it, and one ending on a descriptor boundary stops there.
+        tx.write_all(&[6u8; 4 * 64]).unwrap();
+        assert_eq!(iovec.readv_from(&mem, &rx, 64 + 1).unwrap(), 2 * 64);
+        assert_eq!(iovec.readv_from(&mem, &rx, 64).unwrap(), 64);
+        assert_eq!(iovec.readv_from(&mem, &rx, usize::MAX).unwrap(), 64);
+        vq.dtable[0].check_data(&[6u8; 64]);
+        vq.dtable[1].check_data(&[6u8; 64]);
 
         // A read that returns nothing (the pipe is drained and closed) marks nothing.
         drop(tx);
         mem.reset_dirty();
-        assert_eq!(iovec.readv_from(&mem, &rx, true).unwrap(), 0);
+        assert_eq!(iovec.readv_from(&mem, &rx, usize::MAX).unwrap(), 0);
         assert!(clean());
 
         // Dropping chains marks nothing.

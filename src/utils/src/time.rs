@@ -221,7 +221,7 @@ pub enum TimerFd {
     Mock(MockTimer),
 }
 
-#[allow(clippy::new_without_default)]
+#[allow(clippy::new_without_default, clippy::infallible_destructuring_match)]
 impl TimerFd {
     /// Creates new MONOTONIC and NONBLOCK timerfd
     pub fn new() -> Self {

@@ -621,14 +621,19 @@ impl Net {
             // by the size of `self.rx_frame_buf` which is MAX_BUFFER_SIZE size.
             (vnet_hdr_len() + len).try_into().unwrap()
         } else {
-            // Read the frame into the first descriptor chain, or into as many as needed when
-            // VIRTIO_NET_F_MRG_RXBUF is negotiated. We ensured above that `self.rx_buffer` has at
-            // least one `DescriptorChain` parsed in it.
-            let mrg_rxbuf = self.has_feature(VIRTIO_NET_F_MRG_RXBUF as u64);
+            // Without VIRTIO_NET_F_MRG_RXBUF a frame must fit in a single chain, so `readv` only
+            // gets the first one. With it a frame can span chains but is never longer than
+            // `MAX_BUFFER_SIZE`, so `readv` only gets the chains that can hold that much. We
+            // ensured above that `self.rx_buffer` has at least one `DescriptorChain` parsed in it.
+            let min_capacity = if self.has_feature(VIRTIO_NET_F_MRG_RXBUF as u64) {
+                MAX_BUFFER_SIZE
+            } else {
+                self.rx_buffer.iovec.chains[0].length as usize
+            };
             let len = self
                 .rx_buffer
                 .iovec
-                .readv_from(mem, &self.tap, mrg_rxbuf)
+                .readv_from(mem, &self.tap, min_capacity)
                 .map_err(NetError::IO)?;
             // SAFETY:
             // * len will never be bigger that u32::MAX
@@ -1745,6 +1750,53 @@ pub mod tests {
             th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
             rx_dirty_tracking(th, &mem, &chain_lens, frame_len);
         }
+    }
+
+    #[test]
+    fn test_rx_mrg_largest_frame_small_chains() {
+        // With VIRTIO_NET_F_MRG_RXBUF, `readv` only gets the chains that the largest frame
+        // needs, out of a full queue of small ones. The largest frame must still land whole.
+        let page_size = crate::arch::host_page_size() as u32;
+        let chain_lens = [2 * page_size; TestHelper::QUEUE_SIZE as usize];
+        let mem = single_region_mem_dirty_tracking((2 * chain_lens.len() + 1) * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
+        th.net().acked_features = 1 << VIRTIO_NET_F_MRG_RXBUF;
+        rx_dirty_tracking(th, &mem, &chain_lens, MAX_TAP_TX_FRAME_LEN);
+    }
+
+    #[test]
+    fn test_rx_no_mrg_frame_stays_in_first_chain() {
+        // Without VIRTIO_NET_F_MRG_RXBUF, `readv` only gets the first chain, even when the frame
+        // is longer than it: the tap truncates the frame instead of spilling it into the next.
+        let page_size = crate::arch::host_page_size() as u64;
+        let chain_len = 2 * page_size as u32;
+        let mem = single_region_mem_dirty_tracking(
+            (2 * usize::from(TestHelper::QUEUE_SIZE) + 1) * MAX_BUFFER_SIZE,
+        );
+        let mut th = TestHelper::get_default(&mem);
+        // No VIRTIO_NET_F_MRG_RXBUF and no TSO, so chains only need to hold an MTU-sized frame.
+        th.net().acked_features = 0;
+        th.activate_net();
+        for i in 0..TestHelper::QUEUE_SIZE {
+            th.add_desc_chain(
+                NetQueue::Rx,
+                page_size + 2 * MAX_BUFFER_SIZE as u64 * u64::from(i),
+                &[(i, chain_len, VIRTQ_DESC_F_WRITE)],
+            );
+        }
+
+        inject_tap_tx_frame(&th.net(), chain_len as usize + 1);
+        check_metric_after_block!(
+            th.net().metrics.rx_packets_count,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+        assert_eq!(th.rxq.used.idx.get(), 1);
+        th.rxq.check_used_elem(0, 0, chain_len);
+        assert_eq!(
+            th.net().rx_buffer.iovec.chains.len(),
+            usize::from(TestHelper::QUEUE_SIZE) - 1
+        );
     }
 
     fn rx_mrg_rxbuf_only(mut th: TestHelper) {

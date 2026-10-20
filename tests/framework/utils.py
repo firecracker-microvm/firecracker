@@ -296,6 +296,22 @@ def get_stable_rss_mem(uvm, percentage_delta=1):
     return second_rss
 
 
+def wait_for_balloon_actual(vm, target_mib, timeout_s=10):
+    """
+    Poll the balloon device's reported ``actual_mib`` until it reaches target_mib.
+    """
+    actual_mib = None
+    for attempt in Retrying(
+        stop=stop_after_delay(timeout_s), wait=wait_fixed(0.5), reraise=True
+    ):
+        with attempt:
+            actual_mib = vm.api.balloon_stats.get().json()["actual_mib"]
+            assert (
+                actual_mib == target_mib
+            ), f"balloon actual_mib {actual_mib} did not reach {target_mib}"
+    return actual_mib
+
+
 FILLMEM_OUTPUT_PATH = "/tmp/fillmem_output.txt"
 FILLMEM_SUCCESS = "Memory filling was successful"
 OOM_SETTLE_S = 5
