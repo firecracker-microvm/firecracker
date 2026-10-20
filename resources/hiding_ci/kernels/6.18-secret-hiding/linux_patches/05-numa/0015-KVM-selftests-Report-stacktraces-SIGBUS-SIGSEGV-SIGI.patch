@@ -1,7 +1,7 @@
-From 3f39779a55bb5044c4af3725abafc6dd105c74b5 Mon Sep 17 00:00:00 2001
+From ac40a193611b765c126416d7cb6e86e16917afc3 Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Thu, 16 Oct 2025 10:28:48 -0700
-Subject: [PATCH 15/84] KVM: selftests: Report stacktraces SIGBUS, SIGSEGV,
+Subject: [PATCH 15/94] KVM: selftests: Report stacktraces SIGBUS, SIGSEGV,
  SIGILL, and SIGFPE by default
 
 Register handlers for signals for all selftests that are likely happen due
@@ -19,6 +19,7 @@ Reviewed-by: Shivank Garg <shivankg@amd.com>
 Tested-by: Shivank Garg <shivankg@amd.com>
 Link: https://lore.kernel.org/r/20251016172853.52451-8-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/lib/kvm_util.c | 24 ++++++++++++++++++++++
  1 file changed, 24 insertions(+)
@@ -63,6 +64,3 @@ index 203e33697492..5744643d9ec3 100644
  	guest_random_seed = last_guest_seed = random();
  	pr_info("Random seed: 0x%x\n", guest_random_seed);
  
--- 
-2.50.1
-

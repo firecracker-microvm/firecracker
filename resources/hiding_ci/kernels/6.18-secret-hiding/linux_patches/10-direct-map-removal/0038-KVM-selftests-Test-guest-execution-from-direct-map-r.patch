@@ -1,4 +1,4 @@
-From 666ac08672164616e1b0c2cd9833e18420867fcb Mon Sep 17 00:00:00 2001
+From bf96e06b04b0bb73c0216938da4a093bbe1feffd Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:36 +0100
 Subject: [PATCH 38/94] KVM: selftests: Test guest execution from direct map
@@ -15,6 +15,7 @@ of trying to do direct map accesses).
 
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
 Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../selftests/kvm/set_memory_region_test.c    | 52 +++++++++++++++++--
  1 file changed, 48 insertions(+), 4 deletions(-)
@@ -89,6 +90,3 @@ index 7fe427ff9b38..cb445d420e8c 100644
  	} else {
  		pr_info("Skipping tests for KVM_MEM_GUEST_MEMFD memory regions\n");
  	}
--- 
-2.50.1
-

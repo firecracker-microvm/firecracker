@@ -1,7 +1,7 @@
-From bfc005fb0face73d7ac4a8588b4c515d2fff07ab Mon Sep 17 00:00:00 2001
+From 571ec16d191b7bd9b42e724c413cf22ac57cd10b Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Tue, 7 Oct 2025 15:36:25 -0700
-Subject: [PATCH 22/84] KVM: selftests: Rename "guest_paddr" variables to "gpa"
+Subject: [PATCH 22/94] KVM: selftests: Rename "guest_paddr" variables to "gpa"
 
 Rename "guest_paddr" variables in vm_userspace_mem_region_add() and
 vm_mem_add() to KVM's de facto standard "gpa", both for consistency and
@@ -12,6 +12,7 @@ vm_userspace_mem_region_add() declaration.
 
 Link: https://patch.msgid.link/20251007223625.369939-1-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../testing/selftests/kvm/include/kvm_util.h  | 10 ++--
  tools/testing/selftests/kvm/lib/kvm_util.c    | 46 +++++++++----------
@@ -153,6 +154,3 @@ index 5744643d9ec3..a334f6ed50d6 100644
  }
  
  /*
--- 
-2.50.1
-

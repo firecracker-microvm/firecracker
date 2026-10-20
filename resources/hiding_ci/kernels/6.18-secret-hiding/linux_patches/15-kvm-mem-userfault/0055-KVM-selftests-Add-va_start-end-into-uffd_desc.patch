@@ -1,4 +1,4 @@
-From d09fdb5c8f49a64887e6577476280c5102b7ab88 Mon Sep 17 00:00:00 2001
+From baaf97b422583a1c5f0f37bc0f8976be0b15bbc1 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Wed, 4 Dec 2024 19:13:44 +0000
 Subject: [PATCH 55/94] KVM: selftests: Add va_start/end into uffd_desc
@@ -8,6 +8,7 @@ should be using when handling a KVM Userfault (in the event KVM
 Userfault and userfaultfd are being used together).
 
 Signed-off-by: James Houghton <jthoughton@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/include/userfaultfd_util.h | 2 ++
  tools/testing/selftests/kvm/lib/userfaultfd_util.c     | 2 ++
@@ -39,6 +40,3 @@ index 5bde176cedd5..31d38b3a9d12 100644
  	for (i = 0; i < uffd_desc->num_readers; ++i) {
  		int pipes[2];
  
--- 
-2.50.1
-

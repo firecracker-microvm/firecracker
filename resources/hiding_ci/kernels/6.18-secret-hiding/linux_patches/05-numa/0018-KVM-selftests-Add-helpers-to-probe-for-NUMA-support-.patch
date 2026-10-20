@@ -1,7 +1,7 @@
-From 30bdac2a39c8436fd1ab5c5ffbb950bfb97764f8 Mon Sep 17 00:00:00 2001
+From e413475944b988ae01b89136e40188e38a4dd567 Mon Sep 17 00:00:00 2001
 From: Shivank Garg <shivankg@amd.com>
 Date: Thu, 16 Oct 2025 10:28:51 -0700
-Subject: [PATCH 18/84] KVM: selftests: Add helpers to probe for NUMA support,
+Subject: [PATCH 18/94] KVM: selftests: Add helpers to probe for NUMA support,
  and multi-node systems
 
 Add NUMA helpers to probe for support/availability and to check if the
@@ -12,6 +12,7 @@ Signed-off-by: Shivank Garg <shivankg@amd.com>
 [sean: land helpers in numaif.h, add comments, tweak names]
 Link: https://lore.kernel.org/r/20251016172853.52451-11-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/include/numaif.h | 52 ++++++++++++++++++++
  1 file changed, 52 insertions(+)
@@ -84,6 +85,3 @@ index 1554003c40a1..29572a6d789c 100644
 +}
 +
  #endif /* SELFTEST_KVM_NUMAIF_H */
--- 
-2.50.1
-

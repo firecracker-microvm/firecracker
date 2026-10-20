@@ -1,4 +1,4 @@
-From 74e893691f1b959286a2979e873b54193e63559d Mon Sep 17 00:00:00 2001
+From 8917b9caf813ff025a2694f4ece5ff0159d8e914 Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Tue, 15 Sep 2026 08:57:04 +0000
 Subject: [PATCH 1/2] x86/cpu/amd: Add X86_BUG_REP_MOVSB_ALIAS for Zen 3 and
@@ -35,20 +35,22 @@ Signed-off-by: Jack Thomson <jackabt@amazon.com>
  2 files changed, 5 insertions(+)
 
 diff --git a/arch/x86/include/asm/cpufeatures.h b/arch/x86/include/asm/cpufeatures.h
-index 4091a77..61213f1 100644
+index f4c85555b7e4..ead3eecbeb7e 100644
 --- a/arch/x86/include/asm/cpufeatures.h
 +++ b/arch/x86/include/asm/cpufeatures.h
-@@ -556,4 +556,5 @@
+@@ -558,6 +558,7 @@
  #define X86_BUG_ITS_NATIVE_ONLY		X86_BUG( 1*32+ 8) /* "its_native_only" CPU is affected by ITS, VMX is not affected */
  #define X86_BUG_TSA			X86_BUG( 1*32+ 9) /* "tsa" CPU is affected by Transient Scheduler Attacks */
  #define X86_BUG_VMSCAPE			X86_BUG( 1*32+10) /* "vmscape" CPU is affected by VMSCAPE attacks from guests */
 +#define X86_BUG_REP_MOVSB_ALIAS		X86_BUG( 1*32+11) /* "rep_movsb_alias" REP MOVSB is very slow when the destination is 1-15 bytes past the source modulo 4K */
+ 
+ #define X86_BUG_TLBI			X86_BUG( 1*32+12) /* "tlbi" AMD TLBI Erratum #1718 */
  #endif /* _ASM_X86_CPUFEATURES_H */
 diff --git a/arch/x86/kernel/cpu/amd.c b/arch/x86/kernel/cpu/amd.c
-index 5d46709..9d5f9bb 100644
+index ca4265a1f4bb..48028b3f148c 100644
 --- a/arch/x86/kernel/cpu/amd.c
 +++ b/arch/x86/kernel/cpu/amd.c
-@@ -1016,6 +1016,8 @@ static void init_amd_zen3(struct cpuinfo_x86 *c)
+@@ -1011,6 +1011,8 @@ static void init_amd_zen3(struct cpuinfo_x86 *c)
  		if (!cpu_has(c, X86_FEATURE_BTC_NO))
  			set_cpu_cap(c, X86_FEATURE_BTC_NO);
  	}
@@ -57,7 +59,7 @@ index 5d46709..9d5f9bb 100644
  }
  
  static void init_amd_zen4(struct cpuinfo_x86 *c)
-@@ -1033,6 +1035,8 @@ static void init_amd_zen4(struct cpuinfo_x86 *c)
+@@ -1028,6 +1030,8 @@ static void init_amd_zen4(struct cpuinfo_x86 *c)
  		clear_cpu_cap(c, X86_FEATURE_V_VMSAVE_VMLOAD);
  		break;
  	}
@@ -66,6 +68,3 @@ index 5d46709..9d5f9bb 100644
  }
  
  static const struct x86_cpu_id zen5_rdseed_microcode[] = {
--- 
-2.43.0
-

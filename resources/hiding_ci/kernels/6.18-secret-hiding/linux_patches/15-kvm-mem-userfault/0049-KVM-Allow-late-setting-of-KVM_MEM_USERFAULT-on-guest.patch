@@ -1,4 +1,4 @@
-From e71201bc89e251cb9728d6c1e6041353a71572e9 Mon Sep 17 00:00:00 2001
+From c1342264d2373b677e37dcd7224345c18b2ade21 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:19 +0000
 Subject: [PATCH 49/94] KVM: Allow late setting of KVM_MEM_USERFAULT on
@@ -9,12 +9,13 @@ logic to allow KVM_MR_FLAGS_ONLY changes when the only flag being
 changed is KVM_MEM_USERFAULT.
 
 Signed-off-by: James Houghton <jthoughton@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  virt/kvm/kvm_main.c | 15 +++++++++++----
  1 file changed, 11 insertions(+), 4 deletions(-)
 
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index da7ec2527a3d..7959018ae504 100644
+index e74283b7e806..416598da0b96 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -2092,9 +2092,6 @@ static int kvm_set_memory_region(struct kvm *kvm,
@@ -26,7 +27,7 @@ index da7ec2527a3d..7959018ae504 100644
 -			return -EINVAL;
  		if ((mem->userspace_addr != old->userspace_addr) ||
  		    (npages != old->npages) ||
- 		    ((mem->flags ^ old->flags) & KVM_MEM_READONLY))
+ 		    ((mem->flags ^ old->flags) & (KVM_MEM_READONLY | KVM_MEM_GUEST_MEMFD)))
 @@ -2108,6 +2105,16 @@ static int kvm_set_memory_region(struct kvm *kvm,
  			return 0;
  	}
@@ -53,6 +54,3 @@ index da7ec2527a3d..7959018ae504 100644
  		r = kvm_gmem_bind(kvm, new, mem->guest_memfd, mem->guest_memfd_offset);
  		if (r)
  			goto out;
--- 
-2.50.1
-

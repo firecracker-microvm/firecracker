@@ -1,4 +1,4 @@
-From 1c5c6c94008dfced2e8383d9371573ef742f88ce Mon Sep 17 00:00:00 2001
+From fdd884f5dd0c8035b4d8258c8e9551c5b28b5d85 Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Mon, 9 Feb 2026 11:52:30 +0000
 Subject: [PATCH 91/94] KVM: x86/mmu: Integrate userfaultfd async page faults
@@ -21,10 +21,10 @@ Signed-off-by: Jack Thomson <jackabt@amazon.com>
  1 file changed, 31 insertions(+), 1 deletion(-)
 
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-index e82a357e2219..e8479b9022f3 100644
+index 7d2b4807fd4f..321dd18c324f 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
-@@ -4524,7 +4524,8 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu,
+@@ -4536,7 +4536,8 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu,
  	arch.cr3 = kvm_mmu_get_guest_pgd(vcpu, vcpu->arch.mmu);
  
  	return kvm_setup_async_pf(vcpu, fault->addr,
@@ -34,7 +34,7 @@ index e82a357e2219..e8479b9022f3 100644
  }
  
  void kvm_arch_async_page_ready(struct kvm_vcpu *vcpu, struct kvm_async_pf *work)
-@@ -4598,7 +4599,36 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
+@@ -4610,7 +4611,36 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
  	if (userfault < 0)
  		return userfault;
  	if (userfault) {
@@ -71,6 +71,3 @@ index e82a357e2219..e8479b9022f3 100644
  		return -EFAULT;
  	}
  
--- 
-2.43.0
-

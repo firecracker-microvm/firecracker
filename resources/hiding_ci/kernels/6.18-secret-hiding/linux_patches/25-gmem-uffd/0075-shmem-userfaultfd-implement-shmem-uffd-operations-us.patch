@@ -1,4 +1,4 @@
-From eaf0edecca76c574f4697cecb42a699636a50382 Mon Sep 17 00:00:00 2001
+From c1fb9122cb4dd4124382905c7ee1e3b1c041104b Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:10 +0200
 Subject: [PATCH 75/94] shmem, userfaultfd: implement shmem uffd operations
@@ -18,6 +18,7 @@ mfill_atomic_install_pte() is not used anywhere outside of
 mm/userfaultfd, make it static.
 
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/shmem_fs.h      |  14 ----
  include/linux/userfaultfd_k.h |  21 +++--
@@ -93,10 +94,10 @@ index cbf41240aeaf..d1656f3afa14 100644
  				 unsigned long src_start, unsigned long len,
  				 uffd_flags_t flags);
 diff --git a/mm/shmem.c b/mm/shmem.c
-index c52fc39dd06a..0c64e3a9265d 100644
+index 9b81b38b5fc9..5f471cdfd228 100644
 --- a/mm/shmem.c
 +++ b/mm/shmem.c
-@@ -3149,118 +3149,73 @@ static inline struct inode *shmem_get_inode(struct mnt_idmap *idmap,
+@@ -3192,118 +3192,73 @@ static inline struct inode *shmem_get_inode(struct mnt_idmap *idmap,
  #endif /* CONFIG_TMPFS_QUOTA */
  
  #ifdef CONFIG_USERFAULTFD
@@ -265,7 +266,7 @@ index c52fc39dd06a..0c64e3a9265d 100644
  }
  
  static struct folio *shmem_get_folio_noalloc(struct inode *inode, pgoff_t pgoff)
-@@ -3283,6 +3238,9 @@ static bool shmem_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags)
+@@ -3326,6 +3281,9 @@ static bool shmem_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags)
  static const struct vm_uffd_ops shmem_uffd_ops = {
  	.can_userfault		= shmem_can_userfault,
  	.get_folio_noalloc	= shmem_get_folio_noalloc,
@@ -276,7 +277,7 @@ index c52fc39dd06a..0c64e3a9265d 100644
  #endif /* CONFIG_USERFAULTFD */
  
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 8a34d08599d7..9e76df7ba923 100644
+index ed9e2007c9ff..3bcf0b3c9180 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -14,7 +14,6 @@
@@ -436,6 +437,3 @@ index 8a34d08599d7..9e76df7ba923 100644
  }
  
  static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
--- 
-2.50.1
-

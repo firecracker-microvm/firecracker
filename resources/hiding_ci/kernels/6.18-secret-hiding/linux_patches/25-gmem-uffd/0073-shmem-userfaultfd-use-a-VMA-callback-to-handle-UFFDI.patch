@@ -1,4 +1,4 @@
-From 6aaa5f0f23a254edccdce8d398e0132a87e7f440 Mon Sep 17 00:00:00 2001
+From 92da3ddf8e8ec645042d55c475cb7b6fc26ac864 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:08 +0200
 Subject: [PATCH 73/94] shmem, userfaultfd: use a VMA callback to handle
@@ -17,6 +17,7 @@ userfaultfd's mfill_get_vma() and mfill_atomic_pte_continue() to support
 this new API.
 
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/userfaultfd_k.h |  7 +++++++
  mm/shmem.c                    | 15 ++++++++++++++-
@@ -42,10 +43,10 @@ index 095928c30b4b..12d7b6e8d364 100644
  
  /* A combined operation mode + behavior flags. */
 diff --git a/mm/shmem.c b/mm/shmem.c
-index 3be5f5d03ee9..c52fc39dd06a 100644
+index a801af6f0414..9b81b38b5fc9 100644
 --- a/mm/shmem.c
 +++ b/mm/shmem.c
-@@ -3263,13 +3263,26 @@ int shmem_mfill_atomic_pte(pmd_t *dst_pmd,
+@@ -3306,13 +3306,26 @@ out_unacct_blocks:
  	return ret;
  }
  
@@ -74,7 +75,7 @@ index 3be5f5d03ee9..c52fc39dd06a 100644
  #endif /* CONFIG_USERFAULTFD */
  
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index c5438ea4d163..666d17db9f3e 100644
+index 6abb5faf54d1..a86a162675e6 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -191,6 +191,7 @@ static int mfill_get_vma(struct mfill_state *state)
@@ -101,7 +102,7 @@ index c5438ea4d163..666d17db9f3e 100644
  		goto out_unlock;
  
  out:
-@@ -573,6 +576,7 @@ static int mfill_atomic_pte_zeropage(struct mfill_state *state)
+@@ -573,6 +576,7 @@ out:
  static int mfill_atomic_pte_continue(struct mfill_state *state)
  {
  	struct vm_area_struct *dst_vma = state->vma;
@@ -149,6 +150,3 @@ index c5438ea4d163..666d17db9f3e 100644
  }
  
  /* Handles UFFDIO_POISON for all non-hugetlb VMAs. */
--- 
-2.50.1
-

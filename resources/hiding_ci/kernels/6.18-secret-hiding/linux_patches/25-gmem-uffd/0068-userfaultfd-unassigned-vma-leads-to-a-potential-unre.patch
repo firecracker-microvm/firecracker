@@ -1,4 +1,4 @@
-From e6c96ebb621f2d35923fcbbb3ffb6f9c10add7d5 Mon Sep 17 00:00:00 2001
+From 1c47c2b9b0dc60c2b93399415db47f9afce93111 Mon Sep 17 00:00:00 2001
 From: Edward Adam Davis <eadavis@qq.com>
 Date: Mon, 16 Mar 2026 11:11:03 +0800
 Subject: [PATCH 68/94] userfaultfd: unassigned vma leads to a potential
@@ -92,12 +92,13 @@ Reported-by: syzbot+c473aa669b5e8a6f48d2@syzkaller.appspotmail.com
 Closes: https://syzkaller.appspot.com/bug?extid=c473aa669b5e8a6f48d2
 Tested-by: syzbot+c473aa669b5e8a6f48d2@syzkaller.appspotmail.com
 Signed-off-by: Edward Adam Davis <eadavis@qq.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  mm/userfaultfd.c | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 1d1a226f1126..78d29499c5a9 100644
+index c14d7c904442..f1d655b6a2e1 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -179,6 +179,7 @@ static int mfill_get_vma(struct mfill_state *state)
@@ -116,6 +117,3 @@ index 1d1a226f1126..78d29499c5a9 100644
  	return 0;
  
  out_unlock:
--- 
-2.50.1
-

@@ -1,4 +1,4 @@
-From 2283672a5623e50cb8353e653bc3ff27f859d1db Mon Sep 17 00:00:00 2001
+From e928061824f1786e697b73e5511958b0ddfc1c90 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:09 +0200
 Subject: [PATCH 74/94] userfaultfd: introduce vm_uffd_ops->alloc_folio()
@@ -22,6 +22,7 @@ Note, that the new ops method is called alloc_folio() rather than
 folio_alloc() to avoid clash with alloc_tag macro folio_alloc().
 
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/userfaultfd_k.h |  6 +++
  mm/userfaultfd.c              | 92 ++++++++++++++++++-----------------
@@ -45,7 +46,7 @@ index 12d7b6e8d364..cbf41240aeaf 100644
  
  /* A combined operation mode + behavior flags. */
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 666d17db9f3e..8a34d08599d7 100644
+index a86a162675e6..ed9e2007c9ff 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -42,8 +42,26 @@ static bool anon_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags)
@@ -196,6 +197,3 @@ index 666d17db9f3e..8a34d08599d7 100644
  
  	_dst_pte = pte_mkspecial(pfn_pte(my_zero_pfn(dst_addr),
  					 dst_vma->vm_page_prot));
--- 
-2.50.1
-

@@ -1,4 +1,4 @@
-From 7c2504e349ddfd3bbcdef74d0450740741de737e Mon Sep 17 00:00:00 2001
+From 82be07547e04e29937a3c423adf55607ba0eadc8 Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
 Date: Sun, 22 Feb 2026 17:25:07 +0000
 Subject: [PATCH 46/94] KVM: pfncache: Invalidate on gmem invalidation and
@@ -21,6 +21,7 @@ or not.  At the time of writing, only Xen uses HVA-based pfncaches.
 
 Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
 Suggested-by: David Hildenbrand (Red Hat) <david@kernel.org>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  virt/kvm/guest_memfd.c | 50 ++++++++++++++++++++++++++++++++++++++++++
  virt/kvm/kvm_main.c    | 47 ++++++++++++++++++++++++++++++++++++++-
@@ -28,7 +29,7 @@ Suggested-by: David Hildenbrand (Red Hat) <david@kernel.org>
  3 files changed, 98 insertions(+), 3 deletions(-)
 
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 68396333586f..116d9346e87b 100644
+index d8d1ddd71c03..82956449da29 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -208,6 +208,33 @@ static void __kvm_gmem_invalidate_start(struct gmem_file *f, pgoff_t start,
@@ -65,7 +66,7 @@ index 68396333586f..116d9346e87b 100644
  	xa_for_each_range(&f->bindings, index, slot, start, end - 1) {
  		pgoff_t pgoff = slot->gmem.pgoff;
  
-@@ -252,12 +279,35 @@ static void __kvm_gmem_invalidate_end(struct gmem_file *f, pgoff_t start,
+@@ -256,12 +283,35 @@ static void __kvm_gmem_invalidate_end(struct gmem_file *f, pgoff_t start,
  				      pgoff_t end)
  {
  	struct kvm *kvm = f->kvm;
@@ -102,10 +103,10 @@ index 68396333586f..116d9346e87b 100644
  
  static void kvm_gmem_invalidate_end(struct inode *inode, pgoff_t start,
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 8d83957b9f07..867cf777d266 100644
+index 689028a2b178..c5be710d75b6 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
-@@ -2564,9 +2564,11 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
+@@ -2586,9 +2586,11 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
  		.on_lock = kvm_mmu_invalidate_end,
  		.may_block = true,
  	};
@@ -118,7 +119,7 @@ index 8d83957b9f07..867cf777d266 100644
  
  	entry = attributes ? xa_mk_value(attributes) : NULL;
  
-@@ -2590,6 +2592,34 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
+@@ -2612,6 +2614,34 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
  		cond_resched();
  	}
  
@@ -153,7 +154,7 @@ index 8d83957b9f07..867cf777d266 100644
  	kvm_handle_gfn_range(kvm, &pre_set_range);
  
  	for (i = start; i < end; i++) {
-@@ -2601,6 +2631,21 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
+@@ -2623,6 +2653,21 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
  
  	kvm_handle_gfn_range(kvm, &post_set_range);
  
@@ -197,6 +198,3 @@ index 63e08fbac16d..42b3b849f78b 100644
  
  	gpc->valid = true;
  	gpc->pfn = new_pfn;
--- 
-2.50.1
-

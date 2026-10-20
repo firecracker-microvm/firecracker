@@ -1,4 +1,4 @@
-From 66fd698a3a17c6091893b0d1d3c4f50962d07738 Mon Sep 17 00:00:00 2001
+From 1636de7f8bac603f8cdfe7df916975e5c9ba9517 Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Tue, 15 Sep 2026 08:57:04 +0000
 Subject: [PATCH 2/2] x86/uaccess: Avoid REP MOVSB for 4K-aliased user copies
@@ -40,7 +40,7 @@ Signed-off-by: Jack Thomson <jackabt@amazon.com>
  2 files changed, 27 insertions(+), 3 deletions(-)
 
 diff --git a/arch/x86/include/asm/uaccess_64.h b/arch/x86/include/asm/uaccess_64.h
-index 641f45c..7c27cfe 100644
+index d7daec6dd168..74923c6b2c8b 100644
 --- a/arch/x86/include/asm/uaccess_64.h
 +++ b/arch/x86/include/asm/uaccess_64.h
 @@ -122,11 +122,17 @@ copy_user_generic(void *to, const void *from, unsigned long len)
@@ -64,7 +64,7 @@ index 641f45c..7c27cfe 100644
  		_ASM_EXTABLE_UA(1b, 2b)
  		:"+c" (len), "+D" (to), "+S" (from), ASM_CALL_CONSTRAINT
 diff --git a/arch/x86/lib/copy_user_64.S b/arch/x86/lib/copy_user_64.S
-index 06296eb..63bb373 100644
+index 06296eb69fd4..63bb3731495a 100644
 --- a/arch/x86/lib/copy_user_64.S
 +++ b/arch/x86/lib/copy_user_64.S
 @@ -71,7 +71,25 @@ SYM_FUNC_START(rep_movs_alternative)
@@ -94,6 +94,3 @@ index 06296eb..63bb373 100644
  1:	RET
  
  	_ASM_EXTABLE_UA( 0b, 1b)
--- 
-2.43.0
-

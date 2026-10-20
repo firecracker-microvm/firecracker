@@ -1,7 +1,7 @@
-From 0362b355a462b8192cdf1bfbff1caba6f5c4623e Mon Sep 17 00:00:00 2001
+From 48c6100c4de1405c2ee58ba10159157cecc08cd0 Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Thu, 16 Oct 2025 10:28:50 -0700
-Subject: [PATCH 17/84] KVM: selftests: Use proper uAPI headers to pick up
+Subject: [PATCH 17/94] KVM: selftests: Use proper uAPI headers to pick up
  mempolicy.h definitions
 
 Drop the KVM's re-definitions of MPOL_xxx flags in numaif.h as they are
@@ -20,6 +20,7 @@ Reviewed-by: Shivank Garg <shivankg@amd.com>
 Tested-by: Shivank Garg <shivankg@amd.com>
 Link: https://lore.kernel.org/r/20251016172853.52451-10-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/include/numaif.h | 32 +-------------------
  1 file changed, 1 insertion(+), 31 deletions(-)
@@ -70,6 +71,3 @@ index aaa4ac174890..1554003c40a1 100644
 -#define MPOL_MF_MOVE_ALL     (1<<2) /* Move every page to conform to mapping */
 -
  #endif /* SELFTEST_KVM_NUMAIF_H */
--- 
-2.50.1
-

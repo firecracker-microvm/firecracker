@@ -1,4 +1,4 @@
-From be4e944ece7e39bab329be210201d7230d8affaf Mon Sep 17 00:00:00 2001
+From 698e30b99cd380620adda61e4a04228c2726a364 Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Tue, 2 Jun 2026 16:04:31 +0000
 Subject: [PATCH 94/94] KVM: x86: Advertise exitless userfault async page
@@ -23,7 +23,7 @@ Signed-off-by: Jack Thomson <jackabt@amazon.com>
  6 files changed, 472 insertions(+)
 
 diff --git a/Documentation/virt/kvm/api.rst b/Documentation/virt/kvm/api.rst
-index 5bf60a295b62..187a69991d3a 100644
+index 59c2dd6519b0..3d0004689c5a 100644
 --- a/Documentation/virt/kvm/api.rst
 +++ b/Documentation/virt/kvm/api.rst
 @@ -6604,6 +6604,151 @@ operation.
@@ -178,7 +178,7 @@ index 5bf60a295b62..187a69991d3a 100644
  .. _kvm_run:
  
  5. The kvm_run structure
-@@ -9340,6 +9485,23 @@ fault and exit to userspace with ``KVM_EXIT_MEMORY_FAULT`` with
+@@ -9378,6 +9523,23 @@ fault and exit to userspace with ``KVM_EXIT_MEMORY_FAULT`` with
  completes the fault before re-entering the vCPU. See the documentation
  for ``KVM_ASYNC_PF`` (section 4.144) for details.
  
@@ -203,10 +203,10 @@ index 5bf60a295b62..187a69991d3a 100644
  =========================
  
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index de4c52cb598e..a0f907f463f1 100644
+index b12cc2dea9ec..7c3f1f1b7d8f 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
-@@ -4897,6 +4897,7 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
+@@ -4532,6 +4532,7 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
  	case KVM_CAP_X86_GUEST_MODE:
  	case KVM_CAP_ONE_REG:
  	case KVM_CAP_ASYNC_PF_USERFAULT:
@@ -215,10 +215,10 @@ index de4c52cb598e..a0f907f463f1 100644
  		break;
  	case KVM_CAP_PRE_FAULT_MEMORY:
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index b47915980fa6..4a51d48c5805 100644
+index f31052d36feb..23b489e8f3a2 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
-@@ -969,6 +969,7 @@ struct kvm_enable_cap {
+@@ -974,6 +974,7 @@ struct kvm_enable_cap {
  #define KVM_CAP_GUEST_MEMFD_FLAGS 244
  #define KVM_CAP_USERFAULT 245
  #define KVM_CAP_ASYNC_PF_USERFAULT 246
@@ -586,6 +586,3 @@ index 4d3c53734467..33c338be3625 100644
 +		print_skip("KVM_CAP_ASYNC_PF_USERFAULT_EVENTFD not available");
 +	}
  }
--- 
-2.43.0
-

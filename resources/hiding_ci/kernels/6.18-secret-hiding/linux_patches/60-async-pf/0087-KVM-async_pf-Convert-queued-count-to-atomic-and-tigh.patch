@@ -1,4 +1,4 @@
-From 5ca6695ed931605bcd3c92db3bc271edcd5c9cfa Mon Sep 17 00:00:00 2001
+From c57cb93ca3b9e7c500764f2b78424eee4edf04c3 Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Fri, 16 Jan 2026 15:14:10 +0000
 Subject: [PATCH 87/94] KVM: async_pf: Convert queued count to atomic and
@@ -21,10 +21,10 @@ Signed-off-by: Jack Thomson <jackabt@amazon.com>
  2 files changed, 39 insertions(+), 21 deletions(-)
 
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index 7faa83d3d306..12274080cc32 100644
+index fa547a1a15ec..1169eb3e1f45 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
-@@ -363,7 +363,7 @@ struct kvm_vcpu {
+@@ -364,7 +364,7 @@ struct kvm_vcpu {
  
  #ifdef CONFIG_KVM_ASYNC_PF
  	struct {
@@ -200,6 +200,3 @@ index b8aaa96b799b..5a46e01ea91a 100644
 -	vcpu->async_pf.queued++;
  	return 0;
  }
--- 
-2.43.0
-

@@ -1,4 +1,4 @@
-From ff2ab2bf722e769ee4d2edb30bfc4f4c8a254c12 Mon Sep 17 00:00:00 2001
+From 3c7bbaadba251093c785076c4b61766a486577bd Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 14 Nov 2025 11:35:11 +0000
 Subject: [PATCH 61/94] KVM: selftests: update guest_memfd write tests
@@ -7,6 +7,7 @@ This is to reflect that the write syscall is now implemented for
 guest_memfd.
 
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../testing/selftests/kvm/guest_memfd_test.c  | 58 +++++++++++++++++--
  1 file changed, 52 insertions(+), 6 deletions(-)
@@ -108,6 +109,3 @@ index 5fcb922cce44..e74757e2715b 100644
  
  	/* MMAP should always be supported if INIT_SHARED is supported. */
  	if (flags & GUEST_MEMFD_FLAG_INIT_SHARED)
--- 
-2.50.1
-

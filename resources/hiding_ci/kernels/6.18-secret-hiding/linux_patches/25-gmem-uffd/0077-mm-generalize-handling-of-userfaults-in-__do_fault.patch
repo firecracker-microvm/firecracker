@@ -1,4 +1,4 @@
-From f054d81910042cb280b77c8c4f0c59df3bb0e22a Mon Sep 17 00:00:00 2001
+From 747c34ee57ffc933b67c7fd91c9f35c7510ce5a7 Mon Sep 17 00:00:00 2001
 From: Peter Xu <peterx@redhat.com>
 Date: Fri, 6 Mar 2026 19:18:12 +0200
 Subject: [PATCH 77/94] mm: generalize handling of userfaults in __do_fault()
@@ -25,6 +25,7 @@ VMAs mapped at PTE level.
 Signed-off-by: Peter Xu <peterx@redhat.com>
 Co-developed-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  mm/memory.c      | 43 +++++++++++++++++++++++++++++++++++++++++++
  mm/shmem.c       | 12 ------------
@@ -32,10 +33,10 @@ Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
  3 files changed, 51 insertions(+), 12 deletions(-)
 
 diff --git a/mm/memory.c b/mm/memory.c
-index 5b07a6ac5027..823a64791476 100644
+index 451349895665..8f01835db693 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
-@@ -5247,6 +5247,41 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
+@@ -5262,6 +5262,41 @@ oom:
  	return VM_FAULT_OOM;
  }
  
@@ -77,7 +78,7 @@ index 5b07a6ac5027..823a64791476 100644
  /*
   * The mmap_lock must have been held on entry, and may have been
   * released depending on flags and vma->vm_ops->fault() return value.
-@@ -5279,6 +5314,14 @@ static vm_fault_t __do_fault(struct vm_fault *vmf)
+@@ -5294,6 +5329,14 @@ static vm_fault_t __do_fault(struct vm_fault *vmf)
  			return VM_FAULT_OOM;
  	}
  
@@ -93,10 +94,10 @@ index 5b07a6ac5027..823a64791476 100644
  	if (unlikely(ret & (VM_FAULT_ERROR | VM_FAULT_NOPAGE | VM_FAULT_RETRY |
  			    VM_FAULT_DONE_COW)))
 diff --git a/mm/shmem.c b/mm/shmem.c
-index 0c64e3a9265d..e7ba1aa3a513 100644
+index 5f471cdfd228..61985ffb33cf 100644
 --- a/mm/shmem.c
 +++ b/mm/shmem.c
-@@ -2457,13 +2457,6 @@ static int shmem_get_folio_gfp(struct inode *inode, pgoff_t index,
+@@ -2500,13 +2500,6 @@ repeat:
  	fault_mm = vma ? vma->vm_mm : NULL;
  
  	folio = filemap_get_entry(inode->i_mapping, index);
@@ -110,7 +111,7 @@ index 0c64e3a9265d..e7ba1aa3a513 100644
  	if (xa_is_value(folio)) {
  		error = shmem_swapin_folio(inode, index, &folio,
  					   sgp, gfp, vma, fault_type);
-@@ -2508,11 +2501,6 @@ static int shmem_get_folio_gfp(struct inode *inode, pgoff_t index,
+@@ -2551,11 +2544,6 @@ repeat:
  	 * Fast cache lookup and swap lookup did not find it: allocate.
  	 */
  
@@ -123,10 +124,10 @@ index 0c64e3a9265d..e7ba1aa3a513 100644
  	orders = shmem_allowable_huge_orders(inode, vma, index, write_end, false);
  	if (orders > 0) {
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 4ebadd7ba84a..1a1a633848d2 100644
+index 19e05d55a13b..e200b13c63d5 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
-@@ -2084,6 +2084,14 @@ bool vma_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags,
+@@ -2089,6 +2089,14 @@ bool vma_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags,
  	    !vma_is_anonymous(vma))
  		return false;
  
@@ -141,6 +142,3 @@ index 4ebadd7ba84a..1a1a633848d2 100644
  	return ops->can_userfault(vma, vm_flags);
  }
  
--- 
-2.50.1
-

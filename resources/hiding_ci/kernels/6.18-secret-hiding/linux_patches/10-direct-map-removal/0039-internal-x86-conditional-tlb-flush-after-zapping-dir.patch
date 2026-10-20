@@ -1,4 +1,4 @@
-From 4b09417fd0a5698dcb9a935c1e23584b8bc070dd Mon Sep 17 00:00:00 2001
+From af06542d73fc060bc569ffe17694d724a662e1a6 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 12 Jan 2026 15:51:48 +0000
 Subject: [PATCH 39/94] internal: x86: conditional tlb flush after zapping
@@ -13,6 +13,7 @@ This is useful to be able to collect performance data for both enabled
 and disabled TLB flushes.
 
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  arch/x86/include/asm/tlbflush.h | 3 ++-
  arch/x86/mm/tlb.c               | 1 +
@@ -57,10 +58,10 @@ index 5d221709353e..cce591d26e4c 100644
  /*
   * This can be used from process context to figure out what the value of
 diff --git a/fs/userfaultfd.c b/fs/userfaultfd.c
-index 54c6cc7fe9c6..fa66f8a4a5ad 100644
+index 7e40eb9131bd..a630250792b4 100644
 --- a/fs/userfaultfd.c
 +++ b/fs/userfaultfd.c
-@@ -537,6 +537,7 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
+@@ -547,6 +547,7 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
  out:
  	return ret;
  }
@@ -69,7 +70,7 @@ index 54c6cc7fe9c6..fa66f8a4a5ad 100644
  static void userfaultfd_event_wait_completion(struct userfaultfd_ctx *ctx,
  					      struct userfaultfd_wait_queue *ewq)
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index 9f34afa27d00..685e56404533 100644
+index 1c5260cc6a21..7aabbf6b6d8f 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
 @@ -2319,6 +2319,7 @@ extern unsigned int halt_poll_ns;
@@ -81,10 +82,10 @@ index 9f34afa27d00..685e56404533 100644
  struct kvm_device {
  	const struct kvm_device_ops *ops;
 diff --git a/mm/memory.c b/mm/memory.c
-index 1ec36299e963..5b07a6ac5027 100644
+index ef76e8a66b00..451349895665 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
-@@ -7346,8 +7346,6 @@ int folio_zap_direct_map(struct folio *folio)
+@@ -7378,8 +7378,6 @@ int folio_zap_direct_map(struct folio *folio)
  		return -EINVAL;
  
  	ret = set_direct_map_valid_noflush(addr, folio_nr_pages(folio), false);
@@ -94,7 +95,7 @@ index 1ec36299e963..5b07a6ac5027 100644
  	return ret;
  }
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 9e493d049798..5757949ff13a 100644
+index ca8e3de4e267..c52fe1290c1c 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -91,6 +91,7 @@ static bool kvm_gmem_folio_no_direct_map(struct folio *folio)
@@ -115,7 +116,7 @@ index 9e493d049798..5757949ff13a 100644
  out:
  	return r;
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 4845e5739436..d3841efa7f8c 100644
+index 9fdb130b99f8..7598e73d2e02 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -94,6 +94,9 @@ unsigned int halt_poll_ns_shrink = 2;
@@ -128,6 +129,3 @@ index 4845e5739436..d3841efa7f8c 100644
  /*
   * Allow direct access (from KVM or the CPU) without MMU notifier protection
   * to unpinned pages.
--- 
-2.50.1
-

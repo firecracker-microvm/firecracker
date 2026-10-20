@@ -1,4 +1,4 @@
-From aa4927b33d7bb8d78ee9f314ec9c28c86a7390cc Mon Sep 17 00:00:00 2001
+From 0ac6a738d1ab48fbc2caa78126bf5185640efa39 Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
 Date: Sun, 22 Feb 2026 14:43:29 +0000
 Subject: [PATCH 44/94] KVM: pfncache: Rename invalidate_start() helper
@@ -10,6 +10,7 @@ range of HVA range.
 No functional changes intended.
 
 Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  virt/kvm/kvm_main.c |  2 +-
  virt/kvm/kvm_mm.h   | 12 ++++++------
@@ -17,7 +18,7 @@ Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
  3 files changed, 9 insertions(+), 9 deletions(-)
 
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index d7a6a7a612a9..2211ce7017b4 100644
+index c795bd0dc734..21d5228cc26d 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -763,7 +763,7 @@ static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
@@ -30,10 +31,10 @@ index d7a6a7a612a9..2211ce7017b4 100644
  	/*
  	 * If one or more memslots were found and thus zapped, notify arch code
 diff --git a/virt/kvm/kvm_mm.h b/virt/kvm/kvm_mm.h
-index 9fcc5d5b7f8d..abd8e7d33ab0 100644
+index 71a052a0cd43..f40e90ccc6b0 100644
 --- a/virt/kvm/kvm_mm.h
 +++ b/virt/kvm/kvm_mm.h
-@@ -56,13 +56,13 @@ struct kvm_follow_pfn {
+@@ -59,13 +59,13 @@ struct kvm_follow_pfn {
  kvm_pfn_t hva_to_pfn(struct kvm_follow_pfn *kfp);
  
  #ifdef CONFIG_HAVE_KVM_PFNCACHE
@@ -68,6 +69,3 @@ index 0b49ba98f33f..bafda64b8916 100644
  {
  	struct gfn_to_pfn_cache *gpc;
  
--- 
-2.50.1
-

@@ -1,7 +1,7 @@
-From a2d22cfe5555b8c061ffa16c2d5a6a2d0a3adfdf Mon Sep 17 00:00:00 2001
+From 865c1217db5b28ec43db73470341ad6ac369bc36 Mon Sep 17 00:00:00 2001
 From: Shivank Garg <shivankg@amd.com>
 Date: Thu, 16 Oct 2025 10:28:46 -0700
-Subject: [PATCH 13/84] KVM: guest_memfd: Enforce NUMA mempolicy using shared
+Subject: [PATCH 13/94] KVM: guest_memfd: Enforce NUMA mempolicy using shared
  policy
 
 Previously, guest-memfd allocations followed local NUMA node id in absence
@@ -46,12 +46,13 @@ Link: https://lore.kernel.org/all/e9d43abc-bcdb-4f9f-9ad7-5644f714de19@amd.com
 [sean: fold in fixup (see Link above), massage changelog]
 Link: https://lore.kernel.org/r/20251016172853.52451-6-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  virt/kvm/guest_memfd.c | 58 ++++++++++++++++++++++++++++++++++++++++--
  1 file changed, 56 insertions(+), 2 deletions(-)
 
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 88fd812f0f31..4463643bd0a2 100644
+index a664c5e70431..b7723c393240 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -4,6 +4,7 @@
@@ -97,7 +98,7 @@ index 88fd812f0f31..4463643bd0a2 100644
  }
  
  static enum kvm_gfn_range_filter kvm_gmem_get_invalidate_filter(struct inode *inode)
-@@ -411,8 +431,40 @@ static vm_fault_t kvm_gmem_fault_user_mapping(struct vm_fault *vmf)
+@@ -415,8 +435,40 @@ out_folio:
  	return ret;
  }
  
@@ -139,7 +140,7 @@ index 88fd812f0f31..4463643bd0a2 100644
  };
  
  static int kvm_gmem_mmap(struct file *file, struct vm_area_struct *vma)
-@@ -864,11 +916,13 @@ static struct inode *kvm_gmem_alloc_inode(struct super_block *sb)
+@@ -868,11 +920,13 @@ static struct inode *kvm_gmem_alloc_inode(struct super_block *sb)
  	if (!gi)
  		return NULL;
  
@@ -153,6 +154,3 @@ index 88fd812f0f31..4463643bd0a2 100644
  }
  
  static void kvm_gmem_free_inode(struct inode *inode)
--- 
-2.50.1
-

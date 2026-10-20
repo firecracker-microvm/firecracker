@@ -1,4 +1,4 @@
-From 851e4318eaf7f95c09d4f2d88db4efac43c90993 Mon Sep 17 00:00:00 2001
+From 9da777daf0e43c5e2035306976a3d2304ef5f224 Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Mon, 9 Mar 2026 12:30:59 -0700
 Subject: [PATCH 86/94] KVM: Expedite SRCU callbacks when freeing objects
@@ -21,15 +21,16 @@ Reported-by: Nikita Kalyazin <kalyazin@amazon.com>
 Closes: https://lore.kernel.org/all/a84ddba8-12da-489a-9dd1-ccdf7451a1ba@amazon.com
 Cc: Keir Fraser <keirf@google.com>
 Signed-off-by: Sean Christopherson <seanjc@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  virt/kvm/kvm_main.c | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 19c2dcd19d49..2ad31e491090 100644
+index 54dfdc57968f..1351d4bf6501 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
-@@ -6072,7 +6072,7 @@ int kvm_io_bus_register_dev(struct kvm *kvm, enum kvm_bus bus_idx, gpa_t addr,
+@@ -6099,7 +6099,7 @@ int kvm_io_bus_register_dev(struct kvm *kvm, enum kvm_bus bus_idx, gpa_t addr,
  	memcpy(new_bus->range + i + 1, bus->range + i,
  		(bus->dev_count - i) * sizeof(struct kvm_io_range));
  	rcu_assign_pointer(kvm->buses[bus_idx], new_bus);
@@ -38,6 +39,3 @@ index 19c2dcd19d49..2ad31e491090 100644
  
  	return 0;
  }
--- 
-2.50.1
-

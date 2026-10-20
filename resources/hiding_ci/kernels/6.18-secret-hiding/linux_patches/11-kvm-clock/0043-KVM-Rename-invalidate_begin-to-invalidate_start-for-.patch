@@ -1,4 +1,4 @@
-From b45009d8ca32ef06466622537643340d1c75ff66 Mon Sep 17 00:00:00 2001
+From 7dc3acd82c6161a7a2da37e6cb7a59a9a26df91c Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
 Date: Thu, 19 Feb 2026 08:09:45 +0000
 Subject: [PATCH 43/94] KVM: Rename invalidate_begin to invalidate_start for
@@ -18,6 +18,7 @@ $ git grep -E "invalidate(_range)?_begin" | wc -l
 No functional change intended.
 
 Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  arch/x86/kvm/mmu/mmu.c       |  2 +-
  include/linux/kvm_host.h     |  2 +-
@@ -27,10 +28,10 @@ Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
  5 files changed, 14 insertions(+), 14 deletions(-)
 
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-index 667d66cf76d5..aa5a35a3125b 100644
+index 205d314a7583..fbaaf2f3be98 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
-@@ -6847,7 +6847,7 @@ void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end)
+@@ -6873,7 +6873,7 @@ void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end)
  
  	write_lock(&kvm->mmu_lock);
  
@@ -40,10 +41,10 @@ index 667d66cf76d5..aa5a35a3125b 100644
  	kvm_mmu_invalidate_range_add(kvm, gfn_start, gfn_end);
  
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index 685e56404533..c808c0872a4b 100644
+index 7aabbf6b6d8f..351bbcd7ce18 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
-@@ -1560,7 +1560,7 @@ void kvm_mmu_free_memory_cache(struct kvm_mmu_memory_cache *mc);
+@@ -1568,7 +1568,7 @@ void kvm_mmu_free_memory_cache(struct kvm_mmu_memory_cache *mc);
  void *kvm_mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc);
  #endif
  
@@ -68,7 +69,7 @@ index d1094c2d5fb6..8ecf36a84e3b 100644
  	 * invalidate_range_start() is called when all pages in the
  	 * range are still mapped and have at least a refcount of one.
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 5757949ff13a..68396333586f 100644
+index c52fe1290c1c..d8d1ddd71c03 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -199,7 +199,7 @@ static enum kvm_gfn_range_filter kvm_gmem_get_invalidate_filter(struct inode *in
@@ -89,7 +90,7 @@ index 5757949ff13a..68396333586f 100644
  		}
  
  		flush |= kvm_mmu_unmap_gfn_range(kvm, &gfn_range);
-@@ -236,7 +236,7 @@ static void __kvm_gmem_invalidate_begin(struct gmem_file *f, pgoff_t start,
+@@ -240,7 +240,7 @@ static void __kvm_gmem_invalidate_begin(struct gmem_file *f, pgoff_t start,
  		KVM_MMU_UNLOCK(kvm);
  }
  
@@ -98,7 +99,7 @@ index 5757949ff13a..68396333586f 100644
  				      pgoff_t end)
  {
  	enum kvm_gfn_range_filter attr_filter;
-@@ -245,7 +245,7 @@ static void kvm_gmem_invalidate_begin(struct inode *inode, pgoff_t start,
+@@ -249,7 +249,7 @@ static void kvm_gmem_invalidate_begin(struct inode *inode, pgoff_t start,
  	attr_filter = kvm_gmem_get_invalidate_filter(inode);
  
  	kvm_gmem_for_each_file(f, inode->i_mapping)
@@ -107,7 +108,7 @@ index 5757949ff13a..68396333586f 100644
  }
  
  static void __kvm_gmem_invalidate_end(struct gmem_file *f, pgoff_t start,
-@@ -280,7 +280,7 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
+@@ -284,7 +284,7 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
  	 */
  	filemap_invalidate_lock(inode->i_mapping);
  
@@ -116,7 +117,7 @@ index 5757949ff13a..68396333586f 100644
  
  	truncate_inode_pages_range(inode->i_mapping, offset, offset + len - 1);
  
-@@ -394,7 +394,7 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
+@@ -398,7 +398,7 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
  	 * Zap all SPTEs pointed at by this file.  Do not free the backing
  	 * memory, as its lifetime is associated with the inode, not the file.
  	 */
@@ -125,7 +126,7 @@ index 5757949ff13a..68396333586f 100644
  				    kvm_gmem_get_invalidate_filter(inode));
  	__kvm_gmem_invalidate_end(f, 0, -1ul);
  
-@@ -560,7 +560,7 @@ static int kvm_gmem_error_folio(struct address_space *mapping, struct folio *fol
+@@ -564,7 +564,7 @@ static int kvm_gmem_error_folio(struct address_space *mapping, struct folio *fol
  	start = folio->index;
  	end = start + folio_nr_pages(folio);
  
@@ -135,7 +136,7 @@ index 5757949ff13a..68396333586f 100644
  	/*
  	 * Do not truncate the range, what action is taken in response to the
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index d3841efa7f8c..d7a6a7a612a9 100644
+index 7598e73d2e02..c795bd0dc734 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -678,7 +678,7 @@ static __always_inline int kvm_age_hva_range_no_flush(struct mmu_notifier *mn,
@@ -156,7 +157,7 @@ index d3841efa7f8c..d7a6a7a612a9 100644
  		.flush_on_ret	= true,
  		.may_block	= mmu_notifier_range_blockable(range),
  	};
-@@ -2552,7 +2552,7 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
+@@ -2574,7 +2574,7 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
  		.end = end,
  		.arg.attributes = attributes,
  		.handler = kvm_pre_set_memory_attributes,
@@ -165,6 +166,3 @@ index d3841efa7f8c..d7a6a7a612a9 100644
  		.flush_on_ret = true,
  		.may_block = true,
  	};
--- 
-2.50.1
-

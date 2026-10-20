@@ -1,4 +1,4 @@
-From 489ae064258ce52f4c4088f713f0435249581564 Mon Sep 17 00:00:00 2001
+From 274d0b7ce43702b90c78691f08b93bbc35948a75 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Wed, 4 Dec 2024 19:13:45 +0000
 Subject: [PATCH 56/94] KVM: selftests: Add KVM Userfault mode to
@@ -27,6 +27,7 @@ Add the vm_mem_region_set_flags_userfault() helper for setting
 `userfault_bitmap` and KVM_MEM_USERFAULT at the same time.
 
 Signed-off-by: James Houghton <jthoughton@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../selftests/kvm/demand_paging_test.c        | 139 +++++++++++++++++-
  .../testing/selftests/kvm/include/kvm_util.h  |   5 +
@@ -376,6 +377,3 @@ index a1a5c852978e..99cd2228e5d1 100644
  /*
   * VM Memory Region Move
   *
--- 
-2.50.1
-

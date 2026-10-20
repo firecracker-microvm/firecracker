@@ -1,18 +1,19 @@
-From abdd00eb33d598c6fbfdb9bfbbe2882075f00eae Mon Sep 17 00:00:00 2001
+From 6dfb55c8107aef4d19dc547f02560c8f23ca956b Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 2 Mar 2026 15:13:17 +0000
 Subject: [PATCH 81/94] fixup for uffd: export mm symbols
 
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  mm/mempolicy.c | 1 +
  1 file changed, 1 insertion(+)
 
 diff --git a/mm/mempolicy.c b/mm/mempolicy.c
-index 3d797d47a040..1dbbbb28a36e 100644
+index 953e1fe46517..3075a7b765c6 100644
 --- a/mm/mempolicy.c
 +++ b/mm/mempolicy.c
-@@ -2442,6 +2442,7 @@ struct folio *folio_alloc_mpol_noprof(gfp_t gfp, unsigned int order,
+@@ -2439,6 +2439,7 @@ struct folio *folio_alloc_mpol_noprof(gfp_t gfp, unsigned int order,
  	set_page_refcounted(page);
  	return page_rmappable_folio(page);
  }
@@ -20,6 +21,3 @@ index 3d797d47a040..1dbbbb28a36e 100644
  
  /**
   * vma_alloc_folio - Allocate a folio for a VMA.
--- 
-2.50.1
-

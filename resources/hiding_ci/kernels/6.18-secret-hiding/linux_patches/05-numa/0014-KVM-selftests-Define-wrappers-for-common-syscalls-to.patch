@@ -1,7 +1,7 @@
-From 6e7c12339e1b861b497a054cf29e209fb22c79a1 Mon Sep 17 00:00:00 2001
+From 97b08db7b9c8ea1d61816bd28ef0ceb335ac560e Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Thu, 16 Oct 2025 10:28:47 -0700
-Subject: [PATCH 14/84] KVM: selftests: Define wrappers for common syscalls to
+Subject: [PATCH 14/94] KVM: selftests: Define wrappers for common syscalls to
  assert success
 
 Add kvm_<sycall> wrappers for munmap(), close(), fallocate(), and
@@ -23,6 +23,7 @@ Reviewed-by: Shivank Garg <shivankg@amd.com>
 Tested-by: Shivank Garg <shivankg@amd.com>
 Link: https://lore.kernel.org/r/20251016172853.52451-7-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/arm64/vgic_irq.c  |  2 +-
  .../selftests/kvm/include/kvm_syscalls.h      | 81 +++++++++++++++++++
@@ -323,6 +324,3 @@ index 82a8d88b5338..1969f4ab9b28 100644
  
  	close(memfd);
  }
--- 
-2.50.1
-

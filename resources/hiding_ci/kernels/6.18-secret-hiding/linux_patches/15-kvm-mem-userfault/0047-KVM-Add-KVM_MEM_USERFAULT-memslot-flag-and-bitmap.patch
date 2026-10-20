@@ -1,4 +1,4 @@
-From 854e8101f72f16764a92a847cb81436bb05e612a Mon Sep 17 00:00:00 2001
+From 7e4870c68274dcbba57572d27ca86326bb62f863 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:17 +0000
 Subject: [PATCH 47/94] KVM: Add KVM_MEM_USERFAULT memslot flag and bitmap
@@ -12,6 +12,7 @@ provide a bogus pointer. If the pointer cannot be read from, we will
 return -EFAULT (with no other information) back to the user.
 
 Signed-off-by: James Houghton <jthoughton@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/kvm_host.h | 14 ++++++++++++++
  include/uapi/linux/kvm.h |  4 +++-
@@ -20,10 +21,10 @@ Signed-off-by: James Houghton <jthoughton@google.com>
  4 files changed, 55 insertions(+), 1 deletion(-)
 
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index bc51a8fe3838..79928bc5a51d 100644
+index 662d7b485bce..f67916b5528f 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
-@@ -600,6 +600,7 @@ struct kvm_memory_slot {
+@@ -601,6 +601,7 @@ struct kvm_memory_slot {
  	unsigned long *dirty_bitmap;
  	struct kvm_arch_memory_slot arch;
  	unsigned long userspace_addr;
@@ -31,7 +32,7 @@ index bc51a8fe3838..79928bc5a51d 100644
  	u32 flags;
  	short id;
  	u16 as_id;
-@@ -761,6 +762,11 @@ static inline bool kvm_arch_has_readonly_mem(struct kvm *kvm)
+@@ -762,6 +763,11 @@ static inline bool kvm_arch_has_readonly_mem(struct kvm *kvm)
  }
  #endif
  
@@ -43,7 +44,7 @@ index bc51a8fe3838..79928bc5a51d 100644
  struct kvm_memslots {
  	u64 generation;
  	atomic_long_t last_used_slot;
-@@ -2632,4 +2638,12 @@ static inline int kvm_enable_virtualization(void) { return 0; }
+@@ -2633,4 +2639,12 @@ static inline int kvm_enable_virtualization(void) { return 0; }
  static inline void kvm_disable_virtualization(void) { }
  #endif
  
@@ -57,10 +58,10 @@ index bc51a8fe3838..79928bc5a51d 100644
 +
  #endif
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index 13ee57c09669..99fe2d79c121 100644
+index b7cb91a955b0..ca8fff1fa372 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
-@@ -40,7 +40,8 @@ struct kvm_userspace_memory_region2 {
+@@ -45,7 +45,8 @@ struct kvm_userspace_memory_region2 {
  	__u64 guest_memfd_offset;
  	__u32 guest_memfd;
  	__u32 pad1;
@@ -70,7 +71,7 @@ index 13ee57c09669..99fe2d79c121 100644
  };
  
  /*
-@@ -51,6 +52,7 @@ struct kvm_userspace_memory_region2 {
+@@ -56,6 +57,7 @@ struct kvm_userspace_memory_region2 {
  #define KVM_MEM_LOG_DIRTY_PAGES	(1UL << 0)
  #define KVM_MEM_READONLY	(1UL << 1)
  #define KVM_MEM_GUEST_MEMFD	(1UL << 2)
@@ -90,7 +91,7 @@ index 5f0015c5dd95..c088df30cd92 100644
 +config HAVE_KVM_USERFAULT
 +       bool
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 867cf777d266..da7ec2527a3d 100644
+index c5be710d75b6..e74283b7e806 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -1616,6 +1616,9 @@ static int check_memory_region_flags(struct kvm *kvm,
@@ -126,7 +127,7 @@ index 867cf777d266..da7ec2527a3d 100644
  
  	r = kvm_set_memslot(kvm, old, new, change);
  	if (r)
-@@ -6627,3 +6639,26 @@ void kvm_exit(void)
+@@ -6648,3 +6660,26 @@ void kvm_exit(void)
  	kvm_irqfd_exit();
  }
  EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_exit);
@@ -153,6 +154,3 @@ index 867cf777d266..da7ec2527a3d 100644
 +	/* Set in the bitmap means that the gfn is userfault */
 +	return !!(bitmap_chunk & (1ul << (offset % BITS_PER_LONG)));
 +}
--- 
-2.50.1
-

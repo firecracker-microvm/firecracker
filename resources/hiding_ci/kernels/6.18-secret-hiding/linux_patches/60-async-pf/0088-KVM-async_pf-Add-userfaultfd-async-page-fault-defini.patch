@@ -1,4 +1,4 @@
-From ae7836e9bb80a109697568c089766a407ceb9ec8 Mon Sep 17 00:00:00 2001
+From dacf55b61faef180de35168ce8e64f51494a3d94 Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Fri, 16 Jan 2026 15:14:32 +0000
 Subject: [PATCH 88/94] KVM: async_pf: Add userfaultfd async page fault
@@ -25,7 +25,7 @@ Signed-off-by: Jack Thomson <jackabt@amazon.com>
  2 files changed, 54 insertions(+), 2 deletions(-)
 
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index 12274080cc32..bdbf26c5c037 100644
+index 1169eb3e1f45..9cb3e6514ea9 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
 @@ -234,6 +234,18 @@ struct kvm_io_device *kvm_io_bus_get_dev(struct kvm *kvm, enum kvm_bus bus_idx,
@@ -69,7 +69,7 @@ index 12274080cc32..bdbf26c5c037 100644
  int kvm_async_pf_wakeup_all(struct kvm_vcpu *vcpu);
  #endif
  
-@@ -367,6 +385,7 @@ struct kvm_vcpu {
+@@ -368,6 +386,7 @@ struct kvm_vcpu {
  		struct list_head queue;
  		struct list_head done;
  		spinlock_t lock;
@@ -78,10 +78,10 @@ index 12274080cc32..bdbf26c5c037 100644
  #endif
  
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index 052c7c4876eb..f11b3768f0ab 100644
+index 58e701c6f172..0caa6e33e853 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
-@@ -447,6 +447,7 @@ struct kvm_run {
+@@ -452,6 +452,7 @@ struct kvm_run {
  		struct {
  #define KVM_MEMORY_EXIT_FLAG_PRIVATE	(1ULL << 3)
  #define KVM_MEMORY_EXIT_FLAG_USERFAULT	(1ULL << 4)
@@ -89,7 +89,7 @@ index 052c7c4876eb..f11b3768f0ab 100644
  			__u64 flags;
  			__u64 gpa;
  			__u64 size;
-@@ -1616,6 +1617,38 @@ struct kvm_create_guest_memfd {
+@@ -1625,6 +1626,38 @@ struct kvm_create_guest_memfd {
  
  #define KVM_PRE_FAULT_MEMORY	_IOWR(KVMIO, 0xd5, struct kvm_pre_fault_memory)
  
@@ -128,6 +128,3 @@ index 052c7c4876eb..f11b3768f0ab 100644
  struct kvm_pre_fault_memory {
  	__u64 gpa;
  	__u64 size;
--- 
-2.43.0
-

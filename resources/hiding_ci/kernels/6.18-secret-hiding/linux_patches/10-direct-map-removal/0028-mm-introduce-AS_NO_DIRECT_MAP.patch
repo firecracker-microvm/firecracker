@@ -1,4 +1,4 @@
-From abc867c00868f03e7641bd285186a0848f8f40c1 Mon Sep 17 00:00:00 2001
+From f88cc83202af78a6f2d47961fb359178c7a77275 Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Mon, 12 Jan 2026 15:29:36 +0000
 Subject: [PATCH 28/94] mm: introduce AS_NO_DIRECT_MAP
@@ -27,14 +27,15 @@ Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
 Acked-by: Vlastimil Babka <vbabka@suse.cz>
 Reviewed-by: Ackerley Tng <ackerleytng@google.com>
 Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/pagemap.h   | 16 ++++++++++++++++
  include/linux/secretmem.h | 18 ------------------
- lib/buildid.c             | 11 +++++++++--
+ lib/buildid.c             |  4 ++--
  mm/gup.c                  |  9 ++++-----
- mm/mlock.c                |  2 +-
+ mm/mlock.c                |  5 +++--
  mm/secretmem.c            |  8 ++------
- 6 files changed, 32 insertions(+), 32 deletions(-)
+ 6 files changed, 27 insertions(+), 33 deletions(-)
 
 diff --git a/include/linux/pagemap.h b/include/linux/pagemap.h
 index a17fabbc0269..d51e0c0404e2 100644
@@ -104,38 +105,22 @@ index e918f96881f5..0ae1fb057b3d 100644
  {
  	return false;
 diff --git a/lib/buildid.c b/lib/buildid.c
-index c4b0f376fb34..e27ff5d8c4fc 100644
+index ef112a7084ef..b0d4c095a6f2 100644
 --- a/lib/buildid.c
 +++ b/lib/buildid.c
-@@ -65,10 +65,11 @@ static int freader_get_folio(struct freader *r, loff_t file_off)
- 
- 	freader_put_folio(r);
- 
--	/* reject secretmem folios created with memfd_secret() */
--	if (secretmem_mapping(r->file->f_mapping))
-+	/* reject folios without direct map entries (e.g. from memfd_secret() or guest_memfd()) */
-+	if (mapping_no_direct_map(r->file->f_mapping))
- 		return -EFAULT;
- 
-+	/* only use page cache lookup - fail if not already cached */
- 	r->folio = filemap_get_folio(r->file->f_mapping, file_off >> PAGE_SHIFT);
- 
- 	/* if sleeping is allowed, wait for the page, if necessary */
-@@ -116,6 +117,12 @@ static const void *freader_fetch(struct freader *r, loff_t file_off, size_t sz)
+@@ -106,8 +106,8 @@ static const void *freader_fetch(struct freader *r, loff_t file_off, size_t sz)
  		return r->data + file_off;
  	}
  
+-	/* reject secretmem folios created with memfd_secret() */
+-	if (secretmem_mapping(r->file->f_mapping)) {
 +	/* reject folios without direct map entries (e.g. from memfd_secret() or guest_memfd()) */
 +	if (mapping_no_direct_map(r->file->f_mapping)) {
-+		r->err = -EFAULT;
-+		return NULL;
-+	}
-+
- 	/* fetch or reuse folio for given file offset */
- 	r->err = freader_get_folio(r, file_off);
- 	if (r->err)
+ 		r->err = -EFAULT;
+ 		return NULL;
+ 	}
 diff --git a/mm/gup.c b/mm/gup.c
-index 9ec6b3499109..9c945c7f82ae 100644
+index 922ae9ab89c5..25cca7c860c7 100644
 --- a/mm/gup.c
 +++ b/mm/gup.c
 @@ -11,7 +11,6 @@
@@ -155,7 +140,7 @@ index 9ec6b3499109..9c945c7f82ae 100644
  		return -EFAULT;
  
  	if (write) {
-@@ -2724,7 +2723,7 @@ EXPORT_SYMBOL(get_user_pages_unlocked);
+@@ -2730,7 +2729,7 @@ EXPORT_SYMBOL(get_user_pages_unlocked);
   * This call assumes the caller has pinned the folio, that the lowest page table
   * level still points to this folio, and that interrupts have been disabled.
   *
@@ -164,7 +149,7 @@ index 9ec6b3499109..9c945c7f82ae 100644
   *
   * Writing to pinned file-backed dirty tracked folios is inherently problematic
   * (see comment describing the writable_file_mapping_allowed() function). We
-@@ -2744,7 +2743,7 @@ static bool gup_fast_folio_allowed(struct folio *folio, unsigned int flags)
+@@ -2750,7 +2749,7 @@ static bool gup_fast_folio_allowed(struct folio *folio, unsigned int flags)
  	if (WARN_ON_ONCE(folio_test_slab(folio)))
  		return false;
  
@@ -173,7 +158,7 @@ index 9ec6b3499109..9c945c7f82ae 100644
  	if (folio_test_hugetlb(folio))
  		return true;
  
-@@ -2786,7 +2785,7 @@ static bool gup_fast_folio_allowed(struct folio *folio, unsigned int flags)
+@@ -2792,7 +2791,7 @@ static bool gup_fast_folio_allowed(struct folio *folio, unsigned int flags)
  	 * At this point, we know the mapping is non-null and points to an
  	 * address_space object.
  	 */
@@ -183,23 +168,29 @@ index 9ec6b3499109..9c945c7f82ae 100644
  
  	/*
 diff --git a/mm/mlock.c b/mm/mlock.c
-index bb0776f5ef7c..506452ee8cad 100644
+index 31045f17766a..ff4772dfcc1c 100644
 --- a/mm/mlock.c
 +++ b/mm/mlock.c
-@@ -474,7 +474,7 @@ static int mlock_fixup(struct vma_iterator *vmi, struct vm_area_struct *vma,
+@@ -472,11 +472,12 @@ static int mlock_fixup(struct vma_iterator *vmi, struct vm_area_struct *vma,
+ 	int ret = 0;
+ 	vm_flags_t oldflags = vma->vm_flags;
  
- 	if (newflags == oldflags || (oldflags & VM_SPECIAL) ||
- 	    is_vm_hugetlb_page(vma) || vma == get_gate_vma(current->mm) ||
--	    vma_is_dax(vma) || vma_is_secretmem(vma) || (oldflags & VM_DROPPABLE))
-+	    vma_is_dax(vma) || vma_has_no_direct_map(vma) || (oldflags & VM_DROPPABLE))
- 		/* don't set VM_LOCKED or VM_LOCKONFAULT and don't count */
+-	if (newflags == oldflags || vma_is_secretmem(vma) ||
++	if (newflags == oldflags || vma_has_no_direct_map(vma) ||
+ 	    !vma_supports_mlock(vma))
+ 		/*
+ 		 * Don't set VM_LOCKED or VM_LOCKONFAULT and don't count.
+-		 * For secretmem, don't allow the memory to be unlocked.
++		 * For mappings without direct map entries, don't allow the
++		 * memory to be unlocked.
+ 		 */
  		goto out;
  
 diff --git a/mm/secretmem.c b/mm/secretmem.c
-index 3a46c8910b7a..6a0afaaa8cc7 100644
+index 4f16dfbf4330..c6a61b0fbf4f 100644
 --- a/mm/secretmem.c
 +++ b/mm/secretmem.c
-@@ -130,11 +130,6 @@ static int secretmem_mmap_prepare(struct vm_area_desc *desc)
+@@ -206,11 +206,6 @@ static int secretmem_mmap_prepare(struct vm_area_desc *desc)
  	return 0;
  }
  
@@ -211,7 +202,7 @@ index 3a46c8910b7a..6a0afaaa8cc7 100644
  static const struct file_operations secretmem_fops = {
  	.release	= secretmem_release,
  	.mmap_prepare	= secretmem_mmap_prepare,
-@@ -152,7 +147,7 @@ static void secretmem_free_folio(struct folio *folio)
+@@ -228,7 +223,7 @@ static void secretmem_free_folio(struct folio *folio)
  	folio_zero_segment(folio, 0, folio_size(folio));
  }
  
@@ -220,7 +211,7 @@ index 3a46c8910b7a..6a0afaaa8cc7 100644
  	.dirty_folio	= noop_dirty_folio,
  	.free_folio	= secretmem_free_folio,
  	.migrate_folio	= secretmem_migrate_folio,
-@@ -201,6 +196,7 @@ static struct file *secretmem_file_create(unsigned long flags)
+@@ -297,6 +292,7 @@ static struct file *secretmem_file_create(unsigned long flags)
  
  	mapping_set_gfp_mask(inode->i_mapping, GFP_HIGHUSER);
  	mapping_set_unevictable(inode->i_mapping);
@@ -228,6 +219,3 @@ index 3a46c8910b7a..6a0afaaa8cc7 100644
  
  	inode->i_op = &secretmem_iops;
  	inode->i_mapping->a_ops = &secretmem_aops;
--- 
-2.50.1
-
