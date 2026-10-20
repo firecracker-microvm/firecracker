@@ -212,7 +212,20 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     }
 
     /// Backend-specific reset logic. Returns true on success, false if the
-    /// backend does not support reset.
+    /// backend does not support reset or could not be quiesced.
+    ///
+    /// Returning false leaves the device activated and its queues in place. It
+    /// also leaves running whatever work was handed to something outside our own
+    /// synchronous control: an out-of-process vhost-user backend, or io_uring
+    /// operations that are still in flight. That work may write into guest
+    /// memory that the guest has already freed and reused.
+    ///
+    /// Today only devices in developer preview can fail a reset. Every other
+    /// implementation returns true unconditionally.
+    ///
+    /// TODO: decide what Firecracker should do when a reset cannot be
+    /// completed.
+    /// https://github.com/firecracker-microvm/firecracker/issues/6281
     fn _reset(&mut self) -> bool;
 
     /// Mark pages used by queues as dirty.

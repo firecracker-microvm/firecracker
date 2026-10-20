@@ -843,6 +843,18 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn _reset(&mut self) -> bool {
+        // TODO: decide how a failure to wait for the in-flight operations should be
+        // handled. Giving up leaves the device activated, so completions that arrive
+        // afterwards are written into guest memory. The guest may have freed and reused
+        // those pages by then.
+        //
+        // The representative failure is EINTR, when a signal lands while we wait, and
+        // the I/O itself is fine in that case. Retrying would recover from it, but note
+        // that the signal has been consumed by then, so the next wait is not cut short:
+        // it lasts until every outstanding operation has completed, however long the
+        // backing file takes. The vCPU is held in the guest's status write for all of
+        // it, which delays whatever the signal was kicking it for.
+        // https://github.com/firecracker-microvm/firecracker/issues/6278
         if let Err(err) = self.disk.file_engine.drain(true) {
             error!("Failed to reset block IO engine: {:?}", err);
             return false;

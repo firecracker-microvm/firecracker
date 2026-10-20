@@ -391,6 +391,10 @@ where
     }
 
     fn _reset(&mut self) -> bool {
+        // TODO: stop the backend before reporting success. The backend keeps the guest
+        // memory it received at activation and keeps serving the device, so it may write
+        // into pages that the guest has already freed and reused.
+        // https://github.com/firecracker-microvm/firecracker/issues/6277
         false
     }
 }
@@ -841,7 +845,7 @@ mod tests {
         let file = TempFile::new().unwrap().into_file();
         file.set_len(region_size as u64).unwrap();
         let regions = vec![(GuestAddress(0x0), region_size)];
-        let guest_memory = create_mem(file, &regions);
+        let guest_memory = create_mem(file, &regions, libc::MAP_SHARED);
         let q = VirtQueue::new(GuestAddress(0), &guest_memory, 16);
         vhost_block.queues[0] = q.create_queue();
         let interrupt = default_interrupt();

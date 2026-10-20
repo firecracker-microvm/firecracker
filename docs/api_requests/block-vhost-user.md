@@ -87,6 +87,12 @@ status, which is an expensive operation under specific conditions. We advise
 users to profile performance on their workloads when considering to use
 vhost-user devices.
 
+For the same reason, a vhost-user device can only be hotplugged to a microVM
+that was booted with one. A microVM booted without any has anonymous guest
+memory, and one restored from a snapshot memory file has a private mapping; in
+both cases the backend could not map the guest's pages, so the request fails
+with 400. See [device hotplug](../device-hotplug.md).
+
 ## Other considerations
 
 Compared to virtio block device where Firecracker interacts with a drive file on
@@ -200,6 +206,24 @@ exhaustion.
 At the moment, [snapshotting](../snapshotting) is not supported for microVMs
 that have vhost-user devices configured. An attempt to take a snapshot of such a
 microVM will fail. It is planned to add support for that in the future.
+
+## Device reset support
+
+At the moment, device reset is not implemented. Firecracker does not tell the
+backend to stop serving the device, so a reset requested by the guest has two
+consequences.
+
+The device becomes unusable for the rest of the lifetime of the microVM.
+Firecracker rejects any attempt to re-initialize it, because the backend is
+still active, so the guest cannot bring the device back.
+
+The backend may also corrupt the guest's memory. It still has the guest memory
+it received when the device was activated. The guest has torn the device down,
+so it is free to reuse those pages for another purpose. Requests that the
+backend accepted before the reset can complete afterwards and write into them.
+
+Propagating the reset to the backend is tracked in
+[#6277](https://github.com/firecracker-microvm/firecracker/issues/6277).
 
 ## Example configuration
 
