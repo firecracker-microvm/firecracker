@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from functools import cached_property, lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 import psutil
 from tenacity import Retrying, retry, stop_after_attempt, stop_after_delay, wait_fixed
@@ -1050,16 +1050,33 @@ class Microvm:
         *,
         huge_pages: Optional[HugePagesConfig] = None,
         uffd_handler_name: str = None,
+        uffd_base_layers: Sequence[Path] = (),
+        track_dirty_pages: Optional[bool] = None,
     ):
-        """Restore a snapshot"""
+        """Restore a snapshot
+
+        `uffd_base_layers` are the memory files `snapshot.mem` is a diff
+        over, oldest first, for handlers that serve a chain of layers
+        (`layered`). `track_dirty_pages` overrides the default, which is to
+        track only when restoring a Diff snapshot.
+        """
 
         jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
+
+        if uffd_base_layers and not uffd_handler_name:
+            raise ValueError("uffd_base_layers needs a uffd handler")
+        jailed_layers = []
+        for i, layer in enumerate(uffd_base_layers):
+            jailed = Path(self.chroot()) / f"base{i}.mem"
+            hardlink_or_copy(Path(layer), jailed)
+            jailed_layers.append(jailed.name)
 
         if uffd_handler_name:
             self.uffd_handler = spawn_pf_handler(
                 self,
                 uffd_handler(uffd_handler_name, binary_dir=self.fc_binary_path.parent),
                 jailed_snapshot,
+                base_layers=jailed_layers,
             )
 
         jailed_mem = Path("/") / jailed_snapshot.mem.name
@@ -1127,7 +1144,11 @@ class Microvm:
         self.api.snapshot_load.put(
             mem_backend=mem_backend,
             snapshot_path=str(jailed_vmstate),
-            enable_diff_snapshots=jailed_snapshot.snapshot_type.needs_dirty_page_tracking,
+            enable_diff_snapshots=(
+                jailed_snapshot.snapshot_type.needs_dirty_page_tracking
+                if track_dirty_pages is None
+                else track_dirty_pages
+            ),
             resume_vm=resume,
             **optional_kwargs,
         )
