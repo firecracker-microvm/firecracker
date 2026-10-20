@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """A test which checks that the secret hiding kernel variants build successfully."""
 
+import platform
+import sys
 from pathlib import Path
 
 import pytest
@@ -21,7 +23,7 @@ def _discover_variants():
     return sorted(p.name for p in KERNELS_DIR.iterdir() if p.is_dir())
 
 
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(3600)
 @pytest.mark.secret_hiding
 @pytest.mark.parametrize("variant", _discover_variants())
 def test_build_hiding_kernel(variant):
@@ -31,10 +33,15 @@ def test_build_hiding_kernel(variant):
     """
 
     # We have some extra deps for building the kernel that are not in the dev container
+    deps = "build-essential libncurses-dev bison flex libssl-dev libelf-dev bc dwarves libncurses5-dev kmod fakeroot"
+    flags = "--no-install --tidy"
+    if platform.machine() == "x86_64":
+        # Boot the built kernel with virtme-ng and run its KVM selftests.
+        deps += " qemu-system-x86 busybox-static libnuma-dev rsync udev"
+        flags += " --kvm-selftests"
+        utils.check_output(f"{sys.executable} -m pip install virtme-ng==1.42")
     utils.check_output("apt update")
-    utils.check_output(
-        "apt install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc dwarves libncurses5-dev kmod fakeroot"
-    )
+    utils.check_output(f"apt install -y {deps}")
 
     # We have to configure git otherwise patch application fails
     # the git log still credits the original author
@@ -42,5 +49,5 @@ def test_build_hiding_kernel(variant):
     utils.check_output('git config --global user.email "ci@email.com"')
 
     utils.check_output(
-        f"cd {HIDING_CI_DIR}; ./build_and_install_kernel.sh {variant} --no-install --tidy"
+        f"cd {HIDING_CI_DIR}; ./build_and_install_kernel.sh {variant} {flags}"
     )

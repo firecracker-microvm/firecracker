@@ -72,3 +72,16 @@ cd resources/hiding_ci
 Pass `--install` (or answer the prompt) to install the built kernel. Use
 `apply_kernel_patches.sh <variant>` from inside an already checked-out kernel
 tree to apply the patch series on its own.
+
+## KVM selftests
+
+On x86 the CI build also passes `--kvm-selftests`, which merges
+`kvm_selftests.config`, boots the freshly built `bzImage` with
+[virtme-ng](https://github.com/arighi/virtme-ng) under nested KVM, and runs
+every KVM selftest installed from the same patched tree. The host needs
+`kvm_intel nested=1`, QEMU, busybox-static, libnuma-dev, rsync, udev and
+`pip install virtme-ng==1.42`. In CI this job runs on the `m6i.metal` agents
+tagged `os=al2023` and `kv=linux_6.1_nested`, which have nested virtualization
+enabled. Build log, test list and guest console end up in
+`test_results/kvm-selftests/<variant>/`. Any failed test, crash or incomplete
+run fails the job; hardware-dependent skips do not.
