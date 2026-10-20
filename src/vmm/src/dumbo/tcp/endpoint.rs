@@ -190,46 +190,11 @@ impl Endpoint {
         if self.response_buf.is_empty() {
             // There's no pending response currently, so we're back to waiting for a request to be
             // available in self.receive_buf.
-
-            // The following is some ugly but workable code that attempts to find the end of an
-            // HTTP 1.x request in receive_buf. We need to do this for now because
-            // parse_request_bytes() expects the entire request contents as parameter.
-            if self.receive_buf_left > 2 {
-                let b = self.receive_buf.as_mut();
-                for i in 0..self.receive_buf_left - 1 {
-                    // We're basically looking for a double new line, which can only appear at the
-                    // end of a valid request.
-                    if b[i] == b'\n' {
-                        let end = if b[i + 1] == b'\n' {
-                            i + 2
-                        } else if i + 3 <= self.receive_buf_left && &b[i + 1..i + 3] == b"\r\n" {
-                            i + 3
-                        } else {
-                            continue;
-                        };
-
-                        // We found a potential request, let's parse it.
-                        let response = parse_request_bytes(&b[..end], callback);
-
-                        // The unwrap is safe because a Vec will allocate more space until all the
-                        // writes succeed.
-                        response.write_all(&mut self.response_buf).unwrap();
-
-                        // Sanity check because the current logic operates under this assumption.
-                        assert!(self.response_buf.len() < u32::MAX as usize);
-
-                        // We have to remove the bytes up to end from receive_buf, by shifting the
-                        // others to the beginning of the buffer, and updating receive_buf_left.
-                        // Also, advance the rwnd edge of the inner connection.
-                        b.copy_within(end.., 0);
-                        self.receive_buf_left -= end;
-                        // Safe to unwrap because we assert that the response buffer is small
-                        // enough.
-                        self.connection
-                            .advance_local_rwnd_edge(u32::try_from(end).unwrap());
-                        break;
-                    }
-                }
+            if let Some((len, response)) =
+                parse_next_request(&self.receive_buf[..self.receive_buf_left], callback)
+            {
+                self.queue_response(&response);
+                self.consume_request(len);
             }
 
             if self.receive_buf_left == self.receive_buf.len() {
@@ -246,6 +211,25 @@ impl Endpoint {
         if self.connection.fin_received() && self.response_buf.is_empty() {
             self.connection.close();
         }
+    }
+
+    // Serializes `response` into response_buf, which becomes the pending response.
+    fn queue_response(&mut self, response: &Response) {
+        // The unwrap is safe because a Vec will allocate more space until all the writes succeed.
+        response.write_all(&mut self.response_buf).unwrap();
+
+        // Sanity check because the current logic operates under this assumption.
+        assert!(self.response_buf.len() < u32::MAX as usize);
+    }
+
+    // Removes the first `len` bytes from receive_buf by shifting the others to the beginning of
+    // the buffer, and advances the rwnd edge of the inner connection accordingly.
+    fn consume_request(&mut self, len: usize) {
+        self.receive_buf.copy_within(len..self.receive_buf_left, 0);
+        self.receive_buf_left -= len;
+        // Safe to unwrap because len is bounded by RCV_BUF_MAX_SIZE.
+        self.connection
+            .advance_local_rwnd_edge(u32::try_from(len).unwrap());
     }
 
     pub fn write_next_segment<'a>(
@@ -313,6 +297,36 @@ fn build_response(status_code: StatusCode, body: Body) -> Response {
     let mut response = Response::new(Version::default(), status_code);
     response.set_body(body);
     response
+}
+
+/// Finds the end of the HTTP request at the start of `buf`. Request bodies are not supported, so
+/// the request ends with the first empty line. `None` means that more bytes are needed.
+fn frame_request(buf: &[u8]) -> Option<usize> {
+    if buf.len() > 2 {
+        for i in 0..buf.len() - 1 {
+            // We're basically looking for a double new line, which can only appear at the end of
+            // a valid request.
+            if buf[i] == b'\n' {
+                if buf[i + 1] == b'\n' {
+                    return Some(i + 2);
+                } else if i + 3 <= buf.len() && &buf[i + 1..i + 3] == b"\r\n" {
+                    return Some(i + 3);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Parses the request at the start of `buf`, once all of it has arrived, and builds its response
+/// with `callback`. Returns the length of the request and the response, or `None` if more bytes
+/// are needed.
+fn parse_next_request<F: FnOnce(Request) -> Response>(
+    buf: &[u8],
+    callback: F,
+) -> Option<(usize, Response)> {
+    let len = frame_request(buf)?;
+    Some((len, parse_request_bytes(&buf[..len], callback)))
 }
 
 /// Parses the request bytes and builds a `micro_http::Response` by the given callback function.
