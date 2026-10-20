@@ -203,8 +203,10 @@ START_DIR=$(pwd)
 # mistaken for an --install/--no-install/--tidy flag.
 VARIANT=""
 FLAGS=()
+KVM_SELFTESTS=0
 for arg in "$@"; do
   case "$arg" in
+  --kvm-selftests) KVM_SELFTESTS=1 ;;
   --*) FLAGS+=("$arg") ;;
   *)
     if [ -z "$VARIANT" ]; then
@@ -253,6 +255,10 @@ if [ -f "$VARIANT_DIR/config_overrides" ]; then
   CONFIG_OVERRIDE_FILES+=("$VARIANT_DIR/config_overrides")
 fi
 
+if [ "$KVM_SELFTESTS" -eq 1 ]; then
+  CONFIG_OVERRIDE_FILES+=("$START_DIR/kvm_selftests.config")
+fi
+
 TMP_BUILD_DIR=$(mktemp -d -t kernel-build-XXXX)
 
 cd $TMP_BUILD_DIR
@@ -297,6 +303,10 @@ echo "Kernel build complete!"
 KERNEL_VERSION=$(KERNELVERSION=$(make -s kernelversion) ./scripts/setlocalversion)
 
 echo "New kernel version:" $KERNEL_VERSION
+
+if [ "$KVM_SELFTESTS" -eq 1 ]; then
+  "$START_DIR/run_kvm_selftests.sh" "$TMP_BUILD_DIR" "$START_DIR/../../test_results/kvm-selftests/$VARIANT"
+fi
 
 # Make sure a user really wants to install this kernel
 # Forward only the --flags, never the variant selector.
