@@ -92,6 +92,8 @@ pub enum KvmVcpuError {
     VcpuGetXsave(kvm_ioctls::Error),
     /// Failed to get KVM vcpu xsave via KVM_GET_XSAVE2: {0}
     VcpuGetXsave2(kvm_ioctls::Error),
+    /// Host kernel reported an XSAVE2 size smaller than `kvm_xsave`
+    InvalidXsave2Size,
     /// Failed to get KVM vcpu cpuid: {0}
     VcpuGetCpuid(kvm_ioctls::Error),
     /// Failed to get KVM TSC frequency: {0}
@@ -367,10 +369,11 @@ impl KvmVcpu {
             Some(xsave2_size) => {
                 // Convert the `kvm_xsave` size in bytes to the length of FAM (i.e. `extra`).
                 let fam_len =
-                    // Calculate the size of FAM (`extra`) area in bytes. Note that the subtraction
-                    // never underflows because `KVM_CHECK_EXTENSION(KVM_CAP_XSAVE2)` always returns
-                    // at least 4096 bytes that is the size of `kvm_xsave` without FAM area.
-                    (xsave2_size - std::mem::size_of::<kvm_xsave>())
+                    // Size of the FAM (`extra`) area. The kernel is documented to report at least
+                    // `size_of::<kvm_xsave>()`, but don't trust an ioctl result.
+                    (xsave2_size
+                        .checked_sub(std::mem::size_of::<kvm_xsave>())
+                        .ok_or(KvmVcpuError::InvalidXsave2Size)?)
                     // Divide by the size of FAM (`extra`) entry (i.e. `__u32`).
                     .div_ceil(std::mem::size_of::<<kvm_xsave2 as FamStruct>::Entry>());
                 let mut xsave = Xsave::new(fam_len).map_err(KvmVcpuError::Fam)?;
@@ -560,7 +563,7 @@ impl KvmVcpu {
         let num_chunks = msr_index_iter.len().div_ceil(KVM_MAX_MSR_ENTRIES);
 
         // + 1 for the chunk of deferred MSRs
-        let mut msr_chunks: Vec<Msrs> = Vec::with_capacity(num_chunks + 1);
+        let mut msr_chunks: Vec<Msrs> = Vec::with_capacity(num_chunks.strict_add(1));
 
         for _ in 0..num_chunks {
             let chunk_len = msr_index_iter.len().min(KVM_MAX_MSR_ENTRIES);
@@ -727,9 +730,12 @@ impl KvmVcpu {
         // We accept values within a tolerance of 250 parts
         // per million because it is common for TSC frequency
         // to differ due to calibration at boot time.
-        let diff = (i64::from(self.get_tsc_khz()?) - i64::from(state_tsc_freq)).abs();
+        let diff = (i64::from(self.get_tsc_khz()?).strict_sub(i64::from(state_tsc_freq))).abs();
         // Cannot overflow since u32::MAX * 250 < i64::MAX
-        Ok(diff > i64::from(state_tsc_freq) * TSC_KHZ_TOL_NUMERATOR / TSC_KHZ_TOL_DENOMINATOR)
+        Ok(diff
+            > i64::from(state_tsc_freq)
+                .strict_mul(TSC_KHZ_TOL_NUMERATOR)
+                .strict_div(TSC_KHZ_TOL_DENOMINATOR))
     }
 
     /// Scale the TSC frequency of this vCPU to the one provided as a parameter.

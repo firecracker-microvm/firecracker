@@ -101,7 +101,7 @@ pub fn translate_gva(vcpu_fd: &VcpuFd, gva: u64, vmm: &Vmm) -> Result<u64, GdbTa
 
     // ID_AA64MMFR0_EL1 provides information about the implemented memory model and memory
     // management. Check this is a physical address size we support
-    let pa_size = match get_sys_reg(ID_AA64MMFR0_EL1, vcpu_fd)? & 0b1111 {
+    let pa_size: u64 = match get_sys_reg(ID_AA64MMFR0_EL1, vcpu_fd)? & 0b1111 {
         0 => 32,
         1 => 36,
         2 => 40,
@@ -112,7 +112,7 @@ pub fn translate_gva(vcpu_fd: &VcpuFd, gva: u64, vmm: &Vmm) -> Result<u64, GdbTa
     };
 
     // A mask of the physical address size for a virtual address
-    let pa_address_mask: u64 = !0u64 >> (64 - pa_size);
+    let pa_address_mask: u64 = !0u64 >> (64u64.strict_sub(pa_size));
     // A mask used to take the bottom 12 bits of a value this is as we have a grainsize of 9
     // asserted with our 4kb page, plus the offset of 3
     let lower_mask: u64 = 0xFFF;
@@ -120,26 +120,31 @@ pub fn translate_gva(vcpu_fd: &VcpuFd, gva: u64, vmm: &Vmm) -> Result<u64, GdbTa
     let desc_mask: u64 = pa_address_mask & !lower_mask;
 
     let page_indices = [
-        (gva >> (GRAIN_SIZE * 4)) & lower_mask,
-        (gva >> (GRAIN_SIZE * 3)) & lower_mask,
-        (gva >> (GRAIN_SIZE * 2)) & lower_mask,
+        (gva >> GRAIN_SIZE.strict_mul(4)) & lower_mask,
+        (gva >> GRAIN_SIZE.strict_mul(3)) & lower_mask,
+        (gva >> GRAIN_SIZE.strict_mul(2)) & lower_mask,
         (gva >> GRAIN_SIZE) & lower_mask,
     ];
 
     // Transition table base register used for initial table lookup.
     // Take the bottom 48 bits from the register value.
     let mut address: u64 = get_sys_reg(TTBR1_EL1, vcpu_fd)? & pa_address_mask;
-    let mut level = 0;
+    let mut level: usize = 0;
 
     while level < 4 {
+        // `address` is a page-table descriptor read from guest memory: don't let a crafted one
+        // wrap into an address we then read.
+        let table_entry_addr = address
+            .checked_add(page_indices[level])
+            .ok_or(GdbTargetError::GvaTranslateError)?;
         // Clear the bottom 3 bits from this address
-        let pte = read_address(vmm, (address + page_indices[level]) & PTE_ADDRESS_MASK)?;
+        let pte = read_address(vmm, table_entry_addr & PTE_ADDRESS_MASK)?;
         address = pte & desc_mask;
 
         // If this is a valid table entry and we aren't at the end of the page tables
         // then loop again and check next level
         if (pte & 2 != 0) && (level < 3) {
-            level += 1;
+            level = level.strict_add(1);
             continue;
         }
         break;
@@ -148,10 +153,13 @@ pub fn translate_gva(vcpu_fd: &VcpuFd, gva: u64, vmm: &Vmm) -> Result<u64, GdbTa
     // Generate a mask to split between the page table entry and the GVA. The split point is
     // dependent on which level we terminate at. This is calculated by taking the level we
     // hit multiplied by the grainsize then adding the 3 offset
-    let page_size = 1u64 << ((GRAIN_SIZE * (4 - level)) + 3);
-    // Clear bottom bits of page size
-    address &= !(page_size - 1);
-    address |= gva & (page_size - 1);
+    let page_size = 1u64
+        << (GRAIN_SIZE
+            .strict_mul(4usize.strict_sub(level))
+            .strict_add(3));
+    // Clear bottom bits of page size.
+    address &= !(page_size.strict_sub(1));
+    address |= gva & (page_size.strict_sub(1));
     Ok(address)
 }
 
@@ -248,12 +256,12 @@ const CORE_REG_IDS: [u64; CORE_REG_COUNT] = {
     let mut off = reg_offset;
     while idx < GENERAL_PURPOSE_REG_COUNT {
         regs[idx] = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
-        idx += 1;
-        off += std::mem::size_of::<u64>();
+        idx = idx.strict_add(1);
+        off = off.strict_add(std::mem::size_of::<u64>());
     }
 
     regs[idx] = arm64_core_reg_id!(KVM_REG_SIZE_U64, offset_of!(user_pt_regs, sp));
-    idx += 1;
+    idx = idx.strict_add(1);
 
     regs[idx] = arm64_core_reg_id!(KVM_REG_SIZE_U64, offset_of!(user_pt_regs, pc));
     regs
@@ -295,18 +303,18 @@ pub fn write_registers(vcpu_fd: &VcpuFd, regs: &CoreRegs) -> Result<(), GdbTarge
             arm64_core_reg_id!(KVM_REG_SIZE_U64, off),
             &regs.x[i].to_le_bytes(),
         )?;
-        off += std::mem::size_of::<u64>();
+        off = off.strict_add(std::mem::size_of::<u64>());
     }
 
     let off = offset_of!(user_pt_regs, sp);
     vcpu_fd.set_one_reg(
-        arm64_core_reg_id!(KVM_REG_SIZE_U64, off + kreg_off),
+        arm64_core_reg_id!(KVM_REG_SIZE_U64, off.strict_add(kreg_off)),
         &regs.sp.to_le_bytes(),
     )?;
 
     let off = offset_of!(user_pt_regs, pc);
     vcpu_fd.set_one_reg(
-        arm64_core_reg_id!(KVM_REG_SIZE_U64, off + kreg_off),
+        arm64_core_reg_id!(KVM_REG_SIZE_U64, off.strict_add(kreg_off)),
         &regs.pc.to_le_bytes(),
     )?;
 

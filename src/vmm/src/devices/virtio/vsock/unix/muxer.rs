@@ -467,11 +467,11 @@ impl VsockMuxer {
         // until we reach an EOL terminator (or our buffer space runs out).  Yeah, not
         // particularly proud of this approach, but it will have to do for now.
         let mut blen = MIN_READ_LEN;
-        while buf[blen - 1] != b'\n' && blen < buf.len() {
+        while buf[blen.strict_sub(1)] != b'\n' && blen < buf.len() {
             stream
                 .read_exact(&mut buf[blen..=blen])
                 .map_err(VsockUnixBackendError::UnixRead)?;
-            blen += 1;
+            blen = blen.strict_add(1);
         }
 
         let mut word_iter = std::str::from_utf8(&buf[..blen])
@@ -620,7 +620,8 @@ impl VsockMuxer {
         //
 
         loop {
-            self.local_port_last = (self.local_port_last + 1) & !(1 << 31) | (1 << 30);
+            // The mask keeps `local_port_last` in `[1 << 30, 1 << 31)`, so `+ 1` cannot overflow.
+            self.local_port_last = (self.local_port_last.strict_add(1)) & !(1 << 31) | (1 << 30);
             if self.local_port_set.insert(self.local_port_last) {
                 break;
             }
@@ -666,7 +667,9 @@ impl VsockMuxer {
         for (dst, src) in addr.sun_path.iter_mut().zip(path) {
             *dst = libc::c_char::from_ne_bytes([*src]);
         }
-        let addr_len = std::mem::offset_of!(libc::sockaddr_un, sun_path) + path.len() + 1;
+        let addr_len = std::mem::offset_of!(libc::sockaddr_un, sun_path)
+            .strict_add(path.len())
+            .strict_add(1);
         let addr_len = libc::socklen_t::try_from(addr_len).unwrap();
 
         // SAFETY: valid fd, initialised `sockaddr_un` and its length; the return value is checked.
@@ -866,6 +869,7 @@ impl VsockMuxer {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     use std::io::{Read, Write};
     use std::ops::Drop;
     use std::os::unix::net::{UnixListener, UnixStream};

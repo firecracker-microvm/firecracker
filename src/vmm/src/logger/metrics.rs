@@ -72,6 +72,7 @@ use std::io::Write;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
@@ -253,7 +254,10 @@ impl IncMetric for SharedIncMetric {
         self.0.load(Ordering::Relaxed)
     }
     fn fetch_diff(&self) -> u64 {
-        self.0.load(Ordering::Relaxed) - self.1.load(Ordering::Relaxed)
+        // `self.1` holds an earlier load of the monotonically-increasing `self.0`.
+        self.0
+            .load(Ordering::Relaxed)
+            .strict_sub(self.1.load(Ordering::Relaxed))
     }
 }
 
@@ -273,7 +277,8 @@ impl Serialize for SharedIncMetric {
     /// !!! Any print of the metrics will also reset them. Use with caution !!!
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let snapshot = self.0.load(Ordering::Relaxed);
-        let res = serializer.serialize_u64(snapshot - self.1.load(Ordering::Relaxed));
+        // `self.1` holds an earlier `snapshot` of the monotonically-increasing `self.0`.
+        let res = serializer.serialize_u64(snapshot.strict_sub(self.1.load(Ordering::Relaxed)));
 
         if res.is_ok() {
             self.1.store(snapshot, Ordering::Relaxed);
@@ -317,7 +322,9 @@ impl ProcessTimeReporter {
     /// Obtain process start time in microseconds.
     pub fn report_start_time(&self) {
         if let Some(start_time) = self.start_time_us {
-            let delta_us = get_time_us(ClockType::Monotonic) - start_time;
+            // `start_time` comes from a `--start-time-us` CLI argument supplied by the launcher,
+            // not this clock, so saturate rather than panic if it is ever in the future.
+            let delta_us = get_time_us(ClockType::Monotonic).saturating_sub(start_time);
             METRICS.api_server.process_startup_time_us.store(delta_us);
         }
     }
@@ -325,8 +332,10 @@ impl ProcessTimeReporter {
     /// Obtain process CPU start time in microseconds.
     pub fn report_cpu_start_time(&self) {
         if let Some(cpu_start_time) = self.start_time_cpu_us {
-            let delta_us = get_time_us(ClockType::ProcessCpu) - cpu_start_time
-                + self.parent_cpu_time_us.unwrap_or_default();
+            // Same launcher-supplied CLI input as `report_start_time`, so saturate.
+            let delta_us = get_time_us(ClockType::ProcessCpu)
+                .saturating_sub(cpu_start_time)
+                .saturating_add(self.parent_cpu_time_us.unwrap_or_default());
             METRICS
                 .api_server
                 .process_startup_time_cpu_us
@@ -749,7 +758,7 @@ impl SignalMetrics {
 /// Provides efficient way to record LatencyAggregateMetrics
 #[derive(Debug)]
 pub struct LatencyMetricsRecorder<'a> {
-    start_time: u64,
+    start_time: Instant,
     metric: &'a LatencyAggregateMetrics,
 }
 
@@ -757,7 +766,7 @@ impl<'a> LatencyMetricsRecorder<'a> {
     /// Const default construction.
     fn new(metric: &'a LatencyAggregateMetrics) -> Self {
         Self {
-            start_time: get_time_us(ClockType::Monotonic),
+            start_time: Instant::now(),
             metric,
         }
     }
@@ -768,7 +777,7 @@ impl Drop for LatencyMetricsRecorder<'_> {
     /// and updates min/max/sum metrics.
     ///  self.start_time is recorded in new() and metrics are updated in drop
     fn drop(&mut self) {
-        let delta_us = get_time_us(ClockType::Monotonic) - self.start_time;
+        let delta_us = u64::try_from(self.start_time.elapsed().as_micros()).unwrap();
         self.metric.sum_us.add(delta_us);
         let min_us = self.metric.min_us.fetch();
         let max_us = self.metric.max_us.fetch();

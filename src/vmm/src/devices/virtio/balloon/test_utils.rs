@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![doc(hidden)]
+#![allow(clippy::arithmetic_side_effects)]
 
 #[cfg(test)]
 use crate::devices::virtio::balloon::Balloon;

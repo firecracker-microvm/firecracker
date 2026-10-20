@@ -290,7 +290,7 @@ fn inherit_from_parent_aux(
 
             // Trying to avoid the race condition described above. We don't care about the result,
             // because we check once more if line.is_empty() after the end of this block.
-            let _ = inherit_from_parent_aux(parent, file_name, retry_depth - 1);
+            let _ = inherit_from_parent_aux(parent, file_name, retry_depth.strict_sub(1));
             line = readln_special(&parent_file)?;
         }
 
@@ -330,9 +330,11 @@ impl CgroupV1 {
         let mut path = controller_path.to_path_buf();
         path.push(parent_cg);
         path.push(id);
-        let mut depth = 0;
+        let mut depth: u16 = 0;
         for _ in parent_cg.components() {
-            depth += 1;
+            depth = depth
+                .checked_add(1)
+                .ok_or_else(|| JailerError::CgroupParentPathTooDeep(parent_cg.to_path_buf()))?;
         }
 
         Ok(CgroupV1 {

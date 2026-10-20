@@ -83,7 +83,7 @@ impl DiskProperties {
 
         // We only support disk size, which uses the first two words of the configuration space.
         // If the image is not a multiple of the sector size, the tail bits are not exposed.
-        if disk_size % u64::from(SECTOR_SIZE) != 0 {
+        if disk_size.strict_rem(u64::from(SECTOR_SIZE)) != 0 {
             warn!(
                 "Disk size {} is not a multiple of sector size {}; the remainder will not be \
                  visible to the guest.",
@@ -221,13 +221,13 @@ fn calculate_blk_size_and_topology(
     let mut physical_block_exp: u8 = 0;
     let mut size = attrs.physical_block_size;
     while attrs.logical_block_size < size {
-        physical_block_exp += 1;
+        physical_block_exp = physical_block_exp.strict_add(1);
         size >>= 1;
     }
 
     let min_io_size =
-        u16::try_from(attrs.min_io_size / attrs.logical_block_size).unwrap_or(u16::MAX);
-    let opt_io_size = attrs.opt_io_size / attrs.logical_block_size;
+        u16::try_from(attrs.min_io_size.strict_div(attrs.logical_block_size)).unwrap_or(u16::MAX);
+    let opt_io_size = attrs.opt_io_size.strict_div(attrs.logical_block_size);
 
     let topology = VirtioBlkTopology {
         physical_block_exp,
@@ -881,6 +881,7 @@ impl Drop for VirtioBlock {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     use std::fs::metadata;
     use std::io::{Read, Write};
     use std::os::unix::ffi::OsStrExt;

@@ -3,7 +3,6 @@
 
 use std::convert::TryInto;
 use std::fmt;
-use std::ops::Add;
 
 use aws_lc_rs::aead::{AES_256_GCM, Aad, Nonce, RandomizedNonceKey};
 use base64::Engine;
@@ -93,8 +92,8 @@ impl TokenAuthority {
         let token = self.create_token(ttl_seconds)?;
         // Encode struct into base64 in order to obtain token string.
         let encoded_token = token.base64_encode();
-        // Increase the count of encrypted tokens.
-        self.num_encrypted_tokens += 1;
+        // Increase the count of encrypted tokens; `check_encryption_count` above bounds it.
+        self.num_encrypted_tokens = self.num_encrypted_tokens.strict_add(1);
 
         Ok(encoded_token)
     }
@@ -229,11 +228,9 @@ impl TokenAuthority {
         // Get current time in milliseconds.
         let now_as_milliseconds = get_time_ms(ClockType::Monotonic);
 
-        // Compute expiry by adding ttl value converted to milliseconds
-        // to current time (also in milliseconds). This addition is safe
-        // because ttl is verified beforehand and can never be more than
-        // 6h (21_600_000 ms).
-        now_as_milliseconds.add(u64::from(ttl_as_seconds) * MILLISECONDS_PER_SECOND)
+        // Compute expiry by adding ttl value converted to milliseconds to current time.
+        now_as_milliseconds
+            .strict_add(u64::from(ttl_as_seconds).strict_mul(MILLISECONDS_PER_SECOND))
     }
 }
 

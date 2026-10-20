@@ -521,9 +521,10 @@ impl MsixCap {
         pba_off: u32,
     ) -> Self {
         assert!(table_size < MAX_MSIX_VECTORS_PER_DEVICE);
+        assert_ne!(table_size, 0, "MSI-X table must have at least one entry");
 
         // Set the table size and enable MSI-X.
-        let msg_ctl: u16 = 0x8000u16 + table_size - 1;
+        let msg_ctl: u16 = 0x8000u16.strict_add(table_size).strict_sub(1);
 
         MsixCap {
             msg_ctl,
@@ -564,13 +565,13 @@ impl MsixCap {
 
     /// Table size
     pub fn table_size(&self) -> u16 {
-        (self.msg_ctl & 0x7ff) + 1
+        (self.msg_ctl & 0x7ff).strict_add(1)
     }
 
     /// Table BAR offset and size in bytes
     pub fn table_bar_offset_and_size(&self) -> (u64, u64) {
         // The table takes 16 bytes per entry.
-        let size = self.table_size() as u64 * MSIX_TABLE_ENTRIES_MODULO;
+        let size = (self.table_size() as u64).strict_mul(MSIX_TABLE_ENTRIES_MODULO);
         (self.table_offset() as u64, size)
     }
 

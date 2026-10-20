@@ -312,7 +312,7 @@ pub enum DefaultBrandStringError {
 ///
 /// Never.
 // As we pass through host frequency, we require CPUID and thus `cfg(cpuid)`.
-#[allow(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
+#[allow(clippy::indexing_slicing)]
 #[inline]
 fn default_brand_string(
     // Host brand string.
@@ -331,10 +331,6 @@ fn default_brand_string(
         }
         Err(DefaultBrandStringError::MissingFrequency(host_brand_string))
     }?;
-    debug_assert_eq!(
-        before.len().checked_add(after.len()),
-        Some(BRAND_STRING_LENGTH)
-    );
 
     // We iterate from the end until hitting a space, getting the frequency number
     // e.g. b"Intel(R) Xeon(R) Processor Platinum 8275CL CPU @ " and b"3.00"
@@ -349,19 +345,12 @@ fn default_brand_string(
         }
         Err(DefaultBrandStringError::MissingSpace(host_brand_string))
     }?;
-    debug_assert!(frequency.len() <= before.len());
-
-    debug_assert!(
-        matches!(frequency.len().checked_add(after.len()), Some(x) if x <= BRAND_STRING_LENGTH)
-    );
-    debug_assert!(DEFAULT_BRAND_STRING_BASE.len() <= BRAND_STRING_LENGTH);
-    debug_assert!(BRAND_STRING_LENGTH.checked_mul(2).is_some());
-
-    // As `DEFAULT_BRAND_STRING_BASE.len() + frequency.len() + after.len()` is guaranteed
-    // to be less than or equal to  `2*BRAND_STRING_LENGTH` and we know
-    // `2*BRAND_STRING_LENGTH <= usize::MAX` since `BRAND_STRING_LENGTH==48`, this is always
-    // safe.
-    let len = DEFAULT_BRAND_STRING_BASE.len() + frequency.len() + after.len();
+    // `frequency` and `after` are disjoint slices of `host_brand_string`, so their lengths sum
+    // to at most `BRAND_STRING_LENGTH`; `DEFAULT_BRAND_STRING_BASE` is a short constant.
+    let len = DEFAULT_BRAND_STRING_BASE
+        .len()
+        .strict_add(frequency.len())
+        .strict_add(after.len());
 
     let brand_string = DEFAULT_BRAND_STRING_BASE
         .iter()
@@ -378,7 +367,6 @@ fn default_brand_string(
                 .ok_or(DefaultBrandStringError::Overflow)?,
         ))
         .collect::<Vec<_>>();
-    debug_assert_eq!(brand_string.len(), BRAND_STRING_LENGTH);
 
     // Padding ensures `brand_string.len() == BRAND_STRING_LENGTH` thus
     // `brand_string.try_into().unwrap()` is safe.

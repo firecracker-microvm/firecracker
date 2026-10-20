@@ -159,7 +159,7 @@ pub fn vcpuid_to_tid(cpu_id: usize) -> Result<Tid, GdbTargetError> {
 /// Converts the inernal index of a Vcpu to
 /// the 1 indexed value for GDB
 pub fn get_raw_tid(cpu_id: usize) -> usize {
-    cpu_id + 1
+    cpu_id.strict_add(1)
 }
 
 impl FirecrackerTarget {
@@ -434,7 +434,7 @@ impl MultiThreadBase for FirecrackerTarget {
             // Compute the amount space left in the page after the gpa
             let read_len = std::cmp::min(
                 data.len(),
-                GUEST_PAGE_SIZE - (u64_to_usize(gpa) & (GUEST_PAGE_SIZE - 1)),
+                GUEST_PAGE_SIZE.strict_sub(u64_to_usize(gpa) & (GUEST_PAGE_SIZE.strict_sub(1))),
             );
 
             vmm.vm
@@ -447,7 +447,10 @@ impl MultiThreadBase for FirecrackerTarget {
                 })?;
 
             data = &mut data[read_len..];
-            gva += read_len as u64;
+            // `gva` comes from the debugger; refuse to wrap around the address space.
+            gva = gva.checked_add(read_len as u64).ok_or_else(|| {
+                error!("Guest virtual address overflow while reading at {gva:#X}");
+            })?;
         }
 
         Ok(data_len)
@@ -474,7 +477,7 @@ impl MultiThreadBase for FirecrackerTarget {
             // Compute the amount space left in the page after the gpa
             let write_len = std::cmp::min(
                 data.len(),
-                GUEST_PAGE_SIZE - (u64_to_usize(gpa) & (GUEST_PAGE_SIZE - 1)),
+                GUEST_PAGE_SIZE.strict_sub(u64_to_usize(gpa) & (GUEST_PAGE_SIZE.strict_sub(1))),
             );
 
             vmm.vm
@@ -487,7 +490,10 @@ impl MultiThreadBase for FirecrackerTarget {
                 })?;
 
             data = &data[write_len..];
-            gva += write_len as u64;
+            // `gva` comes from the debugger; refuse to wrap around the address space.
+            gva = gva.checked_add(write_len as u64).ok_or_else(|| {
+                error!("Guest virtual address overflow while writing at {gva:#X}");
+            })?;
         }
 
         Ok(())

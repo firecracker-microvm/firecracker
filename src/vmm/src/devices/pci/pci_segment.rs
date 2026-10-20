@@ -89,7 +89,8 @@ impl PciSegment {
             .expect("Slot 0 of the root bus is free");
 
         let pci_config_mmio = Arc::new(Mutex::new(PciConfigMmio::new(pci_buses.clone())));
-        let mmio_config_address = PCI_MMCONFIG_START + PCI_MMIO_CONFIG_SIZE_PER_SEGMENT * id as u64;
+        let mmio_config_address = PCI_MMCONFIG_START
+            .strict_add(PCI_MMIO_CONFIG_SIZE_PER_SEGMENT.strict_mul(u64::from(id)));
 
         vm.common.mmio_bus.insert(
             pci_config_mmio.clone(),
@@ -368,7 +369,7 @@ impl Aml for PciSegment {
         let pci_osc = PciOscMethod {};
         pci_dsdt_inner_data.push(&pci_osc);
 
-        let last_bus = u16::from(self.pci_buses.num_buses() - 1);
+        let last_bus = u16::from(self.pci_buses.num_buses().strict_sub(1));
 
         #[allow(clippy::if_same_then_else)]
         let crs = if self.id == 0 {

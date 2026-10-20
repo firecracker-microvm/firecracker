@@ -168,6 +168,8 @@ pub enum MemoryError {
     FileMetadata(std::io::Error),
     /// Memory region has zero size
     ZeroSize,
+    /// Guest memory size of {0} bytes exceeds the architectural maximum of {1} bytes
+    GuestMemoryTooLarge(usize, usize),
     /// Memory region has zero slots
     ZeroSlots,
     /// Memory region of {region_size} bytes is not evenly divisible into {slot_count} slots
@@ -276,7 +278,9 @@ impl RawGuestRegionMmap {
         // address is page-aligned, so we need at most that many extra bytes to reach the next
         // 2 MiB boundary. For hugetlb (page_size == 2 MiB), this is zero — no over-allocation
         // needed since the kernel already returns 2 MiB-aligned addresses.
-        let alloc_size = size_page_multiple + GUEST_MEMORY_ALIGNMENT - page_size;
+        let alloc_size = size_page_multiple
+            .strict_add(GUEST_MEMORY_ALIGNMENT)
+            .strict_sub(page_size);
 
         // SAFETY: anonymous private mapping with no fd; does not alias existing memory.
         // The returned region is PROT_NONE (inaccessible) until the caller re-maps it.
@@ -302,32 +306,36 @@ impl RawGuestRegionMmap {
         // Compute head/tail sizes to trim. Both are guaranteed to be page-aligned because
         // `ptr` is page-aligned (from mmap), `aligned_ptr` is 2 MiB-aligned (a multiple of
         // page size), and `size_page_multiple` is a page multiple by construction.
-        let head_size = aligned_ptr - ptr as usize;
-        let tail_size = alloc_size - head_size - size_page_multiple;
+        let head_size = aligned_ptr.strict_sub(ptr as usize);
+        let tail_size = alloc_size
+            .strict_sub(head_size)
+            .strict_sub(size_page_multiple);
 
         // Sanity checks: the three parts must exactly partition the allocation.
         assert_eq!(
-            head_size + size_page_multiple + tail_size,
+            head_size
+                .strict_add(size_page_multiple)
+                .strict_add(tail_size),
             alloc_size,
             "Allocated memory is not fully partitioned"
         );
         assert_eq!(
-            ptr as usize + head_size,
+            (ptr as usize).strict_add(head_size),
             aligned_ptr,
             "Head and aligned portion aren't adjacent"
         );
         assert_eq!(
-            aligned_ptr + size_page_multiple,
-            ptr as usize + alloc_size - tail_size,
+            aligned_ptr.strict_add(size_page_multiple),
+            (ptr as usize).strict_add(alloc_size).strict_sub(tail_size),
             "Tail and aligned portion aren't adjacent"
         );
         assert_eq!(
-            head_size % page_size,
+            head_size.strict_rem(page_size),
             0,
             "head size is not a multiple of page-size"
         );
         assert_eq!(
-            tail_size % page_size,
+            tail_size.strict_rem(page_size),
             0,
             "tail size is not a multiple of page-size"
         );
@@ -344,7 +352,10 @@ impl RawGuestRegionMmap {
         if tail_size > 0 {
             // SAFETY: address is page-aligned and `tail_size` is a page multiple within our mapping.
             let ret = unsafe {
-                libc::munmap((aligned_ptr + size_page_multiple) as *mut c_void, tail_size)
+                libc::munmap(
+                    aligned_ptr.strict_add(size_page_multiple) as *mut c_void,
+                    tail_size,
+                )
             };
             if ret != 0 {
                 warn_unrestricted!("munmap failed: {}", std::io::Error::last_os_error(),);
@@ -556,11 +567,10 @@ impl<'a> GuestMemorySlot<'a> {
         page_size: usize,
     ) -> Result<(), MemoryError> {
         let firecracker_bitmap = self.slice.bitmap();
-        let mut write_size = 0;
-        let mut skip_size = 0;
+        let mut write_size: usize = 0;
+        let mut skip_size: usize = 0;
         let mut dirty_batch_start = 0;
-
-        let expected_bitmap_array_len = (self.slice.len() / page_size).div_ceil(64);
+        let expected_bitmap_array_len = (self.slice.len().strict_div(page_size)).div_ceil(64);
         if kvm_bitmap.len() > expected_bitmap_array_len {
             return Err(MemoryError::DirtyBitmapTooLarge);
         } else if kvm_bitmap.len() < expected_bitmap_array_len {
@@ -570,7 +580,7 @@ impl<'a> GuestMemorySlot<'a> {
         for (i, v) in kvm_bitmap.iter().enumerate() {
             for j in 0..64 {
                 let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
-                let page_offset = ((i * 64) + j) * page_size;
+                let page_offset = (i.strict_mul(64).strict_add(j)).strict_mul(page_size);
                 let is_firecracker_page_dirty = firecracker_bitmap.dirty_at(page_offset);
 
                 // We process 64 pages at a time, however the number of pages
@@ -598,7 +608,7 @@ impl<'a> GuestMemorySlot<'a> {
                         dirty_batch_start = page_offset;
                         skip_size = 0;
                     }
-                    write_size += page_size;
+                    write_size = write_size.strict_add(page_size);
                 } else {
                     // We are at the end of a batch of dirty pages.
                     if write_size > 0 {
@@ -607,7 +617,7 @@ impl<'a> GuestMemorySlot<'a> {
                         writer.write_all_volatile(slice)?;
                         write_size = 0;
                     }
-                    skip_size += page_size;
+                    skip_size = skip_size.strict_add(page_size);
                 }
             }
         }
@@ -675,7 +685,9 @@ impl GuestRegionMmapExt {
         slot_from: u32,
         slot_size: usize,
     ) -> Self {
-        let slot_cnt = (u64_to_usize(region.len())) / slot_size;
+        // Callers (`register_hotpluggable_memory_region`) assert `slot_size` divides
+        // `region.len()` evenly and so is non-zero.
+        let slot_cnt = (u64_to_usize(region.len())).strict_div(slot_size);
 
         GuestRegionMmapExt {
             inner: region,
@@ -696,7 +708,7 @@ impl GuestRegionMmapExt {
         let slot_size = region_len
             .checked_div(slot_cnt)
             .ok_or(MemoryError::ZeroSlots)?;
-        if slot_size * slot_cnt != region_len {
+        if slot_size.strict_mul(slot_cnt) != region_len {
             return Err(MemoryError::Unaligned {
                 region_size: region.len(),
                 slot_count: slot_cnt,
@@ -734,13 +746,14 @@ impl GuestRegionMmapExt {
     }
 
     pub(crate) fn slot_cnt(&self) -> u32 {
-        u32::try_from(u64_to_usize(self.len()) / self.slot_size).unwrap()
+        // `self.slot_size` is validated non-zero at region construction.
+        u32::try_from(u64_to_usize(self.len()).strict_div(self.slot_size)).unwrap()
     }
 
     pub(crate) fn mem_slot(&self, slot: u32) -> GuestMemorySlot<'_> {
-        assert!(slot >= self.slot_from && slot < self.slot_from + self.slot_cnt());
+        assert!(slot >= self.slot_from && slot < self.slot_from.strict_add(self.slot_cnt()));
 
-        let offset = ((slot - self.slot_from) as u64) * (self.slot_size as u64);
+        let offset = u64::from(slot.strict_sub(self.slot_from)).strict_mul(self.slot_size as u64);
 
         GuestMemorySlot {
             slot,
@@ -763,7 +776,7 @@ impl GuestRegionMmapExt {
             .enumerate()
             .map(|(i, b)| {
                 (
-                    self.mem_slot(self.slot_from + u32::try_from(i).unwrap()),
+                    self.mem_slot(self.slot_from.strict_add(u32::try_from(i).unwrap())),
                     *b,
                 )
             })
@@ -811,7 +824,8 @@ impl GuestRegionMmapExt {
         assert!(self.region_type == GuestRegionType::Hotpluggable);
 
         let mut bitmap_guard = self.plugged.lock().unwrap();
-        let idx = (mem_slot.slot - self.slot_from) as usize;
+        // `mem_slot.slot` is produced by `Self::mem_slot`, which asserts `slot >= self.slot_from`.
+        let idx = mem_slot.slot.strict_sub(self.slot_from) as usize;
         if bitmap_guard[idx] == plug {
             return Ok(());
         }
@@ -873,7 +887,8 @@ impl GuestRegionMmapExt {
         let backing_aligned_start = align_up!(start, backing_page_size).min(end);
         let backing_aligned_end = align_down!(end, backing_page_size).max(backing_aligned_start);
         let backing_aligned_addr = MemoryRegionAddress(backing_aligned_start);
-        let backing_aligned_len = u64_to_usize(backing_aligned_end - backing_aligned_start);
+        let backing_aligned_len =
+            u64_to_usize(backing_aligned_end.strict_sub(backing_aligned_start));
         match (self.inner.file_offset(), self.inner.flags()) {
             _ if backing_aligned_len == 0 => (),
             // If and only if we are resuming from a snapshot file, we have a file and it's mapped
@@ -895,7 +910,7 @@ impl GuestRegionMmapExt {
 
         for (edge_start, edge_end) in [(start, backing_aligned_start), (backing_aligned_end, end)] {
             let edge_addr = MemoryRegionAddress(edge_start);
-            let edge_len = u64_to_usize(edge_end - edge_start);
+            let edge_len = u64_to_usize(edge_end.strict_sub(edge_start));
             // Unplugged slots are PROT_NONE, and snapshots store them as holes.
             if edge_len == 0 || self.check_range_plugged(edge_addr, edge_len).is_err() {
                 continue;
@@ -945,7 +960,8 @@ impl GuestRegionMmapExt {
                 .expect("slot should be within the region");
             let start = slot_start.max(from);
             let end = slot_end.min(to);
-            let host = self.get_host_address(MemoryRegionAddress(start - base))?;
+            // `start = slot_start.max(from)`, and both `slot_start` and `from` are `>= base`.
+            let host = self.get_host_address(MemoryRegionAddress(start.strict_sub(base)))?;
             let prot = if plugged {
                 libc::PROT_READ | libc::PROT_WRITE
             } else {
@@ -956,7 +972,9 @@ impl GuestRegionMmapExt {
             let ret = unsafe {
                 libc::mmap(
                     host.cast(),
-                    u64_to_usize(end - start),
+                    // `slots_intersecting_range` only yields slots that intersect `[from, to)`,
+                    // so `end > start`.
+                    u64_to_usize(end.strict_sub(start)),
                     prot,
                     libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE | libc::MAP_NORESERVE,
                     -1,
@@ -1101,7 +1119,7 @@ pub fn memory_regions_from_ranges_file_backed(
                 track_dirty_pages,
                 madvise_flags,
             )?;
-            offset += size as u64;
+            offset = offset.strict_add(size as u64);
             Ok(guest_memory)
         })
         .collect()
@@ -1215,7 +1233,9 @@ impl MemfdBacking {
         )?;
         // `memory_regions_from_ranges_file_backed` checked that every region ends within the
         // memfd.
-        self.allocated_size += guest_memory.iter().map(|r| r.len()).sum::<u64>();
+        self.allocated_size = self
+            .allocated_size
+            .strict_add(guest_memory.iter().map(|r| r.len()).sum::<u64>());
         self.next_guest_addr = next_guest_addr;
         Ok(guest_memory)
     }
@@ -1251,9 +1271,18 @@ pub fn mark_dirty_host(mem: &GuestMemoryMmap, ptr: *const u8, len: usize) {
         return;
     }
     for region in mem.iter() {
-        let offset = (ptr as usize).wrapping_sub(region.as_ptr() as usize);
+        let Some(offset) = (ptr as usize).checked_sub(region.as_ptr() as usize) else {
+            continue;
+        };
         if offset < region.size() {
-            assert!(offset + len <= region.size(), "range crosses a region end");
+            // `len` derives from guest-supplied iovec/descriptor lengths; a checked add stops a
+            // near-`usize::MAX` `len` from wrapping past zero and slipping under `region.size()`.
+            assert!(
+                offset
+                    .checked_add(len)
+                    .is_some_and(|end| end <= region.size()),
+                "range crosses a region end"
+            );
             region.bitmap().mark_dirty(offset, len);
             return;
         }
@@ -1436,7 +1465,8 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                         let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
 
                         if is_kvm_page_dirty {
-                            let page_offset = ((i * 64) + j) * page_size;
+                            let page_offset =
+                                (i.strict_mul(64).strict_add(j)).strict_mul(page_size);
 
                             firecracker_bitmap.mark_dirty(page_offset, 1)
                         }
@@ -1460,16 +1490,17 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         // iterate over all adjacent consecutive regions in range
         while let Some(region) = self.find_region(cur) {
             let start = region.to_region_addr(cur).unwrap();
+            // `find_region` returns a region containing `cur`, so `start < region.len()`.
             let len = std::cmp::min(
                 // remaining bytes inside the region
-                u64_to_usize(region.len() - start.raw_value()),
+                u64_to_usize(region.len().strict_sub(start.raw_value())),
                 // remaning bytes to discard
                 remaining,
             );
 
             f(region, start, len)?;
 
-            remaining -= len;
+            remaining = remaining.strict_sub(len);
             if remaining == 0 {
                 return Ok(());
             }
@@ -1544,6 +1575,7 @@ pub mod test_utils {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     #![allow(clippy::undocumented_unsafe_blocks)]
 
     use std::collections::HashMap;

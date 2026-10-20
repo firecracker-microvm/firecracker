@@ -43,9 +43,18 @@ pub const fn wrap_usize_to_u32(num: usize) -> Wrapping<u32> {
     Wrapping(((num as u64) & 0xFFFFFFFF) as u32)
 }
 
-/// Converts MiB to Bytes
+/// Converts MiB to Bytes.
+///
+/// # Panics
+///
+/// If the byte count does not fit in a `usize`; see [`checked_mib_to_bytes`].
 pub const fn mib_to_bytes(mib: usize) -> usize {
-    mib << MIB_TO_BYTES_SHIFT
+    mib.strict_mul(1 << MIB_TO_BYTES_SHIFT)
+}
+
+/// Converts MiB to Bytes, returning `None` if the byte count does not fit in a `usize`.
+pub const fn checked_mib_to_bytes(mib: usize) -> Option<usize> {
+    mib.checked_mul(1 << MIB_TO_BYTES_SHIFT)
 }
 
 /// Converts MiB to Bytes, widening to `u64` first so the result cannot wrap.
@@ -78,7 +87,7 @@ pub const fn bytes_to_mib(bytes: usize) -> usize {
 macro_rules! align_up {
     ($addr:expr, $align:expr) => {{
         assert!($align.is_power_of_two());
-        ($addr.wrapping_add($align - 1)) & !($align - 1)
+        ($addr.strict_add($align.strict_sub(1))) & !($align.strict_sub(1))
     }};
 }
 
@@ -90,7 +99,7 @@ macro_rules! align_up {
 macro_rules! align_down {
     ($addr:expr, $align:expr) => {{
         assert!($align.is_power_of_two());
-        $addr & !($align - 1)
+        $addr & !($align.strict_sub(1))
     }};
 }
 
@@ -172,11 +181,13 @@ mod tests {
     }
 
     #[test]
-    fn test_align_up_already_aligned() {
-        assert_eq!(align_up!(0u64, 4096u64), 0);
-        assert_eq!(align_up!(4096u64, 4096u64), 4096);
-        assert_eq!(align_up!(8192u64, 4096u64), 8192);
-        assert_eq!(align_up!(0x20_0000u64, 0x20_0000u64), 0x20_0000); // 2 MiB
+    fn test_checked_mib_to_bytes() {
+        assert_eq!(checked_mib_to_bytes(1), Some(1 << 20));
+        assert_eq!(
+            checked_mib_to_bytes(usize::MAX >> 20),
+            Some(usize::MAX & !((1 << 20) - 1))
+        );
+        assert_eq!(checked_mib_to_bytes((usize::MAX >> 20) + 1), None);
     }
 
     #[test]

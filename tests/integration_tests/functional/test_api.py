@@ -381,14 +381,17 @@ def test_api_machine_config(uvm):
     # unspecified so will revert to default values.
     test_microvm.basic_config()
 
-    # Test mem_size_mib of valid type, but too large.
+    # Test mem_size_mib of valid type, but larger than the architecture can address.
+    bad_size = (1 << 64) - 1
+    with pytest.raises(RuntimeError, match="exceeds the architectural maximum"):
+        test_microvm.api.machine_config.patch(mem_size_mib=bad_size)
+
+    # Test mem_size_mib that is addressable but cannot be backed by the host.
     firecracker_pid = test_microvm.firecracker_pid
     resource.prlimit(
         firecracker_pid, resource.RLIMIT_AS, (MEM_LIMIT, resource.RLIM_INFINITY)
     )
-
-    bad_size = (1 << 64) - 1
-    test_microvm.api.machine_config.patch(mem_size_mib=bad_size)
+    test_microvm.api.machine_config.patch(mem_size_mib=512 * 1024)
 
     fail_msg = re.escape(
         "Invalid Memory Configuration: Cannot create mmap region: Out of memory (os error 12)"
@@ -400,7 +403,7 @@ def test_api_machine_config(uvm):
     with pytest.raises(
         RuntimeError,
         match=re.escape(
-            "The memory size (MiB) is either 0, or not a multiple of the configured page size."
+            "The memory size (MiB) is either 0, not a multiple of the configured page size, or exceeds the architectural maximum."
         ),
     ):
         test_microvm.api.machine_config.patch(mem_size_mib=0)

@@ -57,7 +57,9 @@ static EPOCH: OnceLock<Instant> = OnceLock::new();
 fn now_ms_since_epoch() -> u64 {
     let epoch = *EPOCH.get_or_init(Instant::now);
     let d = Instant::now().saturating_duration_since(epoch);
-    d.as_secs() * 1_000 + u64::from(d.subsec_millis())
+    d.as_secs()
+        .strict_mul(1_000)
+        .strict_add(u64::from(d.subsec_millis()))
 }
 
 /// Per-callsite, lock-free rate limiter parameterised on burst capacity

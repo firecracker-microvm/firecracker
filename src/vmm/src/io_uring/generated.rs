@@ -13,7 +13,8 @@
     missing_debug_implementations,
     clippy::tests_outside_test_module,
     unsafe_op_in_unsafe_fn,
-    clippy::redundant_static_lifetimes
+    clippy::redundant_static_lifetimes,
+    clippy::arithmetic_side_effects
 )]
 
 #[repr(C)]

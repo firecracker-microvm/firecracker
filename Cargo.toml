@@ -30,12 +30,14 @@ tests_outside_test_module = "warn"
 assertions_on_result_states = "warn"
 error_impl_error = "warn"
 or_fun_call = "warn"
+arithmetic_side_effects = "deny"
 
 [profile.dev]
 panic = "abort"
 
 [profile.release]
 panic = "abort"
+overflow-checks = true
 lto = true
 strip = "none"
 

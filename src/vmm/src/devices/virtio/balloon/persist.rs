@@ -155,15 +155,15 @@ impl Persist<'_> for Balloon {
         // As per the virtio 1.1 specification, the statistics queue
         // should not exist if the statistics are not enabled.
         if state.stats_polling_interval_s > 0 {
-            num_queues += 1;
+            num_queues = num_queues.strict_add(1);
         }
 
         if free_page_hinting {
-            num_queues += 1;
+            num_queues = num_queues.strict_add(1);
         }
 
         if free_page_reporting {
-            num_queues += 1;
+            num_queues = num_queues.strict_add(1);
         }
 
         balloon.queues = state

@@ -126,7 +126,7 @@ impl PciSBDF {
 
     fn split_segment_part(s: &str) -> Option<(&str, &str)> {
         let first_colon = s.find(':')?;
-        let rest = &s[first_colon + 1..];
+        let rest = &s[first_colon.checked_add(1)?..];
         if rest.contains(':') {
             Some((&s[..first_colon], rest))
         } else {

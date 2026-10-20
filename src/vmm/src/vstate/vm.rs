@@ -173,12 +173,14 @@ impl KvmVm {
                 Err(e) if e.errno() == libc::EINTR && attempt < MAX_ATTEMPTS => {
                     info!("Attempt #{attempt} of KVM_CREATE_VM returned EINTR");
                     // Exponential backoff (1us, 2us, 4us, and 8us => 15us in total)
-                    std::thread::sleep(std::time::Duration::from_micros(2u64.pow(attempt - 1)));
+                    std::thread::sleep(std::time::Duration::from_micros(
+                        2u64.pow(attempt.strict_sub(1)),
+                    ));
                 }
                 Err(e) => return Err(VmError::CreateVm(e)),
             }
 
-            attempt += 1;
+            attempt = attempt.strict_add(1);
         };
 
         let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(VmError::EventFd)?;
@@ -188,7 +190,7 @@ impl KvmVm {
             max_memslots: kvm.max_nr_memslots(),
             guest_memory: GuestMemoryMmap::default(),
             next_kvm_slot: AtomicU32::new(0),
-            interrupts: Mutex::new(HashMap::with_capacity(GSI_MSI_END as usize + 1)),
+            interrupts: Mutex::new(HashMap::with_capacity((GSI_MSI_END as usize).strict_add(1))),
             resource_allocator: Mutex::new(ResourceAllocator::new()),
             mmio_bus: Arc::new(Bus::new()),
             kvm,
@@ -252,7 +254,8 @@ impl KvmVm {
         vcpu_seccomp_filter: Arc<crate::seccomp::BpfProgram>,
     ) -> Result<(), StartVcpusError> {
         let vcpu_count = vcpus.len();
-        let barrier = Arc::new(Barrier::new(vcpu_count + 1));
+        // `vcpu_count` is bounded by the configured vCPU count (a small `u8` at the API layer).
+        let barrier = Arc::new(Barrier::new(vcpu_count.strict_add(1)));
 
         let stdin = std::io::stdin().lock();
         stdin.set_raw_mode().inspect_err(|&err| {
@@ -431,7 +434,7 @@ impl KvmVm {
         if self.common.fail_set_user_memory_region_in.fetch_update(
             Ordering::Relaxed,
             Ordering::Relaxed,
-            |n| (n > 0).then(|| n - 1),
+            |n| (n > 0).then(|| n.strict_sub(1)),
         ) == Ok(1)
         {
             return Err(VmError::SetUserMemoryRegion(kvm_ioctls::Error::new(
@@ -502,7 +505,7 @@ impl KvmVm {
     ) -> Result<(), VmError> {
         // caller should ensure the slot size divides the region length.
         assert!(region.len().is_multiple_of(slot_size as u64));
-        let slot_cnt = (region.len() / (slot_size as u64))
+        let slot_cnt = (region.len().strict_div(slot_size as u64))
             .try_into()
             .map_err(|_| VmError::NotEnoughMemorySlots(self.common.max_memslots))?;
         let slot_from = self
@@ -629,7 +632,7 @@ impl KvmVm {
 
         // Determine what size our total memory area is.
         let mem_size_mib = mem_size_mib(self.guest_memory());
-        let expected_size = mem_size_mib * 1024 * 1024;
+        let expected_size = mem_size_mib.strict_mul(1024).strict_mul(1024);
 
         if file_existed {
             let file_size = file
@@ -789,8 +792,9 @@ fn mincore_bitmap(addr: *mut u8, len: usize) -> Result<Vec<u64>, VmError> {
     // is a hugetlbfs VMA (e.g. to report a single hugepage as "present", mincore will
     // give us 512 4k markers with the lowest bit set).
     let page_size = host_page_size();
-    let mut mincore_bitmap = vec![0u8; len / page_size];
-    let mut bitmap = vec![0u64; (len / page_size).div_ceil(64)];
+    // `page_size` (`host_page_size()`) is always a positive power of two.
+    let mut mincore_bitmap = vec![0u8; len.strict_div(page_size)];
+    let mut bitmap = vec![0u64; (len.strict_div(page_size)).div_ceil(64)];
 
     // SAFETY: The safety invariants of GuestRegionMmap ensure that region.as_ptr() is a valid
     // userspace mapping of size region.len() bytes. The bitmap has exactly one byte for each
@@ -852,7 +856,7 @@ pub(crate) mod tests {
         // memfd-backed: what a VM configured with a vhost-user block before boot
         // gets.
         let mut vm = setup_vm();
-        let regions = arch::arch_memory_regions(mib_to_bytes(128));
+        let regions = arch::arch_memory_regions(mib_to_bytes(128)).unwrap();
         let total: u64 = regions.iter().map(|&(_, size)| size as u64).sum();
         let gm = crate::vstate::memory::MemfdBacking::new(total, HugePageConfig::None)
             .unwrap()
@@ -865,7 +869,7 @@ pub(crate) mod tests {
         // rejected.
         let mut vm = setup_vm();
         let file = vmm_sys_util::tempfile::TempFile::new().unwrap().into_file();
-        let regions = arch::arch_memory_regions(mib_to_bytes(128));
+        let regions = arch::arch_memory_regions(mib_to_bytes(128)).unwrap();
         let total: u64 = regions.iter().map(|&(_, size)| size as u64).sum();
         file.set_len(total).unwrap();
         let gm = crate::vstate::memory::snapshot_file(file, &regions, false, HugePageConfig::None)

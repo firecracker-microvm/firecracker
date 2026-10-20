@@ -41,6 +41,13 @@ class Instruction(ABC):
 
     @property
     @abstractmethod
+    def is_block_end(self):
+        """Whether control never falls through this instruction to the next one (`ret`, unconditional
+        jump). The instruction after it is only reachable by a jump, so a linear backward walk
+        across it would read registers from code that does not run before it."""
+
+    @property
+    @abstractmethod
     def is_syscall(self):
         """Checks whether the given instruction is a syscall instruction"""
 
@@ -87,6 +94,10 @@ class InstructionX86_64(Instruction):  # pylint: disable=invalid-name
     @property
     def is_call(self):
         return self.mnemonic in ["call", "jmp"]
+
+    @property
+    def is_block_end(self):
+        return self.mnemonic in ["ret", "jmp"]
 
     @property
     def is_syscall(self):
@@ -142,6 +153,10 @@ class InstructionAarch64(Instruction):
     @property
     def is_call(self):
         return self.mnemonic in ["b", "bl"]
+
+    @property
+    def is_block_end(self):
+        return self.mnemonic in ["ret", "b", "br"]
 
     @property
     def is_syscall(self):
@@ -261,6 +276,9 @@ class Architecture(Generic[TInstruction]):
         transforms = []
 
         for insn in reversed(instructions):
+            if insn.is_block_end:
+                raise BackpropagationCrossedBlockBoundary(looking_for, insn)
+
             for reg in looking_for:
                 next_reg = insn.backpropagate_register(reg)
 
@@ -367,6 +385,7 @@ class Function:
             except (
                 UnsupportedInstructionError,
                 BackpropagationReachedStartOfFn,
+                BackpropagationCrossedBlockBoundary,
             ) as exc:
                 resolved_registers[reg] = exc
 
@@ -383,6 +402,17 @@ class UnsupportedInstructionError(Exception):
         )
 
         self.instruction = insn
+
+
+class BackpropagationCrossedBlockBoundary(Exception):
+    """Exception indicating that backpropagation reached an instruction control never falls through
+    (a `ret` or unconditional jump) without resolving the register. The code before it is not what
+    runs before the instruction of interest, so the value is unknown."""
+
+    def __init__(self, current_register, insn: Instruction):
+        super().__init__(
+            f"Backpropagation of {current_register} crossed a basic block boundary at: {insn}"
+        )
 
 
 class BackpropagationReachedStartOfFn(Exception):

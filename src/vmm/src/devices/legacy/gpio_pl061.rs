@@ -221,7 +221,8 @@ impl PL061Device {
             PL061_MIS => self.masked_interrupt_status(),
             PL061_AFSEL => self.state.alternate_function_select,
             PL061_ID_REG_START..PL061_ID_REG_END => {
-                let index = u64_to_usize((offset - PL061_ID_REG_START) >> 2);
+                // The match arm guarantees `offset >= PL061_ID_REG_START`.
+                let index = u64_to_usize(offset.strict_sub(PL061_ID_REG_START) >> 2);
                 PL061_ID.get(index).copied()?
             }
             _ => return None,

@@ -120,8 +120,9 @@ impl DescriptorChain {
         // SAFETY: initialization aligns the table, and descriptor-sized offsets preserve
         // alignment. The caller keeps the mapping alive.
         let desc = unsafe {
-            desc_table
-                .read_obj::<Descriptor>(usize::from(index) * std::mem::size_of::<Descriptor>())
+            desc_table.read_obj::<Descriptor>(
+                usize::from(index).strict_mul(std::mem::size_of::<Descriptor>()),
+            )
         }
         .expect("virtio ring access outside the range validated at activation");
         let chain = DescriptorChain {
@@ -164,7 +165,7 @@ impl DescriptorChain {
         if self.has_next() {
             DescriptorChain::checked_new(self.desc_table, self.queue_size, self.next).map(
                 |mut c| {
-                    c.ttl = self.ttl - 1;
+                    c.ttl = self.ttl.strict_sub(1);
                     c
                 },
             )
@@ -272,21 +273,21 @@ impl Queue {
     }
 
     fn desc_table_size(&self) -> usize {
-        std::mem::size_of::<Descriptor>() * usize::from(self.size)
+        std::mem::size_of::<Descriptor>().strict_mul(usize::from(self.size))
     }
 
     fn avail_ring_size(&self) -> usize {
         std::mem::size_of::<u16>()
-            + std::mem::size_of::<u16>()
-            + std::mem::size_of::<u16>() * usize::from(self.size)
-            + std::mem::size_of::<u16>()
+            .strict_add(std::mem::size_of::<u16>())
+            .strict_add(std::mem::size_of::<u16>().strict_mul(usize::from(self.size)))
+            .strict_add(std::mem::size_of::<u16>())
     }
 
     fn used_ring_size(&self) -> usize {
         std::mem::size_of::<u16>()
-            + std::mem::size_of::<u16>()
-            + std::mem::size_of::<UsedElement>() * usize::from(self.size)
-            + std::mem::size_of::<u16>()
+            .strict_add(std::mem::size_of::<u16>())
+            .strict_add(std::mem::size_of::<UsedElement>().strict_mul(usize::from(self.size)))
+            .strict_add(std::mem::size_of::<u16>())
     }
 
     /// Position of a ring index within the ring.
@@ -296,14 +297,15 @@ impl Queue {
     /// store that advanced it and loses store forwarding.
     #[inline(always)]
     fn ring_index(&self, index: u16) -> usize {
-        usize::from(index) & (usize::from(self.size) - 1)
+        // `initialize` rejects a zero or non-power-of-two `size`, so the mask is exact.
+        usize::from(index) & (usize::from(self.size).strict_sub(1))
     }
 
     fn check_alignment(addr: GuestAddress, alignment: u64) -> Result<(), QueueError> {
         // Guest memory base address is page aligned, so as long as alignment divides page size,
         // it suffices to check that the GPA is properly aligned (e.g. we don't need to recheck
         // the HVA).
-        if addr.0 & (alignment - 1) != 0 {
+        if addr.0 & (alignment.strict_sub(1)) != 0 {
             return Err(QueueError::PointerNotAligned(
                 u64_to_usize(addr.0),
                 u64_to_usize(alignment),
@@ -318,7 +320,10 @@ impl Queue {
             return Err(QueueError::NotReady);
         }
 
-        if self.size > self.max_size || self.size == 0 || (self.size & (self.size - 1)) != 0 {
+        if self.size > self.max_size
+            || self.size == 0
+            || (self.size & (self.size.strict_sub(1))) != 0
+        {
             return Err(QueueError::InvalidSize(self.size));
         }
 
@@ -366,7 +371,7 @@ impl Queue {
         // the mapping alive.
         unsafe {
             self.avail_ring
-                .read_obj(RING_HEADER_SIZE + std::mem::size_of::<u16>() * index)
+                .read_obj(RING_HEADER_SIZE.strict_add(std::mem::size_of::<u16>().strict_mul(index)))
         }
         .expect("virtio ring access outside the range validated at activation")
     }
@@ -397,7 +402,7 @@ impl Queue {
         unsafe {
             self.used_ring.write_obj(
                 val,
-                RING_HEADER_SIZE + std::mem::size_of::<UsedElement>() * index,
+                RING_HEADER_SIZE.strict_add(std::mem::size_of::<UsedElement>().strict_mul(index)),
             )
         }
         .expect("virtio ring access outside the range validated at activation")

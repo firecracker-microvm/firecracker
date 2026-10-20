@@ -4,3 +4,11 @@ disallowed-macros = [
     { path = "log::info", reason = "use crate::logger::info or info_unrestricted instead" },
     { path = "log::debug", reason = "use crate::logger::debug instead" },
 ]
+
+# `Instant`/`SystemTime` +/- `Duration` and `Duration` +/- `Duration` saturate or panic
+# deterministically; they are not integer overflow hazards.
+arithmetic-side-effects-allowed-binary = [
+    ["std::time::Instant", "std::time::Duration"],
+    ["std::time::SystemTime", "std::time::Duration"],
+    ["std::time::Duration", "std::time::Duration"],
+]

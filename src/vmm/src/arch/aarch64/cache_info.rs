@@ -215,13 +215,29 @@ fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String, CacheInfoErro
 
 fn to_bytes(cache_size_pretty: &mut String) -> Result<u32, CacheInfoError> {
     match cache_size_pretty.pop() {
-        Some('K') => Ok(cache_size_pretty.parse::<u32>().map_err(|err| {
-            CacheInfoError::InvalidCacheAttr("size".to_string(), err.to_string())
-        })? * 1024),
-        Some('M') => Ok(cache_size_pretty.parse::<u32>().map_err(|err| {
-            CacheInfoError::InvalidCacheAttr("size".to_string(), err.to_string())
-        })? * 1024
-            * 1024),
+        // The magnitude is parsed from sysfs; report an overflowing size rather than wrap.
+        Some('K') => {
+            let value = cache_size_pretty.parse::<u32>().map_err(|err| {
+                CacheInfoError::InvalidCacheAttr("size".to_string(), err.to_string())
+            })?;
+            value.checked_mul(1024).ok_or_else(|| {
+                CacheInfoError::InvalidCacheAttr(
+                    "size".to_string(),
+                    format!("{value}K overflows u32"),
+                )
+            })
+        }
+        Some('M') => {
+            let value = cache_size_pretty.parse::<u32>().map_err(|err| {
+                CacheInfoError::InvalidCacheAttr("size".to_string(), err.to_string())
+            })?;
+            value.checked_mul(1024 * 1024).ok_or_else(|| {
+                CacheInfoError::InvalidCacheAttr(
+                    "size".to_string(),
+                    format!("{value}M overflows u32"),
+                )
+            })
+        }
         Some(letter) => {
             cache_size_pretty.push(letter);
             Err(CacheInfoError::InvalidCacheAttr(
@@ -250,7 +266,7 @@ fn mask_str2bit_count(mask_str: &str) -> Result<u16, CacheInfoError> {
         if s_zero_free.is_empty() {
             s_zero_free = "0";
         }
-        bit_count += u16::try_from(
+        let ones = u16::try_from(
             u32::from_str_radix(s_zero_free, 16)
                 .map_err(|err| {
                     CacheInfoError::InvalidCacheAttr("shared_cpu_map".to_string(), err.to_string())
@@ -258,6 +274,10 @@ fn mask_str2bit_count(mask_str: &str) -> Result<u16, CacheInfoError> {
                 .count_ones(),
         )
         .unwrap(); // Safe because this is at most 32
+        // `shared_cpu_map` from sysfs has an unbounded number of groups.
+        bit_count = bit_count.checked_add(ones).ok_or_else(|| {
+            CacheInfoError::InvalidCacheAttr("shared_cpu_map".to_string(), mask_str.to_string())
+        })?;
     }
     if bit_count == 0 {
         return Err(CacheInfoError::InvalidCacheAttr(
@@ -385,7 +405,7 @@ pub(crate) fn build_clidr_from_caches(
             break;
         }
 
-        let shift = CLIDR_CTYPE_SHIFT * (level - 1);
+        let shift = CLIDR_CTYPE_SHIFT.strict_mul(level.strict_sub(1));
         clidr |= ctype << shift;
         max_level = level;
     }

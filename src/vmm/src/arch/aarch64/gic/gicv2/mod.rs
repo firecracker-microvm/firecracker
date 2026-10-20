@@ -40,7 +40,7 @@ impl GICv2 {
 
     /// Get the address of the GIC_v2 CPU.
     const fn get_cpu_addr() -> u64 {
-        GICv2::get_dist_addr() - GICv2::KVM_VGIC_V2_CPU_SIZE
+        GICv2::get_dist_addr().strict_sub(GICv2::KVM_VGIC_V2_CPU_SIZE)
     }
 
     /// Get the size of the GIC_v2 CPU.

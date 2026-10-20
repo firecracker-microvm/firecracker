@@ -10,6 +10,7 @@
 use std::cmp;
 use std::fmt::{Debug, Formatter};
 use std::io::Write;
+use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 
@@ -93,8 +94,9 @@ const VIRTIO_PCI_CAP_LEN_OFFSET: u8 = 2;
 impl VirtioPciCap {
     pub fn new(cfg_type: PciCapabilityType, offset: u32, length: u32) -> Self {
         VirtioPciCap {
-            cap_len: u8::try_from(std::mem::size_of::<VirtioPciCap>()).unwrap()
-                + VIRTIO_PCI_CAP_LEN_OFFSET,
+            cap_len: u8::try_from(std::mem::size_of::<VirtioPciCap>())
+                .unwrap()
+                .strict_add(VIRTIO_PCI_CAP_LEN_OFFSET),
             cfg_type: cfg_type as u8,
             pci_bar: VIRTIO_BAR_INDEX,
             id: 0,
@@ -128,8 +130,9 @@ impl VirtioPciNotifyCap {
     pub fn new(cfg_type: PciCapabilityType, offset: u32, length: u32, multiplier: Le32) -> Self {
         VirtioPciNotifyCap {
             cap: VirtioPciCap {
-                cap_len: u8::try_from(std::mem::size_of::<VirtioPciNotifyCap>()).unwrap()
-                    + VIRTIO_PCI_CAP_LEN_OFFSET,
+                cap_len: u8::try_from(std::mem::size_of::<VirtioPciNotifyCap>())
+                    .unwrap()
+                    .strict_add(VIRTIO_PCI_CAP_LEN_OFFSET),
                 cfg_type: cfg_type as u8,
                 pci_bar: VIRTIO_BAR_INDEX,
                 id: 0,
@@ -165,7 +168,9 @@ impl VirtioPciCfgCap {
     fn new() -> Self {
         VirtioPciCfgCap {
             cap: VirtioPciCap {
-                cap_len: u8::try_from(size_of::<Self>()).unwrap() + VIRTIO_PCI_CAP_LEN_OFFSET,
+                cap_len: u8::try_from(size_of::<Self>())
+                    .unwrap()
+                    .strict_add(VIRTIO_PCI_CAP_LEN_OFFSET),
                 cfg_type: PciCapabilityType::Pci as u8,
                 pci_bar: VIRTIO_BAR_INDEX,
                 id: 0,
@@ -186,11 +191,13 @@ struct VirtioPciCfgCapInfo {
 
 impl VirtioPciCfgCapInfo {
     fn in_range(&self, reg_idx: u16, offset: u8, data_len: usize) -> bool {
-        let base = reg_idx * 4;
+        // `reg_idx` is masked to 10 bits by the PCI config address parsers (bus.rs), and
+        // `offset + data_len <= 4` is enforced before dispatch.
+        let base = reg_idx.strict_mul(4);
         let cap_start = self.offset;
-        let cap_end = self.offset as usize + self.cap.bytes().len();
-        let start = base + u16::from(offset);
-        let end = (base + u16::from(offset)) as usize + data_len;
+        let cap_end = (self.offset as usize).strict_add(self.cap.bytes().len());
+        let start = base.strict_add(u16::from(offset));
+        let end = (start as usize).strict_add(data_len);
         cap_start <= start && end <= cap_end
     }
 }
@@ -221,6 +228,20 @@ const MSIX_PBA_BAR_OFFSET: u32 = 0x48000;
 // The size is 2KiB because the Pending Bit Array has one bit per vector and it
 // can support up to 2048 vectors.
 const MSIX_PBA_SIZE: u32 = 0x800;
+
+/// `[offset, offset + size)` of each BAR region, as `u64` for comparison with BAR offsets.
+const COMMON_CONFIG_BAR_RANGE: Range<u64> = (COMMON_CONFIG_BAR_OFFSET as u64)
+    ..(COMMON_CONFIG_BAR_OFFSET as u64 + COMMON_CONFIG_SIZE as u64);
+const ISR_CONFIG_BAR_RANGE: Range<u64> =
+    (ISR_CONFIG_BAR_OFFSET as u64)..(ISR_CONFIG_BAR_OFFSET as u64 + ISR_CONFIG_SIZE as u64);
+const DEVICE_CONFIG_BAR_RANGE: Range<u64> = (DEVICE_CONFIG_BAR_OFFSET as u64)
+    ..(DEVICE_CONFIG_BAR_OFFSET as u64 + DEVICE_CONFIG_SIZE as u64);
+const NOTIFICATION_BAR_RANGE: Range<u64> =
+    (NOTIFICATION_BAR_OFFSET as u64)..(NOTIFICATION_BAR_OFFSET as u64 + NOTIFICATION_SIZE as u64);
+const MSIX_TABLE_BAR_RANGE: Range<u64> =
+    (MSIX_TABLE_BAR_OFFSET as u64)..(MSIX_TABLE_BAR_OFFSET as u64 + MSIX_TABLE_SIZE as u64);
+const MSIX_PBA_BAR_RANGE: Range<u64> =
+    (MSIX_PBA_BAR_OFFSET as u64)..(MSIX_PBA_BAR_OFFSET as u64 + MSIX_PBA_SIZE as u64);
 /// The BAR size must be a power of 2.
 pub const CAPABILITY_BAR_SIZE: u64 = 0x80000;
 
@@ -319,7 +340,7 @@ impl Debug for VirtioPciDevice {
 
 impl VirtioPciDevice {
     fn pci_configuration(device_type: VirtioDeviceType) -> PciConfiguration {
-        let pci_device_id = VIRTIO_PCI_DEVICE_ID_BASE + device_type as u16;
+        let pci_device_id = VIRTIO_PCI_DEVICE_ID_BASE.strict_add(device_type as u16);
         let (class, subclass) = match device_type {
             VirtioDeviceType::Net => (
                 PciClassCode::NetworkController,
@@ -394,7 +415,7 @@ impl VirtioPciDevice {
         sbdf: PciSBDF,
     ) -> Self {
         let num_queues = device.lock().expect("Poisoned lock").queues().len();
-        assert_eq!(msix_vectors.vectors.len(), num_queues + 1);
+        assert_eq!(msix_vectors.vectors.len(), num_queues.strict_add(1));
 
         let msix_config = Arc::new(Mutex::new(MsixConfig::new(msix_vectors.clone(), sbdf)));
         let pci_config =
@@ -444,7 +465,12 @@ impl VirtioPciDevice {
         let vectors = msix_config.vectors.clone();
 
         // Expecting one vector per queue, plus one for the configuration
-        let expected_num_vectors = device.lock().expect("Poisoned lock").queues().len() + 1;
+        let expected_num_vectors = device
+            .lock()
+            .expect("Poisoned lock")
+            .queues()
+            .len()
+            .strict_add(1);
         if vectors.vectors.len() != expected_num_vectors {
             return Err(VirtioPciDeviceError::UnexpectedMsixVectorCount(
                 vectors.vectors.len(),
@@ -619,7 +645,7 @@ impl VirtioPciDevice {
         let cap_slice = self.cap_pci_cfg_info.cap.as_slice();
         let data_len = data.len();
         let cap_len = cap_slice.len();
-        if offset + data_len > cap_len {
+        if offset.checked_add(data_len).is_none_or(|end| end > cap_len) {
             error!("Failed to read cap_pci_cfg from config space");
             return;
         }
@@ -646,7 +672,7 @@ impl VirtioPciDevice {
         let cap_slice = self.cap_pci_cfg_info.cap.as_mut_slice();
         let data_len = data.len();
         let cap_len = cap_slice.len();
-        if offset + data_len > cap_len {
+        if offset.checked_add(data_len).is_none_or(|end| end > cap_len) {
             error!("Failed to write cap_pci_cfg to config space");
             return None;
         }
@@ -692,9 +718,11 @@ impl VirtioPciDevice {
             .iter()
             .enumerate()
         {
-            let notify_base = bar_addr + u64::from(NOTIFICATION_BAR_OFFSET);
-            let io_addr =
-                IoEventAddress::Mmio(notify_base + i as u64 * u64::from(NOTIFY_OFF_MULTIPLIER));
+            // `bar_addr` is validated against the 32-bit MMIO allocator range before this runs.
+            let notify_base = bar_addr.strict_add(u64::from(NOTIFICATION_BAR_OFFSET));
+            let io_addr = IoEventAddress::Mmio(
+                notify_base.strict_add((i as u64).strict_mul(u64::from(NOTIFY_OFF_MULTIPLIER))),
+            );
             if assign {
                 vm.fd().register_ioevent(queue_evt, &io_addr, NoDatamatch)?;
             } else {
@@ -971,12 +999,13 @@ impl PciDevice for VirtioPciDevice {
         data: &[u8],
     ) -> Option<Arc<Barrier>> {
         let in_bars = BAR0_REG_IDX <= reg_idx && reg_idx < BAR0_REG_IDX + u16::from(NUM_BAR_REGS);
-        let in_msix_cap_header = reg_idx * 4 == self.msix_config_cap_offset;
+        // `reg_idx` is masked to 10 bits by the PCI config address parsers (bus.rs).
+        let in_msix_cap_header = reg_idx.strict_mul(4) == self.msix_config_cap_offset;
         let in_pci_cfg = self.cap_pci_cfg_info.in_range(reg_idx, offset, data.len());
         if in_bars {
             // reg_idx is in [BAR0_REG_IDX, BAR0_REG_IDX+NUM_BAR_REGS), so the difference is 0..5.
             #[allow(clippy::cast_possible_truncation)]
-            let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
+            let bar_idx = (reg_idx.strict_sub(BAR0_REG_IDX)) as u8;
             self.bars.write(bar_idx, offset, data);
             None
         } else if in_msix_cap_header {
@@ -991,7 +1020,8 @@ impl PciDevice for VirtioPciDevice {
                 .write_config_register(reg_idx, offset, data);
             None
         } else if in_pci_cfg {
-            let offset = (reg_idx * 4 + u16::from(offset) - self.cap_pci_cfg_info.offset) as usize;
+            let offset = (reg_idx.strict_mul(4).strict_add(u16::from(offset)))
+                .strict_sub(self.cap_pci_cfg_info.offset) as usize;
             self.write_cap_pci_cfg(offset, data)
         } else {
             let mem_enabled_before = self.memory_space_enabled();
@@ -1011,7 +1041,7 @@ impl PciDevice for VirtioPciDevice {
         if in_bars {
             // reg_idx is in [BAR0_REG_IDX, BAR0_REG_IDX+NUM_BAR_REGS), so the difference is 0..5.
             #[allow(clippy::cast_possible_truncation)]
-            let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
+            let bar_idx = (reg_idx.strict_sub(BAR0_REG_IDX)) as u8;
             let mut value: u32 = 0;
             self.bars.read(bar_idx, 0, value.as_mut_bytes());
             value
@@ -1019,7 +1049,7 @@ impl PciDevice for VirtioPciDevice {
             // Handle the special case where the capability VIRTIO_PCI_CAP_PCI_CFG
             // is accessed. This capability has a special meaning as it allows the
             // guest to access other capabilities without mapping the PCI BAR.
-            let offset = (reg_idx * 4 - self.cap_pci_cfg_info.offset) as usize;
+            let offset = (reg_idx.strict_mul(4)).strict_sub(self.cap_pci_cfg_info.offset) as usize;
             let mut data = [0u8; 4];
             let len = u32::from(self.cap_pci_cfg_info.cap.cap.length) as usize;
             if len <= 4 {
@@ -1035,57 +1065,40 @@ impl PciDevice for VirtioPciDevice {
 
     fn read_bar(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
         match offset {
-            o if o < u64::from(COMMON_CONFIG_BAR_OFFSET + COMMON_CONFIG_SIZE) => {
-                self.common_config.read(
-                    o - u64::from(COMMON_CONFIG_BAR_OFFSET),
-                    data,
-                    self.device.clone(),
-                )
-            }
-            o if (u64::from(ISR_CONFIG_BAR_OFFSET)
-                ..u64::from(ISR_CONFIG_BAR_OFFSET + ISR_CONFIG_SIZE))
-                .contains(&o) =>
-            {
+            o if COMMON_CONFIG_BAR_RANGE.contains(&o) => self.common_config.read(
+                o.strict_sub(u64::from(COMMON_CONFIG_BAR_OFFSET)),
+                data,
+                self.device.clone(),
+            ),
+            o if ISR_CONFIG_BAR_RANGE.contains(&o) => {
                 // We don't actually support legacy INT#x interrupts for VirtIO PCI devices
                 warn!("pci: read access to unsupported ISR status field");
                 data.fill(0);
             }
-            o if (u64::from(DEVICE_CONFIG_BAR_OFFSET)
-                ..u64::from(DEVICE_CONFIG_BAR_OFFSET + DEVICE_CONFIG_SIZE))
-                .contains(&o) =>
-            {
+            o if DEVICE_CONFIG_BAR_RANGE.contains(&o) => {
                 let device = self.device.lock().unwrap();
-                device.read_config(o - u64::from(DEVICE_CONFIG_BAR_OFFSET), data);
+                device.read_config(o.strict_sub(u64::from(DEVICE_CONFIG_BAR_OFFSET)), data);
             }
-            o if (u64::from(NOTIFICATION_BAR_OFFSET)
-                ..u64::from(NOTIFICATION_BAR_OFFSET + NOTIFICATION_SIZE))
-                .contains(&o) =>
-            {
+            o if NOTIFICATION_BAR_RANGE.contains(&o) => {
                 // Handled with ioeventfds.
                 warn!("pci: unexpected read to notification BAR. Offset {o:#x}");
             }
-            o if (u64::from(MSIX_TABLE_BAR_OFFSET)
-                ..u64::from(MSIX_TABLE_BAR_OFFSET + MSIX_TABLE_SIZE))
-                .contains(&o) =>
-            {
+            o if MSIX_TABLE_BAR_RANGE.contains(&o) => {
                 if let Some(interrupt) = &self.virtio_interrupt {
                     interrupt
                         .msix_config
                         .lock()
                         .unwrap()
-                        .read_table(o - u64::from(MSIX_TABLE_BAR_OFFSET), data);
+                        .read_table(o.strict_sub(u64::from(MSIX_TABLE_BAR_OFFSET)), data);
                 }
             }
-            o if (u64::from(MSIX_PBA_BAR_OFFSET)
-                ..u64::from(MSIX_PBA_BAR_OFFSET + MSIX_PBA_SIZE))
-                .contains(&o) =>
-            {
+            o if MSIX_PBA_BAR_RANGE.contains(&o) => {
                 if let Some(interrupt) = &self.virtio_interrupt {
                     interrupt
                         .msix_config
                         .lock()
                         .unwrap()
-                        .read_pba(o - u64::from(MSIX_PBA_BAR_OFFSET), data);
+                        .read_pba(o.strict_sub(u64::from(MSIX_PBA_BAR_OFFSET)), data);
                 }
             }
             _ => (),
@@ -1094,57 +1107,40 @@ impl PciDevice for VirtioPciDevice {
 
     fn write_bar(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
         match offset {
-            o if o < u64::from(COMMON_CONFIG_BAR_OFFSET + COMMON_CONFIG_SIZE) => {
-                self.common_config.write(
-                    o - u64::from(COMMON_CONFIG_BAR_OFFSET),
-                    data,
-                    self.device.clone(),
-                    self.device_activated.load(Ordering::SeqCst),
-                )
-            }
-            o if (u64::from(ISR_CONFIG_BAR_OFFSET)
-                ..u64::from(ISR_CONFIG_BAR_OFFSET + ISR_CONFIG_SIZE))
-                .contains(&o) =>
-            {
+            o if COMMON_CONFIG_BAR_RANGE.contains(&o) => self.common_config.write(
+                o.strict_sub(u64::from(COMMON_CONFIG_BAR_OFFSET)),
+                data,
+                self.device.clone(),
+                self.device_activated.load(Ordering::SeqCst),
+            ),
+            o if ISR_CONFIG_BAR_RANGE.contains(&o) => {
                 // We don't actually support legacy INT#x interrupts for VirtIO PCI devices
                 warn!("pci: access to unsupported ISR status field");
             }
-            o if (u64::from(DEVICE_CONFIG_BAR_OFFSET)
-                ..u64::from(DEVICE_CONFIG_BAR_OFFSET + DEVICE_CONFIG_SIZE))
-                .contains(&o) =>
-            {
+            o if DEVICE_CONFIG_BAR_RANGE.contains(&o) => {
                 let mut device = self.device.lock().unwrap();
-                device.write_config(o - u64::from(DEVICE_CONFIG_BAR_OFFSET), data);
+                device.write_config(o.strict_sub(u64::from(DEVICE_CONFIG_BAR_OFFSET)), data);
             }
-            o if (u64::from(NOTIFICATION_BAR_OFFSET)
-                ..u64::from(NOTIFICATION_BAR_OFFSET + NOTIFICATION_SIZE))
-                .contains(&o) =>
-            {
+            o if NOTIFICATION_BAR_RANGE.contains(&o) => {
                 // Handled with ioeventfds.
                 warn!("pci: unexpected write to notification BAR. Offset {o:#x}");
             }
-            o if (u64::from(MSIX_TABLE_BAR_OFFSET)
-                ..u64::from(MSIX_TABLE_BAR_OFFSET + MSIX_TABLE_SIZE))
-                .contains(&o) =>
-            {
+            o if MSIX_TABLE_BAR_RANGE.contains(&o) => {
                 if let Some(interrupt) = &self.virtio_interrupt {
                     interrupt
                         .msix_config
                         .lock()
                         .unwrap()
-                        .write_table(o - u64::from(MSIX_TABLE_BAR_OFFSET), data);
+                        .write_table(o.strict_sub(u64::from(MSIX_TABLE_BAR_OFFSET)), data);
                 }
             }
-            o if (u64::from(MSIX_PBA_BAR_OFFSET)
-                ..u64::from(MSIX_PBA_BAR_OFFSET + MSIX_PBA_SIZE))
-                .contains(&o) =>
-            {
+            o if MSIX_PBA_BAR_RANGE.contains(&o) => {
                 if let Some(interrupt) = &self.virtio_interrupt {
                     interrupt
                         .msix_config
                         .lock()
                         .unwrap()
-                        .write_pba(o - u64::from(MSIX_PBA_BAR_OFFSET), data);
+                        .write_pba(o.strict_sub(u64::from(MSIX_PBA_BAR_OFFSET)), data);
                 }
             }
             _ => (),
@@ -1228,7 +1224,7 @@ impl BusDevice for VirtioPciDevice {
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_truncation, clippy::arithmetic_side_effects)]
 mod tests {
     use std::sync::atomic::Ordering;
     use std::sync::{Arc, Mutex};
