@@ -83,3 +83,82 @@ def test_validate_filter(seccompiler, bin_test_syscall, monkeypatch, tmp_path, t
                 # if we call it with unallowed args, it should exit 159
                 # 159 = 128 (abnormal termination) + 31 (SIGSYS)
                 assert outcome.returncode == 159
+
+
+def _rule_features(rule):
+    """The feature tags of a rule, empty for an always-on rule."""
+    if "features" in rule:
+        return rule["features"]
+    if "feature" in rule:
+        return [rule["feature"]]
+    return []
+
+
+def _rule_args(rule):
+    """Arguments that satisfy every condition of a rule."""
+    args = [0] * 4
+    for arg in rule.get("args", []):
+        args[arg["index"]] = arg["val"]
+    return args
+
+
+def _allowed_by_untagged_rule(rule, rules):
+    """Whether an always-on rule for the same syscall also lets `rule`'s arguments through."""
+    args = _rule_args(rule)
+    for other in rules:
+        if other["syscall"] != rule["syscall"] or _rule_features(other):
+            continue
+        if all(args[arg["index"]] == arg["val"] for arg in other.get("args", [])):
+            return True
+    return False
+
+
+@pytest.mark.parametrize("thread", FILTER_THREADS)
+def test_validate_feature_gating(
+    seccompiler, bin_test_syscall, monkeypatch, tmp_path, thread
+):
+    """
+    Assert that feature-tagged rules are only installed with their feature.
+
+    Compose the filter of one thread with no feature and with each feature on
+    its own, and check that a tagged rule's syscall is trapped unless one of
+    its features is selected, while the always-on rules keep working.
+    """
+
+    fc_filter = json.loads(FC_FILTER_PATH.read_text(encoding="ascii"))
+
+    # cd to a tmp dir because we may generate a bunch of intermediate files
+    monkeypatch.chdir(tmp_path)
+    # prevent coredumps
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+
+    arch = seccomp.Arch.X86_64 if ARCH == "x86_64" else seccomp.Arch.AARCH64
+    # this one cannot be called directly
+    rules = [
+        rule
+        for rule in fc_filter[thread]["filter"]
+        if rule["syscall"] not in ["rt_sigreturn"]
+    ]
+    features = sorted({feature for rule in rules for feature in _rule_features(rule)})
+
+    def run(rule):
+        syscall_id = seccomp.resolve_syscall(arch, rule["syscall"])
+        args = " ".join(str(x) for x in _rule_args(rule))
+        return utils.run_cmd(f"{bin_test_syscall} {thread}.bpf {syscall_id} {args}")
+
+    # 159 = 128 (abnormal termination) + 31 (SIGSYS)
+    def check(selected):
+        seccompiler.compile(fc_filter, split_output=True, features=selected)
+        for rule in rules:
+            tags = _rule_features(rule)
+            trapped = (
+                bool(tags)
+                and not set(tags) & set(selected.split(","))
+                and not _allowed_by_untagged_rule(rule, rules)
+            )
+            expected = 159 if trapped else 0
+            assert run(rule).returncode == expected, (selected, rule)
+
+    check("none")
+    for feature in features:
+        check(feature)

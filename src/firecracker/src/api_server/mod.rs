@@ -210,7 +210,7 @@ mod tests {
     use vmm::builder::StartMicrovmError;
     use vmm::logger::StoreMetric;
     use vmm::rpc_interface::{VmmActionError, VmmData};
-    use vmm::seccomp::get_empty_filters;
+    use vmm::seccomp::{SeccompFeatures, get_empty_filters};
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::snapshot::CreateSnapshotParams;
     use vmm_sys_util::tempfile::TempFile;
@@ -393,7 +393,10 @@ mod tests {
                 ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd).run(
                     server,
                     ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
-                    seccomp_filters.get("api").unwrap(),
+                    &seccomp_filters
+                        .get("api")
+                        .unwrap()
+                        .compose(SeccompFeatures::all()),
                     vmm::HTTP_MAX_PAYLOAD_SIZE,
                 );
             })
@@ -436,7 +439,10 @@ mod tests {
                 ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd).run(
                     server,
                     ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
-                    seccomp_filters.get("api").unwrap(),
+                    &seccomp_filters
+                        .get("api")
+                        .unwrap()
+                        .compose(SeccompFeatures::all()),
                     50,
                 )
             })
@@ -486,7 +492,10 @@ mod tests {
                 ApiServer::new(api_request_sender, vmm_response_receiver, to_vmm_fd).run(
                     server,
                     ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
-                    seccomp_filters.get("api").unwrap(),
+                    &seccomp_filters
+                        .get("api")
+                        .unwrap()
+                        .compose(SeccompFeatures::all()),
                     vmm::HTTP_MAX_PAYLOAD_SIZE,
                 )
             })

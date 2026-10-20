@@ -1242,6 +1242,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "vmm-sys-util",
  "zerocopy",
 ]
 
