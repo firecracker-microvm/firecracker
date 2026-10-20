@@ -130,7 +130,8 @@ if not pipeline.args.no_kani and (
 
 for variant in affected_hiding_kernel_variants(changed_files):
     # One build job per variant x arch, so each variant gets parallel
-    # wall-clock and its own pass/fail signal in the Buildkite UI.
+    # wall-clock and its own pass/fail signal in the Buildkite UI. The x86 job
+    # also boots the built kernel and runs its KVM selftests.
     pipeline.build_group_per_arch(
         f"🕵️ Build Secret Hiding Kernel [{variant}]",
         pipeline.devtool_test(
@@ -140,6 +141,7 @@ for variant in affected_hiding_kernel_variants(changed_files):
                 "integration_tests/build/test_hiding_kernel.py"
             ),
         ),
+        timeout_in_minutes=90,
         depends_on_build=False,
     )
 
