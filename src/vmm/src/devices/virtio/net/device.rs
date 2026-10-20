@@ -1123,6 +1123,12 @@ pub mod tests {
     }
 
     #[test]
+    fn test_queue_accessors() {
+        let mut net = crate::devices::virtio::net::test_utils::default_net();
+        crate::devices::virtio::test_utils::check_queue_accessors(&mut net);
+    }
+
+    #[test]
     fn test_vnet_helpers() {
         let mut frame_buf = vec![42u8; vnet_hdr_len() - 1];
         assert_eq!(

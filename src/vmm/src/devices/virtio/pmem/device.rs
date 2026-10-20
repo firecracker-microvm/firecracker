@@ -632,6 +632,23 @@ mod tests {
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
 
     #[test]
+    fn test_queue_accessors() {
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = Arc::new(KvmVm::new(kvm).unwrap());
+        let backing_file = TempFile::new().unwrap();
+        backing_file.as_file().set_len(0x20_0000).unwrap();
+        let config = PmemConfig {
+            id: "1".into(),
+            path_on_host: backing_file.as_path().to_str().unwrap().to_string(),
+            root_device: true,
+            read_only: false,
+            ..Default::default()
+        };
+        let mut pmem = Pmem::new(vm, config).unwrap();
+        crate::devices::virtio::test_utils::check_queue_accessors(&mut pmem);
+    }
+
+    #[test]
     fn test_from_config() {
         let kvm = Kvm::new(vec![]).unwrap();
         let vm = Arc::new(KvmVm::new(kvm).unwrap());

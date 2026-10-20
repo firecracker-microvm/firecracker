@@ -513,6 +513,14 @@ mod tests {
     }
 
     #[test]
+    fn test_queue_accessors() {
+        // A fresh device: `TestContext` marks its queues ready.
+        let backend = crate::devices::virtio::vsock::test_utils::TestBackend::new();
+        let mut vsock = Vsock::new(52, backend).unwrap();
+        crate::devices::virtio::test_utils::check_queue_accessors(&mut vsock);
+    }
+
+    #[test]
     fn test_virtio_device() {
         let mut ctx = TestContext::new();
         let device_features = AVAIL_FEATURES;
