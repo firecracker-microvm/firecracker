@@ -289,9 +289,9 @@ Details about the required and optional fields can be found in the
     are drained and `fsync`'d to the host during snapshot creation, so their
     contents are committed to the underlying persistent storage regardless of
     the `sync_snapshot_files` setting.
-  - If dirty page tracking is enabled, the snapshot creation resets then the
-    dirtied page bitmap and marks all pages clean (from a dirty page tracking
-    point of view).
+  - If dirty page tracking is enabled, the snapshot creation marks all pages
+    clean (from a dirty page tracking point of view) before it writes guest
+    memory. If writing the memory file fails, the pages are marked dirty again.
 
 - _on failure_: no side-effects.
 
