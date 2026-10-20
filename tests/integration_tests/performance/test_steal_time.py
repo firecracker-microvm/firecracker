@@ -5,6 +5,8 @@
 
 import time
 
+import pytest
+
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 
 pytestmark = pin_guest_kernel(GUEST_KERNEL_DEFAULT)
@@ -18,6 +20,8 @@ def get_steal_time_ms(vm):
     return steal_time_tck / clk_tck * 1000
 
 
+# Pins a vCPU to a physical core and contends it.
+@pytest.mark.serial
 def test_pvtime_steal_time_increases(uvm):
     """
     Test that PVTime steal time increases when both vCPUs are contended on the same pCPU.
@@ -48,6 +52,8 @@ def test_pvtime_steal_time_increases(uvm):
     ), f"Steal time did not increase as expected. Before: {steal_before}, After: {steal_after}"
 
 
+# Pins a vCPU to a physical core and contends it.
+@pytest.mark.serial
 def test_pvtime_snapshot(uvm, microvm_factory):
     """
     Test that PVTime steal time is preserved across snapshot/restore

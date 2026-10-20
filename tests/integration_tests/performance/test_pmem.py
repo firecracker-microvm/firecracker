@@ -226,6 +226,8 @@ def check_flush_limit(ssh_connection, count, min_time, max_time):
     assert runtime_ms < max_time * 1000
 
 
+# Assumes it can do a fixed amount of work in a fixed time.
+@pytest.mark.serial
 def test_pmem_rate_limiter(uvm):
     """Test that the pmem rate limiter throttles flush operations."""
     vm = uvm

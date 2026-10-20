@@ -6,6 +6,8 @@
 import json
 import os
 
+import pytest
+
 import host_tools.drive as drive_tools
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 
@@ -33,6 +35,8 @@ def check_iops_limit(ssh_connection, block_size, count, min_time, max_time):
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+# Assumes it can do a fixed amount of work in a fixed time.
+@pytest.mark.serial
 def test_patch_drive_limiter(uvm):
     """
     Test replacing the drive rate-limiter after guest boot works.

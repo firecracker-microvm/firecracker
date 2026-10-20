@@ -25,6 +25,9 @@ def uvm_with_initrd(
 
 
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
+# Drives the console through screen; its input detached under 12 parallel
+# workers on 6.18 hosts.
+@pytest.mark.serial
 def test_microvm_initrd_with_serial(uvm_with_initrd, huge_pages):
     """
     Test that a boot using initrd successfully loads the root filesystem.

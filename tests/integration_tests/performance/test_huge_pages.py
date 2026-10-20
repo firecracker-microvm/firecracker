@@ -152,6 +152,9 @@ def test_snapshot_huge_pages_override(
 
 
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
+# Counts KVM exits through the host-wide kvm tracepoints, which other VMs would
+# add to.
+@pytest.mark.serial
 def test_ept_violation_count(
     microvm_factory,
     uvm,
