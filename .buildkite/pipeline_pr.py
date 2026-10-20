@@ -129,17 +129,29 @@ if not pipeline.args.no_kani and (
     )
 
 for variant in affected_hiding_kernel_variants(changed_files):
-    # One build job per variant x arch, so each variant gets parallel
-    # wall-clock and its own pass/fail signal in the Buildkite UI.
+    hiding_kernel_test = pipeline.devtool_test(
+        pytest_opts=(
+            "-m secret_hiding "
+            f'-k "test_build_hiding_kernel[{variant}]" '
+            "integration_tests/build/test_hiding_kernel.py"
+        ),
+    )
+    # One job per variant x arch, so each variant gets parallel wall-clock and
+    # its own pass/fail signal in the Buildkite UI. The x86 job also boots the
+    # built kernel under nested KVM and runs its KVM selftests, so it runs on
+    # the agents that have nested virtualization enabled. arm64 only builds.
+    pipeline.build_group_per_arch(
+        f"🕵️ Build + KVM Selftests [{variant}]",
+        hiding_kernel_test,
+        instances=["m6i.metal"],
+        platforms=[("al2023", "linux_6.1_nested")],
+        timeout_in_minutes=90,
+        depends_on_build=False,
+    )
     pipeline.build_group_per_arch(
         f"🕵️ Build Secret Hiding Kernel [{variant}]",
-        pipeline.devtool_test(
-            pytest_opts=(
-                "-m secret_hiding "
-                f'-k "test_build_hiding_kernel[{variant}]" '
-                "integration_tests/build/test_hiding_kernel.py"
-            ),
-        ),
+        hiding_kernel_test,
+        instances=["m7g.metal"],
         depends_on_build=False,
     )
 
