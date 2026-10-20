@@ -228,6 +228,12 @@ static SERIALIZABLE_MSR_RANGES: &[MsrRange] = &[
     // IA32_XSS controls which supervisor XSTATE components are enabled. Without it, the guest
     // kernel's XRSTORS of process FPU state containing CET/PT supervisor components triggers #GP.
     MSR_RANGE!(MSR_IA32_XSS),
+    // The guest kernel caches the last IA32_XFD value it wrote on each CPU and only writes the
+    // MSR when that cache differs. If a restore leaves IA32_XFD at 0, the kernel never rewrites
+    // it, tasks using AMX never get a full-size XSAVE buffer, and their tile data is lost at the
+    // next context switch.
+    MSR_RANGE!(MSR_IA32_XFD),
+    MSR_RANGE!(MSR_IA32_XFD_ERR),
     MSR_RANGE!(
         MSR_KVM_RANGE_START,
         MSR_KVM_RANGE_END - MSR_KVM_RANGE_START + 1
@@ -471,6 +477,13 @@ mod tests {
                 assert_eq!(msr_should_serialize(msr), should);
             }
         }
+    }
+
+    #[test]
+    fn test_xfd_msrs_serialize() {
+        // AMX tile state does not survive a restore without these.
+        assert!(msr_should_serialize(MSR_IA32_XFD));
+        assert!(msr_should_serialize(MSR_IA32_XFD_ERR));
     }
 
     #[test]

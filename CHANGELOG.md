@@ -75,6 +75,12 @@ and this project adheres to
 
 ### Fixed
 
+- [#6302](https://github.com/firecracker-microvm/firecracker/issues/6302): Fixed
+  AMX tile state being lost after a snapshot restore. The IA32_XFD and
+  IA32_XFD_ERR MSRs are now saved in snapshots. Without them a restored guest
+  had IA32_XFD cleared while its kernel still held the old value, so tasks using
+  AMX lost their tile data at the next context switch.
+
 - [#6254](https://github.com/firecracker-microvm/firecracker/pull/6254) Fixed
   pausing a vCPU with an unfinished MMIO or port-I/O instruction. Pending I/O
   now completes before the vCPU pauses, so snapshots include its effects without
