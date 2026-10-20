@@ -1091,6 +1091,13 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_queue_accessors() {
+        // With stats, hinting and reporting, so every optional queue is present.
+        let mut balloon = Balloon::new(0, false, 1, true, true).unwrap();
+        crate::devices::virtio::test_utils::check_queue_accessors(&mut balloon);
+    }
+
+    #[test]
     fn test_balloon_stat_size() {
         assert_eq!(SIZE_OF_STAT, 10);
     }

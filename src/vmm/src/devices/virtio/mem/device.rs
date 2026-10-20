@@ -808,6 +808,12 @@ mod tests {
     use crate::vstate::vm::tests::setup_vm_with_memory;
 
     #[test]
+    fn test_queue_accessors() {
+        let mut mem_dev = default_virtio_mem();
+        crate::devices::virtio::test_utils::check_queue_accessors(&mut mem_dev);
+    }
+
+    #[test]
     fn test_new() {
         let mem = default_virtio_mem();
 

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::align_up;
+use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::devices::virtio::transport::mmio::IrqTrigger;
@@ -35,6 +36,39 @@ pub fn default_mem() -> GuestMemoryMmap {
 /// Creates a default ['IrqTrigger'] interrupt for a VirtIO device.
 pub fn default_interrupt() -> Arc<dyn VirtioInterrupt> {
     Arc::new(IrqTrigger::new())
+}
+
+/// Exercises the per-queue accessors the transports use on an inactive device: every queue has
+/// a config and an event, out-of-range indices return `None`, config writes stick, and
+/// `reset_queues` restores the defaults.
+pub fn check_queue_accessors(device: &mut dyn VirtioDevice) {
+    let num_queues = device.num_queues();
+    assert!(num_queues > 0);
+
+    for index in 0..num_queues {
+        assert!(device.queue_event(index).is_some());
+        let config = device.queue_config_mut(index).unwrap();
+        assert!(!config.ready);
+        assert_eq!(config.size, config.max_size);
+        config.size = config.max_size / 2;
+        config.desc_table_address = GuestAddress(0x1000);
+        let max_size = config.max_size;
+        assert_eq!(device.queue_config(index).unwrap().size, max_size / 2);
+    }
+    assert!(device.queue_config(num_queues).is_none());
+    assert!(device.queue_config_mut(num_queues).is_none());
+    assert!(device.queue_event(num_queues).is_none());
+
+    // No queue is resolved, so there is nothing to commit.
+    device.commit_dirty();
+
+    device.reset_queues();
+    for index in 0..num_queues {
+        let config = device.queue_config(index).unwrap();
+        assert_eq!(config.size, config.max_size);
+        assert_eq!(config.desc_table_address, GuestAddress(0));
+        assert!(!config.ready);
+    }
 }
 
 #[derive(Debug)]
