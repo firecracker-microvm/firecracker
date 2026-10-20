@@ -56,7 +56,7 @@ def cargo_test(path, extra_args=""):
     }
     cargo(
         "test",
-        extra_args + " --all --no-fail-fast",
+        extra_args + " --profile ci --all --no-fail-fast",
         subcommand_args="--nocapture",
         env=env,
         # Kill cargo test 60s before pytest's 600s timeout, so pytest can report
