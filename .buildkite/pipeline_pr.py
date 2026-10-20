@@ -99,11 +99,19 @@ if run_all_tests(changed_files):
         ),
     )
 
+    # Tests marked `serial` need the host to themselves (timing assertions,
+    # CPU pinning, shared hugetlbfs pool); the rest run in parallel. `-m` on the
+    # command line replaces the one in pytest.ini, so repeat its exclusions.
+    PR_MARKERS = "not nonci and not no_block_pr"
     pipeline.build_group(
         "performance",
         pipeline.devtool_test(
             devtool_opts="--performance -c 1-10 -m 0",
-            pytest_opts="../tests/integration_tests/performance/",
+            pytest_opts=f"-m 'serial and {PR_MARKERS}' ../tests/integration_tests/performance/",
+        )
+        + pipeline.devtool_test(
+            devtool_opts="--performance -c 1-10 -m 0",
+            pytest_opts=f"-m 'not serial and {PR_MARKERS}' -n 12 --dist worksteal ../tests/integration_tests/performance/",
         ),
         **DEFAULTS_PERF,
     )
