@@ -13,8 +13,6 @@ use std::sync::{Arc, Mutex};
 
 #[cfg(target_arch = "x86_64")]
 use acpi_tables::{Aml, aml};
-#[cfg(target_arch = "x86_64")]
-use uuid::Uuid;
 use vm_allocator::AllocPolicy;
 
 use crate::arch::PCI_MMCONFIG_START;
@@ -254,73 +252,6 @@ impl PciSegment {
 }
 
 #[cfg(target_arch = "x86_64")]
-struct PciDsmMethod {}
-
-#[cfg(target_arch = "x86_64")]
-impl Aml for PciDsmMethod {
-    fn append_aml_bytes(&self, v: &mut Vec<u8>) -> Result<(), aml::AmlError> {
-        // Refer to ACPI spec v6.3 Ch 9.1.1 and PCI Firmware spec v3.3 Ch 4.6.1
-        // _DSM (Device Specific Method), the following is the implementation in ASL.
-
-        // Method (_DSM, 4, NotSerialized)  // _DSM: Device-Specific Method
-        // {
-        //      If ((Arg0 == ToUUID ("e5c937d0-3553-4d7a-9117-ea4d19c3434d") /* Device Labeling
-        // Interface */))      {
-        //          If ((Arg2 == Zero))
-        //          {
-        //              Return (Buffer (One) { 0x21 })
-        //          }
-        //          If ((Arg2 == 0x05))
-        //          {
-        //              Return (Zero)
-        //          }
-        //      }
-        //
-        //      Return (Buffer (One) { 0x00 })
-        // }
-        //
-        // As per ACPI v6.3 Ch 19.6.142, the UUID is required to be in mixed endian:
-        // Among the fields of a UUID:
-        //   {d1 (8 digits)} - {d2 (4 digits)} - {d3 (4 digits)} - {d4 (16 digits)}
-        // d1 ~ d3 need to be little endian, d4 be big endian.
-        // See https://en.wikipedia.org/wiki/Universally_unique_identifier#Encoding .
-        let uuid = Uuid::parse_str("E5C937D0-3553-4D7A-9117-EA4D19C3434D").unwrap();
-        let (uuid_d1, uuid_d2, uuid_d3, uuid_d4) = uuid.as_fields();
-        let mut uuid_buf = vec![];
-        uuid_buf.extend(uuid_d1.to_le_bytes());
-        uuid_buf.extend(uuid_d2.to_le_bytes());
-        uuid_buf.extend(uuid_d3.to_le_bytes());
-        uuid_buf.extend(uuid_d4);
-        aml::Method::new(
-            "_DSM".try_into()?,
-            4,
-            false,
-            vec![
-                &aml::If::new(
-                    &aml::Equal::new(&aml::Arg(0), &aml::Buffer::new(uuid_buf)),
-                    vec![
-                        &aml::If::new(
-                            &aml::Equal::new(&aml::Arg(2), &aml::ZERO),
-                            vec![&aml::Return::new(&aml::Buffer::new(vec![0x21]))],
-                        ),
-                        // Define DSM_PCI_PRESERVE_BOOT_CONFIG(0x05) function. The return
-                        // value of 0 indicates that the guest should preserve PCI resource
-                        // assignment done by us.
-                        // https://elixir.bootlin.com/linux/v6.19.8/source/drivers/pci/pci-acpi.c#L123
-                        &aml::If::new(
-                            &aml::Equal::new(&aml::Arg(2), &0x05u8),
-                            vec![&aml::Return::new(&aml::ZERO)],
-                        ),
-                    ],
-                ),
-                &aml::Return::new(&aml::Buffer::new(vec![0])),
-            ],
-        )
-        .append_aml_bytes(v)
-    }
-}
-
-#[cfg(target_arch = "x86_64")]
 struct PciOscMethod {}
 
 #[cfg(target_arch = "x86_64")]
@@ -366,9 +297,6 @@ impl Aml for PciSegment {
         let pxm_return = aml::Return::new(&proximity_domain);
         let pxm = aml::Method::new("_PXM".try_into()?, 0, false, vec![&pxm_return]);
         pci_dsdt_inner_data.push(&pxm);
-
-        let pci_dsm = PciDsmMethod {};
-        pci_dsdt_inner_data.push(&pci_dsm);
 
         let pci_osc = PciOscMethod {};
         pci_dsdt_inner_data.push(&pci_osc);
