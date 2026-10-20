@@ -9,6 +9,7 @@ import pytest
 from packaging import version
 
 import framework.utils_cpuid as utils
+from framework.artifacts import pin_pci
 from framework.properties import global_props
 from framework.utils import get_kernel_version
 
@@ -194,6 +195,8 @@ def _check_cache_topology_arm(test_microvm, no_cpus, kernel_version_tpl):
 
 @pytest.mark.parametrize("num_vcpus", [1, 2, 16])
 @pytest.mark.parametrize("htt", [True, False], ids=["HTT_ON", "HTT_OFF"])
+# The transport plays no part in what is asserted: guest CPU state.
+@pin_pci(True)
 def test_cpu_topology(uvm, num_vcpus, htt):
     """
     Check the CPU topology for a microvm with the specified config.
@@ -228,6 +231,8 @@ def test_cpu_topology(uvm, num_vcpus, htt):
 )
 @pytest.mark.parametrize("num_vcpus", [1, 2, 16])
 @pytest.mark.parametrize("htt", [True, False], ids=["HTT_ON", "HTT_OFF"])
+# The transport plays no part in what is asserted: guest CPU state.
+@pin_pci(True)
 def test_cache_topology(uvm, num_vcpus, htt):
     """
     Check the cache topology for a microvm with the specified config.

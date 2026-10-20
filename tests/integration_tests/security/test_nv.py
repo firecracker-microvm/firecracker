@@ -16,10 +16,13 @@ This test is a safety-net to make the test explicit and catch cases where we
 start providing the feature by mistake.
 """
 
+from framework.artifacts import pin_pci
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
 
 
 @pin_cpu_template(ALL_CPU_TEMPLATES)
+# The transport plays no part in what is asserted: guest CPU state.
+@pin_pci(True)
 def test_no_nested_virtualization(uvm_booted):
     """Validate that guests don't have Nested Virtualization enabled."""
     uvm_booted.ssh.check_output("[ ! -e /dev/kvm ]")
