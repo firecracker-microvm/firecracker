@@ -1,4 +1,4 @@
-From 3239a7696dfd86f494425b0c40484ff24d239798 Mon Sep 17 00:00:00 2001
+From 7e1cfada17b6e911afe064cd88209b6e752463b0 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Wed, 4 Dec 2024 19:13:46 +0000
 Subject: [PATCH 57/94] KVM: selftests: Inform set_memory_region_test of
@@ -9,12 +9,13 @@ available.
 
 Signed-off-by: James Houghton <jthoughton@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/set_memory_region_test.c | 3 +++
  1 file changed, 3 insertions(+)
 
 diff --git a/tools/testing/selftests/kvm/set_memory_region_test.c b/tools/testing/selftests/kvm/set_memory_region_test.c
-index cb445d420..ceff6416a 100644
+index cb445d420e8c..ceff6416a72f 100644
 --- a/tools/testing/selftests/kvm/set_memory_region_test.c
 +++ b/tools/testing/selftests/kvm/set_memory_region_test.c
 @@ -364,6 +364,9 @@ static void test_invalid_memory_region_flags(void)

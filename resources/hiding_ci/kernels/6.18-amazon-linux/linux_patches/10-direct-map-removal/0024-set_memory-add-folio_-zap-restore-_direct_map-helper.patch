@@ -1,4 +1,4 @@
-From 6c5858f1487c29e7ef5509a5a73a9089a1e5f032 Mon Sep 17 00:00:00 2001
+From 1b72fbd34818e8aa60b268096ef1e80bb2dde815 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 Date: Mon, 12 Jan 2026 14:24:52 +0000
 Subject: [PATCH 24/94] set_memory: add folio_{zap,restore}_direct_map helpers
@@ -20,13 +20,14 @@ through in-kernel gadgets.
 Acked-by: David Hildenbrand (Arm) <david@kernel.org>
 Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/set_memory.h | 13 +++++++++++
  mm/memory.c                | 45 ++++++++++++++++++++++++++++++++++++++
  2 files changed, 58 insertions(+)
 
 diff --git a/include/linux/set_memory.h b/include/linux/set_memory.h
-index 1a2563f52..24caea293 100644
+index 1a2563f525fc..24caea2931f9 100644
 --- a/include/linux/set_memory.h
 +++ b/include/linux/set_memory.h
 @@ -41,6 +41,15 @@ static inline int set_direct_map_valid_noflush(const void *addr,
@@ -57,7 +58,7 @@ index 1a2563f52..24caea293 100644
  
  #ifdef CONFIG_X86_64
 diff --git a/mm/memory.c b/mm/memory.c
-index 42b733b78..0502983ce 100644
+index 72793ec63107..ef76e8a66b00 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
 @@ -76,6 +76,7 @@
@@ -68,7 +69,7 @@ index 42b733b78..0502983ce 100644
  
  #include <trace/events/kmem.h>
  
-@@ -7353,3 +7354,47 @@ void vma_pgtable_walk_end(struct vm_area_struct *vma)
+@@ -7356,3 +7357,47 @@ void vma_pgtable_walk_end(struct vm_area_struct *vma)
  	if (is_vm_hugetlb_page(vma))
  		hugetlb_vma_unlock_read(vma);
  }

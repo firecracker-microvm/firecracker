@@ -1,4 +1,4 @@
-From 08425767f16c0fa0507dad279d50f1cc2899b32a Mon Sep 17 00:00:00 2001
+From 5b495e23a1441ac55c142d39adb70ce9fa82de55 Mon Sep 17 00:00:00 2001
 From: Pedro Demarchi Gomes <pedrodemargomes@gmail.com>
 Date: Sat, 4 Oct 2025 00:02:10 -0300
 Subject: [PATCH 06/94] KVM: guest_memfd: use folio_nr_pages() instead of shift
@@ -11,12 +11,13 @@ Signed-off-by: Pedro Demarchi Gomes <pedrodemargomes@gmail.com>
 Link: https://lore.kernel.org/r/20251004030210.49080-1-pedrodemargomes@gmail.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  virt/kvm/guest_memfd.c | 4 ++--
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 04a455c08..c78bbbe41 100644
+index 80077606cf4d..989d6a73f88a 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -82,9 +82,9 @@ static int kvm_gmem_prepare_folio(struct kvm *kvm, struct kvm_memory_slot *slot,

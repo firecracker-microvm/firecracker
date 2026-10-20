@@ -1,4 +1,4 @@
-From 00b02c5798179267d88f36681650dbcee6d0b75d Mon Sep 17 00:00:00 2001
+From f4a36240e28411bacec75964bbe6bdbb7ea59e1a Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:17 +0000
 Subject: [PATCH 47/94] KVM: Add KVM_MEM_USERFAULT memslot flag and bitmap
@@ -13,6 +13,7 @@ return -EFAULT (with no other information) back to the user.
 
 Signed-off-by: James Houghton <jthoughton@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/kvm_host.h | 14 ++++++++++++++
  include/uapi/linux/kvm.h |  4 +++-
@@ -21,7 +22,7 @@ Signed-off-by: Firecracker CI <ci@email.com>
  4 files changed, 55 insertions(+), 1 deletion(-)
 
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index 27550e066..a7adefe14 100644
+index 662d7b485bce..f67916b5528f 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
 @@ -601,6 +601,7 @@ struct kvm_memory_slot {
@@ -44,7 +45,7 @@ index 27550e066..a7adefe14 100644
  struct kvm_memslots {
  	u64 generation;
  	atomic_long_t last_used_slot;
-@@ -2627,4 +2633,12 @@ static inline int kvm_enable_virtualization(void) { return 0; }
+@@ -2633,4 +2639,12 @@ static inline int kvm_enable_virtualization(void) { return 0; }
  static inline void kvm_disable_virtualization(void) { }
  #endif
  
@@ -58,7 +59,7 @@ index 27550e066..a7adefe14 100644
 +
  #endif
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index b7cb91a95..ca8fff1fa 100644
+index b7cb91a955b0..ca8fff1fa372 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
 @@ -45,7 +45,8 @@ struct kvm_userspace_memory_region2 {
@@ -80,7 +81,7 @@ index b7cb91a95..ca8fff1fa 100644
  /* for KVM_IRQ_LINE */
  struct kvm_irq_level {
 diff --git a/virt/kvm/Kconfig b/virt/kvm/Kconfig
-index 5f0015c5d..c088df30c 100644
+index 5f0015c5dd95..c088df30cd92 100644
 --- a/virt/kvm/Kconfig
 +++ b/virt/kvm/Kconfig
 @@ -128,3 +128,6 @@ config HAVE_KVM_ARCH_GMEM_INVALIDATE
@@ -91,7 +92,7 @@ index 5f0015c5d..c088df30c 100644
 +config HAVE_KVM_USERFAULT
 +       bool
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 6ba13ac17..f5d574116 100644
+index c5be710d75b6..e74283b7e806 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -1616,6 +1616,9 @@ static int check_memory_region_flags(struct kvm *kvm,
@@ -127,7 +128,7 @@ index 6ba13ac17..f5d574116 100644
  
  	r = kvm_set_memslot(kvm, old, new, change);
  	if (r)
-@@ -6628,3 +6640,26 @@ void kvm_exit(void)
+@@ -6648,3 +6660,26 @@ void kvm_exit(void)
  	kvm_irqfd_exit();
  }
  EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_exit);

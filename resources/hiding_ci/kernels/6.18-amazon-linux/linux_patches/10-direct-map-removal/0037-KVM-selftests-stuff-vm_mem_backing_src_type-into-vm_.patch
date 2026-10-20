@@ -1,4 +1,4 @@
-From 86e35f4c12518e6e132b37c4de3e64436d21a1f1 Mon Sep 17 00:00:00 2001
+From 58842f71911ae40fede00a6807a52acbe45cca12 Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:35 +0100
 Subject: [PATCH 37/94] KVM: selftests: stuff vm_mem_backing_src_type into
@@ -14,6 +14,7 @@ code is backed by mmap'd guest_memfd instead of anonymous memory.
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
 Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../testing/selftests/kvm/include/kvm_util.h  | 19 ++++++++++---------
  tools/testing/selftests/kvm/lib/kvm_util.c    |  2 +-
@@ -22,7 +23,7 @@ Signed-off-by: Firecracker CI <ci@email.com>
  4 files changed, 13 insertions(+), 10 deletions(-)
 
 diff --git a/tools/testing/selftests/kvm/include/kvm_util.h b/tools/testing/selftests/kvm/include/kvm_util.h
-index 15049943c..6d2e04161 100644
+index 15049943ce80..6d2e04161a36 100644
 --- a/tools/testing/selftests/kvm/include/kvm_util.h
 +++ b/tools/testing/selftests/kvm/include/kvm_util.h
 @@ -192,7 +192,7 @@ enum vm_guest_mode {
@@ -59,7 +60,7 @@ index 15049943c..6d2e04161 100644
  
  #if defined(__aarch64__)
 diff --git a/tools/testing/selftests/kvm/lib/kvm_util.c b/tools/testing/selftests/kvm/lib/kvm_util.c
-index 6995287f5..0e9f5d73d 100644
+index 6995287f55a1..0e9f5d73d12a 100644
 --- a/tools/testing/selftests/kvm/lib/kvm_util.c
 +++ b/tools/testing/selftests/kvm/lib/kvm_util.c
 @@ -465,7 +465,7 @@ struct kvm_vm *__vm_create(struct vm_shape shape, uint32_t nr_runnable_vcpus,
@@ -72,7 +73,7 @@ index 6995287f5..0e9f5d73d 100644
  		vm->memslots[i] = 0;
  
 diff --git a/tools/testing/selftests/kvm/lib/x86/sev.c b/tools/testing/selftests/kvm/lib/x86/sev.c
-index c3a9838f4..d920880e4 100644
+index c3a9838f4806..d920880e4fc0 100644
 --- a/tools/testing/selftests/kvm/lib/x86/sev.c
 +++ b/tools/testing/selftests/kvm/lib/x86/sev.c
 @@ -164,6 +164,7 @@ struct kvm_vm *vm_sev_create_with_one_vcpu(uint32_t type, void *guest_code,
@@ -84,7 +85,7 @@ index c3a9838f4..d920880e4 100644
  	struct kvm_vm *vm;
  	struct kvm_vcpu *cpus[1];
 diff --git a/tools/testing/selftests/kvm/pre_fault_memory_test.c b/tools/testing/selftests/kvm/pre_fault_memory_test.c
-index f04768c1d..5da646423 100644
+index f04768c1d2e4..5da646423d0b 100644
 --- a/tools/testing/selftests/kvm/pre_fault_memory_test.c
 +++ b/tools/testing/selftests/kvm/pre_fault_memory_test.c
 @@ -164,6 +164,7 @@ static void __test_pre_fault_memory(unsigned long vm_type, bool private)

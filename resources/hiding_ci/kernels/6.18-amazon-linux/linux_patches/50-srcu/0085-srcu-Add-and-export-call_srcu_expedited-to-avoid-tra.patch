@@ -1,4 +1,4 @@
-From ca1b45feea1296edefca5bfeb28f92208920bd2f Mon Sep 17 00:00:00 2001
+From bf5c7cbb94bb5ba96fe93150ab5c98b76cb242de Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Mon, 9 Mar 2026 12:30:58 -0700
 Subject: [PATCH 85/94] srcu: Add and export call_srcu_expedited() to avoid
@@ -27,6 +27,7 @@ by 15% or more.
 Link: https://lore.kernel.org/all/a84ddba8-12da-489a-9dd1-ccdf7451a1ba@amazon.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/srcutiny.h | 7 +++++++
  include/linux/srcutree.h | 2 ++
@@ -34,10 +35,10 @@ Signed-off-by: Firecracker CI <ci@email.com>
  3 files changed, 16 insertions(+)
 
 diff --git a/include/linux/srcutiny.h b/include/linux/srcutiny.h
-index d99d296ec..f3bbf072b 100644
+index 7314780f5bab..675d2cabea98 100644
 --- a/include/linux/srcutiny.h
 +++ b/include/linux/srcutiny.h
-@@ -101,6 +101,13 @@ static inline void srcu_barrier(struct srcu_struct *ssp)
+@@ -105,6 +105,13 @@ static inline void srcu_barrier(struct srcu_struct *ssp)
  	synchronize_srcu(ssp);
  }
  
@@ -52,7 +53,7 @@ index d99d296ec..f3bbf072b 100644
  #define srcu_check_read_flavor_force(ssp, read_flavor) do { } while (0)
  
 diff --git a/include/linux/srcutree.h b/include/linux/srcutree.h
-index 42098e0fa..b90e91888 100644
+index 42098e0fa0b7..b90e91888078 100644
 --- a/include/linux/srcutree.h
 +++ b/include/linux/srcutree.h
 @@ -208,6 +208,8 @@ struct srcu_struct {
@@ -65,7 +66,7 @@ index 42098e0fa..b90e91888 100644
  void srcu_barrier(struct srcu_struct *ssp);
  void srcu_torture_stats_print(struct srcu_struct *ssp, char *tt, char *tf);
 diff --git a/kernel/rcu/srcutree.c b/kernel/rcu/srcutree.c
-index 1ff94b76d..699989709 100644
+index 1ff94b76d91f..6999897096ac 100644
 --- a/kernel/rcu/srcutree.c
 +++ b/kernel/rcu/srcutree.c
 @@ -1429,6 +1429,13 @@ void call_srcu(struct srcu_struct *ssp, struct rcu_head *rhp,

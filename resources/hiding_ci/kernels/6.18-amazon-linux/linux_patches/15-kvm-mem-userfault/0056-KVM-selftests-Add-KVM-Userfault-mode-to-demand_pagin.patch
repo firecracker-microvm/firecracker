@@ -1,4 +1,4 @@
-From 8f77eb282d37b3d5e514551bac2f03eb54359bd5 Mon Sep 17 00:00:00 2001
+From 6fe98b6c7680a203777e49711bfd7d8bc58a9508 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Wed, 4 Dec 2024 19:13:45 +0000
 Subject: [PATCH 56/94] KVM: selftests: Add KVM Userfault mode to
@@ -28,6 +28,7 @@ Add the vm_mem_region_set_flags_userfault() helper for setting
 
 Signed-off-by: James Houghton <jthoughton@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../selftests/kvm/demand_paging_test.c        | 140 +++++++++++++++++-
  .../testing/selftests/kvm/include/kvm_util.h  |   5 +
@@ -35,7 +36,7 @@ Signed-off-by: Firecracker CI <ci@email.com>
  3 files changed, 177 insertions(+), 8 deletions(-)
 
 diff --git a/tools/testing/selftests/kvm/demand_paging_test.c b/tools/testing/selftests/kvm/demand_paging_test.c
-index 315f5c903..8fef0ccbe 100644
+index 315f5c9037b4..8fef0ccbe073 100644
 --- a/tools/testing/selftests/kvm/demand_paging_test.c
 +++ b/tools/testing/selftests/kvm/demand_paging_test.c
 @@ -12,7 +12,9 @@
@@ -298,7 +299,7 @@ index 315f5c903..8fef0ccbe 100644
  		default:
  			help(argv[0]);
 diff --git a/tools/testing/selftests/kvm/include/kvm_util.h b/tools/testing/selftests/kvm/include/kvm_util.h
-index 6d2e04161..8fc772d71 100644
+index 6d2e04161a36..8fc772d7177c 100644
 --- a/tools/testing/selftests/kvm/include/kvm_util.h
 +++ b/tools/testing/selftests/kvm/include/kvm_util.h
 @@ -698,6 +698,8 @@ void vm_userspace_mem_region_add(struct kvm_vm *vm,
@@ -321,7 +322,7 @@ index 6d2e04161..8fc772d71 100644
  void vm_mem_region_delete(struct kvm_vm *vm, uint32_t slot);
  struct kvm_vcpu *__vm_vcpu_add(struct kvm_vm *vm, uint32_t vcpu_id);
 diff --git a/tools/testing/selftests/kvm/lib/kvm_util.c b/tools/testing/selftests/kvm/lib/kvm_util.c
-index a1a5c8529..99cd2228e 100644
+index a1a5c852978e..99cd2228e5d1 100644
 --- a/tools/testing/selftests/kvm/lib/kvm_util.c
 +++ b/tools/testing/selftests/kvm/lib/kvm_util.c
 @@ -679,7 +679,7 @@ void kvm_parse_vcpu_pinning(const char *pcpus_string, uint32_t vcpu_to_pcpu[],

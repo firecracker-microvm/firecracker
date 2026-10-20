@@ -1,4 +1,4 @@
-From 4792bdf497d4e937ab587a3beff772a8adcefeca Mon Sep 17 00:00:00 2001
+From cccddc47dbdf29d1cae4089cf376267d444cd208 Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Tue, 2 Jun 2026 16:04:31 +0000
 Subject: [PATCH 94/94] KVM: x86: Advertise exitless userfault async page
@@ -24,7 +24,7 @@ Signed-off-by: Firecracker CI <ci@email.com>
  6 files changed, 472 insertions(+)
 
 diff --git a/Documentation/virt/kvm/api.rst b/Documentation/virt/kvm/api.rst
-index 7ee6b78c0..6d0a1cdad 100644
+index 59c2dd6519b0..3d0004689c5a 100644
 --- a/Documentation/virt/kvm/api.rst
 +++ b/Documentation/virt/kvm/api.rst
 @@ -6604,6 +6604,151 @@ operation.
@@ -179,7 +179,7 @@ index 7ee6b78c0..6d0a1cdad 100644
  .. _kvm_run:
  
  5. The kvm_run structure
-@@ -9372,6 +9517,23 @@ fault and exit to userspace with ``KVM_EXIT_MEMORY_FAULT`` with
+@@ -9378,6 +9523,23 @@ fault and exit to userspace with ``KVM_EXIT_MEMORY_FAULT`` with
  completes the fault before re-entering the vCPU. See the documentation
  for ``KVM_ASYNC_PF`` (section 4.144) for details.
  
@@ -204,10 +204,10 @@ index 7ee6b78c0..6d0a1cdad 100644
  =========================
  
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 5b66218ef..a1bfc49b5 100644
+index b12cc2dea9ec..7c3f1f1b7d8f 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
-@@ -4893,6 +4893,7 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
+@@ -4532,6 +4532,7 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
  	case KVM_CAP_X86_GUEST_MODE:
  	case KVM_CAP_ONE_REG:
  	case KVM_CAP_ASYNC_PF_USERFAULT:
@@ -216,7 +216,7 @@ index 5b66218ef..a1bfc49b5 100644
  		break;
  	case KVM_CAP_PRE_FAULT_MEMORY:
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index f31052d36..23b489e8f 100644
+index f31052d36feb..23b489e8f3a2 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
 @@ -974,6 +974,7 @@ struct kvm_enable_cap {
@@ -228,7 +228,7 @@ index f31052d36..23b489e8f 100644
  struct kvm_irq_routing_irqchip {
  	__u32 irqchip;
 diff --git a/tools/arch/x86/include/uapi/asm/kvm.h b/tools/arch/x86/include/uapi/asm/kvm.h
-index d420c9c06..3699d47d3 100644
+index d420c9c066d4..3699d47d353a 100644
 --- a/tools/arch/x86/include/uapi/asm/kvm.h
 +++ b/tools/arch/x86/include/uapi/asm/kvm.h
 @@ -15,6 +15,7 @@
@@ -240,7 +240,7 @@ index d420c9c06..3699d47d3 100644
  
  #define DE_VECTOR 0
 diff --git a/tools/include/uapi/linux/kvm.h b/tools/include/uapi/linux/kvm.h
-index 6ccd393c5..4a51d48c5 100644
+index 6ccd393c58cd..4a51d48c5805 100644
 --- a/tools/include/uapi/linux/kvm.h
 +++ b/tools/include/uapi/linux/kvm.h
 @@ -969,6 +969,7 @@ struct kvm_enable_cap {
@@ -323,7 +323,7 @@ index 6ccd393c5..4a51d48c5 100644
  	__u64 gpa;
  	__u64 size;
 diff --git a/tools/testing/selftests/kvm/x86/async_pf_userfault_test.c b/tools/testing/selftests/kvm/x86/async_pf_userfault_test.c
-index 4d3c53734..33c338be3 100644
+index 4d3c53734467..33c338be3625 100644
 --- a/tools/testing/selftests/kvm/x86/async_pf_userfault_test.c
 +++ b/tools/testing/selftests/kvm/x86/async_pf_userfault_test.c
 @@ -26,6 +26,7 @@

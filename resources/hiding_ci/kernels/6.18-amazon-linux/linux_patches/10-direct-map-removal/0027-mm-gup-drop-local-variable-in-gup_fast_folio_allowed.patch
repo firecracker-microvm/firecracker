@@ -1,4 +1,4 @@
-From 32d76060a23a3ad9e837738d2f05a6fc1f0b9da1 Mon Sep 17 00:00:00 2001
+From 008fb49d703818a1ec4824b840806e32cf3d210d Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 Date: Mon, 19 Jan 2026 15:33:01 +0000
 Subject: [PATCH 27/94] mm/gup: drop local variable in gup_fast_folio_allowed
@@ -9,15 +9,16 @@ No functional changes.
 Acked-by: David Hildenbrand (Arm) <david@kernel.org>
 Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  mm/gup.c | 23 ++++++++++++-----------
  1 file changed, 12 insertions(+), 11 deletions(-)
 
 diff --git a/mm/gup.c b/mm/gup.c
-index b6f963896..64b664864 100644
+index 20b73b94c828..922ae9ab89c5 100644
 --- a/mm/gup.c
 +++ b/mm/gup.c
-@@ -2737,18 +2737,9 @@ EXPORT_SYMBOL(get_user_pages_unlocked);
+@@ -2743,18 +2743,9 @@ EXPORT_SYMBOL(get_user_pages_unlocked);
   */
  static bool gup_fast_folio_allowed(struct folio *folio, unsigned int flags)
  {
@@ -36,7 +37,7 @@ index b6f963896..64b664864 100644
  	/* We hold a folio reference, so we can safely access folio fields. */
  	if (WARN_ON_ONCE(folio_test_slab(folio)))
  		return false;
-@@ -2797,8 +2788,18 @@ static bool gup_fast_folio_allowed(struct folio *folio, unsigned int flags)
+@@ -2803,8 +2794,18 @@ static bool gup_fast_folio_allowed(struct folio *folio, unsigned int flags)
  	 */
  	if (secretmem_mapping(mapping))
  		return false;

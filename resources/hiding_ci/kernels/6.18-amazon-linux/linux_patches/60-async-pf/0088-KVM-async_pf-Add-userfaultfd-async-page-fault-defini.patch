@@ -1,4 +1,4 @@
-From 32121ef5faa571dab84a18f61c5a118a97bf14d8 Mon Sep 17 00:00:00 2001
+From 80fb3b8c1d3d2865acb684a5d75d17ee408ff069 Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Fri, 16 Jan 2026 15:14:32 +0000
 Subject: [PATCH 88/94] KVM: async_pf: Add userfaultfd async page fault
@@ -26,7 +26,7 @@ Signed-off-by: Firecracker CI <ci@email.com>
  2 files changed, 54 insertions(+), 2 deletions(-)
 
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index 3bffdcd85..4c97b058b 100644
+index 1169eb3e1f45..9cb3e6514ea9 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
 @@ -234,6 +234,18 @@ struct kvm_io_device *kvm_io_bus_get_dev(struct kvm *kvm, enum kvm_bus bus_idx,
@@ -79,7 +79,7 @@ index 3bffdcd85..4c97b058b 100644
  #endif
  
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index 58e701c6f..0caa6e33e 100644
+index 58e701c6f172..0caa6e33e853 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
 @@ -452,6 +452,7 @@ struct kvm_run {

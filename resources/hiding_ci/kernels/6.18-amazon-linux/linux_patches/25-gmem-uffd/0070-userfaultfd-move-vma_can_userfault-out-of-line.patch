@@ -1,4 +1,4 @@
-From ba95af6d08a966ebc283ffb7d2d81b147f190f5c Mon Sep 17 00:00:00 2001
+From a0bb2c8189d2b46e763bcfc0684382971e20baa7 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:06 +0200
 Subject: [PATCH 70/94] userfaultfd: move vma_can_userfault out of line
@@ -14,16 +14,17 @@ Reviewed-by: David Hildenbrand (Red Hat) <david@kernel.org>
 Reviewed-by: Liam R. Howlett <Liam.Howlett@oracle.com>
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
- include/linux/userfaultfd_k.h | 36 ++---------------------------------
- mm/userfaultfd.c              | 33 ++++++++++++++++++++++++++++++++
- 2 files changed, 35 insertions(+), 34 deletions(-)
+ include/linux/userfaultfd_k.h | 39 ++---------------------------------
+ mm/userfaultfd.c              | 36 ++++++++++++++++++++++++++++++++
+ 2 files changed, 38 insertions(+), 37 deletions(-)
 
 diff --git a/include/linux/userfaultfd_k.h b/include/linux/userfaultfd_k.h
-index c0e716aec..e4f43e7b0 100644
+index 796a380664bd..e4f43e7b063f 100644
 --- a/include/linux/userfaultfd_k.h
 +++ b/include/linux/userfaultfd_k.h
-@@ -208,40 +208,8 @@ static inline bool userfaultfd_armed(struct vm_area_struct *vma)
+@@ -208,43 +208,8 @@ static inline bool userfaultfd_armed(struct vm_area_struct *vma)
  	return vma->vm_flags & __VM_UFFD_FLAGS;
  }
  
@@ -33,7 +34,10 @@ index c0e716aec..e4f43e7b0 100644
 -{
 -	vm_flags &= __VM_UFFD_FLAGS;
 -
--	if (vma->vm_flags & VM_DROPPABLE)
+-	if (vma->vm_flags & (VM_DROPPABLE | VM_SHADOW_STACK))
+-		return false;
+-
+-	if (!is_vm_hugetlb_page(vma) && (vma->vm_flags & VM_SPECIAL))
 -		return false;
 -
 -	if ((vm_flags & VM_UFFD_MINOR) &&
@@ -67,10 +71,10 @@ index c0e716aec..e4f43e7b0 100644
  static inline bool vma_has_uffd_without_event_remap(struct vm_area_struct *vma)
  {
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 3d995ebf1..e016b74c2 100644
+index ea76a9c7e56c..6470ca90cd4f 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
-@@ -2059,6 +2059,39 @@ ssize_t move_pages(struct userfaultfd_ctx *ctx, unsigned long dst_start,
+@@ -2061,6 +2061,42 @@ out:
  	return moved ? moved : err;
  }
  
@@ -79,7 +83,10 @@ index 3d995ebf1..e016b74c2 100644
 +{
 +	vm_flags &= __VM_UFFD_FLAGS;
 +
-+	if (vma->vm_flags & VM_DROPPABLE)
++	if (vma->vm_flags & (VM_DROPPABLE | VM_SHADOW_STACK))
++		return false;
++
++	if (!is_vm_hugetlb_page(vma) && (vma->vm_flags & VM_SPECIAL))
 +		return false;
 +
 +	if ((vm_flags & VM_UFFD_MINOR) &&

@@ -1,4 +1,4 @@
-From 14186912ea8540760c9d46bfcff11323f385cf3d Mon Sep 17 00:00:00 2001
+From a5e8030a6ef048409adb8bf43302a0d78463bb3a Mon Sep 17 00:00:00 2001
 From: Mike Rapoport <rppt@kernel.org>
 Date: Wed, 11 Mar 2026 20:49:00 +0200
 Subject: [PATCH 72/94] userfaultfd: introduce vm_uffd_ops
@@ -43,15 +43,16 @@ VMA to restore the original behaviour.
 
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
- mm/userfaultfd.c | 16 ++++++++--------
- 1 file changed, 8 insertions(+), 8 deletions(-)
+ mm/userfaultfd.c | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
 
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 1fad557c3..25474d48e 100644
+index 75de85ebe7a9..6abb5faf54d1 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
-@@ -2083,22 +2083,22 @@ bool vma_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags,
+@@ -2085,25 +2085,25 @@ bool vma_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags,
  {
  	const struct vm_uffd_ops *ops = vma_uffd_ops(vma);
  
@@ -59,11 +60,16 @@ index 1fad557c3..25474d48e 100644
 -	if (!ops)
 -		return false;
 -
- 	vm_flags &= __VM_UFFD_FLAGS;
- 
--	if (vma->vm_flags & VM_DROPPABLE)
--		return false;
+-	vm_flags &= __VM_UFFD_FLAGS;
 -
+ 	if (vma->vm_flags & (VM_DROPPABLE | VM_SHADOW_STACK))
+ 		return false;
+ 
+ 	if (!is_vm_hugetlb_page(vma) && (vma->vm_flags & VM_SPECIAL))
+ 		return false;
+ 
++	vm_flags &= __VM_UFFD_FLAGS;
++
  	/*
 -	 * If wp async enabled, and WP is the only mode enabled, allow any
 +	 * If WP is the only mode enabled and context is wp async, allow any
@@ -74,9 +80,6 @@ index 1fad557c3..25474d48e 100644
  
 +	/* For any other mode reject VMAs that don't implement vm_uffd_ops */
 +	if (!ops)
-+		return false;
-+
-+	if (vma->vm_flags & VM_DROPPABLE)
 +		return false;
 +
  	/*

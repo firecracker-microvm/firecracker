@@ -1,4 +1,4 @@
-From 01cf00a9150e1955c578bfd7cf77792c2a85e49f Mon Sep 17 00:00:00 2001
+From 1806e301e13faf8a9da4179976753d6627724ed3 Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Thu, 16 Oct 2025 10:28:42 -0700
 Subject: [PATCH 09/94] KVM: guest_memfd: Rename "struct kvm_gmem" to "struct
@@ -27,12 +27,13 @@ Tested-by: Shivank Garg <shivankg@amd.com>
 Link: https://lore.kernel.org/r/20251016172853.52451-2-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  virt/kvm/guest_memfd.c | 98 +++++++++++++++++++++++-------------------
  1 file changed, 53 insertions(+), 45 deletions(-)
 
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 1e4af2915..2989c5fe4 100644
+index 76e535ee26b4..8a8c3c66cf40 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -7,7 +7,16 @@
@@ -73,7 +74,7 @@ index 1e4af2915..2989c5fe4 100644
  		pgoff_t pgoff = slot->gmem.pgoff;
  
  		struct kvm_gfn_range gfn_range = {
-@@ -157,20 +166,20 @@ static void kvm_gmem_invalidate_begin(struct inode *inode, pgoff_t start,
+@@ -161,20 +170,20 @@ static void kvm_gmem_invalidate_begin(struct inode *inode, pgoff_t start,
  {
  	struct list_head *gmem_list = &inode->i_mapping->i_private_list;
  	enum kvm_gfn_range_filter attr_filter;
@@ -100,7 +101,7 @@ index 1e4af2915..2989c5fe4 100644
  		KVM_MMU_LOCK(kvm);
  		kvm_mmu_invalidate_end(kvm);
  		KVM_MMU_UNLOCK(kvm);
-@@ -181,10 +190,10 @@ static void kvm_gmem_invalidate_end(struct inode *inode, pgoff_t start,
+@@ -185,10 +194,10 @@ static void kvm_gmem_invalidate_end(struct inode *inode, pgoff_t start,
  				    pgoff_t end)
  {
  	struct list_head *gmem_list = &inode->i_mapping->i_private_list;
@@ -114,7 +115,7 @@ index 1e4af2915..2989c5fe4 100644
  }
  
  static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
-@@ -282,9 +291,9 @@ static long kvm_gmem_fallocate(struct file *file, int mode, loff_t offset,
+@@ -286,9 +295,9 @@ static long kvm_gmem_fallocate(struct file *file, int mode, loff_t offset,
  
  static int kvm_gmem_release(struct inode *inode, struct file *file)
  {
@@ -126,7 +127,7 @@ index 1e4af2915..2989c5fe4 100644
  	unsigned long index;
  
  	/*
-@@ -304,7 +313,7 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
+@@ -308,7 +317,7 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
  
  	filemap_invalidate_lock(inode->i_mapping);
  
@@ -135,7 +136,7 @@ index 1e4af2915..2989c5fe4 100644
  		WRITE_ONCE(slot->gmem.file, NULL);
  
  	/*
-@@ -312,18 +321,18 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
+@@ -316,18 +325,18 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
  	 * Zap all SPTEs pointed at by this file.  Do not free the backing
  	 * memory, as its lifetime is associated with the inode, not the file.
  	 */
@@ -159,7 +160,7 @@ index 1e4af2915..2989c5fe4 100644
  
  	kvm_put_kvm(kvm);
  
-@@ -491,7 +500,7 @@ bool __weak kvm_arch_supports_gmem_init_shared(struct kvm *kvm)
+@@ -495,7 +504,7 @@ bool __weak kvm_arch_supports_gmem_init_shared(struct kvm *kvm)
  static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
  {
  	const char *anon_name = "[kvm-gmem]";
@@ -168,7 +169,7 @@ index 1e4af2915..2989c5fe4 100644
  	struct inode *inode;
  	struct file *file;
  	int fd, err;
-@@ -500,14 +509,13 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
+@@ -504,14 +513,13 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
  	if (fd < 0)
  		return fd;
  
@@ -186,7 +187,7 @@ index 1e4af2915..2989c5fe4 100644
  	if (IS_ERR(file)) {
  		err = PTR_ERR(file);
  		goto err_gmem;
-@@ -529,15 +537,15 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
+@@ -533,15 +541,15 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
  	WARN_ON_ONCE(!mapping_unevictable(inode->i_mapping));
  
  	kvm_get_kvm(kvm);
@@ -206,16 +207,16 @@ index 1e4af2915..2989c5fe4 100644
  err_fd:
  	put_unused_fd(fd);
  	return err;
-@@ -562,7 +570,7 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
+@@ -566,7 +574,7 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
  {
- 	loff_t size = slot->npages << PAGE_SHIFT;
+ 	u64 size = slot->npages << PAGE_SHIFT;
  	unsigned long start, end;
 -	struct kvm_gmem *gmem;
 +	struct gmem_file *f;
  	struct inode *inode;
  	struct file *file;
  	int r = -EINVAL;
-@@ -576,8 +584,8 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
+@@ -581,8 +589,8 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
  	if (file->f_op != &kvm_gmem_fops)
  		goto err;
  
@@ -226,7 +227,7 @@ index 1e4af2915..2989c5fe4 100644
  		goto err;
  
  	inode = file_inode(file);
-@@ -591,8 +599,8 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
+@@ -595,8 +603,8 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
  	start = offset >> PAGE_SHIFT;
  	end = start + slot->npages;
  
@@ -237,7 +238,7 @@ index 1e4af2915..2989c5fe4 100644
  		filemap_invalidate_unlock(inode->i_mapping);
  		goto err;
  	}
-@@ -607,7 +615,7 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
+@@ -611,7 +619,7 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
  	if (kvm_gmem_supports_mmap(inode))
  		slot->flags |= KVM_MEMSLOT_GMEM_ONLY;
  
@@ -246,7 +247,7 @@ index 1e4af2915..2989c5fe4 100644
  	filemap_invalidate_unlock(inode->i_mapping);
  
  	/*
-@@ -625,7 +633,7 @@ void kvm_gmem_unbind(struct kvm_memory_slot *slot)
+@@ -629,7 +637,7 @@ void kvm_gmem_unbind(struct kvm_memory_slot *slot)
  {
  	unsigned long start = slot->gmem.pgoff;
  	unsigned long end = start + slot->npages;
@@ -255,7 +256,7 @@ index 1e4af2915..2989c5fe4 100644
  	struct file *file;
  
  	/*
-@@ -636,10 +644,10 @@ void kvm_gmem_unbind(struct kvm_memory_slot *slot)
+@@ -640,10 +648,10 @@ void kvm_gmem_unbind(struct kvm_memory_slot *slot)
  	if (!file)
  		return;
  
@@ -268,7 +269,7 @@ index 1e4af2915..2989c5fe4 100644
  
  	/*
  	 * synchronize_srcu(&kvm->srcu) ensured that kvm_gmem_get_pfn()
-@@ -657,17 +665,17 @@ static struct folio *__kvm_gmem_get_pfn(struct file *file,
+@@ -661,17 +669,17 @@ static struct folio *__kvm_gmem_get_pfn(struct file *file,
  					pgoff_t index, kvm_pfn_t *pfn,
  					bool *is_prepared, int *max_order)
  {

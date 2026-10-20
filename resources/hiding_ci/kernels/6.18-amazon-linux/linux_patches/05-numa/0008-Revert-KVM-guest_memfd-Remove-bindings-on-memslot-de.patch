@@ -1,4 +1,4 @@
-From 07938098ab8b85a96bd4f229db53a653134014fe Mon Sep 17 00:00:00 2001
+From 9945ca2ab889bf49240f957c3d8c6a597b5c765c Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 12 Jan 2026 17:02:07 +0000
 Subject: [PATCH 08/94] Revert "KVM: guest_memfd: Remove bindings on memslot
@@ -7,15 +7,16 @@ Subject: [PATCH 08/94] Revert "KVM: guest_memfd: Remove bindings on memslot
 This reverts commit ae431059e75d36170a5ae6b44cc4d06d43613215.
 
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  virt/kvm/guest_memfd.c | 45 ++++++++++++------------------------------
  1 file changed, 13 insertions(+), 32 deletions(-)
 
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index e8a784d2e..1e4af2915 100644
+index 7838804dcceb..76e535ee26b4 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
-@@ -621,50 +621,31 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
+@@ -625,50 +625,31 @@ err:
  	return r;
  }
  

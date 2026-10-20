@@ -1,4 +1,4 @@
-From 97d9dc4c0afa9b8da5550eeb601e2b0bd0956db5 Mon Sep 17 00:00:00 2001
+From 2ddf3ed4b6f3eb7954322bfca1b7080d244bb7de Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 6 Mar 2026 19:18:15 +0200
 Subject: [PATCH 80/94] KVM: selftests: test userfaultfd missing for
@@ -10,12 +10,13 @@ can be resolved via a UFFDIO_COPY ioctl.
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../testing/selftests/kvm/guest_memfd_test.c  | 80 ++++++++++++++++++-
  1 file changed, 79 insertions(+), 1 deletion(-)
 
 diff --git a/tools/testing/selftests/kvm/guest_memfd_test.c b/tools/testing/selftests/kvm/guest_memfd_test.c
-index de4d876be..fd9f5fd9a 100644
+index de4d876be990..fd9f5fd9a51a 100644
 --- a/tools/testing/selftests/kvm/guest_memfd_test.c
 +++ b/tools/testing/selftests/kvm/guest_memfd_test.c
 @@ -478,6 +478,82 @@ static void test_uffd_minor(int fd, size_t total_size)

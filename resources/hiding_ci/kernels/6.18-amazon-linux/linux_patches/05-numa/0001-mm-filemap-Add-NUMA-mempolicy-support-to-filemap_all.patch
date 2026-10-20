@@ -1,4 +1,4 @@
-From 82100e9622f2c00f3a2911503565ee6e70f4026e Mon Sep 17 00:00:00 2001
+From 90d73c38b6681cbc0d11dd18a68d2ba0d96c80b4 Mon Sep 17 00:00:00 2001
 From: Matthew Wilcox <willy@infradead.org>
 Date: Wed, 27 Aug 2025 17:52:43 +0000
 Subject: [PATCH 01/94] mm/filemap: Add NUMA mempolicy support to
@@ -20,6 +20,7 @@ Tested-by: Ashish Kalra <ashish.kalra@amd.com>
 Link: https://lore.kernel.org/r/20250827175247.83322-4-shivankg@amd.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  fs/btrfs/compression.c  |  4 ++--
  fs/btrfs/verity.c       |  2 +-
@@ -31,7 +32,7 @@ Signed-off-by: Firecracker CI <ci@email.com>
  7 files changed, 20 insertions(+), 14 deletions(-)
 
 diff --git a/fs/btrfs/compression.c b/fs/btrfs/compression.c
-index 8c3899832..bd267d1fc 100644
+index bd55541cd6c5..7fa4c7526c7b 100644
 --- a/fs/btrfs/compression.c
 +++ b/fs/btrfs/compression.c
 @@ -489,8 +489,8 @@ static noinline int add_ra_bio_pages(struct inode *inode,
@@ -46,10 +47,10 @@ index 8c3899832..bd267d1fc 100644
  			break;
  
 diff --git a/fs/btrfs/verity.c b/fs/btrfs/verity.c
-index 46bd8ca58..d4523d5de 100644
+index 43433577076b..1be56b07b645 100644
 --- a/fs/btrfs/verity.c
 +++ b/fs/btrfs/verity.c
-@@ -742,7 +742,7 @@ static struct page *btrfs_read_merkle_tree_page(struct inode *inode,
+@@ -751,7 +751,7 @@ again:
  	}
  
  	folio = filemap_alloc_folio(mapping_gfp_constraint(inode->i_mapping, ~__GFP_FS),
@@ -59,10 +60,10 @@ index 46bd8ca58..d4523d5de 100644
  		return ERR_PTR(-ENOMEM);
  
 diff --git a/fs/erofs/zdata.c b/fs/erofs/zdata.c
-index a02ce7c06..b73a61b4a 100644
+index 0af259e22026..a315a13563c6 100644
 --- a/fs/erofs/zdata.c
 +++ b/fs/erofs/zdata.c
-@@ -563,7 +563,7 @@ static void z_erofs_bind_cache(struct z_erofs_frontend *fe)
+@@ -573,7 +573,7 @@ static void z_erofs_bind_cache(struct z_erofs_frontend *fe)
  			 * Allocate a managed folio for cached I/O, or it may be
  			 * then filled with a file-backed folio for in-place I/O
  			 */
@@ -72,7 +73,7 @@ index a02ce7c06..b73a61b4a 100644
  				continue;
  			newfolio->private = Z_EROFS_PREALLOCATED_FOLIO;
 diff --git a/fs/f2fs/compress.c b/fs/f2fs/compress.c
-index ae36bb1f9..86c858d35 100644
+index 0399db98fccf..7b1b02833a7d 100644
 --- a/fs/f2fs/compress.c
 +++ b/fs/f2fs/compress.c
 @@ -1952,7 +1952,7 @@ static void f2fs_cache_compressed_page(struct f2fs_sb_info *sbi,
@@ -85,7 +86,7 @@ index ae36bb1f9..86c858d35 100644
  		return;
  
 diff --git a/include/linux/pagemap.h b/include/linux/pagemap.h
-index 09b581c1d..f1d061021 100644
+index 09b581c1d878..f1d0610210f7 100644
 --- a/include/linux/pagemap.h
 +++ b/include/linux/pagemap.h
 @@ -654,9 +654,11 @@ static inline void *detach_page_private(struct page *page)
@@ -112,10 +113,10 @@ index 09b581c1d..f1d061021 100644
  
  static inline gfp_t readahead_gfp_mask(struct address_space *x)
 diff --git a/mm/filemap.c b/mm/filemap.c
-index e3339cf37..1efb776c2 100644
+index 1a0358810609..dd5bcb4d0193 100644
 --- a/mm/filemap.c
 +++ b/mm/filemap.c
-@@ -1003,11 +1003,16 @@ int filemap_add_folio(struct address_space *mapping, struct folio *folio,
+@@ -1009,11 +1009,16 @@ int filemap_add_folio(struct address_space *mapping, struct folio *folio,
  EXPORT_SYMBOL_GPL(filemap_add_folio);
  
  #ifdef CONFIG_NUMA
@@ -133,7 +134,7 @@ index e3339cf37..1efb776c2 100644
  	if (cpuset_do_page_mem_spread()) {
  		unsigned int cpuset_mems_cookie;
  		do {
-@@ -2015,7 +2020,7 @@ struct folio *__filemap_get_folio(struct address_space *mapping, pgoff_t index,
+@@ -2021,7 +2026,7 @@ no_page:
  			err = -ENOMEM;
  			if (order > min_order)
  				alloc_gfp |= __GFP_NORETRY | __GFP_NOWARN;
@@ -142,7 +143,7 @@ index e3339cf37..1efb776c2 100644
  			if (!folio)
  				continue;
  
-@@ -2557,7 +2562,7 @@ static int filemap_create_folio(struct kiocb *iocb, struct folio_batch *fbatch)
+@@ -2563,7 +2568,7 @@ static int filemap_create_folio(struct kiocb *iocb, struct folio_batch *fbatch)
  	if (iocb->ki_flags & (IOCB_NOWAIT | IOCB_WAITQ))
  		return -EAGAIN;
  
@@ -151,7 +152,7 @@ index e3339cf37..1efb776c2 100644
  	if (!folio)
  		return -ENOMEM;
  	if (iocb->ki_flags & IOCB_DONTCACHE)
-@@ -4007,8 +4012,7 @@ static struct folio *do_read_cache_folio(struct address_space *mapping,
+@@ -4013,8 +4018,7 @@ static struct folio *do_read_cache_folio(struct address_space *mapping,
  repeat:
  	folio = filemap_get_folio(mapping, index);
  	if (IS_ERR(folio)) {
@@ -162,7 +163,7 @@ index e3339cf37..1efb776c2 100644
  			return ERR_PTR(-ENOMEM);
  		index = mapping_align_index(mapping, index);
 diff --git a/mm/readahead.c b/mm/readahead.c
-index 3a4b5d58e..b415c9969 100644
+index 3a4b5d58eeb6..b415c9969176 100644
 --- a/mm/readahead.c
 +++ b/mm/readahead.c
 @@ -186,7 +186,7 @@ static struct folio *ractl_alloc_folio(struct readahead_control *ractl,
@@ -174,3 +175,5 @@ index 3a4b5d58e..b415c9969 100644
  	if (folio && ractl->dropbehind)
  		__folio_set_dropbehind(folio);
  
+
+base-commit: 2ff600d29ee478d0a8d46ef8a58afb5e038fe692

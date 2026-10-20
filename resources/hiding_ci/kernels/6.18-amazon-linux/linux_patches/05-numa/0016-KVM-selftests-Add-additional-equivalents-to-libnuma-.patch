@@ -1,4 +1,4 @@
-From 003be5598f15bace7be40f0fc9aef596b579bd1a Mon Sep 17 00:00:00 2001
+From f8b740affce14cbd0b78bd519b588e27ee08f7d2 Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Thu, 16 Oct 2025 10:28:49 -0700
 Subject: [PATCH 16/94] KVM: selftests: Add additional equivalents to libnuma
@@ -17,13 +17,14 @@ Tested-by: Shivank Garg <shivankg@amd.com>
 Link: https://lore.kernel.org/r/20251016172853.52451-9-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/include/numaif.h  | 40 +++++++++++--------
  .../selftests/kvm/x86/xapic_ipi_test.c        |  5 +--
  2 files changed, 25 insertions(+), 20 deletions(-)
 
 diff --git a/tools/testing/selftests/kvm/include/numaif.h b/tools/testing/selftests/kvm/include/numaif.h
-index b02054740..aaa4ac174 100644
+index b020547403fd..aaa4ac174890 100644
 --- a/tools/testing/selftests/kvm/include/numaif.h
 +++ b/tools/testing/selftests/kvm/include/numaif.h
 @@ -13,23 +13,29 @@
@@ -74,7 +75,7 @@ index b02054740..aaa4ac174 100644
  /* Policies */
  #define MPOL_DEFAULT	 0
 diff --git a/tools/testing/selftests/kvm/x86/xapic_ipi_test.c b/tools/testing/selftests/kvm/x86/xapic_ipi_test.c
-index 35cb9de54..ae4a4b6c0 100644
+index 35cb9de54a82..ae4a4b6c05ca 100644
 --- a/tools/testing/selftests/kvm/x86/xapic_ipi_test.c
 +++ b/tools/testing/selftests/kvm/x86/xapic_ipi_test.c
 @@ -256,7 +256,7 @@ void do_migrations(struct test_data_page *data, int run_secs, int delay_usecs,

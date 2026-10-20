@@ -1,4 +1,4 @@
-From 55895fc8454622c22d70255af8815c6535ea5e2b Mon Sep 17 00:00:00 2001
+From 996ea60d6841530f2a622b2ca26aa9b32cd8f4cc Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:19 +0000
 Subject: [PATCH 49/94] KVM: Allow late setting of KVM_MEM_USERFAULT on
@@ -10,12 +10,13 @@ changed is KVM_MEM_USERFAULT.
 
 Signed-off-by: James Houghton <jthoughton@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  virt/kvm/kvm_main.c | 18 ++++++++++++++----
  1 file changed, 14 insertions(+), 4 deletions(-)
 
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index f5d574116..9f71d3a76 100644
+index e74283b7e806..98a5627bf098 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -2092,9 +2092,6 @@ static int kvm_set_memory_region(struct kvm *kvm,

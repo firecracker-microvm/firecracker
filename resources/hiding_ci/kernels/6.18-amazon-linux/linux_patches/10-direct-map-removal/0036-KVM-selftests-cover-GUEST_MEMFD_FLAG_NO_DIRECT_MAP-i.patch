@@ -1,4 +1,4 @@
-From 2f309773bf11e4a7f0e8cb67819326fcaad1ffa0 Mon Sep 17 00:00:00 2001
+From 2ef1ee241749198f17402fc3c14144ef67343f95 Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:35 +0100
 Subject: [PATCH 36/94] KVM: selftests: cover GUEST_MEMFD_FLAG_NO_DIRECT_MAP in
@@ -11,13 +11,14 @@ removed. Also cover the new flag in guest_memfd_test.c tests.
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
 Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/guest_memfd_test.c  | 17 ++++++++++++++++-
  .../kvm/x86/private_mem_conversions_test.c      |  7 ++++---
  2 files changed, 20 insertions(+), 4 deletions(-)
 
 diff --git a/tools/testing/selftests/kvm/guest_memfd_test.c b/tools/testing/selftests/kvm/guest_memfd_test.c
-index 618c937f3..5fcb922cc 100644
+index 618c937f3c90..5fcb922cce44 100644
 --- a/tools/testing/selftests/kvm/guest_memfd_test.c
 +++ b/tools/testing/selftests/kvm/guest_memfd_test.c
 @@ -403,6 +403,17 @@ static void test_guest_memfd(unsigned long vm_type)
@@ -55,7 +56,7 @@ index 618c937f3..5fcb922cc 100644
  
  	mem = kvm_mmap(size, PROT_READ | PROT_WRITE, MAP_SHARED, fd);
 diff --git a/tools/testing/selftests/kvm/x86/private_mem_conversions_test.c b/tools/testing/selftests/kvm/x86/private_mem_conversions_test.c
-index 1969f4ab9..8767cb4a0 100644
+index 1969f4ab9b28..8767cb4a037e 100644
 --- a/tools/testing/selftests/kvm/x86/private_mem_conversions_test.c
 +++ b/tools/testing/selftests/kvm/x86/private_mem_conversions_test.c
 @@ -367,7 +367,7 @@ static void *__test_mem_conversions(void *__vcpu)

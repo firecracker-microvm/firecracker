@@ -1,4 +1,4 @@
-From f07d6a9cab52309426abb3c3cf011277100aeda5 Mon Sep 17 00:00:00 2001
+From 69fc6fafe817a86d0631d831ce546a8e4f1925ff Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:21 +0000
 Subject: [PATCH 50/94] KVM: x86/mmu: Add support for KVM_MEM_USERFAULT
@@ -19,6 +19,7 @@ WARN_ON() that was there.
 
 Signed-off-by: James Houghton <jthoughton@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  arch/arm64/kvm/mmu.c            |  2 +-
  arch/arm64/kvm/nested.c         |  2 +-
@@ -30,10 +31,10 @@ Signed-off-by: Firecracker CI <ci@email.com>
  7 files changed, 62 insertions(+), 16 deletions(-)
 
 diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
-index 0d38dc72d..805f7008a 100644
+index af50fed5b597..fa3959036aff 100644
 --- a/arch/arm64/kvm/mmu.c
 +++ b/arch/arm64/kvm/mmu.c
-@@ -1560,7 +1560,7 @@ static int gmem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -1553,7 +1553,7 @@ static int gmem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  	ret = kvm_gmem_get_pfn(kvm, memslot, gfn, &pfn, &page, NULL);
  	if (ret) {
  		kvm_prepare_memory_fault_exit(vcpu, fault_ipa, PAGE_SIZE,
@@ -43,10 +44,10 @@ index 0d38dc72d..805f7008a 100644
  	}
  
 diff --git a/arch/arm64/kvm/nested.c b/arch/arm64/kvm/nested.c
-index df956559f..895dd6184 100644
+index 92853a343c42..00c5fd136869 100644
 --- a/arch/arm64/kvm/nested.c
 +++ b/arch/arm64/kvm/nested.c
-@@ -1238,7 +1238,7 @@ static int kvm_translate_vncr(struct kvm_vcpu *vcpu, bool *is_gmem)
+@@ -1323,7 +1323,7 @@ static int kvm_translate_vncr(struct kvm_vcpu *vcpu, bool *is_gmem)
  		ret = kvm_gmem_get_pfn(vcpu->kvm, memslot, gfn, &pfn, &page, NULL);
  		if (ret) {
  			kvm_prepare_memory_fault_exit(vcpu, vt->wr.pa, PAGE_SIZE,
@@ -54,9 +55,9 @@ index df956559f..895dd6184 100644
 +					      write_fault, false, false, false);
  			return ret;
  		}
- 	}
+ 
 diff --git a/arch/x86/kvm/Kconfig b/arch/x86/kvm/Kconfig
-index 278f08194..180781998 100644
+index 278f08194ec8..180781998aa7 100644
 --- a/arch/x86/kvm/Kconfig
 +++ b/arch/x86/kvm/Kconfig
 @@ -48,6 +48,7 @@ config KVM_X86
@@ -68,10 +69,10 @@ index 278f08194..180781998 100644
  config KVM
  	tristate "Kernel-based Virtual Machine (KVM) support"
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-index f7226cf81..caf99c89b 100644
+index fbaaf2f3be98..7d2b4807fd4f 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
-@@ -4588,6 +4588,18 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
+@@ -4604,6 +4604,18 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
  				 struct kvm_page_fault *fault)
  {
  	unsigned int foll = fault->write ? FOLL_WRITE : 0;
@@ -91,7 +92,7 @@ index f7226cf81..caf99c89b 100644
  	if (fault->is_private || kvm_memslot_is_gmem_only(fault->slot))
  		return kvm_mmu_faultin_pfn_gmem(vcpu, fault);
 diff --git a/arch/x86/kvm/mmu/mmu_internal.h b/arch/x86/kvm/mmu/mmu_internal.h
-index ed5c01df2..a08741d39 100644
+index ed5c01df21ba..a08741d39b82 100644
 --- a/arch/x86/kvm/mmu/mmu_internal.h
 +++ b/arch/x86/kvm/mmu/mmu_internal.h
 @@ -339,12 +339,26 @@ enum {
@@ -125,10 +126,10 @@ index ed5c01df2..a08741d39 100644
  
  static inline int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index d5e7d6809..6001d22b1 100644
+index 5dfdcbec58e0..d593ecda1ec0 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
-@@ -13580,12 +13580,36 @@ static void kvm_mmu_slot_apply_flags(struct kvm *kvm,
+@@ -12803,12 +12803,36 @@ static void kvm_mmu_slot_apply_flags(struct kvm *kvm,
  	u32 new_flags = new ? new->flags : 0;
  	bool log_dirty_pages = new_flags & KVM_MEM_LOG_DIRTY_PAGES;
  
@@ -167,7 +168,7 @@ index d5e7d6809..6001d22b1 100644
  
  	/*
  	 * Nothing more to do for RO slots (which can't be dirtied and can't be
-@@ -13605,14 +13629,6 @@ static void kvm_mmu_slot_apply_flags(struct kvm *kvm,
+@@ -12828,14 +12852,6 @@ static void kvm_mmu_slot_apply_flags(struct kvm *kvm,
  	if ((change != KVM_MR_FLAGS_ONLY) || (new_flags & KVM_MEM_READONLY))
  		return;
  
@@ -183,10 +184,10 @@ index d5e7d6809..6001d22b1 100644
  		/*
  		 * Recover huge page mappings in the slot now that dirty logging
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index a7adefe14..850312fda 100644
+index f67916b5528f..5874b0c57134 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
-@@ -2522,7 +2522,8 @@ static inline void kvm_account_pgtable_pages(void *virt, int nr)
+@@ -2527,7 +2527,8 @@ static inline void kvm_account_pgtable_pages(void *virt, int nr)
  static inline void kvm_prepare_memory_fault_exit(struct kvm_vcpu *vcpu,
  						 gpa_t gpa, gpa_t size,
  						 bool is_write, bool is_exec,
@@ -196,7 +197,7 @@ index a7adefe14..850312fda 100644
  {
  	vcpu->run->exit_reason = KVM_EXIT_MEMORY_FAULT;
  	vcpu->run->memory_fault.gpa = gpa;
-@@ -2532,6 +2533,8 @@ static inline void kvm_prepare_memory_fault_exit(struct kvm_vcpu *vcpu,
+@@ -2537,6 +2538,8 @@ static inline void kvm_prepare_memory_fault_exit(struct kvm_vcpu *vcpu,
  	vcpu->run->memory_fault.flags = 0;
  	if (is_private)
  		vcpu->run->memory_fault.flags |= KVM_MEMORY_EXIT_FLAG_PRIVATE;

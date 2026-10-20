@@ -1,4 +1,4 @@
-From 03c8c578ccbee24c982950f5d64246a3b1480740 Mon Sep 17 00:00:00 2001
+From b1b3358b01c7be2bc17509da9e320a6f200b9450 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 6 Mar 2026 19:18:13 +0200
 Subject: [PATCH 78/94] KVM: guest_memfd: implement userfaultfd operations
@@ -20,13 +20,14 @@ Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 Co-developed-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  mm/filemap.c           |  1 +
  virt/kvm/guest_memfd.c | 84 +++++++++++++++++++++++++++++++++++++++++-
  2 files changed, 83 insertions(+), 2 deletions(-)
 
 diff --git a/mm/filemap.c b/mm/filemap.c
-index fd5935db3..04b92d4bf 100644
+index b0579bdbd748..0a40285d8601 100644
 --- a/mm/filemap.c
 +++ b/mm/filemap.c
 @@ -262,6 +262,7 @@ void filemap_remove_folio(struct folio *folio)
@@ -38,7 +39,7 @@ index fd5935db3..04b92d4bf 100644
  /*
   * page_cache_delete_batch - delete several folios from page cache
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 117c491bb..f2d3bd1c3 100644
+index 13cba46faf81..bfbc2eedb501 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -8,6 +8,7 @@
@@ -72,7 +73,7 @@ index 117c491bb..f2d3bd1c3 100644
  	if (!IS_ERR(folio))
  		return folio;
  
-@@ -563,12 +569,86 @@ static struct mempolicy *kvm_gmem_get_policy(struct vm_area_struct *vma,
+@@ -567,12 +573,86 @@ static struct mempolicy *kvm_gmem_get_policy(struct vm_area_struct *vma,
  }
  #endif /* CONFIG_NUMA */
  

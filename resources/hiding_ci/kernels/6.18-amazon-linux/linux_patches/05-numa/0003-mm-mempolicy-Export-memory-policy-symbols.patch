@@ -1,4 +1,4 @@
-From 0dd3a0652c0197d75652e13d9f34bb130bd4cf7c Mon Sep 17 00:00:00 2001
+From 435e97dba1fa99eeb7b1be8e36c316880cb535b1 Mon Sep 17 00:00:00 2001
 From: Shivank Garg <shivankg@amd.com>
 Date: Wed, 27 Aug 2025 17:52:45 +0000
 Subject: [PATCH 03/94] mm/mempolicy: Export memory policy symbols
@@ -19,12 +19,13 @@ Tested-by: Ashish Kalra <ashish.kalra@amd.com>
 Link: https://lore.kernel.org/r/20250827175247.83322-6-shivankg@amd.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  mm/mempolicy.c | 6 ++++++
  1 file changed, 6 insertions(+)
 
 diff --git a/mm/mempolicy.c b/mm/mempolicy.c
-index 779a8cc17..681f12791 100644
+index 2a84cecf5435..953e1fe46517 100644
 --- a/mm/mempolicy.c
 +++ b/mm/mempolicy.c
 @@ -354,6 +354,7 @@ struct mempolicy *get_task_policy(struct task_struct *p)
@@ -43,7 +44,7 @@ index 779a8cc17..681f12791 100644
  
  static void mpol_rebind_default(struct mempolicy *pol, const nodemask_t *nodes)
  {
-@@ -2891,6 +2893,7 @@ struct mempolicy *mpol_shared_policy_lookup(struct shared_policy *sp,
+@@ -2882,6 +2884,7 @@ struct mempolicy *mpol_shared_policy_lookup(struct shared_policy *sp,
  	read_unlock(&sp->lock);
  	return pol;
  }
@@ -51,7 +52,7 @@ index 779a8cc17..681f12791 100644
  
  static void sp_free(struct sp_node *n)
  {
-@@ -3176,6 +3179,7 @@ void mpol_shared_policy_init(struct shared_policy *sp, struct mempolicy *mpol)
+@@ -3167,6 +3170,7 @@ put_mpol:
  		mpol_put(mpol);	/* drop our incoming ref on sb mpol */
  	}
  }
@@ -59,7 +60,7 @@ index 779a8cc17..681f12791 100644
  
  int mpol_set_shared_policy(struct shared_policy *sp,
  			struct vm_area_struct *vma, struct mempolicy *pol)
-@@ -3194,6 +3198,7 @@ int mpol_set_shared_policy(struct shared_policy *sp,
+@@ -3185,6 +3189,7 @@ int mpol_set_shared_policy(struct shared_policy *sp,
  		sp_free(new);
  	return err;
  }
@@ -67,7 +68,7 @@ index 779a8cc17..681f12791 100644
  
  /* Free a backing policy store on inode delete. */
  void mpol_free_shared_policy(struct shared_policy *sp)
-@@ -3212,6 +3217,7 @@ void mpol_free_shared_policy(struct shared_policy *sp)
+@@ -3203,6 +3208,7 @@ void mpol_free_shared_policy(struct shared_policy *sp)
  	}
  	write_unlock(&sp->lock);
  }

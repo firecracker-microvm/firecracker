@@ -1,4 +1,4 @@
-From 704da7636393022db8923e1d0c3f1800d774c80b Mon Sep 17 00:00:00 2001
+From a0e83ae7eaae0927eed453ca10e40b41bac604d1 Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Tue, 7 Oct 2025 15:36:25 -0700
 Subject: [PATCH 22/94] KVM: selftests: Rename "guest_paddr" variables to "gpa"
@@ -13,13 +13,14 @@ vm_userspace_mem_region_add() declaration.
 Link: https://patch.msgid.link/20251007223625.369939-1-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../testing/selftests/kvm/include/kvm_util.h  | 10 ++--
  tools/testing/selftests/kvm/lib/kvm_util.c    | 46 +++++++++----------
  2 files changed, 26 insertions(+), 30 deletions(-)
 
 diff --git a/tools/testing/selftests/kvm/include/kvm_util.h b/tools/testing/selftests/kvm/include/kvm_util.h
-index af52cd938..c2481be61 100644
+index af52cd938b50..c2481be61434 100644
 --- a/tools/testing/selftests/kvm/include/kvm_util.h
 +++ b/tools/testing/selftests/kvm/include/kvm_util.h
 @@ -673,12 +673,12 @@ int __vm_set_user_memory_region2(struct kvm_vm *vm, uint32_t slot, uint32_t flag
@@ -41,7 +42,7 @@ index af52cd938..c2481be61 100644
  #ifndef vm_arch_has_protected_memory
  static inline bool vm_arch_has_protected_memory(struct kvm_vm *vm)
 diff --git a/tools/testing/selftests/kvm/lib/kvm_util.c b/tools/testing/selftests/kvm/lib/kvm_util.c
-index 5744643d9..a334f6ed5 100644
+index 5744643d9ec3..a334f6ed50d6 100644
 --- a/tools/testing/selftests/kvm/lib/kvm_util.c
 +++ b/tools/testing/selftests/kvm/lib/kvm_util.c
 @@ -943,8 +943,8 @@ void vm_set_user_memory_region2(struct kvm_vm *vm, uint32_t slot, uint32_t flags

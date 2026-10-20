@@ -1,4 +1,4 @@
-From 628da5202ecaa1f5fc1d19b744659f1e0061775e Mon Sep 17 00:00:00 2001
+From f6006ce8fa73cf59f559eb547318268a75651467 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:09 +0200
 Subject: [PATCH 74/94] userfaultfd: introduce vm_uffd_ops->alloc_folio()
@@ -23,13 +23,14 @@ folio_alloc() to avoid clash with alloc_tag macro folio_alloc().
 
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/userfaultfd_k.h |  6 +++
  mm/userfaultfd.c              | 92 ++++++++++++++++++-----------------
  2 files changed, 54 insertions(+), 44 deletions(-)
 
 diff --git a/include/linux/userfaultfd_k.h b/include/linux/userfaultfd_k.h
-index 12d7b6e8d..cbf41240a 100644
+index 12d7b6e8d364..cbf41240aeaf 100644
 --- a/include/linux/userfaultfd_k.h
 +++ b/include/linux/userfaultfd_k.h
 @@ -91,6 +91,12 @@ struct vm_uffd_ops {
@@ -46,7 +47,7 @@ index 12d7b6e8d..cbf41240a 100644
  
  /* A combined operation mode + behavior flags. */
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 714fb4c92..79b98254f 100644
+index a86a162675e6..ed9e2007c9ff 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -42,8 +42,26 @@ static bool anon_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags)

@@ -1,4 +1,4 @@
-From eafe6930ad3138e9732440f55965ca1fcdd3e6fb Mon Sep 17 00:00:00 2001
+From d2ae5a119144c416c0ba8b33ab83603eca72e55b Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:34 +0100
 Subject: [PATCH 31/94] KVM: arm64: define
@@ -26,12 +26,13 @@ Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
 Reviewed-by: David Hildenbrand (Arm) <david@kernel.org>
 Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  arch/arm64/include/asm/kvm_host.h | 13 +++++++++++++
  1 file changed, 13 insertions(+)
 
 diff --git a/arch/arm64/include/asm/kvm_host.h b/arch/arm64/include/asm/kvm_host.h
-index 7bee8a357..19bab83f0 100644
+index 419e37112a6f..0431426b8798 100644
 --- a/arch/arm64/include/asm/kvm_host.h
 +++ b/arch/arm64/include/asm/kvm_host.h
 @@ -19,6 +19,7 @@
@@ -42,7 +43,7 @@ index 7bee8a357..19bab83f0 100644
  #include <asm/arch_gicv3.h>
  #include <asm/barrier.h>
  #include <asm/cpufeature.h>
-@@ -1651,5 +1652,17 @@ static __always_inline enum fgt_group_id __fgt_reg_to_group_id(enum vcpu_sysreg
+@@ -1648,5 +1649,17 @@ static __always_inline enum fgt_group_id __fgt_reg_to_group_id(enum vcpu_sysreg
  									\
  		p;							\
  	})

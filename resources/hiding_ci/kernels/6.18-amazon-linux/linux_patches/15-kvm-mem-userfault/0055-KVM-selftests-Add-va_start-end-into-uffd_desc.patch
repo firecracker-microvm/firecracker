@@ -1,4 +1,4 @@
-From 9702ccc544e240f266ca19db7e6b29add5937be7 Mon Sep 17 00:00:00 2001
+From 9a257ac60270c74a535e62ea6ce38893573c712d Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Wed, 4 Dec 2024 19:13:44 +0000
 Subject: [PATCH 55/94] KVM: selftests: Add va_start/end into uffd_desc
@@ -9,13 +9,14 @@ Userfault and userfaultfd are being used together).
 
 Signed-off-by: James Houghton <jthoughton@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/include/userfaultfd_util.h | 2 ++
  tools/testing/selftests/kvm/lib/userfaultfd_util.c     | 2 ++
  2 files changed, 4 insertions(+)
 
 diff --git a/tools/testing/selftests/kvm/include/userfaultfd_util.h b/tools/testing/selftests/kvm/include/userfaultfd_util.h
-index 60f7f9d43..b62fecdfe 100644
+index 60f7f9d435dc..b62fecdfe745 100644
 --- a/tools/testing/selftests/kvm/include/userfaultfd_util.h
 +++ b/tools/testing/selftests/kvm/include/userfaultfd_util.h
 @@ -30,6 +30,8 @@ struct uffd_desc {
@@ -28,7 +29,7 @@ index 60f7f9d43..b62fecdfe 100644
  
  struct uffd_desc *uffd_setup_demand_paging(int uffd_mode, useconds_t delay,
 diff --git a/tools/testing/selftests/kvm/lib/userfaultfd_util.c b/tools/testing/selftests/kvm/lib/userfaultfd_util.c
-index 5bde176ce..31d38b3a9 100644
+index 5bde176cedd5..31d38b3a9d12 100644
 --- a/tools/testing/selftests/kvm/lib/userfaultfd_util.c
 +++ b/tools/testing/selftests/kvm/lib/userfaultfd_util.c
 @@ -152,6 +152,8 @@ struct uffd_desc *uffd_setup_demand_paging(int uffd_mode, useconds_t delay,

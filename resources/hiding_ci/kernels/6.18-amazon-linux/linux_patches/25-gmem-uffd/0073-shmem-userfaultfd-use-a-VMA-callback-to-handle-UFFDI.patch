@@ -1,4 +1,4 @@
-From e5a7596d06be9a016830285e73f750789712c335 Mon Sep 17 00:00:00 2001
+From 40df9abb0c27fa794338950cda1bd3a449755d81 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:08 +0200
 Subject: [PATCH 73/94] shmem, userfaultfd: use a VMA callback to handle
@@ -18,6 +18,7 @@ this new API.
 
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/userfaultfd_k.h |  7 +++++++
  mm/shmem.c                    | 15 ++++++++++++++-
@@ -25,7 +26,7 @@ Signed-off-by: Firecracker CI <ci@email.com>
  3 files changed, 37 insertions(+), 17 deletions(-)
 
 diff --git a/include/linux/userfaultfd_k.h b/include/linux/userfaultfd_k.h
-index 095928c30..12d7b6e8d 100644
+index 095928c30b4b..12d7b6e8d364 100644
 --- a/include/linux/userfaultfd_k.h
 +++ b/include/linux/userfaultfd_k.h
 @@ -84,6 +84,13 @@ extern vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason);
@@ -43,10 +44,10 @@ index 095928c30..12d7b6e8d 100644
  
  /* A combined operation mode + behavior flags. */
 diff --git a/mm/shmem.c b/mm/shmem.c
-index 98708c684..0725c52d6 100644
+index a801af6f0414..9b81b38b5fc9 100644
 --- a/mm/shmem.c
 +++ b/mm/shmem.c
-@@ -3291,13 +3291,26 @@ int shmem_mfill_atomic_pte(pmd_t *dst_pmd,
+@@ -3306,13 +3306,26 @@ out_unacct_blocks:
  	return ret;
  }
  
@@ -75,7 +76,7 @@ index 98708c684..0725c52d6 100644
  #endif /* CONFIG_USERFAULTFD */
  
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 25474d48e..714fb4c92 100644
+index 6abb5faf54d1..a86a162675e6 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -191,6 +191,7 @@ static int mfill_get_vma(struct mfill_state *state)
@@ -102,7 +103,7 @@ index 25474d48e..714fb4c92 100644
  		goto out_unlock;
  
  out:
-@@ -573,6 +576,7 @@ static int mfill_atomic_pte_zeropage(struct mfill_state *state)
+@@ -573,6 +576,7 @@ out:
  static int mfill_atomic_pte_continue(struct mfill_state *state)
  {
  	struct vm_area_struct *dst_vma = state->vma;
