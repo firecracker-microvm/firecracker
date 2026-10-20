@@ -1,4 +1,4 @@
-From 7c7b83cc07e603fbd0df907fe3f428131261629c Mon Sep 17 00:00:00 2001
+From 32c131cca8a07c46020a9d3a17f3c7b7366075cd Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:35 +0100
 Subject: [PATCH 35/94] KVM: selftests: Add guest_memfd based
@@ -16,6 +16,7 @@ guest_memfd.
 
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
 Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../testing/selftests/kvm/include/kvm_util.h  | 18 ++++++
  .../testing/selftests/kvm/include/test_util.h |  7 +++
@@ -184,6 +185,3 @@ index 8a1848586a85..ce9fe0271515 100644
  	};
  	_Static_assert(ARRAY_SIZE(aliases) == NUM_SRC_TYPES,
  		       "Missing new backing src types?");
--- 
-2.50.1
-

@@ -1,4 +1,4 @@
-From d6e1cee9ab7df465ad8f323416e0623f56a8c9ad Mon Sep 17 00:00:00 2001
+From ed8ffdb8cc8302364c2cade37c7e7af31495eff8 Mon Sep 17 00:00:00 2001
 From: Ackerley Tng <ackerleytng@google.com>
 Date: Thu, 16 Oct 2025 10:28:44 -0700
 Subject: [PATCH 11/94] KVM: guest_memfd: Use guest mem inodes instead of
@@ -32,6 +32,7 @@ Tested-by: Ashish Kalra <ashish.kalra@amd.com>
 Link: https://lore.kernel.org/r/20251016172853.52451-4-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/uapi/linux/magic.h |  1 +
  virt/kvm/guest_memfd.c     | 82 +++++++++++++++++++++++++++++++-------
@@ -40,7 +41,7 @@ Signed-off-by: Firecracker CI <ci@email.com>
  4 files changed, 80 insertions(+), 19 deletions(-)
 
 diff --git a/include/uapi/linux/magic.h b/include/uapi/linux/magic.h
-index bb575f3ab..638ca21b7 100644
+index bb575f3ab45e..638ca21b7a90 100644
 --- a/include/uapi/linux/magic.h
 +++ b/include/uapi/linux/magic.h
 @@ -103,5 +103,6 @@
@@ -51,7 +52,7 @@ index bb575f3ab..638ca21b7 100644
  
  #endif /* __LINUX_MAGIC_H__ */
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 5cce20ff4..ce04fc85e 100644
+index e28eec6091b7..00fee3be72da 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -1,12 +1,16 @@
@@ -72,7 +73,7 @@ index 5cce20ff4..ce04fc85e 100644
  /*
   * A guest_memfd instance can be associated multiple VMs, each with its own
   * "view" of the underlying physical memory.
-@@ -424,11 +428,6 @@ static struct file_operations kvm_gmem_fops = {
+@@ -428,11 +432,6 @@ static struct file_operations kvm_gmem_fops = {
  	.fallocate	= kvm_gmem_fallocate,
  };
  
@@ -84,7 +85,7 @@ index 5cce20ff4..ce04fc85e 100644
  static int kvm_gmem_migrate_folio(struct address_space *mapping,
  				  struct folio *dst, struct folio *src,
  				  enum migrate_mode mode)
-@@ -500,7 +499,7 @@ bool __weak kvm_arch_supports_gmem_init_shared(struct kvm *kvm)
+@@ -504,7 +503,7 @@ bool __weak kvm_arch_supports_gmem_init_shared(struct kvm *kvm)
  
  static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
  {
@@ -93,7 +94,7 @@ index 5cce20ff4..ce04fc85e 100644
  	struct gmem_file *f;
  	struct inode *inode;
  	struct file *file;
-@@ -516,16 +515,17 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
+@@ -520,16 +519,17 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
  		goto err_fd;
  	}
  
@@ -118,7 +119,7 @@ index 5cce20ff4..ce04fc85e 100644
  
  	inode->i_private = (void *)(unsigned long)flags;
  	inode->i_op = &kvm_gmem_iops;
-@@ -537,6 +537,15 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
+@@ -541,6 +541,15 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
  	/* Unmovable mappings are supposed to be marked unevictable as well. */
  	WARN_ON_ONCE(!mapping_unevictable(inode->i_mapping));
  
@@ -134,7 +135,7 @@ index 5cce20ff4..ce04fc85e 100644
  	kvm_get_kvm(kvm);
  	f->kvm = kvm;
  	xa_init(&f->bindings);
-@@ -545,6 +554,10 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
+@@ -549,6 +558,10 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
  	fd_install(fd, file);
  	return fd;
  
@@ -145,7 +146,7 @@ index 5cce20ff4..ce04fc85e 100644
  err_gmem:
  	kfree(f);
  err_fd:
-@@ -816,3 +829,44 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long
+@@ -820,3 +833,44 @@ put_folio_and_exit:
  }
  EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_gmem_populate);
  #endif
@@ -191,10 +192,10 @@ index 5cce20ff4..ce04fc85e 100644
 +	kvm_gmem_mnt = NULL;
 +}
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 8d55bbc6f..5286c0b57 100644
+index ba09b1dabc4b..9fdb130b99f8 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
-@@ -6518,7 +6518,9 @@ int kvm_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
+@@ -6538,7 +6538,9 @@ int kvm_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
  	if (WARN_ON_ONCE(r))
  		goto err_vfio;
  
@@ -205,7 +206,7 @@ index 8d55bbc6f..5286c0b57 100644
  
  	r = kvm_init_virtualization();
  	if (r)
-@@ -6539,6 +6541,8 @@ int kvm_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
+@@ -6559,6 +6561,8 @@ int kvm_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
  err_register:
  	kvm_uninit_virtualization();
  err_virt:
@@ -214,7 +215,7 @@ index 8d55bbc6f..5286c0b57 100644
  	kvm_vfio_ops_exit();
  err_vfio:
  	kvm_async_pf_deinit();
-@@ -6570,6 +6574,7 @@ void kvm_exit(void)
+@@ -6590,6 +6594,7 @@ void kvm_exit(void)
  	for_each_possible_cpu(cpu)
  		free_cpumask_var(per_cpu(cpu_kick_mask, cpu));
  	kmem_cache_destroy(kvm_vcpu_cache);
@@ -223,10 +224,10 @@ index 8d55bbc6f..5286c0b57 100644
  	kvm_async_pf_deinit();
  	kvm_irqfd_exit();
 diff --git a/virt/kvm/kvm_mm.h b/virt/kvm/kvm_mm.h
-index 31defb08c..9fcc5d5b7 100644
+index 0e68675a8a63..71a052a0cd43 100644
 --- a/virt/kvm/kvm_mm.h
 +++ b/virt/kvm/kvm_mm.h
-@@ -68,17 +68,18 @@ static inline void gfn_to_pfn_cache_invalidate_start(struct kvm *kvm,
+@@ -71,17 +71,18 @@ static inline void gfn_to_pfn_cache_invalidate_start(struct kvm *kvm,
  #endif /* HAVE_KVM_PFNCACHE */
  
  #ifdef CONFIG_KVM_GUEST_MEMFD
@@ -235,7 +236,7 @@ index 31defb08c..9fcc5d5b7 100644
 +void kvm_gmem_exit(void);
  int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *args);
  int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
- 		  unsigned int fd, loff_t offset);
+ 		  unsigned int fd, u64 offset);
  void kvm_gmem_unbind(struct kvm_memory_slot *slot);
  #else
 -static inline void kvm_gmem_init(struct module *module)
@@ -248,4 +249,4 @@ index 31defb08c..9fcc5d5b7 100644
 +static inline void kvm_gmem_exit(void) {};
  static inline int kvm_gmem_bind(struct kvm *kvm,
  					 struct kvm_memory_slot *slot,
- 					 unsigned int fd, loff_t offset)
+ 					 unsigned int fd, u64 offset)

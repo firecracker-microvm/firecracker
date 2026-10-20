@@ -1,4 +1,4 @@
-From 93149eb680f545bc9bde3d032d331579dd8bb9db Mon Sep 17 00:00:00 2001
+From 9652c91d828ed7bb44252f8f4ecabc6293c0a099 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:02 +0200
 Subject: [PATCH 64/94] userfaultfd: introduce struct mfill_state
@@ -17,12 +17,13 @@ The mfill_state definition is deliberately local to mm/userfaultfd.c, hence
 shmem_mfill_atomic_pte() is not updated.
 
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  mm/userfaultfd.c | 148 ++++++++++++++++++++++++++---------------------
  1 file changed, 82 insertions(+), 66 deletions(-)
 
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 2f2b4f769bad..386e71339acc 100644
+index 68622a12dc1c..ae0e5e55a437 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -20,6 +20,20 @@
@@ -89,7 +90,7 @@ index 2f2b4f769bad..386e71339acc 100644
  	}
  
  	/*
-@@ -353,10 +367,11 @@ static int mfill_atomic_pte_zeroed_folio(pmd_t *dst_pmd,
+@@ -353,10 +367,11 @@ out_put:
  	return ret;
  }
  
@@ -104,7 +105,7 @@ index 2f2b4f769bad..386e71339acc 100644
  	pte_t _dst_pte, *dst_pte;
  	spinlock_t *ptl;
  	int ret;
-@@ -388,13 +403,14 @@ static int mfill_atomic_pte_zeropage(pmd_t *dst_pmd,
+@@ -388,13 +403,14 @@ out:
  }
  
  /* Handles UFFDIO_CONTINUE for all shmem VMAs (shared or private). */
@@ -124,7 +125,7 @@ index 2f2b4f769bad..386e71339acc 100644
  	struct folio *folio;
  	struct page *page;
  	int ret;
-@@ -432,15 +448,15 @@ static int mfill_atomic_pte_continue(pmd_t *dst_pmd,
+@@ -432,15 +448,15 @@ out_release:
  }
  
  /* Handles UFFDIO_POISON for all non-hugetlb VMAs. */
@@ -229,7 +230,7 @@ index 2f2b4f769bad..386e71339acc 100644
  retry:
  	/*
  	 * Make sure the vma is not shared, that the dst range is
-@@ -783,12 +797,14 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
+@@ -783,12 +797,14 @@ retry:
  	    uffd_flags_mode_is(flags, MFILL_ATOMIC_CONTINUE))
  		goto out_unlock;
  
@@ -248,7 +249,7 @@ index 2f2b4f769bad..386e71339acc 100644
  		if (unlikely(!dst_pmd)) {
  			err = -ENOMEM;
  			break;
-@@ -820,34 +836,34 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
+@@ -820,34 +836,34 @@ retry:
  		 * tables under us; pte_offset_map_lock() will deal with that.
  		 */
  
@@ -293,7 +294,7 @@ index 2f2b4f769bad..386e71339acc 100644
  			copied += PAGE_SIZE;
  
  			if (fatal_signal_pending(current))
-@@ -859,10 +875,10 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
+@@ -859,10 +875,10 @@ retry:
  
  out_unlock:
  	up_read(&ctx->map_changing_lock);
@@ -307,6 +308,3 @@ index 2f2b4f769bad..386e71339acc 100644
  	VM_WARN_ON_ONCE(copied < 0);
  	VM_WARN_ON_ONCE(err > 0);
  	VM_WARN_ON_ONCE(!copied && !err);
--- 
-2.50.1
-

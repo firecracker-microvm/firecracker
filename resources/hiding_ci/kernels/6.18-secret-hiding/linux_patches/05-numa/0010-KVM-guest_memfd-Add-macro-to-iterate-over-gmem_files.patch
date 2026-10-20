@@ -1,7 +1,7 @@
-From d3118549dbc27e26289aaa3ba61eee63feae7680 Mon Sep 17 00:00:00 2001
+From 4a9a37146aaedb5ff536394f48f735c5097fa46b Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Thu, 16 Oct 2025 10:28:43 -0700
-Subject: [PATCH 10/84] KVM: guest_memfd: Add macro to iterate over gmem_files
+Subject: [PATCH 10/94] KVM: guest_memfd: Add macro to iterate over gmem_files
  for a mapping/inode
 
 Add a kvm_gmem_for_each_file() to make it more obvious that KVM is
@@ -17,12 +17,13 @@ Tested-by: Shivank Garg <shivankg@amd.com>
 Link: https://lore.kernel.org/r/20251016172853.52451-3-seanjc@google.com
 [sean: drop .clang-format change]
 Signed-off-by: Sean Christopherson <seanjc@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  virt/kvm/guest_memfd.c | 9 +++++----
  1 file changed, 5 insertions(+), 4 deletions(-)
 
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 2989c5fe426f..5cce20ff418d 100644
+index 8a8c3c66cf40..e28eec6091b7 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -22,6 +22,9 @@ struct gmem_file {
@@ -35,7 +36,7 @@ index 2989c5fe426f..5cce20ff418d 100644
  /**
   * folio_file_pfn - like folio_file_page, but return a pfn.
   * @folio: The folio which contains this index.
-@@ -164,13 +167,12 @@ static void __kvm_gmem_invalidate_begin(struct gmem_file *f, pgoff_t start,
+@@ -168,13 +171,12 @@ static void __kvm_gmem_invalidate_begin(struct gmem_file *f, pgoff_t start,
  static void kvm_gmem_invalidate_begin(struct inode *inode, pgoff_t start,
  				      pgoff_t end)
  {
@@ -50,7 +51,7 @@ index 2989c5fe426f..5cce20ff418d 100644
  		__kvm_gmem_invalidate_begin(f, start, end, attr_filter);
  }
  
-@@ -189,10 +191,9 @@ static void __kvm_gmem_invalidate_end(struct gmem_file *f, pgoff_t start,
+@@ -193,10 +195,9 @@ static void __kvm_gmem_invalidate_end(struct gmem_file *f, pgoff_t start,
  static void kvm_gmem_invalidate_end(struct inode *inode, pgoff_t start,
  				    pgoff_t end)
  {
@@ -62,6 +63,3 @@ index 2989c5fe426f..5cce20ff418d 100644
  		__kvm_gmem_invalidate_end(f, start, end);
  }
  
--- 
-2.50.1
-

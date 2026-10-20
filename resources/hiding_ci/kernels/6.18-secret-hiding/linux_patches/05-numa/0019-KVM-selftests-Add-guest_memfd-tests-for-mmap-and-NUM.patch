@@ -1,7 +1,7 @@
-From b6cfd4aa5ec762d1da7a98e20b47bd1d57cc022a Mon Sep 17 00:00:00 2001
+From 23f818647546446bd64052bf792eb9723348246a Mon Sep 17 00:00:00 2001
 From: Shivank Garg <shivankg@amd.com>
 Date: Thu, 16 Oct 2025 10:28:52 -0700
-Subject: [PATCH 19/84] KVM: selftests: Add guest_memfd tests for mmap and NUMA
+Subject: [PATCH 19/94] KVM: selftests: Add guest_memfd tests for mmap and NUMA
  policy support
 
 Add tests for NUMA memory policy binding and NUMA aware allocation in
@@ -27,6 +27,7 @@ Signed-off-by: Shivank Garg <shivankg@amd.com>
 Tested-by: Ashish Kalra <ashish.kalra@amd.com>
 Link: https://lore.kernel.org/r/20251016172853.52451-12-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../testing/selftests/kvm/guest_memfd_test.c  | 98 +++++++++++++++++++
  1 file changed, 98 insertions(+)
@@ -159,6 +160,3 @@ index e7d9aeb418d3..618c937f3c90 100644
  	} else {
  		gmem_test(mmap_not_supported, vm, flags);
  	}
--- 
-2.50.1
-

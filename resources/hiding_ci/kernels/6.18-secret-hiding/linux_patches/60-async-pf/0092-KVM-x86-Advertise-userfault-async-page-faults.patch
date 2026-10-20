@@ -1,4 +1,4 @@
-From dcf03122db2d9ab45635eb43f1b23eb62f60d4f3 Mon Sep 17 00:00:00 2001
+From dca2ba304a49547205f8140efa07c2b6ce496947 Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Tue, 2 Jun 2026 16:03:24 +0000
 Subject: [PATCH 92/94] KVM: x86: Advertise userfault async page faults
@@ -23,7 +23,7 @@ Signed-off-by: Jack Thomson <jackabt@amazon.com>
  create mode 100644 tools/testing/selftests/kvm/x86/async_pf_userfault_test.c
 
 diff --git a/Documentation/virt/kvm/api.rst b/Documentation/virt/kvm/api.rst
-index c15f45efca4f..5bf60a295b62 100644
+index cf12831ecb32..59c2dd6519b0 100644
 --- a/Documentation/virt/kvm/api.rst
 +++ b/Documentation/virt/kvm/api.rst
 @@ -6543,6 +6543,67 @@ the capability to be present.
@@ -94,7 +94,7 @@ index c15f45efca4f..5bf60a295b62 100644
  .. _kvm_run:
  
  5. The kvm_run structure
-@@ -9265,6 +9326,20 @@ KVM exits with the register state of either the L1 or L2 guest
+@@ -9303,6 +9364,20 @@ KVM exits with the register state of either the L1 or L2 guest
  depending on which executed at the time of an exit. Userspace must
  take care to differentiate between these cases.
  
@@ -116,10 +116,10 @@ index c15f45efca4f..5bf60a295b62 100644
  =========================
  
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index fe790a69caa6..6ed387567bb9 100644
+index 7d9bb4e04d30..fed019c0c130 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
-@@ -4896,6 +4896,7 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
+@@ -4531,6 +4531,7 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
  	case KVM_CAP_MEMORY_FAULT_INFO:
  	case KVM_CAP_X86_GUEST_MODE:
  	case KVM_CAP_ONE_REG:
@@ -127,7 +127,7 @@ index fe790a69caa6..6ed387567bb9 100644
  		r = 1;
  		break;
  	case KVM_CAP_PRE_FAULT_MEMORY:
-@@ -6069,6 +6070,13 @@ static int kvm_vcpu_ioctl_enable_cap(struct kvm_vcpu *vcpu,
+@@ -5683,6 +5684,13 @@ static int kvm_vcpu_ioctl_enable_cap(struct kvm_vcpu *vcpu,
  	case KVM_CAP_ENFORCE_PV_FEATURE_CPUID:
  		vcpu->arch.pv_cpuid.enforce = cap->args[0];
  		return 0;
@@ -142,10 +142,10 @@ index fe790a69caa6..6ed387567bb9 100644
  		return -EINVAL;
  	}
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index 01b57c55f8dc..6ccd393c58cd 100644
+index 0001d2e6aec1..b30d59353a56 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
-@@ -968,6 +968,7 @@ struct kvm_enable_cap {
+@@ -973,6 +973,7 @@ struct kvm_enable_cap {
  #define KVM_CAP_ARM_CACHEABLE_PFNMAP_SUPPORTED 243
  #define KVM_CAP_GUEST_MEMFD_FLAGS 244
  #define KVM_CAP_USERFAULT 245
@@ -247,7 +247,7 @@ index 52f6000ab020..6ccd393c58cd 100644
  	__u64 gpa;
  	__u64 size;
 diff --git a/tools/testing/selftests/kvm/Makefile.kvm b/tools/testing/selftests/kvm/Makefile.kvm
-index 148d427ff24b..589aa7dfc114 100644
+index 1715efe9d5b0..c00cfaca5b20 100644
 --- a/tools/testing/selftests/kvm/Makefile.kvm
 +++ b/tools/testing/selftests/kvm/Makefile.kvm
 @@ -95,6 +95,7 @@ TEST_GEN_PROGS_x86 += x86/pmu_counters_test
@@ -529,6 +529,3 @@ index 000000000000..4d3c53734467
 +	test_sync_resolve();
 +	test_accept_then_ready();
 +}
--- 
-2.43.0
-

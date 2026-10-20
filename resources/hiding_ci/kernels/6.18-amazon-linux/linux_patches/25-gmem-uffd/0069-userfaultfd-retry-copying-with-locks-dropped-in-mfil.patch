@@ -1,4 +1,4 @@
-From 62ef39757be6ce64bc4e44aecbad78e870ce8d7d Mon Sep 17 00:00:00 2001
+From 5a008d76076628b85ba0e67ba1ebf49613c70275 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:05 +0200
 Subject: [PATCH 69/94] userfaultfd: retry copying with locks dropped in
@@ -25,12 +25,13 @@ loop in mfill_atomic() will be adjusted.
 
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  mm/userfaultfd.c | 78 +++++++++++++++++++++++++++++++++---------------
  1 file changed, 54 insertions(+), 24 deletions(-)
 
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 16abf9ebf..3d995ebf1 100644
+index f1d655b6a2e1..ea76a9c7e56c 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -159,6 +159,9 @@ static void uffd_mfill_unlock(struct vm_area_struct *vma)

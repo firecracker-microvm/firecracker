@@ -1,4 +1,4 @@
-From 6aa8deb6da03e04fcc93f7b3a87c82c0380d52b5 Mon Sep 17 00:00:00 2001
+From b89258dda73413de3591bccdd74c2241b818a9fc Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:20 +0000
 Subject: [PATCH 51/94] KVM: Advertise KVM_CAP_USERFAULT in KVM_CHECK_EXTENSION
@@ -9,13 +9,14 @@ it is somewhat redundant.
 
 Signed-off-by: James Houghton <jthoughton@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/uapi/linux/kvm.h | 1 +
  virt/kvm/kvm_main.c      | 4 ++++
  2 files changed, 5 insertions(+)
 
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index c1dcea0b2..e8db96962 100644
+index c1dcea0b2db1..e8db96962237 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
 @@ -971,6 +971,7 @@ struct kvm_enable_cap {
@@ -27,10 +28,10 @@ index c1dcea0b2..e8db96962 100644
  struct kvm_irq_routing_irqchip {
  	__u32 irqchip;
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 9f71d3a76..482375d47 100644
+index 98a5627bf098..864430a5e620 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
-@@ -5001,6 +5001,10 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
+@@ -5023,6 +5023,10 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
  		return 1;
  	case KVM_CAP_GUEST_MEMFD_FLAGS:
  		return kvm_gmem_get_supported_flags(kvm);

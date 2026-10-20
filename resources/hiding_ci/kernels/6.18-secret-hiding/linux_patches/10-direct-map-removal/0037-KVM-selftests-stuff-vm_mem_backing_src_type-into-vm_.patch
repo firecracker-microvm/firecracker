@@ -1,4 +1,4 @@
-From 114f04d4747068059cf565881b9b046801480c05 Mon Sep 17 00:00:00 2001
+From c4f0dfca603191ac3ac321c38c51203a87ea3b3a Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:35 +0100
 Subject: [PATCH 37/94] KVM: selftests: stuff vm_mem_backing_src_type into
@@ -13,6 +13,7 @@ code is backed by mmap'd guest_memfd instead of anonymous memory.
 
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
 Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../testing/selftests/kvm/include/kvm_util.h  | 19 ++++++++++---------
  tools/testing/selftests/kvm/lib/kvm_util.c    |  2 +-
@@ -94,6 +95,3 @@ index f04768c1d2e4..5da646423d0b 100644
  	};
  	struct kvm_vcpu *vcpu;
  	struct kvm_run *run;
--- 
-2.50.1
-

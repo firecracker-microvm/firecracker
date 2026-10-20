@@ -1,4 +1,4 @@
-From efdb08cc8acc1e7a6105318ca9ea3d51ad314b7f Mon Sep 17 00:00:00 2001
+From 6aaf871c109572b33825ec7c65a38fd1983e7192 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Wed, 4 Dec 2024 19:13:48 +0000
 Subject: [PATCH 59/94] KVM: Documentation: Add KVM_CAP_USERFAULT and
@@ -8,12 +8,13 @@ Include the note about memory ordering when clearing bits in
 userfault_bitmap, as it may not be obvious for users.
 
 Signed-off-by: James Houghton <jthoughton@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  Documentation/virt/kvm/api.rst | 33 ++++++++++++++++++++++++++++++++-
  1 file changed, 32 insertions(+), 1 deletion(-)
 
 diff --git a/Documentation/virt/kvm/api.rst b/Documentation/virt/kvm/api.rst
-index 3286e003decc..b0c8d47f8217 100644
+index 33b8c26c87d8..b87aa350b6f7 100644
 --- a/Documentation/virt/kvm/api.rst
 +++ b/Documentation/virt/kvm/api.rst
 @@ -6338,7 +6338,8 @@ bounds checks apply (use common sense).
@@ -52,7 +53,7 @@ index 3286e003decc..b0c8d47f8217 100644
  S390:
  ^^^^^
  
-@@ -8706,6 +8726,17 @@ This capability indicate to the userspace whether a PFNMAP memory region
+@@ -8744,6 +8764,17 @@ This capability indicate to the userspace whether a PFNMAP memory region
  can be safely mapped as cacheable. This relies on the presence of
  force write back (FWB) feature support on the hardware.
  
@@ -70,6 +71,3 @@ index 3286e003decc..b0c8d47f8217 100644
  8. Other capabilities.
  ======================
  
--- 
-2.50.1
-

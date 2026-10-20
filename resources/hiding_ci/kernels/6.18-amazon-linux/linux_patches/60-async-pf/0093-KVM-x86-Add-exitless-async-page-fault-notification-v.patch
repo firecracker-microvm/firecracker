@@ -1,4 +1,4 @@
-From e6da49ec8fbbc0b5488a733a5ad4e47da5341056 Mon Sep 17 00:00:00 2001
+From d3db8a526bca844deee43dc0306ea3c7447d228a Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Thu, 30 Apr 2026 15:32:45 +0000
 Subject: [PATCH 93/94] KVM: x86: Add exitless async page fault notification
@@ -57,10 +57,10 @@ Signed-off-by: Firecracker CI <ci@email.com>
  10 files changed, 980 insertions(+), 69 deletions(-)
 
 diff --git a/arch/s390/kvm/kvm-s390.c b/arch/s390/kvm/kvm-s390.c
-index fa7c4cbcd..a0162d03e 100644
+index 1fe9a5710c10..ed08e2f3a8ec 100644
 --- a/arch/s390/kvm/kvm-s390.c
 +++ b/arch/s390/kvm/kvm-s390.c
-@@ -4770,8 +4770,7 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu)
+@@ -4773,8 +4773,7 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu)
  	if (read_guest_real(vcpu, vcpu->arch.pfault_token, &arch.pfault_token, 8))
  		return false;
  
@@ -71,7 +71,7 @@ index fa7c4cbcd..a0162d03e 100644
  
  static int vcpu_pre_run(struct kvm_vcpu *vcpu)
 diff --git a/arch/x86/include/uapi/asm/kvm.h b/arch/x86/include/uapi/asm/kvm.h
-index 67b3bea44..18391f118 100644
+index 67b3bea44c67..18391f118f92 100644
 --- a/arch/x86/include/uapi/asm/kvm.h
 +++ b/arch/x86/include/uapi/asm/kvm.h
 @@ -15,6 +15,7 @@
@@ -83,7 +83,7 @@ index 67b3bea44..18391f118 100644
  
  #define DE_VECTOR 0
 diff --git a/arch/x86/kvm/Kconfig b/arch/x86/kvm/Kconfig
-index b2c8e75c7..8790e612d 100644
+index b2c8e75c7d6f..8790e612d6a7 100644
 --- a/arch/x86/kvm/Kconfig
 +++ b/arch/x86/kvm/Kconfig
 @@ -33,6 +33,7 @@ config KVM_X86
@@ -95,10 +95,10 @@ index b2c8e75c7..8790e612d 100644
  	select KVM_MMIO
  	select SCHED_INFO
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-index 560a59a2a..7622b8800 100644
+index 321dd18c324f..8fc7e1032ba5 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
-@@ -4520,8 +4520,7 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu,
+@@ -4536,8 +4536,7 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu,
  	arch.cr3 = kvm_mmu_get_guest_pgd(vcpu, vcpu->arch.mmu);
  
  	return kvm_setup_async_pf(vcpu, fault->addr,
@@ -108,7 +108,7 @@ index 560a59a2a..7622b8800 100644
  }
  
  void kvm_arch_async_page_ready(struct kvm_vcpu *vcpu, struct kvm_async_pf *work)
-@@ -4595,36 +4594,45 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
+@@ -4611,36 +4610,45 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
  	if (userfault < 0)
  		return userfault;
  	if (userfault) {
@@ -170,10 +170,10 @@ index 560a59a2a..7622b8800 100644
  	}
  
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 05fe963d9..5b66218ef 100644
+index fed019c0c130..b12cc2dea9ec 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
-@@ -6099,8 +6099,7 @@ static int kvm_vcpu_ioctl_enable_cap(struct kvm_vcpu *vcpu,
+@@ -5689,8 +5689,7 @@ static int kvm_vcpu_ioctl_enable_cap(struct kvm_vcpu *vcpu,
  		    cap->args[2] || cap->args[3])
  			return -EINVAL;
  
@@ -183,7 +183,7 @@ index 05fe963d9..5b66218ef 100644
  	default:
  		return -EINVAL;
  	}
-@@ -6304,6 +6303,16 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
+@@ -5894,6 +5893,16 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
  		r = kvm_async_pf_accept(vcpu, req.gpa);
  		break;
  	}
@@ -200,7 +200,7 @@ index 05fe963d9..5b66218ef 100644
  	case KVM_GET_LAPIC: {
  		r = -EINVAL;
  		if (!lapic_in_kernel(vcpu))
-@@ -6768,6 +6777,21 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
+@@ -6357,6 +6366,21 @@ out_nofree:
  
  vm_fault_t kvm_arch_vcpu_fault(struct kvm_vcpu *vcpu, struct vm_fault *vmf)
  {
@@ -222,7 +222,7 @@ index 05fe963d9..5b66218ef 100644
  	return VM_FAULT_SIGBUS;
  }
  
-@@ -11250,10 +11274,21 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
+@@ -10830,10 +10854,21 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
  			}
  		}
  		if (kvm_check_request(KVM_REQ_APF_HALT, vcpu)) {
@@ -248,7 +248,7 @@ index 05fe963d9..5b66218ef 100644
  		}
  		if (kvm_check_request(KVM_REQ_STEAL_UPDATE, vcpu))
  			record_steal_time(vcpu);
-@@ -12006,6 +12041,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
+@@ -11583,6 +11618,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
  	kvm_load_guest_fpu(vcpu);
  
  	kvm_vcpu_srcu_read_lock(vcpu);
@@ -256,7 +256,7 @@ index 05fe963d9..5b66218ef 100644
  	if (unlikely(vcpu->arch.mp_state == KVM_MP_STATE_UNINITIALIZED)) {
  		if (!vcpu->wants_to_run) {
  			r = -EINTR;
-@@ -12905,6 +12941,7 @@ void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
+@@ -12122,6 +12158,7 @@ void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
  	int idx, cpu;
  
  	kvm_clear_async_pf_completion_queue(vcpu);
@@ -265,7 +265,7 @@ index 05fe963d9..5b66218ef 100644
  
  	kvmclock_reset(vcpu);
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index 747550758..6a8716d8f 100644
+index 04ca4ef77f78..21a21db1781e 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
 @@ -250,6 +250,7 @@ struct kvm_async_pf {
@@ -359,7 +359,7 @@ index 747550758..6a8716d8f 100644
  #endif
  
 diff --git a/include/trace/events/kvm.h b/include/trace/events/kvm.h
-index b282e3a86..73fca3525 100644
+index b282e3a86769..73fca35250d4 100644
 --- a/include/trace/events/kvm.h
 +++ b/include/trace/events/kvm.h
 @@ -262,6 +262,24 @@ TRACE_EVENT(
@@ -388,7 +388,7 @@ index b282e3a86..73fca3525 100644
  
  TRACE_EVENT(kvm_halt_poll_ns,
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index b30d59353..f31052d36 100644
+index b30d59353a56..f31052d36feb 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
 @@ -1664,6 +1664,70 @@ struct kvm_async_pf_req {
@@ -463,7 +463,7 @@ index b30d59353..f31052d36 100644
  	__u64 gpa;
  	__u64 size;
 diff --git a/virt/kvm/Kconfig b/virt/kvm/Kconfig
-index c088df30c..efe18c508 100644
+index c088df30cd92..efe18c508c72 100644
 --- a/virt/kvm/Kconfig
 +++ b/virt/kvm/Kconfig
 @@ -45,6 +45,10 @@ config KVM_MMIO
@@ -478,7 +478,7 @@ index c088df30c..efe18c508 100644
  config KVM_ASYNC_PF_SYNC
         bool
 diff --git a/virt/kvm/async_pf.c b/virt/kvm/async_pf.c
-index 61aa29678..ff0930fd9 100644
+index 61aa29678b0f..ff0930fd9eda 100644
 --- a/virt/kvm/async_pf.c
 +++ b/virt/kvm/async_pf.c
 @@ -13,12 +13,33 @@

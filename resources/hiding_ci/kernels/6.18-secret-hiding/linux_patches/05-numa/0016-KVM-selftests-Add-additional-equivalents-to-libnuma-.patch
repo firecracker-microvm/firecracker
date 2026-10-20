@@ -1,7 +1,7 @@
-From 748a86e0db4ae4fadc4bbfa668cfc80967dd955a Mon Sep 17 00:00:00 2001
+From a80a455cbfc1015e1fd984c3b1054df91ed34d1b Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Thu, 16 Oct 2025 10:28:49 -0700
-Subject: [PATCH 16/84] KVM: selftests: Add additional equivalents to libnuma
+Subject: [PATCH 16/94] KVM: selftests: Add additional equivalents to libnuma
  APIs in KVM's numaif.h
 
 Add APIs for all syscalls defined in the kernel's mm/mempolicy.c to match
@@ -16,6 +16,7 @@ Reviewed-by: Shivank Garg <shivankg@amd.com>
 Tested-by: Shivank Garg <shivankg@amd.com>
 Link: https://lore.kernel.org/r/20251016172853.52451-9-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/include/numaif.h  | 40 +++++++++++--------
  .../selftests/kvm/x86/xapic_ipi_test.c        |  5 +--
@@ -96,6 +97,3 @@ index 35cb9de54a82..ae4a4b6c05ca 100644
  
  	fprintf(stderr, "Numa nodes found amongst first %lu possible nodes "
  		"(each 1-bit indicates node is present): %#lx\n",
--- 
-2.50.1
-

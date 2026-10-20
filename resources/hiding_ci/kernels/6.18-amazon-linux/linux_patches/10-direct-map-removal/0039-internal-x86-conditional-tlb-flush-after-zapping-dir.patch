@@ -1,4 +1,4 @@
-From 1a865b5794638a1d298c244fb22a01d513dfc0a4 Mon Sep 17 00:00:00 2001
+From 6bef8ff246cbecc24cb36344d1b1777984e696b0 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 12 Jan 2026 15:51:48 +0000
 Subject: [PATCH 39/94] internal: x86: conditional tlb flush after zapping
@@ -14,6 +14,7 @@ and disabled TLB flushes.
 
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  arch/x86/include/asm/tlbflush.h | 3 ++-
  arch/x86/mm/tlb.c               | 1 +
@@ -25,7 +26,7 @@ Signed-off-by: Firecracker CI <ci@email.com>
  7 files changed, 11 insertions(+), 3 deletions(-)
 
 diff --git a/arch/x86/include/asm/tlbflush.h b/arch/x86/include/asm/tlbflush.h
-index 00daedfef..6f57f7eb6 100644
+index 00daedfefc1b..6f57f7eb621b 100644
 --- a/arch/x86/include/asm/tlbflush.h
 +++ b/arch/x86/include/asm/tlbflush.h
 @@ -317,7 +317,6 @@ extern void flush_tlb_all(void);
@@ -46,7 +47,7 @@ index 00daedfef..6f57f7eb6 100644
  {
  	native_write_cr4(cr4 ^ X86_CR4_PGE);
 diff --git a/arch/x86/mm/tlb.c b/arch/x86/mm/tlb.c
-index 5d2217093..cce591d26 100644
+index 5d221709353e..cce591d26e4c 100644
 --- a/arch/x86/mm/tlb.c
 +++ b/arch/x86/mm/tlb.c
 @@ -1561,6 +1561,7 @@ void flush_tlb_kernel_range(unsigned long start, unsigned long end)
@@ -58,10 +59,10 @@ index 5d2217093..cce591d26 100644
  /*
   * This can be used from process context to figure out what the value of
 diff --git a/fs/userfaultfd.c b/fs/userfaultfd.c
-index df18fb453..4e4b02420 100644
+index 7e40eb9131bd..a630250792b4 100644
 --- a/fs/userfaultfd.c
 +++ b/fs/userfaultfd.c
-@@ -537,6 +537,7 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
+@@ -547,6 +547,7 @@ vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason)
  out:
  	return ret;
  }
@@ -70,10 +71,10 @@ index df18fb453..4e4b02420 100644
  static void userfaultfd_event_wait_completion(struct userfaultfd_ctx *ctx,
  					      struct userfaultfd_wait_queue *ewq)
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index ee192aa7e..28017f0be 100644
+index 1c5260cc6a21..7aabbf6b6d8f 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
-@@ -2314,6 +2314,7 @@ extern unsigned int halt_poll_ns;
+@@ -2319,6 +2319,7 @@ extern unsigned int halt_poll_ns;
  extern unsigned int halt_poll_ns_grow;
  extern unsigned int halt_poll_ns_grow_start;
  extern unsigned int halt_poll_ns_shrink;
@@ -82,10 +83,10 @@ index ee192aa7e..28017f0be 100644
  struct kvm_device {
  	const struct kvm_device_ops *ops;
 diff --git a/mm/memory.c b/mm/memory.c
-index 0502983ce..c72a8d55e 100644
+index ef76e8a66b00..451349895665 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
-@@ -7375,8 +7375,6 @@ int folio_zap_direct_map(struct folio *folio)
+@@ -7378,8 +7378,6 @@ int folio_zap_direct_map(struct folio *folio)
  		return -EINVAL;
  
  	ret = set_direct_map_valid_noflush(addr, folio_nr_pages(folio), false);
@@ -95,7 +96,7 @@ index 0502983ce..c72a8d55e 100644
  	return ret;
  }
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 9e493d049..5757949ff 100644
+index ca8e3de4e267..c52fe1290c1c 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -91,6 +91,7 @@ static bool kvm_gmem_folio_no_direct_map(struct folio *folio)
@@ -116,7 +117,7 @@ index 9e493d049..5757949ff 100644
  out:
  	return r;
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 5286c0b57..b60c468f9 100644
+index 9fdb130b99f8..7598e73d2e02 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -94,6 +94,9 @@ unsigned int halt_poll_ns_shrink = 2;

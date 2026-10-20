@@ -1,9 +1,7 @@
-From 450885230ddd9a7cae794d7e5b2cca295d6dbeb9 Mon Sep 17 00:00:00 2001
-From: Nikita Kalyazin <kalyazin@amazon.com>
+From 7516d75a3603ae73f53c085d33c1fcc85e651397 Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 Date: Mon, 12 Jan 2026 14:24:52 +0000
 Subject: [PATCH 24/94] set_memory: add folio_{zap,restore}_direct_map helpers
-
-From: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 
 Let's provide folio_{zap,restore}_direct_map helpers as preparation for
 supporting removal of the direct map for guest_memfd folios.
@@ -21,6 +19,7 @@ through in-kernel gadgets.
 
 Acked-by: David Hildenbrand (Arm) <david@kernel.org>
 Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/set_memory.h | 13 +++++++++++
  mm/memory.c                | 45 ++++++++++++++++++++++++++++++++++++++
@@ -58,7 +57,7 @@ index 1a2563f525fc..24caea2931f9 100644
  
  #ifdef CONFIG_X86_64
 diff --git a/mm/memory.c b/mm/memory.c
-index b59ae7ce42eb..1ec36299e963 100644
+index 72793ec63107..ef76e8a66b00 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
 @@ -76,6 +76,7 @@
@@ -69,7 +68,7 @@ index b59ae7ce42eb..1ec36299e963 100644
  
  #include <trace/events/kmem.h>
  
-@@ -7324,3 +7325,47 @@ void vma_pgtable_walk_end(struct vm_area_struct *vma)
+@@ -7356,3 +7357,47 @@ void vma_pgtable_walk_end(struct vm_area_struct *vma)
  	if (is_vm_hugetlb_page(vma))
  		hugetlb_vma_unlock_read(vma);
  }
@@ -117,6 +116,3 @@ index b59ae7ce42eb..1ec36299e963 100644
 +}
 +EXPORT_SYMBOL_FOR_MODULES(folio_restore_direct_map, "kvm");
 +#endif /* CONFIG_ARCH_HAS_SET_DIRECT_MAP */
--- 
-2.50.1
-

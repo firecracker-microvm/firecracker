@@ -1,4 +1,4 @@
-From 9e8789b66b0e618cfb053e06f4e2c179c141f426 Mon Sep 17 00:00:00 2001
+From 16af97ba55f6993ce93191351e8295a80a66371b Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 6 Mar 2026 19:18:14 +0200
 Subject: [PATCH 79/94] KVM: selftests: test userfaultfd minor for guest_memfd
@@ -9,12 +9,13 @@ be resolved via a memcpy followed by a UFFDIO_CONTINUE ioctl.
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../testing/selftests/kvm/guest_memfd_test.c  | 113 ++++++++++++++++++
  1 file changed, 113 insertions(+)
 
 diff --git a/tools/testing/selftests/kvm/guest_memfd_test.c b/tools/testing/selftests/kvm/guest_memfd_test.c
-index e74757e27..de4d876be 100644
+index e74757e2715b..de4d876be990 100644
 --- a/tools/testing/selftests/kvm/guest_memfd_test.c
 +++ b/tools/testing/selftests/kvm/guest_memfd_test.c
 @@ -10,13 +10,17 @@

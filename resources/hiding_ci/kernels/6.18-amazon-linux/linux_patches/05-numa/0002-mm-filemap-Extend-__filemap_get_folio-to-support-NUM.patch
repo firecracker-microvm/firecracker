@@ -1,4 +1,4 @@
-From 41ecee6588922c421366f90b015bb70e1f7362c6 Mon Sep 17 00:00:00 2001
+From 4fb355041e6a224f29527cb47e5ff31d389702f3 Mon Sep 17 00:00:00 2001
 From: Matthew Wilcox <willy@infradead.org>
 Date: Wed, 27 Aug 2025 17:52:44 +0000
 Subject: [PATCH 02/94] mm/filemap: Extend __filemap_get_folio() to support
@@ -21,13 +21,14 @@ Tested-by: Ashish Kalra <ashish.kalra@amd.com>
 Link: https://lore.kernel.org/r/20250827175247.83322-5-shivankg@amd.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/pagemap.h | 10 ++++++++--
  mm/filemap.c            | 11 ++++++-----
  2 files changed, 14 insertions(+), 7 deletions(-)
 
 diff --git a/include/linux/pagemap.h b/include/linux/pagemap.h
-index f1d061021..a17fabbc0 100644
+index f1d0610210f7..a17fabbc0269 100644
 --- a/include/linux/pagemap.h
 +++ b/include/linux/pagemap.h
 @@ -755,11 +755,17 @@ static inline fgf_t fgf_set_order(size_t size)
@@ -51,10 +52,10 @@ index f1d061021..a17fabbc0 100644
   * write_begin_get_folio - Get folio for write_begin with flags.
   * @iocb: The kiocb passed from write_begin (may be NULL).
 diff --git a/mm/filemap.c b/mm/filemap.c
-index 1efb776c2..fd5935db3 100644
+index dd5bcb4d0193..b0579bdbd748 100644
 --- a/mm/filemap.c
 +++ b/mm/filemap.c
-@@ -1934,11 +1934,12 @@ void *filemap_get_entry(struct address_space *mapping, pgoff_t index)
+@@ -1940,11 +1940,12 @@ out:
  }
  
  /**
@@ -68,7 +69,7 @@ index 1efb776c2..fd5935db3 100644
   *
   * Looks up the page cache entry at @mapping & @index.
   *
-@@ -1949,8 +1950,8 @@ void *filemap_get_entry(struct address_space *mapping, pgoff_t index)
+@@ -1955,8 +1956,8 @@ out:
   *
   * Return: The found folio or an ERR_PTR() otherwise.
   */
@@ -79,7 +80,7 @@ index 1efb776c2..fd5935db3 100644
  {
  	struct folio *folio;
  
-@@ -2020,7 +2021,7 @@ struct folio *__filemap_get_folio(struct address_space *mapping, pgoff_t index,
+@@ -2026,7 +2027,7 @@ no_page:
  			err = -ENOMEM;
  			if (order > min_order)
  				alloc_gfp |= __GFP_NORETRY | __GFP_NOWARN;
@@ -88,7 +89,7 @@ index 1efb776c2..fd5935db3 100644
  			if (!folio)
  				continue;
  
-@@ -2067,7 +2068,7 @@ struct folio *__filemap_get_folio(struct address_space *mapping, pgoff_t index,
+@@ -2073,7 +2074,7 @@ no_page:
  		folio_clear_dropbehind(folio);
  	return folio;
  }

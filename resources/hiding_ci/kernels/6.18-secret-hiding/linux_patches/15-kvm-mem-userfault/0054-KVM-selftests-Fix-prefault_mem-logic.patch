@@ -1,4 +1,4 @@
-From 59f1f81dfc359bf6c207ce18c8ee4cc97fc9de60 Mon Sep 17 00:00:00 2001
+From b7d69e809a97a254b3b6516b6476885b97db2a30 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Wed, 4 Dec 2024 19:13:43 +0000
 Subject: [PATCH 54/94] KVM: selftests: Fix prefault_mem logic
@@ -8,6 +8,7 @@ AND we were using a single userfaultfd. It would only prefault the first
 vCPU's memory and not the rest.
 
 Signed-off-by: James Houghton <jthoughton@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/demand_paging_test.c | 6 ++++--
  1 file changed, 4 insertions(+), 2 deletions(-)
@@ -32,6 +33,3 @@ index 0202b78f8680..315f5c9037b4 100644
  		}
  	}
  
--- 
-2.50.1
-

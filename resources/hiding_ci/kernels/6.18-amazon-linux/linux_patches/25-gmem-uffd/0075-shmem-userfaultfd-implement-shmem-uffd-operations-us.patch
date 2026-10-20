@@ -1,4 +1,4 @@
-From fe6165d9d23077e41e9955299757ddef112d86af Mon Sep 17 00:00:00 2001
+From 839a0b94291ca680a20409e47b33cf327a8332f8 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:10 +0200
 Subject: [PATCH 75/94] shmem, userfaultfd: implement shmem uffd operations
@@ -19,6 +19,7 @@ mm/userfaultfd, make it static.
 
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/shmem_fs.h      |  14 ----
  include/linux/userfaultfd_k.h |  21 +++--
@@ -27,7 +28,7 @@ Signed-off-by: Firecracker CI <ci@email.com>
  4 files changed, 106 insertions(+), 156 deletions(-)
 
 diff --git a/include/linux/shmem_fs.h b/include/linux/shmem_fs.h
-index 0e47465ef..a3a9c357e 100644
+index 0e47465ef0fd..a3a9c357e7dc 100644
 --- a/include/linux/shmem_fs.h
 +++ b/include/linux/shmem_fs.h
 @@ -195,20 +195,6 @@ static inline pgoff_t shmem_fallocend(struct inode *inode, pgoff_t eof)
@@ -52,7 +53,7 @@ index 0e47465ef..a3a9c357e 100644
   * Used space is stored as unsigned 64-bit value in bytes but
   * quota core supports only signed 64-bit values so use that
 diff --git a/include/linux/userfaultfd_k.h b/include/linux/userfaultfd_k.h
-index cbf41240a..d1656f3af 100644
+index cbf41240aeaf..d1656f3afa14 100644
 --- a/include/linux/userfaultfd_k.h
 +++ b/include/linux/userfaultfd_k.h
 @@ -93,10 +93,24 @@ struct vm_uffd_ops {
@@ -94,10 +95,10 @@ index cbf41240a..d1656f3af 100644
  				 unsigned long src_start, unsigned long len,
  				 uffd_flags_t flags);
 diff --git a/mm/shmem.c b/mm/shmem.c
-index 0725c52d6..f06c562e1 100644
+index 9b81b38b5fc9..5f471cdfd228 100644
 --- a/mm/shmem.c
 +++ b/mm/shmem.c
-@@ -3177,118 +3177,73 @@ static inline struct inode *shmem_get_inode(struct mnt_idmap *idmap,
+@@ -3192,118 +3192,73 @@ static inline struct inode *shmem_get_inode(struct mnt_idmap *idmap,
  #endif /* CONFIG_TMPFS_QUOTA */
  
  #ifdef CONFIG_USERFAULTFD
@@ -266,7 +267,7 @@ index 0725c52d6..f06c562e1 100644
  }
  
  static struct folio *shmem_get_folio_noalloc(struct inode *inode, pgoff_t pgoff)
-@@ -3311,6 +3266,9 @@ static bool shmem_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags)
+@@ -3326,6 +3281,9 @@ static bool shmem_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags)
  static const struct vm_uffd_ops shmem_uffd_ops = {
  	.can_userfault		= shmem_can_userfault,
  	.get_folio_noalloc	= shmem_get_folio_noalloc,
@@ -277,7 +278,7 @@ index 0725c52d6..f06c562e1 100644
  #endif /* CONFIG_USERFAULTFD */
  
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 79b98254f..29d1805a0 100644
+index ed9e2007c9ff..3bcf0b3c9180 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -14,7 +14,6 @@

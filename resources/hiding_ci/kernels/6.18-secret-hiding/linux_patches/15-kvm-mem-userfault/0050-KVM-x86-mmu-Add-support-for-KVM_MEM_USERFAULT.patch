@@ -1,4 +1,4 @@
-From f05f4adae3d4d1374b79ce0ed4dede8c421b86c2 Mon Sep 17 00:00:00 2001
+From 6b8be02fbbe2543890ffd756755a1cee9bdb698b Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:21 +0000
 Subject: [PATCH 50/94] KVM: x86/mmu: Add support for KVM_MEM_USERFAULT
@@ -18,6 +18,7 @@ two dirty-logging-toggle checks into one, and I have dropped the
 WARN_ON() that was there.
 
 Signed-off-by: James Houghton <jthoughton@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  arch/arm64/kvm/mmu.c            |  2 +-
  arch/arm64/kvm/nested.c         |  2 +-
@@ -29,10 +30,10 @@ Signed-off-by: James Houghton <jthoughton@google.com>
  7 files changed, 62 insertions(+), 16 deletions(-)
 
 diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
-index 7cc964af8d30..e6d62f5d87b2 100644
+index af50fed5b597..fa3959036aff 100644
 --- a/arch/arm64/kvm/mmu.c
 +++ b/arch/arm64/kvm/mmu.c
-@@ -1560,7 +1560,7 @@ static int gmem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -1553,7 +1553,7 @@ static int gmem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  	ret = kvm_gmem_get_pfn(kvm, memslot, gfn, &pfn, &page, NULL);
  	if (ret) {
  		kvm_prepare_memory_fault_exit(vcpu, fault_ipa, PAGE_SIZE,
@@ -42,10 +43,10 @@ index 7cc964af8d30..e6d62f5d87b2 100644
  	}
  
 diff --git a/arch/arm64/kvm/nested.c b/arch/arm64/kvm/nested.c
-index f04cda40545b..d1750a2683e2 100644
+index 92853a343c42..00c5fd136869 100644
 --- a/arch/arm64/kvm/nested.c
 +++ b/arch/arm64/kvm/nested.c
-@@ -1231,7 +1231,7 @@ static int kvm_translate_vncr(struct kvm_vcpu *vcpu, bool *is_gmem)
+@@ -1323,7 +1323,7 @@ static int kvm_translate_vncr(struct kvm_vcpu *vcpu, bool *is_gmem)
  		ret = kvm_gmem_get_pfn(vcpu->kvm, memslot, gfn, &pfn, &page, NULL);
  		if (ret) {
  			kvm_prepare_memory_fault_exit(vcpu, vt->wr.pa, PAGE_SIZE,
@@ -53,7 +54,7 @@ index f04cda40545b..d1750a2683e2 100644
 +					      write_fault, false, false, false);
  			return ret;
  		}
- 	}
+ 
 diff --git a/arch/x86/kvm/Kconfig b/arch/x86/kvm/Kconfig
 index 278f08194ec8..180781998aa7 100644
 --- a/arch/x86/kvm/Kconfig
@@ -67,10 +68,10 @@ index 278f08194ec8..180781998aa7 100644
  config KVM
  	tristate "Kernel-based Virtual Machine (KVM) support"
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-index aa5a35a3125b..e82a357e2219 100644
+index fbaaf2f3be98..7d2b4807fd4f 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
-@@ -4592,6 +4592,18 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
+@@ -4604,6 +4604,18 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
  				 struct kvm_page_fault *fault)
  {
  	unsigned int foll = fault->write ? FOLL_WRITE : 0;
@@ -124,10 +125,10 @@ index ed5c01df21ba..a08741d39b82 100644
  
  static inline int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index d1aeefd014c0..7e08203ab134 100644
+index 5dfdcbec58e0..d593ecda1ec0 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
-@@ -13494,12 +13494,36 @@ static void kvm_mmu_slot_apply_flags(struct kvm *kvm,
+@@ -12803,12 +12803,36 @@ static void kvm_mmu_slot_apply_flags(struct kvm *kvm,
  	u32 new_flags = new ? new->flags : 0;
  	bool log_dirty_pages = new_flags & KVM_MEM_LOG_DIRTY_PAGES;
  
@@ -166,7 +167,7 @@ index d1aeefd014c0..7e08203ab134 100644
  
  	/*
  	 * Nothing more to do for RO slots (which can't be dirtied and can't be
-@@ -13519,14 +13543,6 @@ static void kvm_mmu_slot_apply_flags(struct kvm *kvm,
+@@ -12828,14 +12852,6 @@ static void kvm_mmu_slot_apply_flags(struct kvm *kvm,
  	if ((change != KVM_MR_FLAGS_ONLY) || (new_flags & KVM_MEM_READONLY))
  		return;
  
@@ -182,7 +183,7 @@ index d1aeefd014c0..7e08203ab134 100644
  		/*
  		 * Recover huge page mappings in the slot now that dirty logging
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index 79928bc5a51d..c0993901a640 100644
+index f67916b5528f..5874b0c57134 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
 @@ -2527,7 +2527,8 @@ static inline void kvm_account_pgtable_pages(void *virt, int nr)
@@ -204,6 +205,3 @@ index 79928bc5a51d..c0993901a640 100644
  }
  
  static inline bool kvm_memslot_is_gmem_only(const struct kvm_memory_slot *slot)
--- 
-2.50.1
-

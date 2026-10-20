@@ -1,4 +1,4 @@
-From 0460c9c5608d0bbc77c89b5be1df3f405bb83353 Mon Sep 17 00:00:00 2001
+From 7bed1089ef0f02397473ed33bc7acb636edce31e Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Mon, 9 Mar 2026 12:30:57 -0700
 Subject: [PATCH 84/94] srcu: Declare exported symbols before including
@@ -17,13 +17,14 @@ No functional change intended.
 
 Signed-off-by: Sean Christopherson <seanjc@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/srcu.h     | 10 +++++-----
  include/linux/srcutiny.h |  2 --
  2 files changed, 5 insertions(+), 7 deletions(-)
 
 diff --git a/include/linux/srcu.h b/include/linux/srcu.h
-index ada65b58b..b868ad82d 100644
+index ada65b58bc4c..b868ad82d834 100644
 --- a/include/linux/srcu.h
 +++ b/include/linux/srcu.h
 @@ -55,6 +55,11 @@ int init_srcu_struct(struct srcu_struct *ssp);
@@ -51,10 +52,10 @@ index ada65b58b..b868ad82d 100644
  
  /**
 diff --git a/include/linux/srcutiny.h b/include/linux/srcutiny.h
-index 51ce25f07..d99d296ec 100644
+index 1f9a226e6fd8..7314780f5bab 100644
 --- a/include/linux/srcutiny.h
 +++ b/include/linux/srcutiny.h
-@@ -52,8 +52,6 @@ void srcu_drive_gp(struct work_struct *wp);
+@@ -56,8 +56,6 @@ void srcu_tiny_irq_work(struct irq_work *irq_work);
  struct srcu_usage { };
  #define __SRCU_USAGE_INIT(name) { }
  

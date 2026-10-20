@@ -1,4 +1,4 @@
-From 390bdbdf1e65466f06ac70a95787738bd3bb954c Mon Sep 17 00:00:00 2001
+From e6e5c7bc32d5783781518fb6b74752c2bdb48c76 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:01 +0200
 Subject: [PATCH 63/94] userfaultfd: introduce mfill_copy_folio_locked() helper
@@ -13,15 +13,16 @@ No functional change.
 
 Acked-by: Peter Xu <peterx@redhat.com>
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  mm/userfaultfd.c | 59 ++++++++++++++++++++++++++++--------------------
  1 file changed, 35 insertions(+), 24 deletions(-)
 
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index af61b95c89e4..2f2b4f769bad 100644
+index 34798ce783e6..68622a12dc1c 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
-@@ -234,6 +234,40 @@ int mfill_atomic_install_pte(pmd_t *dst_pmd,
+@@ -234,6 +234,40 @@ out:
  	return ret;
  }
  
@@ -108,6 +109,3 @@ index af61b95c89e4..2f2b4f769bad 100644
  	} else {
  		folio = *foliop;
  		*foliop = NULL;
--- 
-2.50.1
-

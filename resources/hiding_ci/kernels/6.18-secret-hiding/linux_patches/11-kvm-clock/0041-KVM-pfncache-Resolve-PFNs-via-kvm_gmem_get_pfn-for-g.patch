@@ -1,4 +1,4 @@
-From 6176d7e13f3bcc14083402dbf803b68ff64b67e1 Mon Sep 17 00:00:00 2001
+From 751867809e1c8bc3087364c8411dbcb9335e13b6 Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
 Date: Sun, 22 Feb 2026 13:31:50 +0000
 Subject: [PATCH 41/94] KVM: pfncache: Resolve PFNs via kvm_gmem_get_pfn() for
@@ -27,6 +27,7 @@ paths, to a greater or lesser extent, regardless of guest_memfd-backed
 or not.  At the time of writing, only Xen uses HVA-based pfncaches.
 
 Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  virt/kvm/pfncache.c | 45 +++++++++++++++++++++++++++++++++------------
  1 file changed, 33 insertions(+), 12 deletions(-)
@@ -115,6 +116,3 @@ index 728d2c1b488a..5d16e2b8a6eb 100644
  	} else {
  		/*
  		 * If the HVA→PFN mapping was already valid, don't unmap it.
--- 
-2.50.1
-

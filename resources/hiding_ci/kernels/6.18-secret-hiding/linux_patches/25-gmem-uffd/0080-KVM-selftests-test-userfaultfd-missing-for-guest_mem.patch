@@ -1,4 +1,4 @@
-From 421bcf0a727f79523f383620583de0b7ca169790 Mon Sep 17 00:00:00 2001
+From 07128e45465539c079c851002de592fdb880ca0e Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 6 Mar 2026 19:18:15 +0200
 Subject: [PATCH 80/94] KVM: selftests: test userfaultfd missing for
@@ -9,6 +9,7 @@ can be resolved via a UFFDIO_COPY ioctl.
 
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../testing/selftests/kvm/guest_memfd_test.c  | 80 ++++++++++++++++++-
  1 file changed, 79 insertions(+), 1 deletion(-)
@@ -112,6 +113,3 @@ index de4d876be990..fd9f5fd9a51a 100644
  }
  
  static void test_guest_memfd(unsigned long vm_type)
--- 
-2.50.1
-

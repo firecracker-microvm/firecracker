@@ -1,4 +1,4 @@
-From c5f73fea4c6c2bad8ffc6f4e3ec169993d9898b9 Mon Sep 17 00:00:00 2001
+From 43c0dd6de860edf93a7d546554a4bfe4cc034c46 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 14 Nov 2025 11:34:23 +0000
 Subject: [PATCH 60/94] KVM: guest_memfd: add generic population via write
@@ -37,6 +37,7 @@ use case for it.
 
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  Documentation/virt/kvm/api.rst |  2 ++
  include/linux/kvm_host.h       |  2 +-
@@ -45,7 +46,7 @@ Signed-off-by: Firecracker CI <ci@email.com>
  4 files changed, 54 insertions(+), 1 deletion(-)
 
 diff --git a/Documentation/virt/kvm/api.rst b/Documentation/virt/kvm/api.rst
-index 47000acd2..4488eaee7 100644
+index b87aa350b6f7..cf12831ecb32 100644
 --- a/Documentation/virt/kvm/api.rst
 +++ b/Documentation/virt/kvm/api.rst
 @@ -6471,6 +6471,8 @@ specified via KVM_CREATE_GUEST_MEMFD.  Currently defined flags:
@@ -58,7 +59,7 @@ index 47000acd2..4488eaee7 100644
  
  When the KVM MMU performs a PFN lookup to service a guest fault and the backing
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index 850312fda..0417c5333 100644
+index 5874b0c57134..fa547a1a15ec 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
 @@ -738,7 +738,7 @@ static inline u64 kvm_gmem_get_supported_flags(struct kvm *kvm)
@@ -71,7 +72,7 @@ index 850312fda..0417c5333 100644
  	if (!kvm || kvm_arch_gmem_supports_no_direct_map(kvm))
  		flags |= GUEST_MEMFD_FLAG_NO_DIRECT_MAP;
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index e8db96962..58e701c6f 100644
+index e8db96962237..58e701c6f172 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
 @@ -1615,6 +1615,7 @@ struct kvm_memory_attributes {
@@ -83,10 +84,10 @@ index e8db96962..58e701c6f 100644
  struct kvm_create_guest_memfd {
  	__u64 size;
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 116d9346e..d60be4b52 100644
+index 82956449da29..96d2d0c0b9cb 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
-@@ -588,6 +588,8 @@ static int kvm_gmem_mmap(struct file *file, struct vm_area_struct *vma)
+@@ -592,6 +592,8 @@ static int kvm_gmem_mmap(struct file *file, struct vm_area_struct *vma)
  
  static struct file_operations kvm_gmem_fops = {
  	.mmap		= kvm_gmem_mmap,
@@ -95,7 +96,7 @@ index 116d9346e..d60be4b52 100644
  	.open		= generic_file_open,
  	.release	= kvm_gmem_release,
  	.fallocate	= kvm_gmem_fallocate,
-@@ -640,8 +642,55 @@ static void kvm_gmem_free_folio(struct folio *folio)
+@@ -644,8 +646,55 @@ static void kvm_gmem_free_folio(struct folio *folio)
  		kvm_gmem_folio_restore_direct_map(folio);
  }
  
@@ -151,7 +152,7 @@ index 116d9346e..d60be4b52 100644
  	.migrate_folio	= kvm_gmem_migrate_folio,
  	.error_remove_folio = kvm_gmem_error_folio,
  	.free_folio = kvm_gmem_free_folio,
-@@ -712,6 +761,7 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
+@@ -716,6 +765,7 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
  	}
  
  	file->f_flags |= O_LARGEFILE;

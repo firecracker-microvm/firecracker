@@ -1,4 +1,4 @@
-From 41af26532e02fdd07a9eec4e7dbdaffbce4770e3 Mon Sep 17 00:00:00 2001
+From 2f3b5e0cbb39f53a126c53d6822e17ef49796f09 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:07 +0200
 Subject: [PATCH 71/94] userfaultfd: introduce vm_uffd_ops
@@ -30,6 +30,7 @@ parts of vma_can_userfault() into the new callbacks.
 
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/mm.h            |  5 +++++
  include/linux/userfaultfd_k.h |  6 ++++++
@@ -39,10 +40,10 @@ Signed-off-by: Firecracker CI <ci@email.com>
  5 files changed, 68 insertions(+), 9 deletions(-)
 
 diff --git a/include/linux/mm.h b/include/linux/mm.h
-index d905cf528..c6559094f 100644
+index 2c0503bbcc19..43c65061385a 100644
 --- a/include/linux/mm.h
 +++ b/include/linux/mm.h
-@@ -605,6 +605,8 @@ struct vm_fault {
+@@ -668,6 +668,8 @@ struct vm_fault {
  					 */
  };
  
@@ -51,7 +52,7 @@ index d905cf528..c6559094f 100644
  /*
   * These are the virtual MM functions - opening of an area, closing and
   * unmapping it (needed to keep files on disk up-to-date etc), pointer
-@@ -690,6 +692,9 @@ struct vm_operations_struct {
+@@ -753,6 +755,9 @@ struct vm_operations_struct {
  	struct page *(*find_normal_page)(struct vm_area_struct *vma,
  					 unsigned long addr);
  #endif /* CONFIG_FIND_NORMAL_PAGE */
@@ -62,7 +63,7 @@ index d905cf528..c6559094f 100644
  
  #ifdef CONFIG_NUMA_BALANCING
 diff --git a/include/linux/userfaultfd_k.h b/include/linux/userfaultfd_k.h
-index e4f43e7b0..095928c30 100644
+index e4f43e7b063f..095928c30b4b 100644
 --- a/include/linux/userfaultfd_k.h
 +++ b/include/linux/userfaultfd_k.h
 @@ -80,6 +80,12 @@ struct userfaultfd_ctx {
@@ -79,10 +80,10 @@ index e4f43e7b0..095928c30 100644
  typedef unsigned int __bitwise uffd_flags_t;
  
 diff --git a/mm/hugetlb.c b/mm/hugetlb.c
-index 9ac5df16b..c5b0bd659 100644
+index 9df625de6dfe..9e5035680011 100644
 --- a/mm/hugetlb.c
 +++ b/mm/hugetlb.c
-@@ -5478,6 +5478,18 @@ static vm_fault_t hugetlb_vm_op_fault(struct vm_fault *vmf)
+@@ -5500,6 +5500,18 @@ static vm_fault_t hugetlb_vm_op_fault(struct vm_fault *vmf)
  	return 0;
  }
  
@@ -101,7 +102,7 @@ index 9ac5df16b..c5b0bd659 100644
  /*
   * When a new function is introduced to vm_operations_struct and added
   * to hugetlb_vm_ops, please consider adding the function to shm_vm_ops.
-@@ -5491,6 +5503,9 @@ const struct vm_operations_struct hugetlb_vm_ops = {
+@@ -5513,6 +5525,9 @@ const struct vm_operations_struct hugetlb_vm_ops = {
  	.close = hugetlb_vm_op_close,
  	.may_split = hugetlb_vm_op_split,
  	.pagesize = hugetlb_vm_op_pagesize,
@@ -112,10 +113,10 @@ index 9ac5df16b..c5b0bd659 100644
  
  static pte_t make_huge_pte(struct vm_area_struct *vma, struct folio *folio,
 diff --git a/mm/shmem.c b/mm/shmem.c
-index 94c5b0d78..98708c684 100644
+index 0100110f77b8..a801af6f0414 100644
 --- a/mm/shmem.c
 +++ b/mm/shmem.c
-@@ -3290,6 +3290,15 @@ int shmem_mfill_atomic_pte(pmd_t *dst_pmd,
+@@ -3305,6 +3305,15 @@ out_unacct_blocks:
  	shmem_inode_unacct_blocks(inode, 1);
  	return ret;
  }
@@ -131,7 +132,7 @@ index 94c5b0d78..98708c684 100644
  #endif /* CONFIG_USERFAULTFD */
  
  #ifdef CONFIG_TMPFS
-@@ -5330,6 +5339,9 @@ static const struct vm_operations_struct shmem_vm_ops = {
+@@ -5345,6 +5354,9 @@ static const struct vm_operations_struct shmem_vm_ops = {
  	.set_policy     = shmem_set_policy,
  	.get_policy     = shmem_get_policy,
  #endif
@@ -141,7 +142,7 @@ index 94c5b0d78..98708c684 100644
  };
  
  static const struct vm_operations_struct shmem_anon_vm_ops = {
-@@ -5339,6 +5351,9 @@ static const struct vm_operations_struct shmem_anon_vm_ops = {
+@@ -5354,6 +5366,9 @@ static const struct vm_operations_struct shmem_anon_vm_ops = {
  	.set_policy     = shmem_set_policy,
  	.get_policy     = shmem_get_policy,
  #endif
@@ -152,7 +153,7 @@ index 94c5b0d78..98708c684 100644
  
  int shmem_init_fs_context(struct fs_context *fc)
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index e016b74c2..1fad557c3 100644
+index 6470ca90cd4f..75de85ebe7a9 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -34,6 +34,25 @@ struct mfill_state {
@@ -181,27 +182,31 @@ index e016b74c2..1fad557c3 100644
  static __always_inline
  bool validate_dst_vma(struct vm_area_struct *dst_vma, unsigned long dst_end)
  {
-@@ -2062,13 +2081,15 @@ ssize_t move_pages(struct userfaultfd_ctx *ctx, unsigned long dst_start,
+@@ -2064,6 +2083,12 @@ out:
  bool vma_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags,
  		       bool wp_async)
  {
--	vm_flags &= __VM_UFFD_FLAGS;
 +	const struct vm_uffd_ops *ops = vma_uffd_ops(vma);
- 
--	if (vma->vm_flags & VM_DROPPABLE)
++
 +	/* only VMAs that implement vm_uffd_ops are supported */
 +	if (!ops)
++		return false;
++
+ 	vm_flags &= __VM_UFFD_FLAGS;
+ 
+ 	if (vma->vm_flags & (VM_DROPPABLE | VM_SHADOW_STACK))
+@@ -2072,10 +2097,6 @@ bool vma_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags,
+ 	if (!is_vm_hugetlb_page(vma) && (vma->vm_flags & VM_SPECIAL))
  		return false;
  
 -	if ((vm_flags & VM_UFFD_MINOR) &&
 -	    (!is_vm_hugetlb_page(vma) && !vma_is_shmem(vma)))
-+	vm_flags &= __VM_UFFD_FLAGS;
-+
-+	if (vma->vm_flags & VM_DROPPABLE)
- 		return false;
- 
+-		return false;
+-
  	/*
-@@ -2080,16 +2101,13 @@ bool vma_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags,
+ 	 * If wp async enabled, and WP is the only mode enabled, allow any
+ 	 * memory type.
+@@ -2085,16 +2106,13 @@ bool vma_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags,
  
  	/*
  	 * If user requested uffd-wp but not enabled pte markers for

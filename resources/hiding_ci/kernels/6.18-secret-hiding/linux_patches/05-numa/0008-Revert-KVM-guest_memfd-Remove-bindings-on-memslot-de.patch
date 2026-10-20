@@ -1,19 +1,21 @@
-From 020492b259966f8bda893dce488805a9e4621c77 Mon Sep 17 00:00:00 2001
+From f378bfda82a5d4aa94bb71367923a9029668d08c Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 12 Jan 2026 17:02:07 +0000
-Subject: [PATCH 08/84] Revert "KVM: guest_memfd: Remove bindings on memslot
+Subject: [PATCH 08/94] Revert "KVM: guest_memfd: Remove bindings on memslot
  deletion when gmem is dying"
 
 This reverts commit ae431059e75d36170a5ae6b44cc4d06d43613215.
+
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  virt/kvm/guest_memfd.c | 45 ++++++++++++------------------------------
  1 file changed, 13 insertions(+), 32 deletions(-)
 
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index e8a784d2e02f..1e4af29159ea 100644
+index 7838804dcceb..76e535ee26b4 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
-@@ -621,50 +621,31 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
+@@ -625,50 +625,31 @@ err:
  	return r;
  }
  
@@ -77,6 +79,3 @@ index e8a784d2e02f..1e4af29159ea 100644
  	filemap_invalidate_unlock(file->f_mapping);
  
  	fput(file);
--- 
-2.50.1
-

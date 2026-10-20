@@ -1,4 +1,4 @@
-From a4c0be625af04e29bfc1116576a1cc92b8240e9d Mon Sep 17 00:00:00 2001
+From 1e413ff50f782161809f70b09a14c20b20071135 Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Thu, 16 Oct 2025 10:28:47 -0700
 Subject: [PATCH 14/94] KVM: selftests: Define wrappers for common syscalls to
@@ -24,6 +24,7 @@ Tested-by: Shivank Garg <shivankg@amd.com>
 Link: https://lore.kernel.org/r/20251016172853.52451-7-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/arm64/vgic_irq.c  |  2 +-
  .../selftests/kvm/include/kvm_syscalls.h      | 81 +++++++++++++++++++
@@ -35,7 +36,7 @@ Signed-off-by: Firecracker CI <ci@email.com>
  create mode 100644 tools/testing/selftests/kvm/include/kvm_syscalls.h
 
 diff --git a/tools/testing/selftests/kvm/arm64/vgic_irq.c b/tools/testing/selftests/kvm/arm64/vgic_irq.c
-index 6338f5bbd..8d7758f12 100644
+index 6338f5bbdb70..8d7758f12280 100644
 --- a/tools/testing/selftests/kvm/arm64/vgic_irq.c
 +++ b/tools/testing/selftests/kvm/arm64/vgic_irq.c
 @@ -636,7 +636,7 @@ static void kvm_routing_and_irqfd_check(struct kvm_vm *vm,
@@ -49,7 +50,7 @@ index 6338f5bbd..8d7758f12 100644
  /* handles the valid case: intid=0xffffffff num=1 */
 diff --git a/tools/testing/selftests/kvm/include/kvm_syscalls.h b/tools/testing/selftests/kvm/include/kvm_syscalls.h
 new file mode 100644
-index 000000000..d4e613162
+index 000000000000..d4e613162bba
 --- /dev/null
 +++ b/tools/testing/selftests/kvm/include/kvm_syscalls.h
 @@ -0,0 +1,81 @@
@@ -135,7 +136,7 @@ index 000000000..d4e613162
 +
 +#endif /* SELFTEST_KVM_SYSCALLS_H */
 diff --git a/tools/testing/selftests/kvm/include/kvm_util.h b/tools/testing/selftests/kvm/include/kvm_util.h
-index d3f3e455c..af52cd938 100644
+index d3f3e455c031..af52cd938b50 100644
 --- a/tools/testing/selftests/kvm/include/kvm_util.h
 +++ b/tools/testing/selftests/kvm/include/kvm_util.h
 @@ -23,6 +23,7 @@
@@ -182,7 +183,7 @@ index d3f3e455c..af52cd938 100644
   * Use the "inner", double-underscore macro when reporting errors from within
   * other macros so that the name of ioctl() and not its literal numeric value
 diff --git a/tools/testing/selftests/kvm/kvm_binary_stats_test.c b/tools/testing/selftests/kvm/kvm_binary_stats_test.c
-index f02355c3c..b7dbde9c0 100644
+index f02355c3c4c2..b7dbde9c0843 100644
 --- a/tools/testing/selftests/kvm/kvm_binary_stats_test.c
 +++ b/tools/testing/selftests/kvm/kvm_binary_stats_test.c
 @@ -239,14 +239,14 @@ int main(int argc, char *argv[])
@@ -203,7 +204,7 @@ index f02355c3c..b7dbde9c0 100644
  		}
  
 diff --git a/tools/testing/selftests/kvm/lib/kvm_util.c b/tools/testing/selftests/kvm/lib/kvm_util.c
-index 1a93d6361..203e33697 100644
+index 1a93d6361671..203e33697492 100644
 --- a/tools/testing/selftests/kvm/lib/kvm_util.c
 +++ b/tools/testing/selftests/kvm/lib/kvm_util.c
 @@ -704,8 +704,6 @@ userspace_mem_region_find(struct kvm_vm *vm, uint64_t start, uint64_t end)
@@ -298,7 +299,7 @@ index 1a93d6361..203e33697 100644
  
  		region->region.guest_memfd = guest_memfd;
 diff --git a/tools/testing/selftests/kvm/x86/private_mem_conversions_test.c b/tools/testing/selftests/kvm/x86/private_mem_conversions_test.c
-index 82a8d88b5..1969f4ab9 100644
+index 82a8d88b5338..1969f4ab9b28 100644
 --- a/tools/testing/selftests/kvm/x86/private_mem_conversions_test.c
 +++ b/tools/testing/selftests/kvm/x86/private_mem_conversions_test.c
 @@ -380,7 +380,7 @@ static void test_mem_conversions(enum vm_mem_backing_src_type src_type, uint32_t

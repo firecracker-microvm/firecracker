@@ -1,4 +1,4 @@
-From 6280e0d3bc5d7ba137ecaf2e0ef3eab92e778559 Mon Sep 17 00:00:00 2001
+From 447b1d3759bd207dc7379ec3b4686c26b36b70ba Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Mon, 9 Mar 2026 12:30:58 -0700
 Subject: [PATCH 85/94] srcu: Add and export call_srcu_expedited() to avoid
@@ -26,6 +26,7 @@ by 15% or more.
 
 Link: https://lore.kernel.org/all/a84ddba8-12da-489a-9dd1-ccdf7451a1ba@amazon.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/srcutiny.h | 7 +++++++
  include/linux/srcutree.h | 2 ++
@@ -33,10 +34,10 @@ Signed-off-by: Sean Christopherson <seanjc@google.com>
  3 files changed, 16 insertions(+)
 
 diff --git a/include/linux/srcutiny.h b/include/linux/srcutiny.h
-index d99d296ecde1..f3bbf072bbf7 100644
+index 7314780f5bab..675d2cabea98 100644
 --- a/include/linux/srcutiny.h
 +++ b/include/linux/srcutiny.h
-@@ -101,6 +101,13 @@ static inline void srcu_barrier(struct srcu_struct *ssp)
+@@ -105,6 +105,13 @@ static inline void srcu_barrier(struct srcu_struct *ssp)
  	synchronize_srcu(ssp);
  }
  
@@ -81,6 +82,3 @@ index 1ff94b76d91f..6999897096ac 100644
  /*
   * Helper function for synchronize_srcu() and synchronize_srcu_expedited().
   */
--- 
-2.50.1
-

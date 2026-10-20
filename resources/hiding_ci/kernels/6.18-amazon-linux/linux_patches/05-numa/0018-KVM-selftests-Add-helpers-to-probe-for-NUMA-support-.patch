@@ -1,4 +1,4 @@
-From 274d2807e386890ece2e4f2076958641d8619a01 Mon Sep 17 00:00:00 2001
+From 52b434a349d9735253a315670e92a512843435f3 Mon Sep 17 00:00:00 2001
 From: Shivank Garg <shivankg@amd.com>
 Date: Thu, 16 Oct 2025 10:28:51 -0700
 Subject: [PATCH 18/94] KVM: selftests: Add helpers to probe for NUMA support,
@@ -13,12 +13,13 @@ Signed-off-by: Shivank Garg <shivankg@amd.com>
 Link: https://lore.kernel.org/r/20251016172853.52451-11-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/include/numaif.h | 52 ++++++++++++++++++++
  1 file changed, 52 insertions(+)
 
 diff --git a/tools/testing/selftests/kvm/include/numaif.h b/tools/testing/selftests/kvm/include/numaif.h
-index 1554003c4..29572a6d7 100644
+index 1554003c40a1..29572a6d789c 100644
 --- a/tools/testing/selftests/kvm/include/numaif.h
 +++ b/tools/testing/selftests/kvm/include/numaif.h
 @@ -4,6 +4,8 @@

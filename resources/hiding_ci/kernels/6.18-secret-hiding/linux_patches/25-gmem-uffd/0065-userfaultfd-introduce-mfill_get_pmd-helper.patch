@@ -1,4 +1,4 @@
-From 90b7d3d185ed63dc243ae3a2db37ddf73daf6bc7 Mon Sep 17 00:00:00 2001
+From 079e06e3786f5784b6a4a120a4ef663077c42eb2 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:03 +0200
 Subject: [PATCH 65/94] userfaultfd: introduce mfill_get_pmd() helper.
@@ -12,12 +12,13 @@ Move the code that establishes a PMD into a helper function so it can be
 reused later during refactoring of mfill_atomic_pte_copy().
 
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  mm/userfaultfd.c | 103 ++++++++++++++++++++++++-----------------------
  1 file changed, 53 insertions(+), 50 deletions(-)
 
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 386e71339acc..e8677f2e3a20 100644
+index ae0e5e55a437..de232630076d 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -157,6 +157,57 @@ static void uffd_mfill_unlock(struct vm_area_struct *vma)
@@ -78,7 +79,7 @@ index 386e71339acc..e8677f2e3a20 100644
  /* Check if dst_addr is outside of file's size. Must be called with ptl held. */
  static bool mfill_file_over_size(struct vm_area_struct *dst_vma,
  				 unsigned long dst_addr)
-@@ -485,27 +536,6 @@ static int mfill_atomic_pte_poison(struct mfill_state *state)
+@@ -485,27 +536,6 @@ out:
  	return ret;
  }
  
@@ -114,7 +115,7 @@ index 386e71339acc..e8677f2e3a20 100644
  
  	/*
  	 * Sanitize the command parameters:
-@@ -802,41 +831,15 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
+@@ -802,41 +831,15 @@ retry:
  	while (state.src_addr < src_start + len) {
  		VM_WARN_ON_ONCE(state.dst_addr >= dst_start + len);
  
@@ -158,6 +159,3 @@ index 386e71339acc..e8677f2e3a20 100644
  		err = mfill_atomic_pte(&state);
  		cond_resched();
  
--- 
-2.50.1
-

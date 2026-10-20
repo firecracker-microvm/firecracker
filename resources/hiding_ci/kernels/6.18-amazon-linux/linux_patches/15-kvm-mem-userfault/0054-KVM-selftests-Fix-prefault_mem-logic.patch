@@ -1,4 +1,4 @@
-From 27b8c117e997043f3e29409adfccd79135ad883f Mon Sep 17 00:00:00 2001
+From cdd52b05a8cf73f9bf2686778584ded985e76cae Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Wed, 4 Dec 2024 19:13:43 +0000
 Subject: [PATCH 54/94] KVM: selftests: Fix prefault_mem logic
@@ -9,12 +9,13 @@ vCPU's memory and not the rest.
 
 Signed-off-by: James Houghton <jthoughton@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/demand_paging_test.c | 6 ++++--
  1 file changed, 4 insertions(+), 2 deletions(-)
 
 diff --git a/tools/testing/selftests/kvm/demand_paging_test.c b/tools/testing/selftests/kvm/demand_paging_test.c
-index 0202b78f8..315f5c903 100644
+index 0202b78f8680..315f5c9037b4 100644
 --- a/tools/testing/selftests/kvm/demand_paging_test.c
 +++ b/tools/testing/selftests/kvm/demand_paging_test.c
 @@ -172,11 +172,13 @@ static void run_test(enum vm_guest_mode mode, void *arg)

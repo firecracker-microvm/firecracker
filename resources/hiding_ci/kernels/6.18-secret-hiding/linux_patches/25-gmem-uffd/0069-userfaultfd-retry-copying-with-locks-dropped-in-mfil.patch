@@ -1,4 +1,4 @@
-From 89f310a7638432ec379309470c68707e6dc0b988 Mon Sep 17 00:00:00 2001
+From 0adc9c91cdc8182f8bcd9e251e118679c89361ca Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:05 +0200
 Subject: [PATCH 69/94] userfaultfd: retry copying with locks dropped in
@@ -24,12 +24,13 @@ removed later when shmem implementation will be updated later and the
 loop in mfill_atomic() will be adjusted.
 
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  mm/userfaultfd.c | 78 +++++++++++++++++++++++++++++++++---------------
  1 file changed, 54 insertions(+), 24 deletions(-)
 
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 78d29499c5a9..391a27b7b9b7 100644
+index f1d655b6a2e1..ea76a9c7e56c 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -159,6 +159,9 @@ static void uffd_mfill_unlock(struct vm_area_struct *vma)
@@ -147,6 +148,3 @@ index 78d29499c5a9..391a27b7b9b7 100644
  	folio_put(folio);
  	goto out;
  }
--- 
-2.50.1
-

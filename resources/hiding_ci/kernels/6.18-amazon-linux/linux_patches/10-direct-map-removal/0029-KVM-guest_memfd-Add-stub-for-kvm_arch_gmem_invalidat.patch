@@ -1,4 +1,4 @@
-From 617519165e2ce3d8d563d7fe4668982f1009dc09 Mon Sep 17 00:00:00 2001
+From 7013c57129f91e1b8042b27f4b515eb7caac1cb6 Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:33 +0100
 Subject: [PATCH 29/94] KVM: guest_memfd: Add stub for kvm_arch_gmem_invalidate
@@ -15,29 +15,30 @@ Acked-by: Vlastimil Babka <vbabka@suse.cz>
 Reviewed-by: Ackerley Tng <ackerleytng@google.com>
 Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/kvm_host.h | 2 ++
  virt/kvm/guest_memfd.c   | 4 ----
  2 files changed, 2 insertions(+), 4 deletions(-)
 
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index 398e5695d..a675558e0 100644
+index 56033126bcde..5fbd2118a9c2 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
-@@ -2594,6 +2594,8 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t gfn, void __user *src, long npages
- 
+@@ -2600,6 +2600,8 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t gfn, void __user *src, long npages
  #ifdef CONFIG_HAVE_KVM_ARCH_GMEM_INVALIDATE
  void kvm_arch_gmem_invalidate(kvm_pfn_t start, kvm_pfn_t end);
+ void kvm_arch_gmem_invalidate_range(struct kvm *kvm, struct kvm_gfn_range *range);
 +#else
 +static inline void kvm_arch_gmem_invalidate(kvm_pfn_t start, kvm_pfn_t end) { }
  #endif
  
  #ifdef CONFIG_KVM_GENERIC_PRE_FAULT_MEMORY
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 427c0acee..658b61176 100644
+index c2054eb046c5..01eb13dacc2e 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
-@@ -527,7 +527,6 @@ static int kvm_gmem_error_folio(struct address_space *mapping, struct folio *fol
+@@ -531,7 +531,6 @@ static int kvm_gmem_error_folio(struct address_space *mapping, struct folio *fol
  	return MF_DELAYED;
  }
  
@@ -45,7 +46,7 @@ index 427c0acee..658b61176 100644
  static void kvm_gmem_free_folio(struct folio *folio)
  {
  	struct page *page = folio_page(folio, 0);
-@@ -536,15 +535,12 @@ static void kvm_gmem_free_folio(struct folio *folio)
+@@ -540,15 +539,12 @@ static void kvm_gmem_free_folio(struct folio *folio)
  
  	kvm_arch_gmem_invalidate(pfn, pfn + (1ul << order));
  }

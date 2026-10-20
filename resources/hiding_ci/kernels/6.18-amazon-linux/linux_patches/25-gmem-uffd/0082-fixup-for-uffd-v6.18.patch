@@ -1,15 +1,16 @@
-From 95ed64d0cd30c7348f3e9c1f0d8dfa8647bbeded Mon Sep 17 00:00:00 2001
+From c06c6c6cf1efa93c81428714ac8659d19e8afced Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 23 Jan 2026 16:07:52 +0000
 Subject: [PATCH 82/94] fixup for uffd + v6.18
 
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/asm-generic/pgtable_uffd.h | 17 +++++++++++++++++
  1 file changed, 17 insertions(+)
 
 diff --git a/include/asm-generic/pgtable_uffd.h b/include/asm-generic/pgtable_uffd.h
-index 828966d4c..0d85791ef 100644
+index 828966d4c281..0d85791efdf7 100644
 --- a/include/asm-generic/pgtable_uffd.h
 +++ b/include/asm-generic/pgtable_uffd.h
 @@ -1,6 +1,23 @@

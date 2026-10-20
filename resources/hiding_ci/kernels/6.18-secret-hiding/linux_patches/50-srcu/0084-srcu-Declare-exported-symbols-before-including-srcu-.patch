@@ -1,4 +1,4 @@
-From 761a222782779c348a12ae07ef434299b63c5ce8 Mon Sep 17 00:00:00 2001
+From 49b07bc4270ba0cba2280fda3cc40c2584899121 Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Mon, 9 Mar 2026 12:30:57 -0700
 Subject: [PATCH 84/94] srcu: Declare exported symbols before including
@@ -16,6 +16,7 @@ rcu_callback_t).
 No functional change intended.
 
 Signed-off-by: Sean Christopherson <seanjc@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/linux/srcu.h     | 10 +++++-----
  include/linux/srcutiny.h |  2 --
@@ -50,10 +51,10 @@ index ada65b58bc4c..b868ad82d834 100644
  
  /**
 diff --git a/include/linux/srcutiny.h b/include/linux/srcutiny.h
-index 51ce25f07930..d99d296ecde1 100644
+index 1f9a226e6fd8..7314780f5bab 100644
 --- a/include/linux/srcutiny.h
 +++ b/include/linux/srcutiny.h
-@@ -52,8 +52,6 @@ void srcu_drive_gp(struct work_struct *wp);
+@@ -56,8 +56,6 @@ void srcu_tiny_irq_work(struct irq_work *irq_work);
  struct srcu_usage { };
  #define __SRCU_USAGE_INIT(name) { }
  
@@ -62,6 +63,3 @@ index 51ce25f07930..d99d296ecde1 100644
  /*
   * Counts the new reader in the appropriate per-CPU element of the
   * srcu_struct.  Can be invoked from irq/bh handlers, but the matching
--- 
-2.50.1
-

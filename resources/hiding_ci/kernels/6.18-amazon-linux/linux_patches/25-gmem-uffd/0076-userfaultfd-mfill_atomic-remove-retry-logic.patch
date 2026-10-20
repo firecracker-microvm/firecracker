@@ -1,4 +1,4 @@
-From 89ded96481a3f5af99485afbcce8749666819fe9 Mon Sep 17 00:00:00 2001
+From bf65c5edc991c6d3ea75a0ba1df2c15e819c55e9 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:11 +0200
 Subject: [PATCH 76/94] userfaultfd: mfill_atomic(): remove retry logic
@@ -11,12 +11,13 @@ Drop the retry logic from mfill_atomic().
 
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  mm/userfaultfd.c | 24 ------------------------
  1 file changed, 24 deletions(-)
 
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 29d1805a0..8ee3ebc57 100644
+index 3bcf0b3c9180..19e05d55a13b 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -29,7 +29,6 @@ struct mfill_state {
@@ -35,7 +36,7 @@ index 29d1805a0..8ee3ebc57 100644
  	err = mfill_get_vma(&state);
  	if (err)
  		goto out;
-@@ -918,26 +916,6 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
+@@ -918,26 +916,6 @@ retry:
  		err = mfill_atomic_pte(&state);
  		cond_resched();
  
@@ -62,7 +63,7 @@ index 29d1805a0..8ee3ebc57 100644
  		if (!err) {
  			state.dst_addr += PAGE_SIZE;
  			state.src_addr += PAGE_SIZE;
-@@ -952,8 +930,6 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
+@@ -952,8 +930,6 @@ retry:
  
  	mfill_put_vma(&state);
  out:

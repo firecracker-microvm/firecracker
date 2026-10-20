@@ -1,4 +1,4 @@
-From d28afd756826e401f31424b7bd135e3675d46b09 Mon Sep 17 00:00:00 2001
+From d2e9ac0d1dbdfcc7793d171ce5fa328fe272121d Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Wed, 4 Dec 2024 19:13:47 +0000
 Subject: [PATCH 58/94] KVM: selftests: Add KVM_MEM_USERFAULT + guest_memfd
@@ -8,6 +8,7 @@ Make sure KVM_MEM_USERFAULT can be toggled on and off for
 KVM_MEM_GUEST_MEMFD memslots.
 
 Signed-off-by: James Houghton <jthoughton@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../selftests/kvm/set_memory_region_test.c    | 30 +++++++++++++++++++
  1 file changed, 30 insertions(+)
@@ -60,6 +61,3 @@ index ceff6416a72f..65a799e3fa11 100644
  		}
  
  		if ((valid_flags & GUEST_MEMFD_FLAG_MMAP) &&
--- 
-2.50.1
-

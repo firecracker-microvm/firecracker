@@ -1,4 +1,4 @@
-From f4e56592c7e30e9989a9f37c4e182a9a9cc0c2b8 Mon Sep 17 00:00:00 2001
+From 9721a0f1346e82fe6ff1e7ca05f0c6c74d3f5b6f Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:34 +0100
 Subject: [PATCH 33/94] KVM: selftests: load elf via bounce buffer
@@ -12,6 +12,7 @@ bounce buffer, and then memcpy from the bounce buffer into guest memory.
 
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
 Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../testing/selftests/kvm/include/test_util.h |  1 +
  tools/testing/selftests/kvm/lib/elf.c         |  8 +++----
@@ -101,6 +102,3 @@ index fedb2a741f0b..60613dce6cfd 100644
 +
 +	return num_read;
 +}
--- 
-2.50.1
-

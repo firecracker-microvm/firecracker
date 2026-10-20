@@ -1,4 +1,4 @@
-From 8bcdc656f44f749e821d5e4ea368d021de4c8b17 Mon Sep 17 00:00:00 2001
+From 4052ee18e0b2fe6beba9addb3a0f2fb6728ab779 Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:34 +0100
 Subject: [PATCH 34/94] KVM: selftests: set KVM_MEM_GUEST_MEMFD in vm_mem_add()
@@ -22,12 +22,13 @@ and flags are in-sync becomes cumbersome.
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
 Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/lib/kvm_util.c | 24 +++++++++++++---------
  1 file changed, 14 insertions(+), 10 deletions(-)
 
 diff --git a/tools/testing/selftests/kvm/lib/kvm_util.c b/tools/testing/selftests/kvm/lib/kvm_util.c
-index a334f6ed5..1b9022450 100644
+index a334f6ed50d6..1b9022450ccc 100644
 --- a/tools/testing/selftests/kvm/lib/kvm_util.c
 +++ b/tools/testing/selftests/kvm/lib/kvm_util.c
 @@ -1055,21 +1055,25 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,

@@ -1,4 +1,4 @@
-From ac7771a8dda0249f3b290c5217d4289cc4a86fd8 Mon Sep 17 00:00:00 2001
+From 0fa5520990dd978461004249ee89eb4cda05453f Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Thu, 30 Apr 2026 14:28:59 +0000
 Subject: [PATCH 90/94] KVM: Add KVM_ASYNC_PF ioctl and auto-complete pending
@@ -31,7 +31,7 @@ Signed-off-by: Firecracker CI <ci@email.com>
  5 files changed, 96 insertions(+)
 
 diff --git a/arch/x86/kvm/Kconfig b/arch/x86/kvm/Kconfig
-index 180781998..b2c8e75c7 100644
+index 180781998aa7..b2c8e75c7d6f 100644
 --- a/arch/x86/kvm/Kconfig
 +++ b/arch/x86/kvm/Kconfig
 @@ -30,6 +30,7 @@ config KVM_X86
@@ -43,10 +43,10 @@ index 180781998..b2c8e75c7 100644
  	select KVM_ASYNC_PF
  	select USER_RETURN_NOTIFIER
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 6001d22b1..9abe84282 100644
+index d593ecda1ec0..7d9bb4e04d30 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
-@@ -6226,6 +6226,38 @@ static int kvm_get_reg_list(struct kvm_vcpu *vcpu,
+@@ -5816,6 +5816,38 @@ static int kvm_get_reg_list(struct kvm_vcpu *vcpu,
  	return 0;
  }
  
@@ -85,7 +85,7 @@ index 6001d22b1..9abe84282 100644
  long kvm_arch_vcpu_ioctl(struct file *filp,
  			 unsigned int ioctl, unsigned long arg)
  {
-@@ -6244,6 +6276,26 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
+@@ -5834,6 +5866,26 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
  
  	u.buffer = NULL;
  	switch (ioctl) {
@@ -112,7 +112,7 @@ index 6001d22b1..9abe84282 100644
  	case KVM_GET_LAPIC: {
  		r = -EINVAL;
  		if (!lapic_in_kernel(vcpu))
-@@ -12035,6 +12087,8 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
+@@ -11611,6 +11663,8 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
  	if (r <= 0)
  		goto out;
  
@@ -122,7 +122,7 @@ index 6001d22b1..9abe84282 100644
  
  out:
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index b008940c5..747550758 100644
+index 961b78e09e87..04ca4ef77f78 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
 @@ -262,6 +262,7 @@ struct kvm_async_pf {
@@ -134,7 +134,7 @@ index b008940c5..747550758 100644
  void kvm_clear_async_pf_completion_queue(struct kvm_vcpu *vcpu);
  void kvm_check_async_pf_completion(struct kvm_vcpu *vcpu);
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index 0caa6e33e..0001d2e6a 100644
+index 0caa6e33e853..0001d2e6aec1 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
 @@ -1643,6 +1643,11 @@ struct kvm_create_guest_memfd {
@@ -150,7 +150,7 @@ index 0caa6e33e..0001d2e6a 100644
   * initialized request is never interpreted as a valid op.
   */
 diff --git a/virt/kvm/async_pf.c b/virt/kvm/async_pf.c
-index f7861f150..61aa29678 100644
+index f7861f150795..61aa29678b0f 100644
 --- a/virt/kvm/async_pf.c
 +++ b/virt/kvm/async_pf.c
 @@ -217,6 +217,41 @@ int kvm_async_pf_accept(struct kvm_vcpu *vcpu, gpa_t gpa)

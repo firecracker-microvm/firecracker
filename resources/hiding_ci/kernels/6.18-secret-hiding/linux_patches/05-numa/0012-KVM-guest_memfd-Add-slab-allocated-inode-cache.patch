@@ -1,7 +1,7 @@
-From 3d0fc9b7e719580a7a6dd7759dd1e6908fdad7a8 Mon Sep 17 00:00:00 2001
+From a8be06b61a7365abfe95ac76756044912654bf44 Mon Sep 17 00:00:00 2001
 From: Shivank Garg <shivankg@amd.com>
 Date: Thu, 16 Oct 2025 10:28:45 -0700
-Subject: [PATCH 12/84] KVM: guest_memfd: Add slab-allocated inode cache
+Subject: [PATCH 12/94] KVM: guest_memfd: Add slab-allocated inode cache
 
 Add a dedicated gmem_inode structure and a slab-allocated inode cache for
 guest memory backing, similar to how shmem handles inodes.
@@ -18,12 +18,13 @@ Reviewed-by: Ackerley Tng <ackerleytng@google.com>
 Tested-by: Ackerley Tng <ackerleytng@google.com>
 Link: https://lore.kernel.org/r/20251016172853.52451-5-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  virt/kvm/guest_memfd.c | 77 +++++++++++++++++++++++++++++++++++++++++-
  1 file changed, 76 insertions(+), 1 deletion(-)
 
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index ce04fc85e631..88fd812f0f31 100644
+index 00fee3be72da..a664c5e70431 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -26,6 +26,15 @@ struct gmem_file {
@@ -42,7 +43,7 @@ index ce04fc85e631..88fd812f0f31 100644
  #define kvm_gmem_for_each_file(f, mapping) \
  	list_for_each_entry(f, &(mapping)->i_private_list, entry)
  
-@@ -830,13 +839,61 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long
+@@ -834,13 +843,61 @@ put_folio_and_exit:
  EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_gmem_populate);
  #endif
  
@@ -104,7 +105,7 @@ index ce04fc85e631..88fd812f0f31 100644
  
  	return 0;
  }
-@@ -860,13 +917,31 @@ static int kvm_gmem_init_mount(void)
+@@ -864,13 +921,31 @@ static int kvm_gmem_init_mount(void)
  
  int kvm_gmem_init(struct module *module)
  {
@@ -137,6 +138,3 @@ index ce04fc85e631..88fd812f0f31 100644
 +	rcu_barrier();
 +	kmem_cache_destroy(kvm_gmem_inode_cachep);
  }
--- 
-2.50.1
-

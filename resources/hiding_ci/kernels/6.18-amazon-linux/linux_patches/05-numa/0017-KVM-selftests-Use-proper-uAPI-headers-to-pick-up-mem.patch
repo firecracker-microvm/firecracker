@@ -1,4 +1,4 @@
-From 0a6d2d2ea473a78ec97f1d6fac8d17668ec2849b Mon Sep 17 00:00:00 2001
+From 510196a61cedfafaed4081690da7f5bc3d5be519 Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Thu, 16 Oct 2025 10:28:50 -0700
 Subject: [PATCH 17/94] KVM: selftests: Use proper uAPI headers to pick up
@@ -21,12 +21,13 @@ Tested-by: Shivank Garg <shivankg@amd.com>
 Link: https://lore.kernel.org/r/20251016172853.52451-10-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/include/numaif.h | 32 +-------------------
  1 file changed, 1 insertion(+), 31 deletions(-)
 
 diff --git a/tools/testing/selftests/kvm/include/numaif.h b/tools/testing/selftests/kvm/include/numaif.h
-index aaa4ac174..1554003c4 100644
+index aaa4ac174890..1554003c40a1 100644
 --- a/tools/testing/selftests/kvm/include/numaif.h
 +++ b/tools/testing/selftests/kvm/include/numaif.h
 @@ -1,14 +1,5 @@

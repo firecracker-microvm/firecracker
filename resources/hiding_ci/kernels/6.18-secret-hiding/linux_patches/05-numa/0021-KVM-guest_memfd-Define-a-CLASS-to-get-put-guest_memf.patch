@@ -1,7 +1,7 @@
-From 6d8ebf0f5717f62dc91fc43ad39ce72829af266d Mon Sep 17 00:00:00 2001
+From 677059b13ade7341a23e0644aa6a3ceb1a2fc870 Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Tue, 7 Oct 2025 15:23:56 -0700
-Subject: [PATCH 21/84] KVM: guest_memfd: Define a CLASS to get+put guest_memfd
+Subject: [PATCH 21/94] KVM: guest_memfd: Define a CLASS to get+put guest_memfd
  file from a memslot
 
 Add a CLASS to handle getting and putting a guest_memfd file given a
@@ -34,15 +34,16 @@ No functional change intended.
 
 Link: https://lore.kernel.org/r/20251007222356.348349-1-seanjc@google.com
 Signed-off-by: Sean Christopherson <seanjc@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  virt/kvm/guest_memfd.c | 22 ++++++++--------------
  1 file changed, 8 insertions(+), 14 deletions(-)
 
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 20f6e7fab58d..427c0acee9d7 100644
+index 339b6e3f825b..c2054eb046c5 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
-@@ -385,6 +385,9 @@ static inline struct file *kvm_gmem_get_file(struct kvm_memory_slot *slot)
+@@ -389,6 +389,9 @@ static inline struct file *kvm_gmem_get_file(struct kvm_memory_slot *slot)
  	return get_file_active(&slot->gmem.file);
  }
  
@@ -52,7 +53,7 @@ index 20f6e7fab58d..427c0acee9d7 100644
  static bool kvm_gmem_supports_mmap(struct inode *inode)
  {
  	return GMEM_I(inode)->flags & GUEST_MEMFD_FLAG_MMAP;
-@@ -710,13 +713,12 @@ void kvm_gmem_unbind(struct kvm_memory_slot *slot)
+@@ -714,13 +717,12 @@ void kvm_gmem_unbind(struct kvm_memory_slot *slot)
  	unsigned long start = slot->gmem.pgoff;
  	unsigned long end = start + slot->npages;
  	struct gmem_file *f;
@@ -67,7 +68,7 @@ index 20f6e7fab58d..427c0acee9d7 100644
  	if (!file)
  		return;
  
-@@ -731,8 +733,6 @@ void kvm_gmem_unbind(struct kvm_memory_slot *slot)
+@@ -735,8 +737,6 @@ void kvm_gmem_unbind(struct kvm_memory_slot *slot)
  	 */
  	WRITE_ONCE(slot->gmem.file, NULL);
  	filemap_invalidate_unlock(file->f_mapping);
@@ -76,7 +77,7 @@ index 20f6e7fab58d..427c0acee9d7 100644
  }
  
  /* Returns a locked folio on success.  */
-@@ -778,19 +778,17 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
+@@ -782,19 +782,17 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
  		     int *max_order)
  {
  	pgoff_t index = kvm_gmem_get_index(slot, gfn);
@@ -99,7 +100,7 @@ index 20f6e7fab58d..427c0acee9d7 100644
  
  	if (!is_prepared)
  		r = kvm_gmem_prepare_folio(kvm, slot, gfn, folio);
-@@ -802,8 +800,6 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
+@@ -806,8 +804,6 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
  	else
  		folio_put(folio);
  
@@ -108,7 +109,7 @@ index 20f6e7fab58d..427c0acee9d7 100644
  	return r;
  }
  EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_gmem_get_pfn);
-@@ -812,7 +808,6 @@ EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_gmem_get_pfn);
+@@ -816,7 +812,6 @@ EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_gmem_get_pfn);
  long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long npages,
  		       kvm_gmem_populate_cb post_populate, void *opaque)
  {
@@ -116,7 +117,7 @@ index 20f6e7fab58d..427c0acee9d7 100644
  	struct kvm_memory_slot *slot;
  	void __user *p;
  
-@@ -828,7 +823,7 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long
+@@ -832,7 +827,7 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long
  	if (!kvm_slot_has_gmem(slot))
  		return -EINVAL;
  
@@ -125,7 +126,7 @@ index 20f6e7fab58d..427c0acee9d7 100644
  	if (!file)
  		return -EFAULT;
  
-@@ -886,7 +881,6 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long
+@@ -890,7 +885,6 @@ put_folio_and_exit:
  
  	filemap_invalidate_unlock(file->f_mapping);
  
@@ -133,6 +134,3 @@ index 20f6e7fab58d..427c0acee9d7 100644
  	return ret && !i ? ret : i;
  }
  EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_gmem_populate);
--- 
-2.50.1
-

@@ -1,4 +1,4 @@
-From ee5dbab651faa3f0c1a336b44acaa2655f1c40ca Mon Sep 17 00:00:00 2001
+From 0c14c5fcb2ece913ae74ad2b67e5046c7a5aa91e Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
 Date: Sun, 22 Feb 2026 14:30:14 +0000
 Subject: [PATCH 42/94] KVM: pfncache: Obtain KHVA via vmap() for gmem with
@@ -42,12 +42,13 @@ pages.
 
 Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  virt/kvm/pfncache.c | 33 ++++++++++++++++++++++++++++-----
  1 file changed, 28 insertions(+), 5 deletions(-)
 
 diff --git a/virt/kvm/pfncache.c b/virt/kvm/pfncache.c
-index 5d16e2b8a..0b49ba98f 100644
+index 5d16e2b8a6eb..0b49ba98f33f 100644
 --- a/virt/kvm/pfncache.c
 +++ b/virt/kvm/pfncache.c
 @@ -16,6 +16,7 @@

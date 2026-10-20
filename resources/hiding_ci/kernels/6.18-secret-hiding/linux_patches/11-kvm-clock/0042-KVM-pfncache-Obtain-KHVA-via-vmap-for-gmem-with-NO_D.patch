@@ -1,4 +1,4 @@
-From 46d084369ead434c29b98d7beb7ff97164123359 Mon Sep 17 00:00:00 2001
+From c2a1588ff58a78bfd45a6a9e7169af7677c41a89 Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
 Date: Sun, 22 Feb 2026 14:30:14 +0000
 Subject: [PATCH 42/94] KVM: pfncache: Obtain KHVA via vmap() for gmem with
@@ -41,6 +41,7 @@ virtual mappings to existing pages; they do not allocate new physical
 pages.
 
 Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  virt/kvm/pfncache.c | 33 ++++++++++++++++++++++++++++-----
  1 file changed, 28 insertions(+), 5 deletions(-)
@@ -110,6 +111,3 @@ index 5d16e2b8a6eb..0b49ba98f33f 100644
  		 */
  		if (new_pfn == gpc->pfn)
  			new_khva = old_khva;
--- 
-2.50.1
-

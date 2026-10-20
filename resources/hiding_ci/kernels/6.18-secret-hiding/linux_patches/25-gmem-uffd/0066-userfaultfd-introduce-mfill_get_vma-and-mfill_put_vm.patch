@@ -1,4 +1,4 @@
-From 2bfd57d5273e01519f651e79051ea083ecb50a46 Mon Sep 17 00:00:00 2001
+From 964d157d0b6d1ef4cba99bc4d035fa52f7d64f99 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:04 +0200
 Subject: [PATCH 66/94] userfaultfd: introduce mfill_get_vma() and
@@ -14,12 +14,13 @@ Add a counterpart mfill_put_vma() helper that unlocks the VMA and
 releases map_changing_lock.
 
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  mm/userfaultfd.c | 124 ++++++++++++++++++++++++++++-------------------
  1 file changed, 73 insertions(+), 51 deletions(-)
 
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index e8677f2e3a20..83a9377130fd 100644
+index de232630076d..a3610f05e6f4 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -157,6 +157,73 @@ static void uffd_mfill_unlock(struct vm_area_struct *vma)
@@ -167,7 +168,7 @@ index e8677f2e3a20..83a9377130fd 100644
  	while (state.src_addr < src_start + len) {
  		VM_WARN_ON_ONCE(state.dst_addr >= dst_start + len);
  
-@@ -846,8 +871,7 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
+@@ -846,8 +871,7 @@ retry:
  		if (unlikely(err == -ENOENT)) {
  			void *kaddr;
  
@@ -177,7 +178,7 @@ index e8677f2e3a20..83a9377130fd 100644
  			VM_WARN_ON_ONCE(!state.folio);
  
  			kaddr = kmap_local_folio(state.folio, 0);
-@@ -876,9 +900,7 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
+@@ -876,9 +900,7 @@ retry:
  			break;
  	}
  
@@ -188,6 +189,3 @@ index e8677f2e3a20..83a9377130fd 100644
  out:
  	if (state.folio)
  		folio_put(state.folio);
--- 
-2.50.1
-

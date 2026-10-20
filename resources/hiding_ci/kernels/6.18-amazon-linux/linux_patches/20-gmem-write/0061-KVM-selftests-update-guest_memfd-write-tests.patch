@@ -1,4 +1,4 @@
-From f72b9939f5f79bd32ca696a9ba269c3816e8a23f Mon Sep 17 00:00:00 2001
+From 4dc3b3eea22c8e7c1b2d1ebc30b52f2ded340d61 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 14 Nov 2025 11:35:11 +0000
 Subject: [PATCH 61/94] KVM: selftests: update guest_memfd write tests
@@ -8,12 +8,13 @@ guest_memfd.
 
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../testing/selftests/kvm/guest_memfd_test.c  | 58 +++++++++++++++++--
  1 file changed, 52 insertions(+), 6 deletions(-)
 
 diff --git a/tools/testing/selftests/kvm/guest_memfd_test.c b/tools/testing/selftests/kvm/guest_memfd_test.c
-index 5fcb922cc..e74757e27 100644
+index 5fcb922cce44..e74757e2715b 100644
 --- a/tools/testing/selftests/kvm/guest_memfd_test.c
 +++ b/tools/testing/selftests/kvm/guest_memfd_test.c
 @@ -25,18 +25,57 @@

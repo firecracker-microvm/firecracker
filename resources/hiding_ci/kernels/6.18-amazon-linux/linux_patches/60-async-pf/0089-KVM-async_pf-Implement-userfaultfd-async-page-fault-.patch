@@ -1,4 +1,4 @@
-From a728130b603ff6594d0c4332eddbd2bb82f3d142 Mon Sep 17 00:00:00 2001
+From 31f776351e0582c6dc52d272e911833ffc5a26fe Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Fri, 16 Jan 2026 15:14:32 +0000
 Subject: [PATCH 89/94] KVM: async_pf: Implement userfaultfd async page fault
@@ -26,10 +26,10 @@ Signed-off-by: Firecracker CI <ci@email.com>
  3 files changed, 143 insertions(+), 14 deletions(-)
 
 diff --git a/arch/s390/kvm/kvm-s390.c b/arch/s390/kvm/kvm-s390.c
-index a0162d03e..fa7c4cbcd 100644
+index ed08e2f3a8ec..1fe9a5710c10 100644
 --- a/arch/s390/kvm/kvm-s390.c
 +++ b/arch/s390/kvm/kvm-s390.c
-@@ -4770,7 +4770,8 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu)
+@@ -4773,7 +4773,8 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu)
  	if (read_guest_real(vcpu, vcpu->arch.pfault_token, &arch.pfault_token, 8))
  		return false;
  
@@ -40,7 +40,7 @@ index a0162d03e..fa7c4cbcd 100644
  
  static int vcpu_pre_run(struct kvm_vcpu *vcpu)
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index 4c97b058b..b008940c5 100644
+index 9cb3e6514ea9..961b78e09e87 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
 @@ -387,6 +387,7 @@ struct kvm_vcpu {
@@ -52,7 +52,7 @@ index 4c97b058b..b008940c5 100644
  #endif
  
 diff --git a/virt/kvm/async_pf.c b/virt/kvm/async_pf.c
-index 5a46e01ea..f7861f150 100644
+index 5a46e01ea91a..f7861f150795 100644
 --- a/virt/kvm/async_pf.c
 +++ b/virt/kvm/async_pf.c
 @@ -41,6 +41,8 @@ void kvm_async_pf_vcpu_init(struct kvm_vcpu *vcpu)

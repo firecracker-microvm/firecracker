@@ -1,4 +1,4 @@
-From 4a10f1a3698508ee4a616a9e1467db1ae24db2f6 Mon Sep 17 00:00:00 2001
+From 622af7bce657f4a16da78de8e4a47f50e838f92f Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:36 +0100
 Subject: [PATCH 38/94] KVM: selftests: Test guest execution from direct map
@@ -16,12 +16,13 @@ of trying to do direct map accesses).
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
 Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  .../selftests/kvm/set_memory_region_test.c    | 52 +++++++++++++++++--
  1 file changed, 48 insertions(+), 4 deletions(-)
 
 diff --git a/tools/testing/selftests/kvm/set_memory_region_test.c b/tools/testing/selftests/kvm/set_memory_region_test.c
-index 7fe427ff9..cb445d420 100644
+index 7fe427ff9b38..cb445d420e8c 100644
 --- a/tools/testing/selftests/kvm/set_memory_region_test.c
 +++ b/tools/testing/selftests/kvm/set_memory_region_test.c
 @@ -602,6 +602,41 @@ static void test_mmio_during_vectoring(void)

@@ -1,4 +1,4 @@
-From 1299dcd397d6d1d46bb9c53687d43a74aafbd2fb Mon Sep 17 00:00:00 2001
+From baaeec0a72260065f55a01da27a3695d1d5e1c06 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:18 +0000
 Subject: [PATCH 48/94] KVM: Add KVM_MEMORY_EXIT_FLAG_USERFAULT
@@ -8,12 +8,13 @@ the bit in `userfault_bitmap` corresponding to the faulting gfn was set.
 
 Signed-off-by: James Houghton <jthoughton@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  include/uapi/linux/kvm.h | 1 +
  1 file changed, 1 insertion(+)
 
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index ca8fff1fa..c1dcea0b2 100644
+index ca8fff1fa372..c1dcea0b2db1 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
 @@ -451,6 +451,7 @@ struct kvm_run {

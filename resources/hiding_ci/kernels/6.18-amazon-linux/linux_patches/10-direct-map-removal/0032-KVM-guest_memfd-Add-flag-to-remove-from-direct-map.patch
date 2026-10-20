@@ -1,4 +1,4 @@
-From b55a766aaf6e79b99c957530d998f2192ad43c9a Mon Sep 17 00:00:00 2001
+From f1e99722ebdba58161b63107ff67240e828e9ee6 Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:33 +0100
 Subject: [PATCH 32/94] KVM: guest_memfd: Add flag to remove from direct map
@@ -40,6 +40,7 @@ Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
 Co-developed-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  Documentation/virt/kvm/api.rst | 21 +++++-----
  include/linux/kvm_host.h       |  3 ++
@@ -48,7 +49,7 @@ Signed-off-by: Firecracker CI <ci@email.com>
  4 files changed, 85 insertions(+), 14 deletions(-)
 
 diff --git a/Documentation/virt/kvm/api.rst b/Documentation/virt/kvm/api.rst
-index 9f835f68b..0ba0a167f 100644
+index 10d8a366b207..33b8c26c87d8 100644
 --- a/Documentation/virt/kvm/api.rst
 +++ b/Documentation/virt/kvm/api.rst
 @@ -6440,15 +6440,18 @@ a single guest_memfd file, but the bound ranges must not overlap).
@@ -80,7 +81,7 @@ index 9f835f68b..0ba0a167f 100644
  When the KVM MMU performs a PFN lookup to service a guest fault and the backing
  guest_memfd has the GUEST_MEMFD_FLAG_MMAP set, then the fault will always be
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index c7f1695ef..ee192aa7e 100644
+index 7e12e3b0267b..1c5260cc6a21 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
 @@ -739,6 +739,9 @@ static inline u64 kvm_gmem_get_supported_flags(struct kvm *kvm)
@@ -94,7 +95,7 @@ index c7f1695ef..ee192aa7e 100644
  }
  #endif
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index 954e0511c..b7cb91a95 100644
+index 954e0511ce91..b7cb91a955b0 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
 @@ -1610,6 +1610,7 @@ struct kvm_memory_attributes {
@@ -106,7 +107,7 @@ index 954e0511c..b7cb91a95 100644
  struct kvm_create_guest_memfd {
  	__u64 size;
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 658b61176..9e493d049 100644
+index 01eb13dacc2e..ca8e3de4e267 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -7,6 +7,7 @@
@@ -157,7 +158,7 @@ index 658b61176..9e493d049 100644
  /*
   * Process @folio, which contains @gfn, so that the guest can use it.
   * The folio must be locked and the gfn must be contained in @slot.
-@@ -393,11 +427,17 @@ static bool kvm_gmem_supports_mmap(struct inode *inode)
+@@ -397,11 +431,17 @@ static bool kvm_gmem_supports_mmap(struct inode *inode)
  	return GMEM_I(inode)->flags & GUEST_MEMFD_FLAG_MMAP;
  }
  
@@ -175,7 +176,7 @@ index 658b61176..9e493d049 100644
  
  	if (((loff_t)vmf->pgoff << PAGE_SHIFT) >= i_size_read(inode))
  		return VM_FAULT_SIGBUS;
-@@ -423,6 +463,14 @@ static vm_fault_t kvm_gmem_fault_user_mapping(struct vm_fault *vmf)
+@@ -427,6 +467,14 @@ static vm_fault_t kvm_gmem_fault_user_mapping(struct vm_fault *vmf)
  		kvm_gmem_mark_prepared(folio);
  	}
  
@@ -190,7 +191,7 @@ index 658b61176..9e493d049 100644
  	vmf->page = folio_file_page(folio, vmf->pgoff);
  
  out_folio:
-@@ -534,6 +582,9 @@ static void kvm_gmem_free_folio(struct folio *folio)
+@@ -538,6 +586,9 @@ static void kvm_gmem_free_folio(struct folio *folio)
  	int order = folio_order(folio);
  
  	kvm_arch_gmem_invalidate(pfn, pfn + (1ul << order));
@@ -200,7 +201,7 @@ index 658b61176..9e493d049 100644
  }
  
  static const struct address_space_operations kvm_gmem_aops = {
-@@ -596,6 +647,9 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
+@@ -600,6 +651,9 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
  	/* Unmovable mappings are supposed to be marked unevictable as well. */
  	WARN_ON_ONCE(!mapping_unevictable(inode->i_mapping));
  
@@ -210,7 +211,7 @@ index 658b61176..9e493d049 100644
  	GMEM_I(inode)->flags = flags;
  
  	file = alloc_file_pseudo(inode, kvm_gmem_mnt, name, O_RDWR, &kvm_gmem_fops);
-@@ -786,15 +840,25 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
+@@ -790,15 +844,25 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
  	if (IS_ERR(folio))
  		return PTR_ERR(folio);
  

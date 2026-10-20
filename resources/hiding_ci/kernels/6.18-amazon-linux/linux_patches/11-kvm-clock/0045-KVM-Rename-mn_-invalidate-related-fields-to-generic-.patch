@@ -1,4 +1,4 @@
-From fe2281176ef028a2eef0d74fe660d2e293955967 Mon Sep 17 00:00:00 2001
+From 6579e51e07f8093f237e6eef431f1037e615cb75 Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
 Date: Sun, 22 Feb 2026 14:57:50 +0000
 Subject: [PATCH 45/94] KVM: Rename mn_* invalidate-related fields to generic
@@ -13,6 +13,7 @@ No functional changes intended.
 
 Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  Documentation/virt/kvm/locking.rst |  8 +++---
  include/linux/kvm_host.h           | 11 ++++---
@@ -21,7 +22,7 @@ Signed-off-by: Firecracker CI <ci@email.com>
  4 files changed, 47 insertions(+), 46 deletions(-)
 
 diff --git a/Documentation/virt/kvm/locking.rst b/Documentation/virt/kvm/locking.rst
-index ae8bce7fe..73679044c 100644
+index ae8bce7fecbe..73679044ce44 100644
 --- a/Documentation/virt/kvm/locking.rst
 +++ b/Documentation/virt/kvm/locking.rst
 @@ -20,7 +20,7 @@ The acquisition orders for mutexes are as follows:
@@ -50,7 +51,7 @@ index ae8bce7fe..73679044c 100644
  ``kvm_arch::tsc_write_lock``
  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index 22128588e..27550e066 100644
+index 351bbcd7ce18..662d7b485bce 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
 @@ -809,10 +809,13 @@ struct kvm {
@@ -72,7 +73,7 @@ index 22128588e..27550e066 100644
  	/* For management / invalidation of gfn_to_pfn_caches */
  	spinlock_t gpc_lock;
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 25f599320..06de42436 100644
+index 21d5228cc26d..689028a2b178 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -749,9 +749,9 @@ static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
@@ -132,7 +133,7 @@ index 25f599320..06de42436 100644
 +	rcuwait_init(&kvm->memslots_update_rcuwait);
  	xa_init(&kvm->vcpu_array);
  #ifdef CONFIG_KVM_GENERIC_MEMORY_ATTRIBUTES
- 	xa_init(&kvm->mem_attr_array);
+ 	xa_init_flags(&kvm->mem_attr_array, XA_FLAGS_ACCOUNT);
 @@ -1299,7 +1299,7 @@ static void kvm_destroy_vm(struct kvm *kvm)
  	/*
  	 * At this point, pending calls to invalidate_range_start()
@@ -181,7 +182,7 @@ index 25f599320..06de42436 100644
  	/*
  	 * Acquired in kvm_set_memslot. Must be released before synchronize
 diff --git a/virt/kvm/pfncache.c b/virt/kvm/pfncache.c
-index bafda64b8..63e08fbac 100644
+index bafda64b8916..63e08fbac16d 100644
 --- a/virt/kvm/pfncache.c
 +++ b/virt/kvm/pfncache.c
 @@ -147,26 +147,24 @@ static void gpc_unmap(kvm_pfn_t pfn, void *khva)

@@ -1,4 +1,4 @@
-From 7b241c46cd0f7b227ceb1f82a75544d161670434 Mon Sep 17 00:00:00 2001
+From 51d91d2e3895536010273dd2bf13b75de322a068 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:22 +0000
 Subject: [PATCH 53/94] KVM: arm64: Add support for KVM_MEM_USERFAULT
@@ -13,6 +13,7 @@ Do not zap the second stage when KVM_MEM_USERFAULT is disabled to remain
 consistent with the behavior when dirty logging is disabled.
 
 Signed-off-by: James Houghton <jthoughton@google.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  arch/arm64/kvm/Kconfig |  1 +
  arch/arm64/kvm/mmu.c   | 33 ++++++++++++++++++++++++++++++++-
@@ -31,10 +32,10 @@ index 4f803fd1c99a..ced43291e056 100644
  	  Support hosting virtualized guest machines.
  
 diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
-index e6d62f5d87b2..99fe05acef46 100644
+index fa3959036aff..e42f07631aac 100644
 --- a/arch/arm64/kvm/mmu.c
 +++ b/arch/arm64/kvm/mmu.c
-@@ -1557,6 +1557,13 @@ static int gmem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -1550,6 +1550,13 @@ static int gmem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  	/* Pairs with the smp_wmb() in kvm_mmu_invalidate_end(). */
  	smp_rmb();
  
@@ -48,7 +49,7 @@ index e6d62f5d87b2..99fe05acef46 100644
  	ret = kvm_gmem_get_pfn(kvm, memslot, gfn, &pfn, &page, NULL);
  	if (ret) {
  		kvm_prepare_memory_fault_exit(vcpu, fault_ipa, PAGE_SIZE,
-@@ -1653,7 +1660,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -1642,7 +1649,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  		return -EFAULT;
  	}
  
@@ -56,8 +57,8 @@ index e6d62f5d87b2..99fe05acef46 100644
 +	if (force_pte || kvm_memslot_userfault(memslot))
  		vma_shift = PAGE_SHIFT;
  	else
- 		vma_shift = get_vma_page_shift(vma, hva);
-@@ -1744,6 +1751,13 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+ 		vma_shift = get_vma_page_shift(vma);
+@@ -1731,6 +1738,13 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  	mmu_seq = kvm->mmu_invalidate_seq;
  	mmap_read_unlock(current->mm);
  
@@ -71,7 +72,7 @@ index e6d62f5d87b2..99fe05acef46 100644
  	pfn = __kvm_faultin_pfn(memslot, gfn, write_fault ? FOLL_WRITE : 0,
  				&writable, &page);
  	if (pfn == KVM_PFN_ERR_HWPOISON) {
-@@ -2256,6 +2270,23 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
+@@ -2234,6 +2248,23 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
  				   enum kvm_mr_change change)
  {
  	bool log_dirty_pages = new && new->flags & KVM_MEM_LOG_DIRTY_PAGES;
@@ -95,6 +96,3 @@ index e6d62f5d87b2..99fe05acef46 100644
  
  	/*
  	 * At this point memslot has been committed and there is an
--- 
-2.50.1
-

@@ -1,4 +1,4 @@
-From 8250d89545d1c4a6afbc826e6bb97c7e61e10f86 Mon Sep 17 00:00:00 2001
+From 78061b7d07be73279d94d3c66ab067a675330c24 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Wed, 4 Dec 2024 19:13:42 +0000
 Subject: [PATCH 52/94] KVM: selftests: Fix vm_mem_region_set_flags docstring
@@ -7,12 +7,13 @@ Subject: [PATCH 52/94] KVM: selftests: Fix vm_mem_region_set_flags docstring
 
 Signed-off-by: James Houghton <jthoughton@google.com>
 Signed-off-by: Firecracker CI <ci@email.com>
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
  tools/testing/selftests/kvm/lib/kvm_util.c | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/tools/testing/selftests/kvm/lib/kvm_util.c b/tools/testing/selftests/kvm/lib/kvm_util.c
-index 0e9f5d73d..a1a5c8529 100644
+index 0e9f5d73d12a..a1a5c852978e 100644
 --- a/tools/testing/selftests/kvm/lib/kvm_util.c
 +++ b/tools/testing/selftests/kvm/lib/kvm_util.c
 @@ -1164,7 +1164,7 @@ memslot2region(struct kvm_vm *vm, uint32_t memslot)
