@@ -43,7 +43,7 @@ def test_coverage(monkeypatch):
     # Generate test profiles.
     cargo(
         "test",
-        f"--all --target {TARGET}",
+        f"--profile ci --all --target {TARGET}",
         "--test-threads=1",
         env={
             "RUSTFLAGS": "-Cinstrument-coverage",
@@ -57,7 +57,7 @@ def test_coverage(monkeypatch):
     cmd = f"""
         grcov . \
             -s . \
-            --binary-path ./build/cargo_target/{TARGET}/debug/ \
+            --binary-path ./build/cargo_target/{TARGET}/ci/ \
             --excl-start "mod tests" \
             --ignore "build/*" \
             --ignore "**/tests/*" \

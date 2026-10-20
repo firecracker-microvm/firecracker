@@ -1340,7 +1340,7 @@ cmd_checkbuild() {
 
     # One cargo invocation for all architectures: they share the host-side
     # artifacts (build scripts, proc macros) and run concurrently.
-    cmd_sh "cargo clippy ${targets[*]} --all --all-targets --all-features -- -D warnings" \
+    cmd_sh "cargo clippy --profile ci ${targets[*]} --all --all-targets --all-features -- -D warnings" \
         || die "Error running build checks for ${archs[*]}"
     say "Build check passed for ${archs[*]}"
 }

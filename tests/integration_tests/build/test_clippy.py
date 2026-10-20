@@ -22,6 +22,6 @@ def test_rust_clippy():
     targets = " ".join(f"--target {target}" for target in TARGETS)
     cargo(
         "clippy",
-        f"{targets} --all --all-targets --all-features",
+        f"--profile ci {targets} --all --all-targets --all-features",
         "-D warnings",
     )

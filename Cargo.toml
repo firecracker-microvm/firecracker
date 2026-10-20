@@ -34,9 +34,18 @@ or_fun_call = "warn"
 [profile.dev]
 panic = "abort"
 
+# For clippy, unit tests, coverage and compile checks. Integration tests run
+# `release` binaries. panic=unwind avoids checking every dependency twice for
+# `--all-targets`; CI builds from scratch, so incremental only costs.
+[profile.ci]
+inherits = "dev"
+panic = "unwind"
+incremental = false
+
 [profile.release]
 panic = "abort"
 lto = true
+codegen-units = 1
 strip = "none"
 
 [profile.bench]
