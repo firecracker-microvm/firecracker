@@ -8,7 +8,7 @@ from subprocess import TimeoutExpired
 
 import pytest
 
-from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_pci
 
 
 def verify_net_emulation_paused(metrics):
@@ -137,6 +137,8 @@ def test_pause_resume_preboot(uvm_configured):
 @pytest.mark.skipif(
     platform.machine() != "x86_64", reason="Only x86_64 supports pvclocks."
 )
+# The transport plays no part in what is asserted: RCU stalls across vCPU pause/resume.
+@pin_pci(True)
 def test_kvmclock_ctrl(uvm):
     """
     Test that pausing vCPUs does not trigger a soft lock-up

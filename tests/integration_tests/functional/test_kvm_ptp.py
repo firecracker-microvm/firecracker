@@ -5,10 +5,13 @@
 
 import pytest
 
+from framework.artifacts import pin_pci
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
 
 
 @pin_cpu_template(ALL_CPU_TEMPLATES)
+# The transport plays no part in what is asserted: the kvm-ptp clock.
+@pin_pci(True)
 def test_kvm_ptp(uvm_booted):
     """Test kvm_ptp is usable"""
 
