@@ -5,6 +5,7 @@
 # pylint: disable=too-many-lines
 import json
 import random
+import re
 import string
 import time
 from datetime import datetime, timedelta, timezone
@@ -452,6 +453,96 @@ def test_guest_mmds_hang(uvm, version):
 
         _, stdout, _ = ssh_connection.run(cmd)
         assert "Invalid request" in stdout
+
+
+def exchange(ssh_connection, request):
+    """Send `request` from inside the guest over a connection of its own.
+
+    Returns the status code of every response that came back, and the bytes
+    they came in. MMDS is only reachable from the guest, and `socat` sends the
+    request exactly as given, which no HTTP client would do. The octal escapes
+    keep the shell out of the payload.
+    """
+    escaped = "".join(f"\\{byte:03o}" for byte in request)
+    _, stdout, _ = ssh_connection.check_output(
+        f"printf '{escaped}' | socat -t 2 - TCP:{DEFAULT_IPV4}:80"
+    )
+    return re.findall(r"HTTP/1\.[01] (\d{3})", stdout), stdout
+
+
+def token_request():
+    """Return a well-formed MMDS token request."""
+    return (
+        f"PUT /latest/api/token HTTP/1.1\r\n"
+        f"Host: {DEFAULT_IPV4}\r\n"
+        f"X-metadata-token-ttl-seconds: 60\r\n"
+        f"Content-Length: 0\r\n\r\n"
+    ).encode()
+
+
+def rejected_request(framing, body):
+    """Return a request MMDS rejects, with `body` where its body would be.
+
+    `X-Forwarded-For` means MMDS answers the request itself with an error and
+    no token, so a token in the response can only come from `body` having been
+    answered as a request of its own. `framing` picks how another HTTP
+    implementation could read `body` as this request's body.
+    """
+    headers = (
+        f"PUT /latest/api/token HTTP/1.1\r\n"
+        f"Host: {DEFAULT_IPV4}\r\n"
+        f"X-Forwarded-For: 10.0.0.1\r\n"
+        f"X-metadata-token-ttl-seconds: 60\r\n"
+    ).encode()
+    assert framing == "content_length", framing
+    return headers + f"Content-Length: {len(body)}\r\n\r\n".encode() + body
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pytest.mark.parametrize("framing", ["content_length"])
+def test_mmds_rejected_request_ignores_what_follows(uvm, framing):
+    """Answer a rejected request once, and nothing else sent on that connection."""
+    test_microvm = uvm
+    test_microvm.spawn()
+    test_microvm.add_net_iface()
+    configure_mmds(test_microvm, version="V2", iface_ids=["eth0"])
+    populate_data_store(test_microvm, {"foo": "bar"})
+    test_microvm.basic_config(vcpu_count=1)
+    test_microvm.start()
+    ssh_connection = test_microvm.ssh
+    run_guest_cmd(ssh_connection, f"ip route add {DEFAULT_IPV4} dev eth0", "")
+
+    valid = token_request()
+
+    # A positive control, so that a request which never reaches MMDS at all
+    # cannot make the assertions below pass.
+    statuses, reply = exchange(ssh_connection, valid)
+    assert statuses == ["200"], reply
+    token = reply.split("\r\n\r\n", 1)[1]
+    assert token, reply
+    run_guest_cmd(
+        ssh_connection,
+        generate_mmds_get_request(DEFAULT_IPV4, token, app_json=False) + "foo",
+        "bar",
+    )
+
+    # Well-formed pipelining and ordinary curl clients must remain supported.
+    statuses, reply = exchange(ssh_connection, valid + valid)
+    assert statuses == ["200", "200"], reply
+    curl_token = generate_mmds_session_token(ssh_connection, DEFAULT_IPV4, 60)
+    assert curl_token
+    run_guest_cmd(
+        ssh_connection,
+        generate_mmds_get_request(DEFAULT_IPV4, curl_token, app_json=False) + "foo",
+        "bar",
+    )
+
+    # Every response that arrived is listed, so a lone 400 means the token
+    # request placed in the body was never answered. The connection closing is
+    # covered by the endpoint unit tests, because socat half-closes as soon as
+    # it has sent the request, which makes MMDS close either way.
+    statuses, reply = exchange(ssh_connection, rejected_request(framing, valid))
+    assert statuses == ["400"], reply
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)

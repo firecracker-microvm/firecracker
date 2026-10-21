@@ -212,6 +212,14 @@ and this project adheres to
   log, failed during snapshot creation, so the next Diff snapshot left them out.
   They are now marked dirty again.
 
+- [#6445](https://github.com/firecracker-microvm/firecracker/pull/6445): Fixed
+  MMDS treating the bytes that follow a request it could not parse as a request
+  of their own. Those bytes may belong to the rejected request, such as a body
+  it declared, in which case they were parsed and answered separately. MMDS now
+  sends the error response, discards everything else received on that
+  connection, and closes it once the response has been acknowledged. Data the
+  guest sends after that resets the connection.
+
 ## [1.18.0]
 
 ### Added
