@@ -10,6 +10,7 @@ from enum import Enum
 from pathlib import Path
 from subprocess import check_output
 
+import psutil
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 from framework import utils
@@ -69,6 +70,7 @@ class VhostUserBlkBackend(ABC):
     ):
         self.host_mem_path = host_mem_path
         self.socket_path = Path(chroot) / f"{backend_id}_vhost_user.sock"
+        self.log_path = Path(chroot) / f"{backend_id}_vhost_user.log"
         self.readonly = readonly
         self.proc = None
 
@@ -80,9 +82,12 @@ class VhostUserBlkBackend(ABC):
         """
         assert not self.proc, "backend already spawned"
         args = self._spawn_cmd()
-        proc = subprocess.Popen(args)
+        with open(self.log_path, "wb") as log:
+            proc = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT)
 
-        assert proc is not None and proc.poll() is None, "backend is not up"
+        assert (
+            proc is not None and proc.poll() is None
+        ), f"backend is not up. Backend log:\n{self.log_data}"
         self._wait_for_socket()
 
         os.chown(self.socket_path, uid, gid)
@@ -94,7 +99,9 @@ class VhostUserBlkBackend(ABC):
     @retry(wait=wait_fixed(0.1), stop=stop_after_attempt(50), reraise=True)
     def _wait_for_socket(self):
         """Wait for the backend socket to appear (up to 5s)."""
-        assert self.socket_path.exists(), f"socket {self.socket_path} not ready"
+        assert (
+            self.socket_path.exists()
+        ), f"socket {self.socket_path} not ready. Backend log:\n{self.log_data}"
 
     @abstractmethod
     def _spawn_cmd(self):
@@ -104,6 +111,26 @@ class VhostUserBlkBackend(ABC):
     @abstractmethod
     def resize(self, new_size):
         """Resize the vhost-user-backed drive"""
+
+    @property
+    def log_data(self):
+        """Return everything the backend has logged so far."""
+        if not self.log_path.exists():
+            return ""
+        return self.log_path.read_text(encoding="utf-8", errors="replace")
+
+    @property
+    def thread_backtraces(self):
+        """Return backtraces of all threads of the backend process tree."""
+        try:
+            proc = psutil.Process(self.proc.pid)
+            # crosvm serves each device from a child process.
+            pids = [proc.pid] + [child.pid for child in proc.children(recursive=True)]
+        except psutil.NoSuchProcess:
+            return ""
+        return "\n".join(
+            f"process {pid}:\n{utils.thread_backtraces(pid)}" for pid in pids
+        )
 
     def pin(self, cpu_id: int):
         """Pin the vhost-user backend to a CPU list."""
