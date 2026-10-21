@@ -1,0 +1,18 @@
+# Disk DescriptorFile
+version=1
+CID=932c5a1d
+parentCID=ffffffff
+createType="monolithicFlat"
+
+# Extent description
+RW 32768 FLAT "16m-flat.vmdk" 0
+
+# The Disk Data Base
+#DDB
+
+ddb.virtualHWVersion = "4"
+ddb.geometry.cylinders = "32"
+ddb.geometry.heads = "16"
+ddb.geometry.sectors = "63"
+ddb.adapterType = "ide"
+ddb.toolsVersion = "2147483647"
