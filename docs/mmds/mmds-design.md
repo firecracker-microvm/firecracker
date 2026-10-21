@@ -204,10 +204,13 @@ handler):
 1. Invoke the receive functionality of the inner connection object, and append
    any new data to the receive buffer.
 1. If no response is currently pending, attempt to identify the end of the first
-   request in the receive buffer. If no such boundary can be found, and the
-   buffer is full, reset the inner connection (which also causes the endpoint
-   itself to be subsequently removed) because the guest exceeded the maximum
-   allowed request size.
+   request in the receive buffer: read its request line, then its header lines
+   until the first empty line, as MMDS requests have no body. Framing does not
+   inspect bytes belonging to the next request. Lines must end with CRLF; a lone
+   CR or LF makes the request one that cannot be parsed (see below). If no such
+   boundary can be found, and the buffer is full, reset the inner connection
+   (which also causes the endpoint itself to be subsequently removed) because
+   the guest exceeded the maximum allowed request size.
 1. If no response is pending, and we can identify a request in the receive
    buffer, parse it, free up the associated buffer space (also update the
    connection receive window), and build an HTTP response, which becomes the
