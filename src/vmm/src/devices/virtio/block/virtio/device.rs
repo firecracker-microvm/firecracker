@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use serde::{Deserialize, Serialize};
 use std::cmp;
 use std::convert::From;
 use std::fs::{File, OpenOptions};
@@ -16,7 +17,6 @@ use std::os::linux::fs::MetadataExt;
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
-use serde::{Deserialize, Serialize};
 use vm_memory::ByteValued;
 use vmm_sys_util::eventfd::EventFd;
 
@@ -130,6 +130,13 @@ impl DiskProperties {
         }
     }
 
+    fn file_engine_type(&self) -> FileEngineType {
+        match self.file_engine {
+            FileEngine::Async(_) => FileEngineType::Async,
+            FileEngine::Sync(_) | FileEngine::Vmdk(_) => FileEngineType::Sync,
+        }
+    }
+
     /// Create a new file for the block device using a FileEngine
     pub fn new(
         disk_image_path: &str,
@@ -161,12 +168,32 @@ impl DiskProperties {
         is_disk_read_only: bool,
     ) -> Result<(), VirtioBlockError> {
         let mut disk_image = Self::open_file(&disk_image_path, is_disk_read_only)?;
-        let disk_size = Self::file_size(&disk_image_path, &mut disk_image)?;
+        let image_id = Self::build_disk_image_id(&disk_image);
 
-        self.image_id = Self::build_disk_image_id(&disk_image);
-        self.file_engine
-            .update_file_path(disk_image)
-            .map_err(VirtioBlockError::FileEngine)?;
+        // A raw image is a single file the engine can be pointed at. Formatted images
+        // are parsed into engine state when they are opened (for VMDK: the descriptor
+        // and its extents), and their size comes from that state rather than from the
+        // size of the descriptor file, so the engine has to be rebuilt instead.
+        let image_format = DiskImageFormat::from(&self.file_engine);
+        let disk_size = if image_format == DiskImageFormat::Raw {
+            let disk_size = Self::file_size(&disk_image_path, &mut disk_image)?;
+            self.file_engine
+                .update_file_path(disk_image)
+                .map_err(VirtioBlockError::FileEngine)?;
+            disk_size
+        } else {
+            let (file_engine, disk_size) = Self::from_disk_image(
+                &disk_image_path,
+                disk_image,
+                is_disk_read_only,
+                self.file_engine_type(),
+                image_format,
+            )?;
+            self.file_engine = file_engine;
+            disk_size
+        };
+
+        self.image_id = image_id;
         self.nsectors = disk_size >> SECTOR_SHIFT;
 
         Ok(())
@@ -562,7 +589,6 @@ impl VirtioBlock {
             if let Some((blk_size, topology)) =
                 query_blk_attrs(resources[0].disk.file_engine.file())
                     .and_then(calculate_blk_size_and_topology)
-
             {
                 config_space.blk_size = blk_size;
                 config_space.topology = topology;
@@ -1244,12 +1270,7 @@ mod tests {
             // Testing `backing_file.virtio_block_disk_image_id()` implies
             // duplicating that logic in tests, so skipping it.
 
-            let res = DiskProperties::new(
-                "invalid-disk-path",
-                true,
-                engine,
-                DiskImageFormat::Raw,
-            );
+            let res = DiskProperties::new("invalid-disk-path", true, engine, DiskImageFormat::Raw);
             assert!(
                 matches!(res, Err(VirtioBlockError::BackingFile(_, _))),
                 "{:?}",
@@ -1264,32 +1285,71 @@ mod tests {
         let path = descriptor.to_string_lossy().into_owned();
 
         assert!(matches!(
-            DiskProperties::new(
-                &path,
-                false,
-                FileEngineType::Sync,
-                DiskImageFormat::Vmdk
-            ),
+            DiskProperties::new(&path, false, FileEngineType::Sync, DiskImageFormat::Vmdk),
             Err(VirtioBlockError::FileEngine(block_io::BlockIoError::Vmdk(
                 block_io::VmdkIoError::RequiresReadOnly
             )))
         ));
         assert!(matches!(
-            DiskProperties::new(
-                &path,
-                true,
-                FileEngineType::Async,
-                DiskImageFormat::Vmdk
-            ),
+            DiskProperties::new(&path, true, FileEngineType::Async, DiskImageFormat::Vmdk),
             Err(VirtioBlockError::FileEngine(block_io::BlockIoError::Vmdk(
                 block_io::VmdkIoError::AsyncNotSupported
             )))
         ));
 
-        let disk =
+        let mut disk =
             DiskProperties::new(&path, true, FileEngineType::Sync, DiskImageFormat::Vmdk).unwrap();
         assert!(matches!(disk.file_engine, FileEngine::Vmdk(_)));
         assert_eq!(disk.nsectors, 2048);
+
+        let (_dir2, descriptor2) = create_test_vmdk("extent", 0);
+        disk.update(descriptor2.to_string_lossy().into_owned(), true)
+            .unwrap();
+        assert_eq!(disk.nsectors, 2048);
+    }
+
+    #[test]
+    fn test_vmdk_disk_update_error_preserves_state() {
+        let (_dir, descriptor) = create_test_vmdk("extent", 0);
+        let mut disk = DiskProperties::new(
+            descriptor.to_str().unwrap(),
+            true,
+            FileEngineType::Sync,
+            DiskImageFormat::Vmdk,
+        )
+        .unwrap();
+        let original_image_id = disk.image_id;
+        let original_nsectors = disk.nsectors;
+
+        let (_invalid_dir, invalid_descriptor) = create_test_vmdk("extent", 0);
+        std::fs::write(&invalid_descriptor, b"not a VMDK descriptor").unwrap();
+        let (_missing_dir, missing_extent_descriptor) = create_test_vmdk("missing-extent", 0);
+
+        for replacement in [invalid_descriptor, missing_extent_descriptor] {
+            let replacement_file = File::open(&replacement).unwrap();
+            assert_ne!(
+                DiskProperties::build_disk_image_id(&replacement_file),
+                original_image_id
+            );
+            assert!(matches!(
+                disk.update(replacement.to_str().unwrap().to_string(), true),
+                Err(VirtioBlockError::FileEngine(block_io::BlockIoError::Vmdk(
+                    block_io::VmdkIoError::Open(_)
+                )))
+            ));
+            assert_eq!(disk.image_id, original_image_id);
+            assert_eq!(disk.nsectors, original_nsectors);
+
+            let FileEngine::Vmdk(engine) = &mut disk.file_engine else {
+                panic!("VMDK engine was replaced after a failed update");
+            };
+            assert_eq!(engine.disk_size(), original_nsectors << SECTOR_SHIFT);
+            let mem = default_mem();
+            engine.read(0, &mem, GuestAddress(0), 512).unwrap();
+            let mut buf = [0u8; 28];
+            mem.read_slice(&mut buf, GuestAddress(0)).unwrap();
+            assert_eq!(&buf, b"Hello VMDK from Firecracker!");
+        }
     }
 
     #[test]
