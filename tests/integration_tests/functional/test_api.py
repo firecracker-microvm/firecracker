@@ -22,6 +22,7 @@ from framework.artifacts import (
     pin_guest_kernel,
     pin_rootfs_mode,
 )
+from framework.kvm import default_boot_args
 from framework.utils import get_firecracker_version_from_toml
 from framework.utils_cpu_templates import (
     CUSTOM_CPU_TEMPLATES,
@@ -1550,10 +1551,8 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
             uvm_configured.kernel_file
         ),
         "initrd_path": None,
-        "boot_args": "reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0 cryptomgr.notests",
+        "boot_args": default_boot_args(uvm_configured.pci_enabled),
     }
-    if not uvm_configured.pci_enabled:
-        expected_cfg["boot-source"]["boot_args"] += " pci=off"
 
     # no ipv4_address or imds_compat specified during PUT /mmds/config so we expect the default
     expected_cfg["mmds-config"] = {
