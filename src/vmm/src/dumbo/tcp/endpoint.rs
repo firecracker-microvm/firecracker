@@ -379,17 +379,53 @@ fn read_crlf_line<'a>(input: &mut &'a [u8]) -> Result<Option<&'a [u8]>, RequestE
 ///
 /// Lines must end with CRLF. A lone CR or LF is invalid: other HTTP implementations may end a line
 /// there, while micro_http does not, so the two would disagree on which headers the request has.
+/// Headers must be valid for a bodyless MMDS request; see `is_valid_mmds_header`.
 fn frame_request(buf: &[u8]) -> Result<Option<usize>, RequestError> {
     let mut remaining_input = buf;
     let Some(_request_line) = read_crlf_line(&mut remaining_input)? else {
         return Ok(None);
     };
+    let mut seen_content_length = false;
     while let Some(line) = read_crlf_line(&mut remaining_input)? {
         if line.is_empty() {
             return Ok(Some(buf.len() - remaining_input.len()));
         }
+        if !is_valid_mmds_header(line, &mut seen_content_length) {
+            return Err(RequestError::InvalidRequest);
+        }
     }
     Ok(None)
+}
+
+/// Checks whether one header line is valid for a bodyless MMDS request.
+///
+/// micro_http keeps the last of several `Content-Length` headers, ignores `Transfer-Encoding`
+/// values it does not support, and trims Unicode whitespace from header names, so it may see no
+/// body where an intermediary does. Accept at most one `Content-Length`, which must be `0`, no
+/// `Transfer-Encoding`, and only header names made of RFC 9110 token characters.
+fn is_valid_mmds_header(line: &[u8], seen_content_length: &mut bool) -> bool {
+    let Some(colon) = line.iter().position(|&b| b == b':') else {
+        return false;
+    };
+    let name = &line[..colon];
+    if name.is_empty() || !name.iter().all(|&b| is_token_char(b)) {
+        return false;
+    }
+    if name.eq_ignore_ascii_case(b"transfer-encoding") {
+        return false;
+    }
+    if name.eq_ignore_ascii_case(b"content-length") {
+        if *seen_content_length || line[colon + 1..].trim_ascii() != b"0" {
+            return false;
+        }
+        *seen_content_length = true;
+    }
+    true
+}
+
+/// `tchar` from RFC 9110, section 5.6.2.
+fn is_token_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b)
 }
 
 /// Parses the request at the start of `buf`, once all of it has arrived, and builds its response
@@ -405,7 +441,6 @@ fn parse_next_request<F: FnOnce(Request) -> Response>(
     let response = parse_request_bytes(&buf[..len], callback)?;
     Ok(Some((len, response)))
 }
-
 /// Parses the request bytes and builds a `micro_http::Response` by the given callback function.
 ///
 /// If the bytes are not a valid request, `callback` is not called and the parsing error is
@@ -1069,5 +1104,74 @@ mod tests {
             get.len()
         );
         assert_rejected(&[&[hidden_body.as_bytes(), get].concat()], "400");
+    }
+
+    #[test]
+    fn test_frame_request_body_headers() {
+        let request = |headers: &str| {
+            format!("PUT http://169.254.169.254/latest/api/token HTTP/1.1\r\n{headers}\r\n")
+        };
+
+        for accepted in [
+            "",
+            "Content-Length: 0\r\n",
+            "content-length:  0 \r\n",
+            "X-metadata-token-ttl-seconds: 60\r\nAccept: text/plain\r\n",
+        ] {
+            let request = request(accepted);
+            assert_eq!(
+                frame_request(request.as_bytes()),
+                Ok(Some(request.len())),
+                "{accepted:?}"
+            );
+        }
+
+        for rejected in [
+            "Content-Length: 1\r\n",
+            "Content-Length: 5\r\nContent-Length: 0\r\n",
+            "Content-Length: 0\r\nContent-Length: 0\r\n",
+            "Transfer-Encoding: chunked\r\n",
+            "transfer-encoding: Chunked\r\n",
+            "Transfer-Encoding: gzip, chunked\r\n",
+            "Transfer-Encoding: identity\r\n",
+            // Header names must be tokens, without whitespace around them.
+            "Transfer-Encoding : chunked\r\n",
+            " Transfer-Encoding: chunked\r\n",
+            "Content-Length\u{a0}: 5\r\n",
+            ": 5\r\n",
+            "Content-Length\r\n",
+        ] {
+            assert_eq!(
+                frame_request(request(rejected).as_bytes()),
+                Err(RequestError::InvalidRequest),
+                "{rejected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_body_headers_close_connection() {
+        let get = b"GET http://169.254.169.254/ HTTP/1.1\r\n\r\n";
+        let put = "PUT http://169.254.169.254/latest/api/token HTTP/1.1\r\n";
+
+        // micro_http accepts this request and ignores its chunked body. The chunk data starts
+        // with CRLF so that, once the chunk size line is skipped, it reads as a request.
+        let mut chunked = format!(
+            "{put}Transfer-Encoding: chunked\r\n\r\n{:x}\r\n\r\n",
+            get.len() + 2
+        )
+        .into_bytes();
+        chunked.extend_from_slice(get);
+        chunked.extend_from_slice(b"\r\n0\r\n\r\n");
+        assert_rejected(&[&chunked], "400");
+
+        // micro_http keeps the last Content-Length, an intermediary may use the first one.
+        let mut duplicate = format!(
+            "{put}Content-Length: {}\r\nContent-Length: 0\r\n\r\n",
+            get.len()
+        )
+        .into_bytes();
+        duplicate.extend_from_slice(get);
+        assert_rejected(&[&duplicate], "400");
     }
 }

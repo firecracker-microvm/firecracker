@@ -500,12 +500,22 @@ def rejected_request(framing, body):
         return (
             headers + f"X-Pad: pad\nContent-Length: {len(body)}\r\n\r\n".encode() + body
         )
+    if framing == "duplicate_content_length":
+        # micro_http keeps the last Content-Length and so sees no body, while
+        # an implementation that keeps the first one sees `body`.
+        return (
+            headers
+            + f"Content-Length: {len(body)}\r\nContent-Length: 0\r\n\r\n".encode()
+            + body
+        )
     assert framing == "content_length", framing
     return headers + f"Content-Length: {len(body)}\r\n\r\n".encode() + body
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
-@pytest.mark.parametrize("framing", ["content_length", "bare_lf"])
+@pytest.mark.parametrize(
+    "framing", ["content_length", "bare_lf", "duplicate_content_length"]
+)
 def test_mmds_rejected_request_ignores_what_follows(uvm, framing):
     """Answer a rejected request once, and nothing else sent on that connection."""
     test_microvm = uvm

@@ -109,6 +109,12 @@ and this project adheres to
   now requires CRLF line endings in the request line and header lines of a guest
   request, as HTTP/1.1 specifies. A request carrying a bare CR or LF there
   receives a `400` response, and the connection is closed.
+- [#6445](https://github.com/firecracker-microvm/firecracker/pull/6445): MMDS
+  now rejects a guest request whose headers could make another HTTP
+  implementation expect a body: a `Transfer-Encoding` header, a `Content-Length`
+  other than a single `Content-Length: 0`, or a header name that is not an HTTP
+  token. MMDS requests never carry a body, so no valid request needs any of
+  these. Such a request receives a `400` response, and the connection is closed.
 
 ### Deprecated
 
