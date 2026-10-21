@@ -207,7 +207,10 @@ handler):
    request in the receive buffer: read its request line, then its header lines
    until the first empty line, as MMDS requests have no body. Framing does not
    inspect bytes belonging to the next request. Lines must end with CRLF; a lone
-   CR or LF makes the request one that cannot be parsed (see below). If no such
+   CR or LF makes the request one that cannot be parsed (see below). So does any
+   header that could make another HTTP implementation expect a body: a
+   `Transfer-Encoding`, a `Content-Length` other than a single
+   `Content-Length: 0`, or a header name that is not an HTTP token. If no such
    boundary can be found, and the buffer is full, reset the inner connection
    (which also causes the endpoint itself to be subsequently removed) because
    the guest exceeded the maximum allowed request size.
