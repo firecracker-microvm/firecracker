@@ -41,6 +41,19 @@ const RCV_BUF_MAX_SIZE: u32 = 2500;
 
 const _: () = assert!(RCV_BUF_MAX_SIZE <= MAX_WINDOW_SIZE);
 
+// What the endpoint does with the bytes it receives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum State {
+    // Requests are parsed and answered.
+    Open,
+    // A request could not be parsed, so there is no telling where the next one starts. Received
+    // bytes are discarded, the connection is closed once the error response has been
+    // acknowledged, and it is reset if more bytes arrive after our FIN.
+    Rejected,
+    // The connection is resetting. Incoming segments are ignored.
+    Stopped,
+}
+
 // Represents the local endpoint of a HTTP over TCP connection which carries GET requests
 // to the MMDS.
 #[derive(Debug)]
@@ -62,9 +75,8 @@ pub struct Endpoint {
     // These many time units have to pass since receiving the last segment to make the current
     // Endpoint evictable.
     eviction_threshold: u64,
-    // We ignore incoming segments when this is set, and that happens when we decide to reset
-    // the connection (or it decides to reset itself).
-    stop_receiving: bool,
+    // Decides what happens to the bytes we receive.
+    state: State,
 }
 
 // The "contract" for the Endpoint (if it implemented a trait or something) is something along
@@ -112,7 +124,7 @@ impl Endpoint {
             connection,
             last_segment_received_timestamp: timestamp_cycles(),
             eviction_threshold: eviction_threshold.get(),
-            stop_receiving: false,
+            state: State::Open,
         })
     }
 
@@ -133,7 +145,7 @@ impl Endpoint {
         s: &TcpSegment<T>,
         callback: F,
     ) {
-        if self.stop_receiving {
+        if self.state == State::Stopped {
             return;
         }
 
@@ -160,7 +172,7 @@ impl Endpoint {
         if !status.is_empty() {
             METRICS.mmds.rx_accepted_unusual.inc();
             if status.intersects(RecvStatusFlags::CONN_RESETTING) {
-                self.stop_receiving = true;
+                self.state = State::Stopped;
                 return;
             }
         }
@@ -187,28 +199,53 @@ impl Endpoint {
             self.response_buf.clear();
         }
 
-        if self.response_buf.is_empty() {
-            // There's no pending response currently, so we're back to waiting for a request to be
-            // available in self.receive_buf.
-            if let Some((len, response)) =
-                parse_next_request(&self.receive_buf[..self.receive_buf_left], callback)
-            {
-                self.queue_response(&response);
-                self.consume_request(len);
-            }
+        match self.state {
+            State::Open => {
+                if self.response_buf.is_empty() {
+                    // There's no pending response currently, so we're back to waiting for a request
+                    // to be available in self.receive_buf.
+                    match parse_next_request(&self.receive_buf[..self.receive_buf_left], callback) {
+                        Ok(None) => {}
+                        Ok(Some((len, response))) => {
+                            self.queue_response(&response);
+                            self.consume_request(len);
+                        }
+                        Err(err) => {
+                            self.queue_response(&error_response(err));
+                            self.discard_received();
+                            self.state = State::Rejected;
+                        }
+                    }
 
-            if self.receive_buf_left == self.receive_buf.len() {
-                // If we get here the buffer is full, but we still couldn't identify the end of a
-                // request, so we reset because we are over the maximum request size.
-                self.connection.reset();
-                self.stop_receiving = true;
-                return;
+                    if self.receive_buf_left == self.receive_buf.len() {
+                        // If we get here the buffer is full, but we still couldn't identify the end
+                        // of a request, so we reset because we are over the maximum request size.
+                        self.connection.reset();
+                        self.state = State::Stopped;
+                        return;
+                    }
+                }
             }
+            // These bytes may be the body of the request we could not parse. They must never be
+            // parsed as a request of their own. Our FIN only goes out once the error response has
+            // been acknowledged, so bytes arriving after it are reset rather than drained
+            // indefinitely (RFC 9112, Section 9.6).
+            State::Rejected => {
+                if value.is_some() && self.connection.fin_sent() {
+                    self.connection.reset();
+                    self.state = State::Stopped;
+                    return;
+                }
+                self.discard_received();
+            }
+            State::Stopped => unreachable!(), // Returned early above.
         }
 
-        // We close the connection after receiving a FIN, and making sure there are no more
-        // responses to send.
-        if self.connection.fin_received() && self.response_buf.is_empty() {
+        // We close the connection after receiving a FIN or rejecting a request, once there are no
+        // more responses to send.
+        if self.response_buf.is_empty()
+            && (self.connection.fin_received() || self.state == State::Rejected)
+        {
             self.connection.close();
         }
     }
@@ -230,6 +267,12 @@ impl Endpoint {
         // Safe to unwrap because len is bounded by RCV_BUF_MAX_SIZE.
         self.connection
             .advance_local_rwnd_edge(u32::try_from(len).unwrap());
+    }
+
+    // Drops everything in receive_buf. The receive window is advanced like for a consumed request,
+    // so the client is never stuck on a zero window while it finishes sending.
+    fn discard_received(&mut self) {
+        self.consume_request(self.receive_buf_left);
     }
 
     pub fn write_next_segment<'a>(
@@ -319,49 +362,55 @@ fn frame_request(buf: &[u8]) -> Option<usize> {
 }
 
 /// Parses the request at the start of `buf`, once all of it has arrived, and builds its response
-/// with `callback`. Returns the length of the request and the response, or `None` if more bytes
-/// are needed.
+/// with `callback`. Returns the length of the request and the response, `Ok(None)` if more bytes
+/// are needed, or the error if the request cannot be parsed.
 fn parse_next_request<F: FnOnce(Request) -> Response>(
     buf: &[u8],
     callback: F,
-) -> Option<(usize, Response)> {
-    let len = frame_request(buf)?;
-    Some((len, parse_request_bytes(&buf[..len], callback)))
+) -> Result<Option<(usize, Response)>, RequestError> {
+    let Some(len) = frame_request(buf) else {
+        return Ok(None);
+    };
+    let response = parse_request_bytes(&buf[..len], callback)?;
+    Ok(Some((len, response)))
 }
 
 /// Parses the request bytes and builds a `micro_http::Response` by the given callback function.
+///
+/// If the bytes are not a valid request, `callback` is not called and the parsing error is
+/// returned instead.
 fn parse_request_bytes<F: FnOnce(Request) -> Response>(
     byte_stream: &[u8],
     callback: F,
-) -> Response {
-    let request = Request::try_from(byte_stream, None);
-    match request {
-        Ok(request) => callback(request),
-        Err(err) => match err {
-            RequestError::BodyWithoutPendingRequest
-            | RequestError::HeadersWithoutPendingRequest
-            | RequestError::Overflow
-            | RequestError::Underflow => {
-                build_response(StatusCode::BadRequest, Body::new(err.to_string()))
-            }
-            RequestError::InvalidUri(err_msg) => {
-                build_response(StatusCode::BadRequest, Body::new(err_msg.to_string()))
-            }
-            RequestError::InvalidHttpVersion(err_msg)
-            | RequestError::InvalidHttpMethod(err_msg) => {
-                build_response(StatusCode::NotImplemented, Body::new(err_msg.to_string()))
-            }
-            RequestError::HeaderError(err_msg) => {
-                build_response(StatusCode::BadRequest, Body::new(err_msg.to_string()))
-            }
-            RequestError::InvalidRequest => build_response(
-                StatusCode::BadRequest,
-                Body::new("Invalid request.".to_string()),
-            ),
-            RequestError::SizeLimitExceeded(_, _) => {
-                build_response(StatusCode::PayloadTooLarge, Body::new(err.to_string()))
-            }
-        },
+) -> Result<Response, RequestError> {
+    Request::try_from(byte_stream, None).map(callback)
+}
+
+/// Builds the response for a request that could not be parsed.
+fn error_response(err: RequestError) -> Response {
+    match err {
+        RequestError::BodyWithoutPendingRequest
+        | RequestError::HeadersWithoutPendingRequest
+        | RequestError::Overflow
+        | RequestError::Underflow => {
+            build_response(StatusCode::BadRequest, Body::new(err.to_string()))
+        }
+        RequestError::InvalidUri(err_msg) => {
+            build_response(StatusCode::BadRequest, Body::new(err_msg.to_string()))
+        }
+        RequestError::InvalidHttpVersion(err_msg) | RequestError::InvalidHttpMethod(err_msg) => {
+            build_response(StatusCode::NotImplemented, Body::new(err_msg.to_string()))
+        }
+        RequestError::HeaderError(err_msg) => {
+            build_response(StatusCode::BadRequest, Body::new(err_msg.to_string()))
+        }
+        RequestError::InvalidRequest => build_response(
+            StatusCode::BadRequest,
+            Body::new("Invalid request.".to_string()),
+        ),
+        RequestError::SizeLimitExceeded(_, _) => {
+            build_response(StatusCode::PayloadTooLarge, Body::new(err.to_string()))
+        }
     }
 }
 
@@ -661,14 +710,16 @@ mod tests {
         let request_bytes = b"GET http://169.254.169.255/ HTTP/2.0\r\n\r\n";
         let mut expected_response = Response::new(Version::Http11, StatusCode::NotImplemented);
         expected_response.set_body(Body::new("Unsupported HTTP version.".to_string()));
-        let actual_response = parse_request_bytes(request_bytes, mock_callback);
+        let actual_response =
+            error_response(parse_request_bytes(request_bytes, mock_callback).unwrap_err());
         assert_eq!(actual_response, expected_response);
 
         // Test invalid URI (empty URI).
         let request_bytes = b"GET   HTTP/1.0\r\n\r\n";
         let mut expected_response = Response::new(Version::Http11, StatusCode::BadRequest);
         expected_response.set_body(Body::new("Empty URI not allowed.".to_string()));
-        let actual_response = parse_request_bytes(request_bytes, mock_callback);
+        let actual_response =
+            error_response(parse_request_bytes(request_bytes, mock_callback).unwrap_err());
         assert_eq!(actual_response, expected_response);
 
         // Test invalid HTTP methods.
@@ -677,7 +728,9 @@ mod tests {
             let request_bytes = format!("{} http://169.254.169.255/ HTTP/1.0\r\n\r\n", method);
             let mut expected_response = Response::new(Version::Http11, StatusCode::NotImplemented);
             expected_response.set_body(Body::new("Unsupported HTTP method.".to_string()));
-            let actual_response = parse_request_bytes(request_bytes.as_bytes(), mock_callback);
+            let actual_response = error_response(
+                parse_request_bytes(request_bytes.as_bytes(), mock_callback).unwrap_err(),
+            );
             assert_eq!(actual_response, expected_response);
         }
 
@@ -686,7 +739,8 @@ mod tests {
         for method in valid_methods.iter() {
             let request_bytes = format!("{} http://169.254.169.255/ HTTP/1.0\r\n\r\n", method);
             let expected_response = Response::new(Version::Http11, StatusCode::OK);
-            let actual_response = parse_request_bytes(request_bytes.as_bytes(), mock_callback);
+            let actual_response =
+                parse_request_bytes(request_bytes.as_bytes(), mock_callback).unwrap();
             assert_eq!(actual_response, expected_response);
         }
 
@@ -694,7 +748,8 @@ mod tests {
         let request_bytes = b"GET / HTTP/1.1\r\n";
         let mut expected_response = Response::new(Version::Http11, StatusCode::BadRequest);
         expected_response.set_body(Body::new("Invalid request.".to_string()));
-        let actual_response = parse_request_bytes(request_bytes, mock_callback);
+        let actual_response =
+            error_response(parse_request_bytes(request_bytes, mock_callback).unwrap_err());
         assert_eq!(actual_response, expected_response);
 
         // Test invalid HTTP headers.
@@ -704,6 +759,7 @@ mod tests {
                                  Content-Length: 26\r\n\r\nthis is not\n\r\na json \nbody";
         assert!(
             parse_request_bytes(request_bytes, mock_callback)
+                .unwrap()
                 .body()
                 .is_none()
         );
@@ -716,7 +772,8 @@ mod tests {
         expected_response.set_body(Body::new(
             "Invalid value. Key:Content-Length; Value: alpha".to_string(),
         ));
-        let actual_response = parse_request_bytes(request_bytes, mock_callback);
+        let actual_response =
+            error_response(parse_request_bytes(request_bytes, mock_callback).unwrap_err());
         assert_eq!(actual_response, expected_response);
 
         let request_bytes = b"PATCH http://localhost/home HTTP/1.1\r\n\
@@ -728,7 +785,165 @@ mod tests {
         expected_response.set_body(Body::new(
             "Invalid value. Key:Accept-Encoding; Value: *;q=0".to_string(),
         ));
-        let actual_response = parse_request_bytes(request_bytes, mock_callback);
+        let actual_response =
+            error_response(parse_request_bytes(request_bytes, mock_callback).unwrap_err());
         assert_eq!(actual_response, expected_response);
+    }
+
+    // What a client saw while talking to an endpoint.
+    #[derive(Debug, Default)]
+    struct Exchange {
+        // The payloads of the segments the endpoint sent.
+        responses: Vec<String>,
+        // How many requests reached the callback.
+        requests: usize,
+        fin: bool,
+        rst: bool,
+    }
+
+    // Opens a connection to a new endpoint and sends each element of `segments` as one TCP
+    // segment, which acknowledges everything the endpoint has sent so far. After the last one, the
+    // client acknowledges everything the endpoint sends, until it has nothing left to send.
+    fn exchange(segments: &[&[u8]]) -> Exchange {
+        let mut client_buf = [0u8; RCV_BUF_MAX_SIZE as usize + 100];
+        let mut endpoint_buf = [0u8; RCV_BUF_MAX_SIZE as usize + 100];
+        let t = ConnectionTester::new();
+        let mut out = Exchange::default();
+
+        let mut syn = t.write_syn(client_buf.as_mut());
+        syn.set_flags_after_ns(TcpFlags::SYN);
+        let mut client_seq = syn.sequence_number().wrapping_add(1);
+        let mut endpoint = Endpoint::new_with_defaults(&syn).unwrap();
+        let mut endpoint_seq = endpoint
+            .write_next_segment(endpoint_buf.as_mut(), t.mss_reserved)
+            .unwrap()
+            .inner()
+            .sequence_number()
+            .wrapping_add(1);
+        let mut ack = t.write_ctrl(client_buf.as_mut());
+        ack.set_flags_after_ns(TcpFlags::ACK);
+        ack.set_sequence_number(client_seq);
+        ack.set_ack_number(endpoint_seq);
+        endpoint.receive_segment(&ack, mock_callback);
+
+        // A pure ACK (`None`) follows the last segment, and the client then ACKs each segment the
+        // endpoint sends on its own.
+        'segments: for next in segments.iter().copied().map(Some).chain([None]) {
+            let payload = next.unwrap_or_default();
+            let mut data = match next {
+                Some(_) => t.write_data(client_buf.as_mut(), payload),
+                None => t.write_ctrl(client_buf.as_mut()),
+            };
+            data.set_flags_after_ns(TcpFlags::ACK);
+            data.set_sequence_number(client_seq);
+            data.set_ack_number(endpoint_seq);
+            endpoint.receive_segment(&data, |request| {
+                out.requests += 1;
+                mock_callback(request)
+            });
+            client_seq = client_seq.wrapping_add(u32::try_from(payload.len()).unwrap());
+
+            // The bound only keeps a broken endpoint from hanging the test.
+            for _ in 0..16 {
+                let Some(segment) =
+                    endpoint.write_next_segment(endpoint_buf.as_mut(), t.mss_reserved)
+                else {
+                    break;
+                };
+                let segment = segment.inner();
+                let flags = segment.flags_after_ns();
+                if flags.intersects(TcpFlags::RST) {
+                    out.rst = true;
+                    break 'segments;
+                }
+                let fin = flags.intersects(TcpFlags::FIN);
+                out.fin |= fin;
+                if segment.payload_len() > 0 {
+                    out.responses
+                        .push(from_utf8(segment.payload()).unwrap().to_string());
+                } else if !fin {
+                    // A pure ACK, there's nothing to acknowledge.
+                    continue;
+                }
+                endpoint_seq = segment
+                    .sequence_number()
+                    .wrapping_add(u32::from(segment.payload_len()))
+                    .wrapping_add(u32::from(fin));
+
+                if next.is_some() {
+                    // The client's next segment carries the ACK.
+                    continue;
+                }
+                let mut ack = t.write_ctrl(client_buf.as_mut());
+                ack.set_flags_after_ns(TcpFlags::ACK);
+                ack.set_sequence_number(client_seq);
+                ack.set_ack_number(endpoint_seq);
+                endpoint.receive_segment(&ack, |request| {
+                    out.requests += 1;
+                    mock_callback(request)
+                });
+            }
+        }
+        out
+    }
+
+    // Checks that the endpoint answered a single request with `status`, without calling the
+    // callback, and then closed the connection.
+    fn assert_rejected(segments: &[&[u8]], status: &str) -> Exchange {
+        let exchange = exchange(segments);
+        assert_eq!(exchange.requests, 0, "{exchange:?}");
+        assert_eq!(exchange.responses.len(), 1, "{exchange:?}");
+        assert!(
+            exchange.responses[0].starts_with(&format!("HTTP/1.1 {status} ")),
+            "{exchange:?}"
+        );
+        assert!(exchange.fin && !exchange.rst, "{exchange:?}");
+        exchange
+    }
+
+    #[test]
+    fn test_unparsable_request_closes_connection() {
+        let get = b"GET http://169.254.169.254/ HTTP/1.1\r\n\r\n";
+
+        // Well framed requests on one connection are all answered.
+        let exchange = exchange(&[&[get.as_slice(), get].concat(), get]);
+        assert_eq!(exchange.requests, 3, "{exchange:?}");
+        assert_eq!(exchange.responses.len(), 3, "{exchange:?}");
+        assert!(!exchange.fin && !exchange.rst, "{exchange:?}");
+
+        // Whatever follows a request that can't be parsed is never parsed itself.
+        let bad_method = b"FOO http://169.254.169.254/ HTTP/1.1\r\n\r\n";
+        assert_rejected(&[&[bad_method.as_slice(), get].concat()], "501");
+        assert_rejected(&[bad_method, get], "501");
+
+        // A request that declares a body is rejected, and the body must not become a request
+        // either, whether it arrives with the headers or after the error response.
+        let declares_body = format!(
+            "PUT http://169.254.169.254/latest/api/token HTTP/1.1\r\nContent-Length: {}\r\n\r\n",
+            get.len()
+        );
+        let declares_body = declares_body.as_bytes();
+        assert_rejected(&[&[declares_body, get].concat()], "400");
+        assert_rejected(&[declares_body, get], "400");
+    }
+
+    #[test]
+    fn test_data_after_fin_resets_connection() {
+        // The first chunk acknowledges the error response, so it arrives before our FIN and is
+        // discarded. The second acknowledges the FIN and resets the connection. Resetting on the
+        // first one would mean no FIN was ever sent.
+        let chunk = [b'x'; 100];
+        let headers = format!(
+            "PUT http://169.254.169.254/latest/api/token HTTP/1.1\r\nContent-Length: {}\r\n\r\n",
+            chunk.len() * 2
+        );
+        let exchange = exchange(&[headers.as_bytes(), chunk.as_slice(), chunk.as_slice()]);
+        assert_eq!(exchange.requests, 0, "{exchange:?}");
+        assert_eq!(exchange.responses.len(), 1, "{exchange:?}");
+        assert!(
+            exchange.responses[0].starts_with("HTTP/1.1 400 "),
+            "{exchange:?}"
+        );
+        assert!(exchange.fin && exchange.rst, "{exchange:?}");
     }
 }

@@ -212,6 +212,13 @@ handler):
    buffer, parse it, free up the associated buffer space (also update the
    connection receive window), and build an HTTP response, which becomes the
    current pending response.
+1. If the request cannot be parsed, the error response becomes the pending
+   response instead, and nothing else received on the connection is ever parsed:
+   the bytes that follow could belong to the malformed request, such as a body
+   it declared. The endpoint discards them (still updating the receive window,
+   so a guest sending a body does not stall on a zero window), and closes the
+   connection once the error response has been acknowledged. If the guest still
+   sends data after the endpoint's FIN, the connection is reset.
 1. If a FIN segment was received, and there's no pending response, call `close`
    on the inner connection. If a valid RST is received at any time, mark the
    endpoint for removal.

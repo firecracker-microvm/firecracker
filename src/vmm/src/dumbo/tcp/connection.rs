@@ -333,7 +333,9 @@ impl Connection {
         self.flags_intersect(ConnStatusFlags::RESET)
     }
 
-    fn fin_sent(&self) -> bool {
+    /// Returns `true` if a `FIN` has been sent.
+    #[inline]
+    pub fn fin_sent(&self) -> bool {
         self.flags_intersect(ConnStatusFlags::FIN_SENT)
     }
 
