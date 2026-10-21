@@ -186,8 +186,11 @@ class CrosvmVhostUserBlkBackend(VhostUserBlkBackend):
         ro = ",ro" if self.readonly else ""
         args = [
             "crosvm",
+            # A request that completed with an error is logged at DEBUG, which
+            # tells a failed request apart from a lost one. Successful requests
+            # log nothing, so the log only grows with errors.
             "--log-level",
-            "off",
+            "debug",
             "devices",
             "--disable-sandbox",
             "--control-socket",
