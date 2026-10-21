@@ -432,6 +432,11 @@ pub(crate) struct BlockResources {
 impl BlockResources {
     /// Drain pending I/O and clear engine throttling
     fn reset(&mut self) {
+        // The guest may reuse its buffers once the reset completes, so wait for every operation
+        // still in flight. The wait retries EINTR; any other error leaves the engine in an unknown
+        // state, so stop rather than complete the reset with operations in flight.
+        // TODO: decide whether the wait should be bounded.
+        // https://github.com/firecracker-microvm/firecracker/issues/6281
         self.disk
             .file_engine
             .drain(true)
