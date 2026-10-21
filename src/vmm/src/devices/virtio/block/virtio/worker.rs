@@ -97,7 +97,7 @@ macro_rules! unwrap_async_file_engine_or_return {
     ($file_engine: expr) => {
         match $file_engine {
             FileEngine::Async(engine) => engine,
-            FileEngine::Sync(_) => {
+            FileEngine::Sync(_) | FileEngine::Vmdk(_) => {
                 error!("The block device doesn't use an async IO engine");
                 return;
             }
@@ -307,6 +307,9 @@ impl BlockWorker {
                 error!("Failed to flush block data for snapshot: {:?}", err);
             }
             Err(BlockIoError::Sync(err)) => {
+                error!("Failed to flush block data for snapshot: {:?}", err);
+            }
+            Err(BlockIoError::Vmdk(super::io::VmdkIoError::Flush(err))) => {
                 error!("Failed to flush block data for snapshot: {:?}", err);
             }
             Err(err) => panic!("Failed to drain block IO engine for snapshot: {err:?}"),
