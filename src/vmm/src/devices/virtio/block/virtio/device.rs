@@ -131,6 +131,13 @@ impl DiskProperties {
         }
     }
 
+    fn file_engine_type(&self) -> FileEngineType {
+        match self.file_engine {
+            FileEngine::Async(_) => FileEngineType::Async,
+            FileEngine::Sync(_) | FileEngine::Vmdk(_) => FileEngineType::Sync,
+        }
+    }
+
     /// Create a new file for the block device using a FileEngine
     pub fn new(
         disk_image_path: String,
@@ -163,12 +170,31 @@ impl DiskProperties {
         is_disk_read_only: bool,
     ) -> Result<(), VirtioBlockError> {
         let mut disk_image = Self::open_file(&disk_image_path, is_disk_read_only)?;
-        let disk_size = Self::file_size(&disk_image_path, &mut disk_image)?;
-
         self.image_id = Self::build_disk_image_id(&disk_image);
-        self.file_engine
-            .update_file_path(disk_image)
-            .map_err(VirtioBlockError::FileEngine)?;
+
+        // A raw image is a single file the engine can be pointed at. Formatted images
+        // are parsed into engine state when they are opened (for VMDK: the descriptor
+        // and its extents), and their size comes from that state rather than from the
+        // size of the descriptor file, so the engine has to be rebuilt instead.
+        let image_format = DiskImageFormat::from(&self.file_engine);
+        let disk_size = if image_format == DiskImageFormat::Raw {
+            let disk_size = Self::file_size(&disk_image_path, &mut disk_image)?;
+            self.file_engine
+                .update_file_path(disk_image)
+                .map_err(VirtioBlockError::FileEngine)?;
+            disk_size
+        } else {
+            let (file_engine, disk_size) = Self::from_disk_image(
+                &disk_image_path,
+                disk_image,
+                is_disk_read_only,
+                self.file_engine_type(),
+                image_format,
+            )?;
+            self.file_engine = file_engine;
+            disk_size
+        };
+
         self.nsectors = disk_size >> SECTOR_SHIFT;
         self.file_path = disk_image_path;
 
@@ -1107,9 +1133,14 @@ mod tests {
             )))
         ));
 
-        let disk =
+        let mut disk =
             DiskProperties::new(path, true, FileEngineType::Sync, DiskImageFormat::Vmdk).unwrap();
         assert!(matches!(disk.file_engine, FileEngine::Vmdk(_)));
+        assert_eq!(disk.nsectors, 2048);
+
+        let (_dir2, descriptor2) = create_test_vmdk("extent", 0);
+        disk.update(descriptor2.to_string_lossy().into_owned(), true)
+            .unwrap();
         assert_eq!(disk.nsectors, 2048);
     }
 
