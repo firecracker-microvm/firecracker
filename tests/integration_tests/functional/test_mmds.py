@@ -494,12 +494,18 @@ def rejected_request(framing, body):
         f"X-Forwarded-For: 10.0.0.1\r\n"
         f"X-metadata-token-ttl-seconds: 60\r\n"
     ).encode()
+    if framing == "bare_lf":
+        # micro_http ends header lines only at CRLF, so it reads the whole of
+        # this as the X-Pad value and sees no Content-Length at all.
+        return (
+            headers + f"X-Pad: pad\nContent-Length: {len(body)}\r\n\r\n".encode() + body
+        )
     assert framing == "content_length", framing
     return headers + f"Content-Length: {len(body)}\r\n\r\n".encode() + body
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
-@pytest.mark.parametrize("framing", ["content_length"])
+@pytest.mark.parametrize("framing", ["content_length", "bare_lf"])
 def test_mmds_rejected_request_ignores_what_follows(uvm, framing):
     """Answer a rejected request once, and nothing else sent on that connection."""
     test_microvm = uvm

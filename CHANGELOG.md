@@ -105,6 +105,10 @@ and this project adheres to
   memory hotplug configuration now rejects a `slot_size_mib` that isn't a
   multiple of 64 host pages. This only affects hosts with pages larger than 32
   KiB: with 64 KiB pages, slots must be a multiple of 4 MiB.
+- [#6445](https://github.com/firecracker-microvm/firecracker/pull/6445): MMDS
+  now requires CRLF line endings in the request line and header lines of a guest
+  request, as HTTP/1.1 specifies. A request carrying a bare CR or LF there
+  receives a `400` response, and the connection is closed.
 
 ### Deprecated
 

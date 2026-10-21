@@ -342,33 +342,64 @@ fn build_response(status_code: StatusCode, body: Body) -> Response {
     response
 }
 
-/// Finds the end of the HTTP request at the start of `buf`. Request bodies are not supported, so
-/// the request ends with the first empty line. `None` means that more bytes are needed.
-fn frame_request(buf: &[u8]) -> Option<usize> {
-    if buf.len() > 2 {
-        for i in 0..buf.len() - 1 {
-            // We're basically looking for a double new line, which can only appear at the end of
-            // a valid request.
-            if buf[i] == b'\n' {
-                if buf[i + 1] == b'\n' {
-                    return Some(i + 2);
-                } else if i + 3 <= buf.len() && &buf[i + 1..i + 3] == b"\r\n" {
-                    return Some(i + 3);
-                }
+/// Reads one CRLF-terminated line. Returns `Ok(None)` while the terminator has not arrived, and
+/// an error for a bare CR or LF. On success, returns the line without its CRLF and advances
+/// `input` past the terminator.
+fn read_crlf_line<'a>(input: &mut &'a [u8]) -> Result<Option<&'a [u8]>, RequestError> {
+    let buf = *input;
+
+    // This closure takes a line without a terminating CRLF. Therefore, any matches for CR or LF
+    // represent invalid lines.
+    let contains_invalid_terminator = |line: &[u8]| line.iter().any(|&b| b == b'\r' || b == b'\n');
+
+    match buf.windows(2).position(|w| w == b"\r\n") {
+        Some(end) => {
+            let line = &buf[..end];
+            if contains_invalid_terminator(line) {
+                return Err(RequestError::InvalidRequest);
             }
+            *input = &buf[end + 2..];
+            Ok(Some(line))
+        }
+        None => {
+            // No CRLF has arrived yet. The last byte may be a CR whose following LF has yet to
+            // arrive. Strip a trailing CR and check that there are no other contained CR or LF
+            // characters, as they would be invalid.
+            let partial = buf.strip_suffix(b"\r").unwrap_or(buf);
+            if contains_invalid_terminator(partial) {
+                return Err(RequestError::InvalidRequest);
+            }
+            Ok(None)
         }
     }
-    None
+}
+
+/// Finds the end of the HTTP request at the start of `buf`. Request bodies are not supported, so
+/// the request ends with the first empty line. `Ok(None)` means that more bytes are needed.
+///
+/// Lines must end with CRLF. A lone CR or LF is invalid: other HTTP implementations may end a line
+/// there, while micro_http does not, so the two would disagree on which headers the request has.
+fn frame_request(buf: &[u8]) -> Result<Option<usize>, RequestError> {
+    let mut remaining_input = buf;
+    let Some(_request_line) = read_crlf_line(&mut remaining_input)? else {
+        return Ok(None);
+    };
+    while let Some(line) = read_crlf_line(&mut remaining_input)? {
+        if line.is_empty() {
+            return Ok(Some(buf.len() - remaining_input.len()));
+        }
+    }
+    Ok(None)
 }
 
 /// Parses the request at the start of `buf`, once all of it has arrived, and builds its response
 /// with `callback`. Returns the length of the request and the response, `Ok(None)` if more bytes
-/// are needed, or the error if the request cannot be parsed.
+/// are needed, or the error if the request cannot be framed or parsed.
 fn parse_next_request<F: FnOnce(Request) -> Response>(
     buf: &[u8],
     callback: F,
 ) -> Result<Option<(usize, Response)>, RequestError> {
-    let Some(len) = frame_request(buf) else {
+    let Some(len) = frame_request(buf)? else {
         return Ok(None);
     };
     let response = parse_request_bytes(&buf[..len], callback)?;
@@ -945,5 +976,98 @@ mod tests {
             "{exchange:?}"
         );
         assert!(exchange.fin && exchange.rst, "{exchange:?}");
+    }
+
+    #[test]
+    fn test_frame_request() {
+        let get = b"GET http://169.254.169.254/ HTTP/1.1\r\nAccept: text/plain\r\n\r\n";
+        assert_eq!(frame_request(get), Ok(Some(get.len())));
+        // Only the first of several requests is framed.
+        assert_eq!(
+            frame_request(&[get.as_slice(), get].concat()),
+            Ok(Some(get.len()))
+        );
+        for len in 0..get.len() {
+            assert_eq!(frame_request(&get[..len]), Ok(None), "{len}");
+        }
+
+        // The next request is framed separately, even if it is malformed or incomplete.
+        for (next, expected) in [
+            (
+                b"GET http://169.254.169.254/ HTTP/1.1\n\n".as_slice(),
+                Err(RequestError::InvalidRequest),
+            ),
+            (
+                b"GET http://169.254.169.254/ HTTP/1.1\rX\r\n\r\n".as_slice(),
+                Err(RequestError::InvalidRequest),
+            ),
+            (
+                b"GET http://169.254.169.254/ HTTP/1.1\r".as_slice(),
+                Ok(None),
+            ),
+        ] {
+            let pipelined = [get.as_slice(), next].concat();
+            assert_eq!(frame_request(&pipelined), Ok(Some(get.len())), "{next:?}");
+            assert_eq!(frame_request(&pipelined[get.len()..]), expected, "{next:?}");
+        }
+
+        for invalid in [
+            b"\n".as_slice(),
+            b"GET http://169.254.169.254/ HTTP/1.1\n\n",
+            b"GET http://169.254.169.254/ HTTP/1.1\r\n\n",
+            b"GET http://169.254.169.254/ HTTP/1.1\r\r\n\r\n",
+            b"GET http://169.254.169.254/ HTTP/1.1\r\nX-A: a\nb\r\n\r\n",
+            b"GET http://169.254.169.254/ HTTP/1.1\r\nX-A: a\rb\r\n\r\n",
+        ] {
+            assert_eq!(
+                frame_request(invalid),
+                Err(RequestError::InvalidRequest),
+                "{invalid:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_malformed_second_request_preserves_first_response() {
+        let get = b"GET http://169.254.169.254/ HTTP/1.1\r\n\r\n";
+        for invalid in [
+            b"GET http://169.254.169.254/ HTTP/1.1\n\n".as_slice(),
+            b"GET http://169.254.169.254/ HTTP/1.1\rX\r\n\r\n",
+        ] {
+            let together = [get.as_slice(), invalid].concat();
+            let after_cr = [&get[get.len() - 1..], invalid].concat();
+            let cases: &[&[&[u8]]] = &[
+                &[together.as_slice()],
+                &[get.as_slice(), invalid],
+                &[&get[..get.len() - 1], after_cr.as_slice()],
+            ];
+            for segments in cases {
+                let exchange = exchange(segments);
+                assert_eq!(exchange.requests, 1, "{exchange:?}");
+                assert_eq!(exchange.responses.len(), 2, "{exchange:?}");
+                assert!(
+                    exchange.responses[0].starts_with("HTTP/1.1 200 "),
+                    "{exchange:?}"
+                );
+                assert!(
+                    exchange.responses[1].starts_with("HTTP/1.1 400 "),
+                    "{exchange:?}"
+                );
+                assert!(exchange.fin && !exchange.rst, "{exchange:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_lone_line_feed_closes_connection() {
+        // micro_http only ends header lines at CRLF, so it reads this Content-Length as part of
+        // the X-A value, while an implementation that ends lines at LF sees a body.
+        let get = b"GET http://169.254.169.254/ HTTP/1.1\r\n\r\n";
+        let hidden_body = format!(
+            "PUT http://169.254.169.254/latest/api/token HTTP/1.1\r\n\
+             X-A: a\nContent-Length: {}\r\n\r\n",
+            get.len()
+        );
+        assert_rejected(&[&[hidden_body.as_bytes(), get].concat()], "400");
     }
 }
