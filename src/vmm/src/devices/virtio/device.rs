@@ -224,11 +224,11 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     ///
     /// Returning false leaves the device activated and its queues in place. It
     /// also leaves running whatever work was handed to something outside our own
-    /// synchronous control: an out-of-process vhost-user backend, or io_uring
-    /// operations that are still in flight. That work may write into guest
-    /// memory that the guest has already freed and reused.
+    /// synchronous control, such as an out-of-process vhost-user backend. That
+    /// work may write into guest memory that the guest has already freed and
+    /// reused.
     ///
-    /// Today only devices in developer preview can fail a reset. Every other
+    /// Today only the vhost-user block device can fail a reset. Every other
     /// implementation returns true unconditionally.
     ///
     /// TODO: decide what Firecracker should do when a reset cannot be
