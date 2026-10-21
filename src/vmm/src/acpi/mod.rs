@@ -12,7 +12,6 @@ use crate::acpi::x86_64::{
 use crate::arch::x86_64::layout;
 use crate::device_manager::DeviceManager;
 use crate::logger::{debug, error};
-use crate::pci::bus::MAX_PCI_BUSES;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 use crate::vstate::resources::ResourceAllocator;
 
@@ -157,11 +156,8 @@ impl AcpiTableWriter<'_> {
         &mut self,
         resource_allocator: &mut ResourceAllocator,
         pci_mmio_config_addr: u64,
+        end_bus: u8,
     ) -> Result<u64, AcpiError> {
-        // The ECAM aperture is sized for every bus a segment can possibly
-        // have. Which of those buses actually exist is what the host bridge's
-        // _CRS bus range describes in PciSegment::append_aml_bytes().
-        let end_bus = MAX_PCI_BUSES - 1;
         let mut mcfg = Mcfg::new(
             OEM_ID,
             *b"FCMVMCFG",
@@ -201,12 +197,16 @@ pub(crate) fn create_acpi_tables(
     resource_allocator: &mut ResourceAllocator,
     vcpus: &[Vcpu],
 ) -> Result<(), AcpiError> {
+    let last_bus = device_manager
+        .pci_devices()
+        .map_or(0, |pci_devices| pci_devices.pci_segment().last_bus_number());
+
     let mut writer = AcpiTableWriter { mem };
     let dsdt_addr = writer.build_dsdt(device_manager, resource_allocator)?;
 
     let fadt_addr = writer.build_fadt(resource_allocator, dsdt_addr)?;
     let madt_addr = writer.build_madt(resource_allocator, vcpus.len().try_into().unwrap())?;
-    let mcfg_addr = writer.build_mcfg(resource_allocator, layout::PCI_MMCONFIG_START)?;
+    let mcfg_addr = writer.build_mcfg(resource_allocator, layout::PCI_MMCONFIG_START, last_bus)?;
     let xsdt_addr = writer.build_xsdt(resource_allocator, fadt_addr, madt_addr, mcfg_addr)?;
     writer.build_rsdp(xsdt_addr)
 }
