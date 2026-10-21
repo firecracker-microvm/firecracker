@@ -60,7 +60,12 @@ def prepare_microvm_for_test(microvm):
 
 
 def run_fio(
-    microvm, mode: fio.Mode, block_size: int, test_output_dir, fio_engine: fio.Engine
+    microvm,
+    mode: fio.Mode,
+    block_size: int,
+    test_output_dir,
+    fio_engine: fio.Engine,
+    readonly: bool = False,
 ):
     """Run a fio test in the specified mode with block size bs."""
     warmup_sec = warmup_sec_for(mode)
@@ -73,6 +78,7 @@ def run_fio(
         fio_engine,
         RUNTIME_SEC,
         warmup_sec,
+        readonly=readonly,
     )
 
     prepare_microvm_for_test(microvm)
@@ -159,6 +165,64 @@ def test_block_performance(
     vm.pin_threads(0)
 
     cpu_util = run_fio(vm, fio_mode, fio_block_size, results_dir, fio_engine)
+
+    emit_fio_metrics(results_dir, metrics)
+
+    for thread_name, values in cpu_util.items():
+        for value in values:
+            metrics.put_metric(f"cpu_utilization_{thread_name}", value, "Percent")
+
+
+@pytest.mark.nonci
+@pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
+@pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
+@pytest.mark.parametrize("fio_engine", [fio.Engine.LIBAIO, fio.Engine.PSYNC])
+def test_block_vmdk_performance(
+    uvm,
+    vcpus,
+    fio_block_size,
+    fio_engine,
+    metrics,
+    results_dir,
+):
+    """Execute block device benchmarking scenarios against a VMDK image.
+
+    Reads from a VMDK image go through the imago backend instead of a plain
+    file, so this keeps an eye on the throughput and latency it delivers.
+    """
+    vm = uvm
+    vm.spawn(log_level="Info", emit_metrics=True)
+    vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
+    vm.add_net_iface()
+    # Add a secondary, read-only VMDK block device for benchmark tests.
+    vmdk = drive_tools.VmdkFile(
+        os.path.join(vm.fsfiles, "scratch.vmdk"),
+        BLOCK_DEVICE_SIZE_MB,
+        pattern=bytes(range(256)),
+    )
+    vm.create_jailed_resource(vmdk.extent_path)
+    vm.add_drive(
+        "scratch", vmdk.descriptor_path, is_read_only=True, image_format="Vmdk"
+    )
+    vm.start()
+
+    metrics.set_dimensions(
+        {
+            "performance_test": "test_block_vmdk_performance",
+            "io_engine": "Sync",
+            "fio_mode": fio.Mode.RANDREAD.value,
+            "fio_block_size": str(fio_block_size),
+            "fio_engine": fio_engine.value,
+            "image_format": "Vmdk",
+            **vm.dimensions,
+        }
+    )
+
+    vm.pin_threads(0)
+
+    cpu_util = run_fio(
+        vm, fio.Mode.RANDREAD, fio_block_size, results_dir, fio_engine, readonly=True
+    )
 
     emit_fio_metrics(results_dir, metrics)
 
