@@ -28,7 +28,7 @@ use vmm_sys_util::terminal::Terminal;
 
 use crate::arch::{GSI_MSI_END, host_page_size};
 pub use crate::arch::{KvmVm, KvmVmError, VmState};
-use crate::logger::{debug, info};
+use crate::logger::{debug, info, warn};
 use crate::pci::PciSBDF;
 use crate::pci::msix::MsixTableEntry;
 use crate::persist::CreateSnapshotError;
@@ -283,44 +283,65 @@ impl KvmVm {
 
     /// Sends a pause event to all vCPUs and waits for acknowledgement.
     pub fn pause_vcpus(&self) -> Result<(), crate::VmmError> {
-        let mut handles = self.vcpus_handles();
-        handles
-            .iter_mut()
-            .try_for_each(|handle| handle.send_event(crate::VcpuEvent::Pause))
-            .map_err(|_| crate::VmmError::VcpuMessage)?;
-
-        if handles
-            .iter()
-            .map(|handle| {
-                handle
-                    .response_receiver()
-                    .recv_timeout(crate::RECV_TIMEOUT_SEC)
-            })
-            .any(|response| !matches!(response, Ok(crate::VcpuResponse::Paused)))
-        {
-            return Err(crate::VmmError::VcpuMessage);
-        }
-        Ok(())
+        self.transition_vcpus(
+            crate::VcpuEvent::Pause,
+            &crate::VcpuResponse::Paused,
+            crate::RECV_TIMEOUT_SEC,
+        )
     }
 
     /// Sends a resume event to all vCPUs and waits for acknowledgement.
     pub fn resume_vcpus(&self) -> Result<(), crate::VmmError> {
+        self.transition_vcpus(
+            crate::VcpuEvent::Resume,
+            &crate::VcpuResponse::Resumed,
+            crate::RECV_TIMEOUT_SEC,
+        )
+    }
+
+    /// Sends `event` to all vCPUs and waits up to `timeout` in total for each of them to answer
+    /// with `expected`.
+    ///
+    /// Responses still queued from an earlier request, which a vCPU sent after that request
+    /// timed out, are discarded first so that they are not taken as answers to this one. If not
+    /// every vCPU acknowledges in time, the error says how many did: those vCPUs did change
+    /// state, and the others may still do so.
+    fn transition_vcpus(
+        &self,
+        event: crate::VcpuEvent,
+        expected: &crate::VcpuResponse,
+        timeout: std::time::Duration,
+    ) -> Result<(), crate::VmmError> {
         let mut handles = self.vcpus_handles();
+        for handle in handles.iter() {
+            for stale in handle.response_receiver().try_iter() {
+                warn!("Discarding stale vCPU response: {stale:?}");
+            }
+        }
         handles
             .iter_mut()
-            .try_for_each(|handle| handle.send_event(crate::VcpuEvent::Resume))
+            .try_for_each(|handle| handle.send_event(event.clone()))
             .map_err(|_| crate::VmmError::VcpuMessage)?;
 
-        if handles
+        let deadline = std::time::Instant::now() + timeout;
+        let acked = handles
             .iter()
-            .map(|handle| {
+            .filter(|handle| {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
                 handle
                     .response_receiver()
-                    .recv_timeout(crate::RECV_TIMEOUT_SEC)
+                    .recv_timeout(left)
+                    .is_ok_and(|response| {
+                        std::mem::discriminant(&response) == std::mem::discriminant(expected)
+                    })
             })
-            .any(|response| !matches!(response, Ok(crate::VcpuResponse::Resumed)))
-        {
-            return Err(crate::VmmError::VcpuMessage);
+            .count();
+        if acked < handles.len() {
+            return Err(crate::VmmError::VcpuTransition {
+                event,
+                acked,
+                total: handles.len(),
+            });
         }
         Ok(())
     }
@@ -1258,5 +1279,95 @@ pub(crate) mod tests {
             .allocate(1024, 1024, AllocPolicy::FirstMatch)
             .unwrap();
         assert_eq!(range + 1024, range_new.start());
+    }
+
+    /// Starts a stand-in vCPU thread for `vcpu`. It answers `Pause` and `Resume` like a real
+    /// vCPU, waits for a message on `gate` (if any) before each answer, reports each answer on
+    /// `answered`, and exits on `Finish`.
+    fn start_stand_in_vcpu(
+        vm: &KvmVm,
+        vcpu: &crate::Vcpu,
+        gate: Option<std::sync::mpsc::Receiver<()>>,
+        answered: std::sync::mpsc::Sender<()>,
+    ) -> crate::vstate::vcpu::VcpuHandle {
+        use crate::{VcpuEvent, VcpuResponse};
+
+        let (event_sender, event_receiver) = std::sync::mpsc::channel();
+        let (response_sender, response_receiver) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            while let Ok(event) = event_receiver.recv() {
+                let response = match event {
+                    VcpuEvent::Pause => VcpuResponse::Paused,
+                    VcpuEvent::Resume => VcpuResponse::Resumed,
+                    VcpuEvent::Finish => return,
+                    other => panic!("unexpected vCPU event {other:?}"),
+                };
+                if let Some(gate) = &gate {
+                    gate.recv().unwrap();
+                }
+                response_sender.send(response).unwrap();
+                answered.send(()).unwrap();
+            }
+        });
+        crate::vstate::vcpu::VcpuHandle::new(
+            event_sender,
+            response_receiver,
+            vcpu.copy_kvm_vcpu_fd(vm).unwrap(),
+            thread,
+        )
+    }
+
+    #[test]
+    fn test_vcpu_transition_with_late_vcpu() {
+        use std::sync::atomic::fence;
+        use std::time::Duration;
+
+        use libc::{c_int, c_void, siginfo_t};
+
+        use crate::utils::signal::{register_signal_handler, sigrtmin};
+        use crate::vstate::vcpu::VCPU_RTSIG_OFFSET;
+        use crate::{VcpuEvent, VcpuResponse, VmmError};
+
+        // `VcpuHandle::send_event` kicks the vCPU thread with this signal.
+        extern "C" fn handle_kick(_: c_int, _: *mut siginfo_t, _: *mut c_void) {
+            fence(Ordering::Acquire);
+        }
+        register_signal_handler(sigrtmin() + VCPU_RTSIG_OFFSET, handle_kick).unwrap();
+
+        let mut vm = setup_vm_with_memory(0x1000);
+        let vcpus = vm.create_vcpus(2).unwrap();
+        let (gate, late_gate) = std::sync::mpsc::channel();
+        let (answered_sender, answered) = std::sync::mpsc::channel();
+        let prompt = start_stand_in_vcpu(&vm, &vcpus[0], None, answered_sender.clone());
+        let late = start_stand_in_vcpu(&vm, &vcpus[1], Some(late_gate), answered_sender);
+        vm.vcpus_handles().extend([prompt, late]);
+        let timeout = Duration::from_millis(100);
+
+        // vCPU 1 does not answer in time: the error says that only vCPU 0 paused.
+        assert_matches!(
+            vm.transition_vcpus(VcpuEvent::Pause, &VcpuResponse::Paused, timeout),
+            Err(VmmError::VcpuTransition {
+                event: VcpuEvent::Pause,
+                acked: 1,
+                total: 2,
+            })
+        );
+        answered.recv().unwrap();
+
+        // vCPU 1 pauses late, and its answer stays queued.
+        gate.send(()).unwrap();
+        answered.recv().unwrap();
+
+        // That stale answer must not be taken for vCPU 1's answer to the next request.
+        gate.send(()).unwrap();
+        vm.transition_vcpus(VcpuEvent::Resume, &VcpuResponse::Resumed, timeout)
+            .unwrap();
+        gate.send(()).unwrap();
+        vm.transition_vcpus(VcpuEvent::Pause, &VcpuResponse::Paused, timeout)
+            .unwrap();
+
+        for handle in vm.vcpus_handles().iter_mut() {
+            handle.send_event(VcpuEvent::Finish).unwrap();
+        }
     }
 }

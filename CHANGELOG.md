@@ -64,6 +64,14 @@ and this project adheres to
 
 ### Fixed
 
+- [#6293](https://github.com/firecracker-microvm/firecracker/pull/6293): Fixed
+  pause and resume requests going wrong after a vCPU answered one too late. Its
+  late answer stayed queued and was taken as its answer to the next request, so
+  later requests failed or did not wait for that vCPU. Late answers are now
+  discarded, a failed request reports how many vCPUs changed state, and a failed
+  resume leaves the microVM reported as `Running` rather than `Paused`. A failed
+  pause no longer stops device emulation.
+
 - [#6254](https://github.com/firecracker-microvm/firecracker/pull/6254) Fixed
   pausing a vCPU with an unfinished MMIO or port-I/O instruction. Pending I/O
   now completes before the vCPU pauses, so snapshots include its effects without

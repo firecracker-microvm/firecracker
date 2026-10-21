@@ -256,6 +256,15 @@ pub enum VmmError {
     VcpuResume,
     /// Failed to message the vCPUs.
     VcpuMessage,
+    /// Only {acked} of {total} vCPUs acknowledged {event:?} in time; the rest may change later.
+    VcpuTransition {
+        /// The event sent to the vCPUs.
+        event: VcpuEvent,
+        /// How many vCPUs acknowledged it.
+        acked: usize,
+        /// How many vCPUs there are.
+        total: usize,
+    },
     /// Operation not supported on {0} VMs.
     NotSupportedOnVmType(&'static str),
     /// Cannot spawn Vcpu thread: {0}
@@ -469,9 +478,11 @@ impl Vmm {
             .as_kvm()
             .ok_or_else(|| VmmError::NotSupportedOnVmType(self.vm.type_name()))?;
         self.device_manager.kick_virtio_devices();
-        kvm_vm.resume_vcpus()?;
+        let result = kvm_vm.resume_vcpus();
+        // `Paused` promises that every vCPU is paused. After a failed resume some of them may
+        // be running guest code, and device emulation has resumed, so report `Running`.
         self.instance_info.state = VmState::Running;
-        Ok(())
+        result
     }
 
     /// Sends a pause command to the vCPUs.

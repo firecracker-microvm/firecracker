@@ -84,27 +84,32 @@ impl ApiServerAdapter {
         Ok(())
     }
 
-    fn _handle_request(&mut self, req_action: VmmAction, event_manager: &mut EventManager) {
+    /// Handles one request and sends back its result, returning whether it succeeded.
+    fn _handle_request(&mut self, req_action: VmmAction, event_manager: &mut EventManager) -> bool {
         let response = self.controller.handle_request(req_action, event_manager);
+        let succeeded = response.is_ok();
         // Send back the result.
         self.to_api
             .send(Box::new(response))
             .map_err(|_| ())
             .expect("one-shot channel closed");
+        succeeded
     }
 
     fn handle_request(&mut self, event_manager: &mut EventManager) {
         if let Some(api_request) = self.request.take() {
             let request_is_pause = *api_request == VmmAction::Pause;
-            self._handle_request(*api_request, event_manager);
+            let succeeded = self._handle_request(*api_request, event_manager);
 
-            // If the latest req is a pause request, temporarily switch to a mode where we
-            // do blocking `recv`s on the `from_api` receiver in a loop, until we get
+            // If the latest req is a successful pause request, temporarily switch to a mode
+            // where we do blocking `recv`s on the `from_api` receiver in a loop, until we get
             // unpaused. The device emulation is implicitly paused since we do not
             // return to `run_microvm` and hence `event_manager.run()` is not called
             // again: device fds (virtqueue notifications, tap, rate limiters, timers)
             // are not polled until we break out of this loop on `Resume`.
-            if request_is_pause {
+            // A failed pause leaves the microVM `Running`, possibly with some vCPUs still
+            // running, so device emulation keeps going until a pause succeeds.
+            if request_is_pause && succeeded {
                 // This loop only attempts to process API requests, so things like the
                 // metric flush timerfd handling are frozen as well (an explicit `FlushMetrics`
                 // request still goes through).
