@@ -594,7 +594,7 @@ fn create_pci_nodes(fdt: &mut FdtWriter, segment: &PciSegment) -> Result<(), Fdt
     ];
 
     let pci_node = fdt.begin_node(&pci_node_name)?;
-    let last_bus = u32::from(segment.pci_buses.num_buses() - 1);
+    let last_bus = u32::from(segment.last_bus_number());
 
     fdt.property_string("compatible", "pci-host-ecam-generic")?;
     fdt.property_string("device_type", "pci")?;

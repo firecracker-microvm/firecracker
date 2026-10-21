@@ -354,7 +354,6 @@ impl DeviceManager {
         }
     }
 
-    #[cfg(target_arch = "aarch64")]
     pub(crate) fn pci_devices(&self) -> Option<&PciDevices> {
         match &self.virtio_devices {
             VirtioDevices::Pci(pci_devices) => Some(pci_devices),

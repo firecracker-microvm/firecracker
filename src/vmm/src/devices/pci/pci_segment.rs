@@ -179,6 +179,11 @@ impl PciSegment {
         Ok(segment)
     }
 
+    /// Number of the highest bus that exists in this segment.
+    pub(crate) fn last_bus_number(&self) -> u8 {
+        self.pci_buses.num_buses() - 1
+    }
+
     /// Attach hot-plug capable root ports to the primary bus.
     pub(crate) fn attach_root_ports(&mut self, vm: &Arc<KvmVm>) -> Result<(), PciManagerError> {
         for secondary_bus in 1..self.pci_buses.num_buses() {
@@ -368,7 +373,7 @@ impl Aml for PciSegment {
         let pci_osc = PciOscMethod {};
         pci_dsdt_inner_data.push(&pci_osc);
 
-        let last_bus = u16::from(self.pci_buses.num_buses() - 1);
+        let last_bus = u16::from(self.last_bus_number());
 
         #[allow(clippy::if_same_then_else)]
         let crs = if self.id == 0 {
