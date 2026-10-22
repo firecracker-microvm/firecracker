@@ -60,13 +60,13 @@ impl SeccompCondition {
                 // JIT.
                 match self.val_len {
                     SeccompCmpArgLen::Dword => scmp_arg_cmp {
-                        arg: self.index as u32,
+                        arg: u32::from(self.index),
                         op: scmp_compare::SCMP_CMP_MASKED_EQ,
                         datum_a: 0x00000000FFFFFFFF,
                         datum_b: self.val,
                     },
                     SeccompCmpArgLen::Qword => scmp_arg_cmp {
-                        arg: self.index as u32,
+                        arg: u32::from(self.index),
                         op: scmp_compare::SCMP_CMP_EQ,
                         datum_a: self.val,
                         datum_b: 0,
@@ -74,38 +74,38 @@ impl SeccompCondition {
                 }
             }
             SeccompCmpOp::Ge => scmp_arg_cmp {
-                arg: self.index as u32,
+                arg: u32::from(self.index),
                 op: scmp_compare::SCMP_CMP_GE,
                 datum_a: self.val,
                 datum_b: 0,
             },
             SeccompCmpOp::Gt => scmp_arg_cmp {
-                arg: self.index as u32,
+                arg: u32::from(self.index),
                 op: scmp_compare::SCMP_CMP_GT,
                 datum_a: self.val,
                 datum_b: 0,
             },
             SeccompCmpOp::Le => scmp_arg_cmp {
-                arg: self.index as u32,
+                arg: u32::from(self.index),
                 op: scmp_compare::SCMP_CMP_LE,
                 datum_a: self.val,
                 datum_b: 0,
             },
             SeccompCmpOp::Lt => scmp_arg_cmp {
-                arg: self.index as u32,
+                arg: u32::from(self.index),
                 op: scmp_compare::SCMP_CMP_LT,
                 datum_a: self.val,
                 datum_b: 0,
             },
             SeccompCmpOp::Ne => scmp_arg_cmp {
-                arg: self.index as u32,
+                arg: u32::from(self.index),
                 op: scmp_compare::SCMP_CMP_NE,
                 datum_a: self.val,
                 datum_b: 0,
             },
 
             SeccompCmpOp::MaskedEq(m) => scmp_arg_cmp {
-                arg: self.index as u32,
+                arg: u32::from(self.index),
                 op: scmp_compare::SCMP_CMP_MASKED_EQ,
                 datum_a: m,
                 datum_b: self.val,
@@ -187,6 +187,46 @@ impl FromStr for TargetArch {
             "x86_64" => Ok(TargetArch::X86_64),
             "aarch64" => Ok(TargetArch::Aarch64),
             _ => Err(s.to_string()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_condition_argument_index() {
+        for val_len in [SeccompCmpArgLen::Dword, SeccompCmpArgLen::Qword] {
+            for op in [
+                SeccompCmpOp::Eq,
+                SeccompCmpOp::Ge,
+                SeccompCmpOp::Gt,
+                SeccompCmpOp::Le,
+                SeccompCmpOp::Lt,
+                SeccompCmpOp::MaskedEq(u64::MAX),
+                SeccompCmpOp::Ne,
+            ] {
+                let condition = SeccompCondition {
+                    index: u8::MAX,
+                    op,
+                    val: u64::MAX,
+                    val_len: val_len.clone(),
+                };
+                let comparator = condition.to_scmp_type();
+                assert_eq!(comparator.arg, 255);
+            }
+        }
+    }
+
+    #[test]
+    fn test_action_data() {
+        for (data, errno, trace) in [
+            (0, 0x00050000, 0x7ff00000),
+            (u16::MAX, 0x0005ffff, 0x7ff0ffff),
+        ] {
+            assert_eq!(SeccompAction::Errno(data).to_scmp_type(), errno);
+            assert_eq!(SeccompAction::Trace(data).to_scmp_type(), trace);
         }
     }
 }
