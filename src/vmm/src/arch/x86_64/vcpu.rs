@@ -29,6 +29,7 @@ use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecial
 use crate::cpu_config::x86_64::{CpuConfiguration, cpuid};
 use crate::logger::{IncMetric, METRICS, error, warn};
 use crate::vstate::bus::Bus;
+use crate::vstate::coalesced_io::CoalescedIoRing;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vcpu::{VcpuEmulation, VcpuError};
 use crate::vstate::vm::KvmVm;
@@ -176,6 +177,8 @@ pub struct Peripherals {
     pub pio_bus: Option<Arc<Bus>>,
     /// Mmio bus.
     pub mmio_bus: Option<Arc<Bus>>,
+    /// Ring of writes KVM buffered for coalesced MMIO and port I/O ranges, shared by all vCPUs.
+    pub coalesced_io: Option<Arc<CoalescedIoRing>>,
 }
 
 impl KvmVcpu {
@@ -808,6 +811,15 @@ impl KvmVcpu {
 }
 
 impl Peripherals {
+    /// The bus that coalesced writes to port I/O space (`pio`) or to MMIO space belong on.
+    pub fn coalesced_io_bus(&self, pio: bool) -> Option<&Arc<Bus>> {
+        if pio {
+            self.pio_bus.as_ref()
+        } else {
+            self.mmio_bus.as_ref()
+        }
+    }
+
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.

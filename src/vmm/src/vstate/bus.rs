@@ -27,6 +27,19 @@ pub trait BusDevice: Send {
     fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
         None
     }
+    /// Writes at `offset` on behalf of a guest write that KVM buffered in its coalesced I/O ring
+    /// instead of exiting to userspace. A run of these ends with
+    /// [`BusDevice::coalesced_writes_done`]. Defaults to [`BusDevice::write`], whose barrier has
+    /// nobody to wait on it: a device that returns one must not have its writes coalesced.
+    fn write_coalesced(&mut self, base: u64, offset: u64, data: &[u8]) {
+        let barrier = self.write(base, offset, data);
+        debug_assert!(
+            barrier.is_none(),
+            "coalesced writes cannot wait on a barrier"
+        );
+    }
+    /// Called after the last write of a run delivered through [`BusDevice::write_coalesced`].
+    fn coalesced_writes_done(&mut self) {}
 }
 
 /// Error type for [`Bus`]-related operations.
@@ -257,6 +270,20 @@ impl Bus {
         self.with_device(addr, usize_to_u64(data.len()), |dev, base, offset| {
             dev.write(base, offset, data)
         })
+    }
+
+    /// Hands the device that owns the range containing `addr` a write that KVM buffered in its
+    /// coalesced I/O ring, see [`BusDevice::write_coalesced`].
+    pub fn write_coalesced(&self, addr: u64, data: &[u8]) -> Result<(), BusError> {
+        self.with_device(addr, usize_to_u64(data.len()), |dev, base, offset| {
+            dev.write_coalesced(base, offset, data)
+        })
+    }
+
+    /// Tells the device that owns the range containing `addr` that a run of coalesced writes to
+    /// it is complete, see [`BusDevice::coalesced_writes_done`].
+    pub fn coalesced_writes_done(&self, addr: u64) -> Result<(), BusError> {
+        self.with_device(addr, 1, |dev, _, _| dev.coalesced_writes_done())
     }
 }
 

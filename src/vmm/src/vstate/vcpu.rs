@@ -405,7 +405,12 @@ impl Vcpu {
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
     pub fn run_emulation(&mut self) -> Result<VcpuEmulation, VcpuError> {
-        match self.kvm_vcpu.fd.run() {
+        let emulation_result = self.kvm_vcpu.fd.run();
+        // Writes that KVM buffered instead of exiting came before whatever made this vCPU exit,
+        // so devices have to see them first.
+        #[cfg(target_arch = "x86_64")]
+        replay_coalesced_io(&self.kvm_vcpu.peripherals);
+        match emulation_result {
             Err(ref err) if err.errno() == libc::EINTR => {
                 self.kvm_vcpu.fd.set_kvm_immediate_exit(0);
                 // Notify that this KVM_RUN was interrupted.
@@ -423,6 +428,39 @@ impl Vcpu {
             }
             emulation_result => handle_kvm_exit(&mut self.kvm_vcpu.peripherals, emulation_result),
         }
+    }
+}
+
+/// Replays onto the buses, oldest first, the writes that KVM buffered in the coalesced I/O ring
+/// instead of exiting. Consecutive writes to one address are delivered to their device as one run.
+#[cfg(target_arch = "x86_64")]
+fn replay_coalesced_io(peripherals: &Peripherals) {
+    let Some(ring) = &peripherals.coalesced_io else {
+        return;
+    };
+    let end_run = |(pio, addr): (bool, u64)| {
+        if let Some(bus) = peripherals.coalesced_io_bus(pio) {
+            let _ = bus.coalesced_writes_done(addr);
+        }
+    };
+
+    let mut run = None;
+    ring.drain(|pio, addr, data| {
+        if let Some(previous) = run
+            && previous != (pio, addr)
+        {
+            end_run(previous);
+        }
+        run = Some((pio, addr));
+        if peripherals
+            .coalesced_io_bus(pio)
+            .is_none_or(|bus| bus.write_coalesced(addr, data).is_err())
+        {
+            warn!("vcpu: coalesced write to {addr:#x} reached no device");
+        }
+    });
+    if let Some(previous) = run {
+        end_run(previous);
     }
 }
 
@@ -828,6 +866,82 @@ pub(crate) mod tests {
             Ok(VcpuExit::MmioWrite(addr, &[0, 0, 0, 0])),
         );
         assert_eq!(res.unwrap(), VcpuEmulation::Handled);
+    }
+
+    /// Records, in order, the accesses it receives.
+    #[cfg(target_arch = "x86_64")]
+    #[derive(Default)]
+    struct AccessRecorder(Vec<String>);
+
+    #[cfg(target_arch = "x86_64")]
+    impl BusDevice for AccessRecorder {
+        fn read(&mut self, _base: u64, offset: u64, _data: &mut [u8]) {
+            self.0.push(format!("read {offset:#x}"));
+        }
+
+        fn write_coalesced(&mut self, _base: u64, offset: u64, data: &[u8]) {
+            self.0.push(format!("coalesced write {offset:#x} {data:?}"));
+        }
+
+        fn coalesced_writes_done(&mut self) {
+            self.0.push("done".to_string());
+        }
+    }
+
+    /// Runs guest code that writes twice to a coalesced port and then reads another port, which
+    /// exits. The device must see the buffered writes, as one run, before the read.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_coalesced_writes_are_replayed_before_the_exit() {
+        use kvm_bindings::kvm_regs;
+        use kvm_ioctls::IoEventAddress;
+        use vm_memory::Bytes;
+
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
+        let device = Arc::new(Mutex::new(AccessRecorder::default()));
+        let pio_bus = Arc::new(Bus::new());
+        pio_bus.insert(device.clone(), 0x3f8, 0x8).unwrap();
+        vcpu.kvm_vcpu.set_pio_bus(pio_bus);
+        vm.fd()
+            .register_coalesced_mmio(IoEventAddress::Pio(0x3f8), 1)
+            .unwrap();
+
+        let code = [
+            0xba, 0xf8, 0x03, // mov dx, 0x3f8
+            0xb0, b'h', // mov al, 'h'
+            0xee, // out dx, al
+            0xb0, b'i', // mov al, 'i'
+            0xee, // out dx, al
+            0xba, 0xfd, 0x03, // mov dx, 0x3fd
+            0xec, // in al, dx
+            0xf4, // hlt
+        ];
+        vm.guest_memory()
+            .write_slice(&code, GuestAddress(0x1000))
+            .unwrap();
+        let mut sregs = vcpu.kvm_vcpu.fd.get_sregs().unwrap();
+        sregs.cs.base = 0;
+        sregs.cs.selector = 0;
+        vcpu.kvm_vcpu.fd.set_sregs(&sregs).unwrap();
+        vcpu.kvm_vcpu
+            .fd
+            .set_regs(&kvm_regs {
+                rip: 0x1000,
+                rflags: 2,
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(vcpu.run_emulation().unwrap(), VcpuEmulation::Handled);
+        assert_eq!(
+            device.lock().unwrap().0,
+            [
+                "coalesced write 0x0 [104]",
+                "coalesced write 0x0 [105]",
+                "done",
+                "read 0x5"
+            ]
+        );
     }
 
     impl PartialEq for VcpuResponse {

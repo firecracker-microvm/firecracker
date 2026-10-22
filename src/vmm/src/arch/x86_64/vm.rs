@@ -12,12 +12,15 @@ use kvm_ioctls::Cap;
 use serde::{Deserialize, Serialize};
 
 use crate::arch::x86_64::msr::MsrError;
+use crate::logger::warn;
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
 use crate::vstate::bus::Bus;
+use crate::vstate::coalesced_io::CoalescedIoRing;
 use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
 use crate::vstate::resources::{ResourceAllocator, ResourceAllocatorState};
+use crate::vstate::vcpu::Vcpu;
 use crate::vstate::vm::{VmCommon, VmError};
 
 /// Error type for [`KvmVm::restore_state`]
@@ -67,6 +70,9 @@ pub struct KvmVm {
     xsave2_size: Option<usize>,
     /// Port IO bus
     pub pio_bus: Arc<Bus>,
+    /// The ring KVM buffers writes to coalesced port I/O ranges in. `None` if KVM does not
+    /// support coalesced port I/O.
+    pub(crate) coalesced_io: Option<Arc<CoalescedIoRing>>,
 }
 
 impl KvmVm {
@@ -110,7 +116,32 @@ impl KvmVm {
             msrs_to_save,
             xsave2_size,
             pio_bus,
+            coalesced_io: None,
         })
+    }
+
+    /// Maps KVM's coalesced I/O ring and shares it with `vcpus`, which replay it on every exit.
+    /// Port I/O ranges can be registered for coalescing once this has run.
+    pub fn map_coalesced_io_ring(&mut self, vcpus: &mut [Vcpu]) {
+        if !self.common.kvm.fd.check_extension(Cap::CoalescedMmio)
+            || !self.common.kvm.fd.check_extension(Cap::CoalescedPio)
+        {
+            return;
+        }
+        // KVM keeps one ring per VM, and only lets it be mapped through a vCPU.
+        let Some(vcpu) = vcpus.first() else {
+            return;
+        };
+        match CoalescedIoRing::new(&vcpu.kvm_vcpu.fd) {
+            Ok(ring) => {
+                let ring = Arc::new(ring);
+                for vcpu in vcpus {
+                    vcpu.kvm_vcpu.peripherals.coalesced_io = Some(ring.clone());
+                }
+                self.coalesced_io = Some(ring);
+            }
+            Err(err) => warn!("Could not map the KVM coalesced I/O ring: {err}"),
+        }
     }
 
     /// Pre-vCPU creation setup.

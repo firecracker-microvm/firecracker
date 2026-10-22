@@ -216,6 +216,9 @@ impl KvmVm {
             vcpus.push(vcpu);
         }
 
+        #[cfg(target_arch = "x86_64")]
+        self.map_coalesced_io_ring(&mut vcpus);
+
         self.arch_post_create_vcpus(vcpu_count)?;
 
         Ok(vcpus)
