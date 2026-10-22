@@ -14,8 +14,8 @@ pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState, GicError> {
     let mut vcpu_states = Vec::with_capacity(mpidrs.len());
     for mpidr in mpidrs {
         vcpu_states.push(GicVcpuState {
-            rdist: Vec::new(),
             icc: icc_regs::get_icc_regs(fd, *mpidr)?,
+            rdist: dist_regs::get_banked_dist_regs(fd, *mpidr)?,
         })
     }
 
@@ -34,6 +34,7 @@ pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<
         return Err(GicError::InconsistentVcpuCount);
     }
     for (mpidr, vcpu_state) in mpidrs.iter().zip(&state.gic_vcpu_states) {
+        dist_regs::set_banked_dist_regs(fd, *mpidr, &vcpu_state.rdist)?;
         icc_regs::set_icc_regs(fd, *mpidr, &vcpu_state.icc)?;
     }
 
@@ -94,5 +95,42 @@ mod tests {
         assert_eq!(gicd_statusr.chunks[0], val);
         assert_eq!(vm_state.dist.len(), 7);
         restore_state(gic_fd, &mpidr, &vm_state).unwrap();
+    }
+
+    #[test]
+    fn test_save_restore_banked_dist_regs() {
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let _ = vm.create_vcpu(0).unwrap();
+        let gic = match create_gic(&vm, 1, Some(GICVersion::GICV2)) {
+            Ok(gic) => gic,
+            Err(GicError::CreateGIC(_)) => return,
+            _ => panic!("Failed to open setup GICv2"),
+        };
+        let fd = gic.device_fd();
+
+        let gicd_isenabler0 = 0x100;
+        let gicd_icenabler0 = 0x180;
+        let timer_ppi = 1u32 << 27;
+        let mut val = timer_ppi;
+        let attr = |offset, val: &mut u32| kvm_bindings::kvm_device_attr {
+            group: kvm_bindings::KVM_DEV_ARM_VGIC_GRP_DIST_REGS,
+            attr: offset,
+            addr: val as *mut u32 as u64,
+            flags: 0,
+        };
+        fd.set_device_attr(&attr(gicd_isenabler0, &mut val))
+            .unwrap();
+        let vm_state = save_state(fd, &[0]).unwrap();
+        fd.set_device_attr(&attr(gicd_icenabler0, &mut val))
+            .unwrap();
+        restore_state(fd, &[0], &vm_state).unwrap();
+
+        val = 0;
+        unsafe {
+            fd.get_device_attr(&mut attr(gicd_isenabler0, &mut val))
+                .unwrap()
+        };
+        assert_eq!(val & timer_ppi, timer_ppi);
     }
 }
