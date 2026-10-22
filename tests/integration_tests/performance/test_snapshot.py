@@ -14,7 +14,10 @@ import pytest
 import host_tools.drive as drive_tools
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.microvm import Microvm, SnapshotType
-from framework.utils import start_fast_page_fault_helper
+from framework.utils import (
+    start_fast_page_fault_helper,
+    wait_for_fast_page_fault_helper_output,
+)
 from framework.utils_hugepages import HugePagesConfig
 
 USEC_IN_MSEC = 1000
@@ -193,9 +196,7 @@ def test_post_restore_latency(
 
         microvm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
 
-        _, duration, _ = microvm.ssh.check_output(
-            "while [ ! -f /tmp/fast_page_fault_helper.out ]; do sleep 1; done; cat /tmp/fast_page_fault_helper.out"
-        )
+        duration = wait_for_fast_page_fault_helper_output(microvm.ssh)
 
         metrics.put_metric("fault_latency", int(duration) / NS_IN_MSEC, "Milliseconds")
 

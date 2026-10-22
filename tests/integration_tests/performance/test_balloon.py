@@ -14,6 +14,7 @@ from framework.utils import (
     start_fast_page_fault_helper,
     track_cpu_utilization,
     wait_for_balloon_actual,
+    wait_for_fast_page_fault_helper_output,
 )
 from framework.utils_hugepages import HugePagesConfig, supports_hugetlbfs_discard
 
@@ -40,10 +41,7 @@ def get_page_fault_duration(vm):
     """
     Waits for the performance data to be available and will read the duration
     """
-    _, duration, _ = vm.ssh.check_output(
-        "while [ ! -f /tmp/fast_page_fault_helper.out ]; do sleep 1; done; cat /tmp/fast_page_fault_helper.out"
-    )
-    return duration
+    return wait_for_fast_page_fault_helper_output(vm.ssh)
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
@@ -102,9 +100,7 @@ def test_hinting_reporting_cpu(
     if free_page_reporting:
         cpu_util = track_cpu_utilization(test_microvm.firecracker_pid, 5, 0)
     else:
-        test_microvm.ssh.check_output(
-            "while [ ! -f /tmp/fast_page_fault_helper.out ]; do sleep 1; done;"
-        )
+        wait_for_fast_page_fault_helper_output(test_microvm.ssh)
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
             cpu_load_future = executor.submit(
