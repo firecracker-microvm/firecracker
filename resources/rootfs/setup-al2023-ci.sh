@@ -113,3 +113,9 @@ mkdir -pv $rootfs/var/lib/systemd
 
 # So rpm works
 mkdir -pv $rootfs/var/lib/rpm
+
+# Stamp /etc and /var as up to date so the ConditionNeedsUpdate= units
+# (systemd-hwdb-update, ldconfig, ...) don't run on every boot. The stamps
+# record the mtime of /usr: keep this last, and leave /usr alone afterwards.
+ldconfig
+/usr/lib/systemd/systemd-update-done
