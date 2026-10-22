@@ -616,6 +616,36 @@ def test_restore_mem_file_on_block_device(uvm, microvm_factory):
         check_output(f"losetup --detach {loop_device}")
 
 
+def test_restore_mem_file_on_too_small_block_device(uvm, microvm_factory):
+    """Tests that a block device smaller than guest memory is rejected.
+
+    Mapping guest memory past the end of the device would SIGBUS the VMM on
+    access, so restore must fail with an error instead."""
+    base_vm = uvm
+    base_vm.spawn()
+    base_vm.basic_config()
+    base_vm.add_net_iface()
+    base_vm.start()
+
+    snapshot = base_vm.snapshot_full()
+    base_vm.kill()
+
+    half = snapshot.mem.stat().st_size // 2
+    loop_device = check_output(
+        f"losetup --find --show --read-only --sizelimit {half} {snapshot.mem}"
+    ).stdout.strip()
+    try:
+        vm = microvm_factory.build()
+        vm.spawn()
+        with pytest.raises(RuntimeError, match="exceeds largest possible file offset"):
+            vm.restore_from_snapshot(
+                dataclasses.replace(snapshot, mem=Path(loop_device)), resume=True
+            )
+        vm.mark_killed()
+    finally:
+        check_output(f"losetup --detach {loop_device}")
+
+
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_vmgenid(uvm, microvm_factory, snapshot_type):
     """
