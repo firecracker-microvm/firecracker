@@ -255,16 +255,15 @@ impl TimerFd {
             #[cfg(any(test, feature = "test-utils"))]
             TimerFd::Mock(mock) => return mock.arm(duration, interval),
         };
-        #[allow(clippy::cast_possible_wrap)]
         let spec = libc::itimerspec {
             it_value: libc::timespec {
-                tv_sec: duration.as_secs() as i64,
-                tv_nsec: duration.subsec_nanos() as i64,
+                tv_sec: duration.as_secs().cast_signed(),
+                tv_nsec: i64::from(duration.subsec_nanos()),
             },
             it_interval: if let Some(interval) = interval {
                 libc::timespec {
-                    tv_sec: interval.as_secs() as i64,
-                    tv_nsec: interval.subsec_nanos() as i64,
+                    tv_sec: interval.as_secs().cast_signed(),
+                    tv_nsec: i64::from(interval.subsec_nanos()),
                 }
             } else {
                 libc::timespec {
