@@ -16,7 +16,8 @@ use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::mmio::MmioTransport;
 use crate::snapshot::Persist;
-use crate::vstate::memory::{GuestAddress, GuestMemoryMmap, GuestMemorySlice};
+use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
+use crate::vstate::memory_slice::{GuestMemorySlice, GuestMemorySliceMut};
 
 /// Errors thrown during restoring virtio state.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -99,7 +100,7 @@ impl Persist<'_> for Queue {
 
             desc_table: GuestMemorySlice::UNRESOLVED,
             avail_ring: GuestMemorySlice::UNRESOLVED,
-            used_ring: GuestMemorySlice::UNRESOLVED,
+            used_ring: GuestMemorySliceMut::UNRESOLVED,
 
             next_avail: state.next_avail,
             next_used: state.next_used,
@@ -153,9 +154,14 @@ impl VirtioDeviceState {
         // - right device type,
         // - acked features is a subset of available ones,
         // - right number of queues,
+        // - right queue max size, before restoring resolves rings of up to that size.
         if self.device_type != expected_device_type
             || (self.acked_features & !self.avail_features) != 0
             || self.queues.len() != expected_num_queues
+            || self
+                .queues
+                .iter()
+                .any(|q| q.max_size != expected_queue_max_size)
         {
             return Err(PersistError::InvalidInput);
         }
@@ -165,8 +171,7 @@ impl VirtioDeviceState {
             mem: mem.clone(),
             is_activated: self.activated,
         };
-        let queues: Vec<Queue> = self
-            .queues
+        self.queues
             .iter()
             .map(|queue_state| {
                 Queue::restore(queue_construction_args.clone(), queue_state)
@@ -178,15 +183,7 @@ impl VirtioDeviceState {
                     })
                     .map_err(PersistError::QueueConstruction)
             })
-            .collect::<Result<_, _>>()?;
-
-        for q in &queues {
-            // Sanity check queue size and queue max size.
-            if q.max_size != expected_queue_max_size {
-                return Err(PersistError::InvalidInput);
-            }
-        }
-        Ok(queues)
+            .collect()
     }
 }
 
@@ -268,6 +265,7 @@ mod tests {
     use crate::devices::virtio::test_utils::default_mem;
     use crate::devices::virtio::transport::mmio::tests::DummyDevice;
     use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
+    use crate::test_utils::single_region_mem_dirty_tracking;
 
     const DEFAULT_QUEUE_MAX_SIZE: u16 = 256;
     impl Default for QueueState {
@@ -340,6 +338,26 @@ mod tests {
             .build_queues_checked(&mem, VirtioDeviceType::Net, state.queues.len(), max_size)
             .unwrap_err();
 
+        // Invalid max queue size, with rings too large to track dirty pages for: the size
+        // check comes first, so restoring fails rather than panics.
+        let bad_q = QueueState {
+            max_size: 32768,
+            size: 32768,
+            ready: true,
+            ..Default::default()
+        };
+        state.queues = vec![bad_q];
+        state.activated = true;
+        state
+            .build_queues_checked(
+                &single_region_mem_dirty_tracking(0x100000),
+                VirtioDeviceType::Net,
+                state.queues.len(),
+                max_size,
+            )
+            .unwrap_err();
+        state.activated = false;
+
         // Invalid: size > max.
         let bad_q = QueueState {
             size: max_size + 1,
@@ -367,6 +385,12 @@ mod tests {
         let mut queue = Queue::new(128);
         queue.ready = true;
         queue.size = queue.max_size;
+        queue.desc_table_address = GuestAddress(0x1000);
+        queue.avail_ring_address = GuestAddress(0x2000);
+        queue.used_ring_address = GuestAddress(0x3000);
+        queue.next_avail = Wrapping(5);
+        queue.next_used = Wrapping(3);
+        queue.num_added = Wrapping(2);
         queue.initialize(&mem).unwrap();
 
         let queue_state = queue.save();
@@ -379,7 +403,14 @@ mod tests {
         let restored_state = bitcode::deserialize(&serialized_data).unwrap();
         let restored_queue = Queue::restore(ca, &restored_state).unwrap();
 
-        assert_eq!(restored_queue, queue);
+        assert_eq!(restored_queue.save(), queue_state);
+        assert_eq!(restored_queue.next_avail, Wrapping(5));
+        assert_eq!(restored_queue.next_used, Wrapping(3));
+        assert_eq!(restored_queue.num_added, Wrapping(2));
+        // The rings were resolved again, at the same places in the same memory.
+        assert_eq!(restored_queue.desc_table, queue.desc_table);
+        assert_eq!(restored_queue.avail_ring, queue.avail_ring);
+        assert_eq!(*restored_queue.used_ring, *queue.used_ring);
     }
 
     #[test]

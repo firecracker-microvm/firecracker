@@ -22,6 +22,8 @@ pub enum PciBusError {
     NoPciDeviceSlotAvailable,
     /// PCI device ID {0} is already in use.
     DuplicateDeviceId(u8),
+    /// PCI bus {0} does not exist.
+    InvalidBusNumber(u8),
 }
 
 const VENDOR_ID_INTEL: u16 = 0x8086;

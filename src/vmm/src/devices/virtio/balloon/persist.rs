@@ -236,7 +236,13 @@ mod tests {
             restored_balloon.config_space.free_page_hint_cmd_id,
             FREE_PAGE_HINT_DONE
         );
-        assert_eq!(restored_balloon.queues(), balloon.queues());
+        assert!(
+            restored_balloon
+                .queues()
+                .iter()
+                .map(Persist::save)
+                .eq(balloon.queues().iter().map(Persist::save))
+        );
         assert!(!restored_balloon.is_activated());
         assert!(!balloon.is_activated());
 

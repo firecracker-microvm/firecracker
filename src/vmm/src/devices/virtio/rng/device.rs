@@ -66,7 +66,9 @@ pub struct Entropy {
 
 impl Entropy {
     pub fn new(rate_limiter: RateLimiter) -> Result<Self, EntropyError> {
-        let queues = vec![Queue::new(FIRECRACKER_MAX_QUEUE_SIZE); RNG_NUM_QUEUES];
+        let queues = (0..RNG_NUM_QUEUES)
+            .map(|_| Queue::new(FIRECRACKER_MAX_QUEUE_SIZE))
+            .collect();
         Self::new_with_queues(queues, rate_limiter)
     }
 

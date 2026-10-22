@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Test scenario for reseting dirty pages after making a full snapshot."""
 
+import platform
+
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 
 
@@ -24,11 +26,16 @@ def test_dirty_pages_after_full_snapshot(uvm):
     # file size is the same, but the `diff` snapshot is actually a sparse file
     assert snap_full.mem.stat().st_size == snap_diff.mem.stat().st_size
 
-    # full -> diff: full should have more things in it
-    # Diff snapshots will contain some pages, because we always mark
-    # pages used for virt queues as dirty.
+    # The full snapshot reset the dirty bitmap, the VM stays paused across the snapshots and the
+    # devices only mark what they write, so the diff snapshots hold only what taking a snapshot
+    # itself dirties: nothing on x86_64; on aarch64, saving the GIC state has KVM write the LPI
+    # pending tables (and the ITS tables, with PCI) into guest memory, the same few pages each
+    # time.
+    assert snap_full.mem.stat().st_blocks > 0
     assert snap_diff.mem.stat().st_blocks < snap_full.mem.stat().st_blocks
-    assert snap_diff2.mem.stat().st_blocks < snap_full.mem.stat().st_blocks
-
-    # diff -> diff: there should be no differences
     assert snap_diff.mem.stat().st_blocks == snap_diff2.mem.stat().st_blocks
+    if platform.machine() == "x86_64":
+        assert snap_diff.mem.stat().st_blocks == 0
+    else:
+        # At most the 4 pages of the GIC tables, in 512-byte blocks.
+        assert snap_diff.mem.stat().st_blocks <= 4 * 4096 // 512

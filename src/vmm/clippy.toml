@@ -4,3 +4,15 @@ disallowed-macros = [
     { path = "log::info", reason = "use crate::logger::info or info_unrestricted instead" },
     { path = "log::debug", reason = "use crate::logger::debug instead" },
 ]
+
+# Reading from a file descriptor into a `VolatileSlice` through vm-memory marks the whole slice
+# dirty if the read fails, pages it never wrote to included. Read into a copy of the slice that
+# carries no bitmap and mark exactly the bytes read instead; see `SyncFileEngine::read`.
+# Marking non-written/non-populated pages as dirty can lead to corruption for snapshots created
+# by an external process while UFFD is still registered.
+disallowed-methods = [
+    { path = "vm_memory::ReadVolatile::read_volatile", reason = "marks the whole slice dirty on a failed read" },
+    { path = "vm_memory::ReadVolatile::read_exact_volatile", reason = "marks the whole slice dirty on a failed read" },
+    { path = "vm_memory::Bytes::read_volatile_from", reason = "marks the whole range dirty on a failed read" },
+    { path = "vm_memory::Bytes::read_exact_volatile_from", reason = "marks the whole range dirty on a failed read" },
+]
