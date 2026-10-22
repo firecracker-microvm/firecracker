@@ -176,7 +176,11 @@ build_rootfs() {
             # Copy filesystem back to bind-mounted rootfs
             dirs="bin etc home lib lib64 root sbin usr"
             for d in $dirs; do [ -d "/$d" ] && tar c "/$d" | tar x -C $rootfs; done
-            mkdir -pv $rootfs/dev $rootfs/proc $rootfs/sys $rootfs/run $rootfs/tmp 
+            mkdir -pv $rootfs/dev $rootfs/proc $rootfs/sys $rootfs/run $rootfs/tmp $rootfs/var
+            # Keep the systemd-update-done stamp; /var is not copied.
+            if [ -e /var/.updated ]; then
+              cp -p /var/.updated $rootfs/var/.updated
+            fi
             '
 
     # TBD what about /etc/hosts?
