@@ -10,6 +10,7 @@
 //! ```json
 //!  "balloon": {
 //!     "activate_fails": "SharedIncMetric",
+//!     "cfg_fails": "SharedIncMetric",
 //!     "inflate_count": "SharedIncMetric",
 //!     "stats_updates_count": "SharedIncMetric",
 //!     ...
@@ -53,6 +54,8 @@ pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
 pub(super) struct BalloonDeviceMetrics {
     /// Number of times when activate failed on a balloon device.
     pub activate_fails: SharedIncMetric,
+    /// Number of times when handling a device config space write from the guest failed.
+    pub cfg_fails: SharedIncMetric,
     /// Number of balloon device inflations.
     pub inflate_count: SharedIncMetric,
     // Number of balloon statistics updates from the driver.
@@ -81,6 +84,7 @@ impl BalloonDeviceMetrics {
     const fn new() -> Self {
         Self {
             activate_fails: SharedIncMetric::new(),
+            cfg_fails: SharedIncMetric::new(),
             inflate_count: SharedIncMetric::new(),
             stats_updates_count: SharedIncMetric::new(),
             stats_update_fails: SharedIncMetric::new(),
