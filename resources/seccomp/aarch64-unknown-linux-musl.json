@@ -1474,6 +1474,18 @@
                 ]
             },
             {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1075883590,
+                        "comment": "KVM_SET_USER_MEMORY_REGION, Used by VFIO passthrough BAR relocation"
+                    }
+                ]
+            },
+            {
                 "syscall": "pread64",
                 "comment": "Used by VFIO passthrough to read device PCI config and BAR regions on vCPU MMIO/PIO exits"
             },
