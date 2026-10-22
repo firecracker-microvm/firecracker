@@ -8,6 +8,7 @@ import os
 import re
 import stat
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -15,6 +16,16 @@ from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_pci
 
 VFIO_SBDF = os.environ.get("FC_VFIO_PCI_SBDF")
 VFIO_SYSFS = os.environ.get("FC_VFIO_PCI_SYSFS_PATH")
+
+# Flags of /sys/bus/pci/devices/*/resource entries
+IORESOURCE_MEM = 0x200
+IORESOURCE_MEM_64 = 0x100000
+
+# NVMe Version register offset in BAR0 (NVME_REG_VS in include/linux/nvme.h)
+NVME_VERSION_REGISTER_OFFSET = 0x8
+
+# Guest path the devmem tool is copied to
+DEVMEM_PATH = "/tmp/devmem"
 
 
 def vfio_device_test(test):
@@ -353,22 +364,23 @@ def test_vfio_nvme_read(uvm_with_vfio):
     assert "256+0 records in" in stdout
 
 
-@vfio_device_test
-@pytest.mark.parametrize("bs,count", [("4k", 1), ("1M", 64)])
-def test_vfio_nvme_write_readback(uvm_with_vfio, bs, count):
+def _check_write_readback(vm, block_size, block_count):
     """Write data and read it back to confirm DMA in both directions."""
-    vm = uvm_with_vfio
-    vm.ssh.check_output(f"dd if=/dev/urandom of=/tmp/pattern bs={bs} count={count}")
-    vm.ssh.check_output(
-        f"dd if=/tmp/pattern of=/dev/nvme0n1 bs={bs} count={count} oflag=direct"
-    )
-    vm.ssh.check_output(
-        f"dd if=/dev/nvme0n1 of=/tmp/readback bs={bs} count={count} iflag=direct"
-    )
+    blocks = f"bs={block_size} count={block_count}"
+    vm.ssh.check_output(f"dd if=/dev/urandom of=/tmp/pattern {blocks}")
+    vm.ssh.check_output(f"dd if=/tmp/pattern of=/dev/nvme0n1 {blocks} oflag=direct")
+    vm.ssh.check_output(f"dd if=/dev/nvme0n1 of=/tmp/readback {blocks} iflag=direct")
     # There is no `cmp` binary in AL2023 rootfs, so use a workaround
     _, stdout, _ = vm.ssh.check_output("md5sum /tmp/pattern /tmp/readback")
     hashes = [line.split()[0] for line in stdout.strip().splitlines()]
     assert hashes[0] == hashes[1], "write/readback mismatch"
+
+
+@vfio_device_test
+@pytest.mark.parametrize("block_size,block_count", [("4k", 1), ("1M", 64)])
+def test_vfio_nvme_write_readback(uvm_with_vfio, block_size, block_count):
+    """Write data and read it back to confirm DMA in both directions."""
+    _check_write_readback(uvm_with_vfio, block_size, block_count)
 
 
 @vfio_device_test
@@ -385,3 +397,139 @@ def test_vfio_nvme_snapshot(uvm_with_vfio):
         )
     vm.resume()
     vm.ssh.check_output("dd if=/dev/nvme0n1 of=/dev/null bs=4k count=1 iflag=direct")
+
+
+def _get_pcie_slot(vm, path):
+    """Guest PCI slot of the passthrough NVMe controller."""
+    return vm.ssh.check_output(f"basename $(readlink -f {path})").stdout.strip()
+
+
+class PciBar(NamedTuple):
+    """Memory BAR of a guest PCI device."""
+
+    index: int
+    base: int
+    size: int
+    is_64bit: bool
+
+
+def _get_memory_bars(vm, slot):
+    """Return memory BARs of the guest PCI device at `slot`."""
+    resource_lines = vm.ssh.check_output(
+        f"head -6 /sys/bus/pci/devices/{slot}/resource"
+    ).stdout.splitlines()
+    bars = []
+    for bar_index, line in enumerate(resource_lines):
+        start, end, flags = (int(value, 16) for value in line.split())
+        if start and flags & IORESOURCE_MEM:
+            is_64bit = bool(flags & IORESOURCE_MEM_64)
+            bars.append(PciBar(bar_index, start, end - start + 1, is_64bit))
+    assert bars[0].index == 0, "BAR0 is expected to be a memory BAR"
+    return bars
+
+
+def _get_nvme_version(vm, bar0_base):
+    """Read the NVMe Version register of the controller with BAR0 at `bar0_base`."""
+    address = bar0_base + NVME_VERSION_REGISTER_OFFSET
+    version = vm.ssh.check_output(f"{DEVMEM_PATH} read 0x{address:x} 4").stdout
+    return int(version, 16)
+
+
+def _set_bar_base(vm, slot, pci_bar, base, memory_decoding):
+    """
+    Write `base` to `pci_bar` of `slot`. With memory decoding enabled each register
+    write relocates the BAR, otherwise relocation happens once decoding is
+    re-enabled.
+    """
+    registers = f"BASE_ADDRESS_{pci_bar.index}=0x{base & 0xffff_ffff:08x}"
+    if pci_bar.is_64bit:
+        registers += f" BASE_ADDRESS_{pci_bar.index + 1}=0x{base >> 32:08x}"
+    if memory_decoding:
+        setpci_args = f"COMMAND=2:2 {registers}"
+    else:
+        setpci_args = f"COMMAND=0:2 {registers} COMMAND=2:2"
+    vm.ssh.check_output(f"setpci -s {slot} {setpci_args}")
+
+
+@vfio_device_test
+@pytest.mark.parametrize(
+    "memory_decoding", [True, False], ids=["decoding", "no_decoding"]
+)
+def test_vfio_nvme_bar_relocation(uvm_with_vfio, devmem_bin, memory_decoding):
+    """
+    Relocated BARs of the passthrough device follow the guest written
+    addresses, and the device keeps working once moved back.
+
+    The guest kernel only learns BAR addresses at probe time, so the NVMe
+    driver is unbound while BARs are away from their original addresses.
+    """
+    vm = uvm_with_vfio
+    vm.ssh.scp_put(devmem_bin, DEVMEM_PATH)
+    vm.ssh.check_output(f"chmod +x {DEVMEM_PATH}")
+    nvme_slot = _get_pcie_slot(vm, "/sys/class/nvme/nvme0/device")
+    bars = _get_memory_bars(vm, nvme_slot)
+    original_base = bars[0].base
+    nvme_version = _get_nvme_version(vm, original_base)
+    assert nvme_version not in (0, 0xFFFFFFFF), f"invalid version {nvme_version:#x}"
+
+    vm.ssh.check_output(f"echo {nvme_slot} > /sys/bus/pci/drivers/nvme/unbind")
+
+    # Shifting all BARs by the same amount keeps them from overlapping each
+    # other. This stays inside the MMIO windows and nothing is placed there.
+    relocation_offset = 16 << 20
+    for pci_bar in bars:
+        relocated_base = pci_bar.base + relocation_offset
+        assert relocated_base % pci_bar.size == 0
+        _set_bar_base(vm, nvme_slot, pci_bar, relocated_base, memory_decoding)
+
+    assert (
+        _get_nvme_version(vm, original_base + relocation_offset) == nvme_version
+    ), "device not at relocated BAR0"
+    assert (
+        _get_nvme_version(vm, original_base) == 0
+    ), "device still mapped at original BAR0"
+
+    for pci_bar in bars:
+        _set_bar_base(vm, nvme_slot, pci_bar, pci_bar.base, memory_decoding)
+
+    assert (
+        _get_nvme_version(vm, original_base) == nvme_version
+    ), "device not back at original BAR0"
+
+    vm.ssh.check_output(f"echo {nvme_slot} > /sys/bus/pci/drivers/nvme/bind")
+    vm.ssh.check_output(
+        "timeout 10 sh -c 'until test -b /dev/nvme0n1; do sleep 0.1; done'"
+    )
+    _check_write_readback(vm, "1M", 64)
+
+
+@vfio_device_test
+def test_vfio_nvme_bar_relocation_refused(uvm_with_vfio, devmem_bin):
+    """
+    Relocation of a BAR outside of the MMIO windows or on top of another device
+    is refused and the device stays where it is.
+    """
+    vm = uvm_with_vfio
+    vm.ssh.scp_put(devmem_bin, DEVMEM_PATH)
+    vm.ssh.check_output(f"chmod +x {DEVMEM_PATH}")
+    nvme_slot = _get_pcie_slot(vm, "/sys/class/nvme/nvme0/device")
+    bar0 = _get_memory_bars(vm, nvme_slot)[0]
+    nvme_version = _get_nvme_version(vm, bar0.base)
+    network_slot = _get_pcie_slot(vm, "/sys/class/net/eth0/device/..")
+
+    # Overlap the start of the network device BAR
+    network_bar0 = _get_memory_bars(vm, network_slot)[0]
+    overlapping_base = network_bar0.base & ~(bar0.size - 1)
+
+    for refused_base in [0, overlapping_base]:
+        _set_bar_base(vm, nvme_slot, bar0, refused_base, memory_decoding=True)
+        assert (
+            f"Cannot reserve relocated BAR0 range at {refused_base:#x}" in vm.log_data
+        )
+        assert (
+            _get_nvme_version(vm, bar0.base) == nvme_version
+        ), "device moved by a refused relocation"
+
+    # The NVMe driver is not aware of any of this and keeps working
+    _set_bar_base(vm, nvme_slot, bar0, bar0.base, memory_decoding=True)
+    _check_write_readback(vm, "1M", 64)
