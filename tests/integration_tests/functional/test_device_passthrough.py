@@ -16,6 +16,16 @@ from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_pci
 VFIO_SBDF = os.environ.get("FC_VFIO_PCI_SBDF")
 VFIO_SYSFS = os.environ.get("FC_VFIO_PCI_SYSFS_PATH")
 
+# Flags of /sys/bus/pci/devices/*/resource entries
+IORESOURCE_MEM = 0x200
+IORESOURCE_MEM_64 = 0x100000
+
+# NVMe Version register offset in BAR0
+NVME_REG_VS = 0x8
+
+# Guest path the devmem tool is copied to
+DEVMEM_PATH = "/tmp/devmem"
+
 
 def vfio_device_test(test):
     """
@@ -353,11 +363,8 @@ def test_vfio_nvme_read(uvm_with_vfio):
     assert "256+0 records in" in stdout
 
 
-@vfio_device_test
-@pytest.mark.parametrize("bs,count", [("4k", 1), ("1M", 64)])
-def test_vfio_nvme_write_readback(uvm_with_vfio, bs, count):
+def _check_write_readback(vm, bs, count):
     """Write data and read it back to confirm DMA in both directions."""
-    vm = uvm_with_vfio
     vm.ssh.check_output(f"dd if=/dev/urandom of=/tmp/pattern bs={bs} count={count}")
     vm.ssh.check_output(
         f"dd if=/tmp/pattern of=/dev/nvme0n1 bs={bs} count={count} oflag=direct"
@@ -369,6 +376,13 @@ def test_vfio_nvme_write_readback(uvm_with_vfio, bs, count):
     _, stdout, _ = vm.ssh.check_output("md5sum /tmp/pattern /tmp/readback")
     hashes = [line.split()[0] for line in stdout.strip().splitlines()]
     assert hashes[0] == hashes[1], "write/readback mismatch"
+
+
+@vfio_device_test
+@pytest.mark.parametrize("bs,count", [("4k", 1), ("1M", 64)])
+def test_vfio_nvme_write_readback(uvm_with_vfio, bs, count):
+    """Write data and read it back to confirm DMA in both directions."""
+    _check_write_readback(uvm_with_vfio, bs, count)
 
 
 @vfio_device_test
@@ -385,3 +399,117 @@ def test_vfio_nvme_snapshot(uvm_with_vfio):
         )
     vm.resume()
     vm.ssh.check_output("dd if=/dev/nvme0n1 of=/dev/null bs=4k count=1 iflag=direct")
+
+
+def _nvme_slot(vm):
+    """Guest PCI slot of the passthrough NVMe controller."""
+    return vm.ssh.check_output(
+        "basename $(readlink -f /sys/class/nvme/nvme0/device)"
+    ).stdout.strip()
+
+
+def _mem_bars(vm, slot):
+    """Return (index, base, size, is_64bit) of each memory BAR of `slot`."""
+    lines = vm.ssh.check_output(
+        f"head -6 /sys/bus/pci/devices/{slot}/resource"
+    ).stdout.splitlines()
+    bars = []
+    for idx, line in enumerate(lines):
+        start, end, flags = (int(x, 16) for x in line.split())
+        if start and flags & IORESOURCE_MEM:
+            bars.append((idx, start, end - start + 1, bool(flags & IORESOURCE_MEM_64)))
+    assert bars[0][0] == 0, "BAR0 is expected to be a memory BAR"
+    return bars
+
+
+def _nvme_vs(vm, base):
+    """Read the NVMe Version register of the controller with BAR0 at `base`."""
+    cmd = f"{DEVMEM_PATH} read 0x{base + NVME_REG_VS:x} 4"
+    return int(vm.ssh.check_output(cmd).stdout, 16)
+
+
+def _set_bar(vm, slot, pci_bar, base, decoding):
+    """
+    Write `base` to `pci_bar` of `slot`. With memory decoding enabled each register
+    write relocates the BAR, otherwise relocation happens once decoding is
+    re-enabled.
+    """
+    idx, _, _, is_64bit = pci_bar
+    regs = f"BASE_ADDRESS_{idx}=0x{base & 0xFFFFFFFF:08x}"
+    if is_64bit:
+        regs += f" BASE_ADDRESS_{idx + 1}=0x{base >> 32:08x}"
+    cmd = f"COMMAND=2:2 {regs}" if decoding else f"COMMAND=0:2 {regs} COMMAND=2:2"
+    vm.ssh.check_output(f"setpci -s {slot} {cmd}")
+
+
+@vfio_device_test
+@pytest.mark.parametrize("decoding", [True, False], ids=["decoding", "no_decoding"])
+def test_vfio_nvme_bar_relocation(uvm_with_vfio, devmem_bin, decoding):
+    """
+    Relocated BARs of the passthrough device follow the guest written
+    addresses, and the device keeps working once moved back.
+
+    The guest kernel only learns BAR addresses at probe time, so the NVMe
+    driver is unbound while BARs are away from their original addresses.
+    """
+    vm = uvm_with_vfio
+    vm.ssh.scp_put(devmem_bin, DEVMEM_PATH)
+    vm.ssh.check_output(f"chmod +x {DEVMEM_PATH}")
+    slot = _nvme_slot(vm)
+    bars = _mem_bars(vm, slot)
+    old_base = bars[0][1]
+    vs = _nvme_vs(vm, old_base)
+    assert vs not in (0, 0xFFFFFFFF), f"unexpected NVMe version {vs:#x}"
+
+    vm.ssh.check_output(f"echo {slot} > /sys/bus/pci/drivers/nvme/unbind")
+
+    # Shifting all BARs by the same amount keeps them from overlapping each
+    # other. This stays inside the MMIO windows and nothing is placed there.
+    shift = 16 << 20
+    for pci_bar in bars:
+        _, base, size, _ = pci_bar
+        assert (base + shift) % size == 0
+        _set_bar(vm, slot, pci_bar, base + shift, decoding)
+
+    assert _nvme_vs(vm, old_base + shift) == vs, "device not at relocated BAR0"
+    assert _nvme_vs(vm, old_base) == 0, "device still mapped at old BAR0"
+
+    for pci_bar in bars:
+        _set_bar(vm, slot, pci_bar, pci_bar[1], decoding)
+    assert _nvme_vs(vm, old_base) == vs, "device not back at the original BAR0"
+
+    vm.ssh.check_output(f"echo {slot} > /sys/bus/pci/drivers/nvme/bind")
+    vm.ssh.check_output(
+        "timeout 10 sh -c 'until test -b /dev/nvme0n1; do sleep 0.1; done'"
+    )
+    _check_write_readback(vm, "1M", 64)
+
+
+@vfio_device_test
+def test_vfio_nvme_bar_relocation_refused(uvm_with_vfio, devmem_bin):
+    """
+    Relocation of a BAR outside of the MMIO windows or on top of another device
+    is refused and the device stays where it is.
+    """
+    vm = uvm_with_vfio
+    vm.ssh.scp_put(devmem_bin, DEVMEM_PATH)
+    vm.ssh.check_output(f"chmod +x {DEVMEM_PATH}")
+    slot = _nvme_slot(vm)
+    pci_bar = _mem_bars(vm, slot)[0]
+    old_base = pci_bar[1]
+    vs = _nvme_vs(vm, old_base)
+
+    net_slot = vm.ssh.check_output(
+        "basename $(readlink -f /sys/class/net/eth0/device/..)"
+    ).stdout.strip()
+    # Overlap the start of the network device BAR
+    overlap_base = _mem_bars(vm, net_slot)[0][1] & ~(pci_bar[2] - 1)
+
+    for base in [0, overlap_base]:
+        _set_bar(vm, slot, pci_bar, base, decoding=True)
+        assert f"Cannot reserve relocated BAR0 range at {base:#x}" in vm.log_data
+        assert _nvme_vs(vm, old_base) == vs, "device moved by a refused relocation"
+
+    # The NVMe driver is not aware of any of this and keeps working
+    _set_bar(vm, slot, pci_bar, old_base, decoding=True)
+    _check_write_readback(vm, "1M", 64)
