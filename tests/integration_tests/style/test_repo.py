@@ -3,13 +3,27 @@
 
 """Tests enforcing git repository structure"""
 
+import os
 import re
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
-from framework import utils_repo
+from framework import utils, utils_repo
+
+
+@pytest.mark.skipif(
+    "BUILDKITE" in os.environ,
+    reason="By the time a commit reaches CI, a leaked secret is already public",
+)
+def test_repo_no_secrets():
+    """
+    Ensure no tracked file contains an AWS secret.
+    """
+    # Without file arguments it scans `git ls-files`, relative to the cwd.
+    utils.check_output("git-secrets --register-aws && git-secrets --scan", cwd="..")
 
 
 def test_repo_no_spaces_in_paths():

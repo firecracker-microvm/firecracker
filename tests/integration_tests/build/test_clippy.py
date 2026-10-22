@@ -4,23 +4,24 @@
 
 import platform
 
-import pytest
-
 from host_tools.cargo_build import cargo
 
-SUCCESS_CODE = 0
 MACHINE = platform.machine()
 TARGETS = [
-    "{}-unknown-linux-gnu".format(MACHINE),
-    "{}-unknown-linux-musl".format(MACHINE),
+    f"{MACHINE}-unknown-linux-gnu",
+    f"{MACHINE}-unknown-linux-musl",
 ]
 
 
-@pytest.mark.parametrize("target", TARGETS)
-def test_rust_clippy(target):
+def test_rust_clippy():
     """
     Test that clippy does not generate any errors/warnings.
     """
+    # One invocation for both targets: separate ones would serialize on cargo's
+    # build-directory lock, and this one shares the host-side artifacts.
+    targets = " ".join(f"--target {target}" for target in TARGETS)
     cargo(
-        "clippy", f"--target {target} --all --all-targets --all-features", "-D warnings"
+        "clippy",
+        f"--profile ci {targets} --all --all-targets --all-features",
+        "-D warnings",
     )

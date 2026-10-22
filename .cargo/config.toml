@@ -1,8 +1,5 @@
 [build]
 target-dir = "build/cargo_target"
-rustflags = [
-  "-Ccodegen-units=1",
-]
 
 [net]
 git-fetch-with-cli = true

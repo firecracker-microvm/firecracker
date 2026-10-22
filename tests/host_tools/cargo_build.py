@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Functionality for a shared binary build and release path for all tests."""
 
-import os
 import platform
 from pathlib import Path
 
@@ -46,23 +45,30 @@ def get_rustflags():
     return ""
 
 
-def cargo_test(path, extra_args=""):
-    """Trigger unit tests depending on flags provided."""
+def cargo_test(target_dir, extra_args="", env=None):
+    """Run the unit, doc and example tests of all crates.
+
+    `env` overrides the defaults below (e.g. RUSTFLAGS for coverage).
+    """
     env = {
-        "CARGO_TARGET_DIR": os.path.join(path, "unit-tests"),
+        "CARGO_TARGET_DIR": target_dir,
         "RUST_TEST_THREADS": 1,
         "RUST_BACKTRACE": "1",
         "RUSTFLAGS": get_rustflags(),
+        **(env or {}),
     }
-    cargo(
-        "test",
-        extra_args + " --all --no-fail-fast",
-        subcommand_args="--nocapture",
-        env=env,
-        # Kill cargo test 60s before pytest's 600s timeout, so pytest can report
-        # the failure and upload artifacts cleanly instead of being killed itself.
-        timeout=540,
-    )
+    # By default cargo only builds the examples, and selecting `--examples`
+    # drops the doc tests, so the examples' tests need a second run.
+    for targets in ("", " --examples"):
+        cargo(
+            "test",
+            extra_args + " --profile ci --all --no-fail-fast" + targets,
+            subcommand_args="--nocapture",
+            env=env,
+            # Kill cargo test 60s before pytest's 600s timeout, so pytest can report
+            # the failure and upload artifacts cleanly instead of being killed itself.
+            timeout=540,
+        )
 
 
 def get_binary(name, *, binary_dir=DEFAULT_BINARY_DIR, example=None):
@@ -141,11 +147,14 @@ def gcc_compile(src_file, output_file, extra_flags="-static -O3"):
         utils.check_output(compile_cmd)
 
 
-def build_gdb():
-    """Builds Firecracker with GDB feature enabled. Returns the binary dir"""
+def build_gdb(check_only=False):
+    """Builds Firecracker with GDB feature enabled. Returns the binary dir.
+
+    `check_only` runs `cargo check` instead: no binaries.
+    """
     build_path = LOCAL_BUILD_PATH / "gdb"
     cargo(
-        "build",
+        "check --profile ci" if check_only else "build",
         f"--features gdb --target {DEFAULT_TARGET} --all",
         env={"CARGO_TARGET_DIR": build_path},
     )
@@ -153,15 +162,22 @@ def build_gdb():
     return build_path / DEFAULT_TARGET / "debug"
 
 
-def build_fuzzing(release=False):
-    """Builds Firecracker with fuzzing feature enabled. Returns the binary dir"""
-    profile = "release" if release else "debug"
+def build_fuzzing(release=False, check_only=False):
+    """Builds Firecracker with fuzzing feature enabled. Returns the binary dir.
+
+    `check_only` runs `cargo check` instead: no binaries.
+    """
     build_path = LOCAL_BUILD_PATH / "fuzzing"
-    release_flag = " --release" if release else ""
+    if release:
+        # The `compile_error!` the release check looks for is gated on
+        # `not(debug_assertions)`, so this stays on `release`.
+        profile = "--release"
+    else:
+        profile = "--profile ci" if check_only else ""
     cargo(
-        "build",
-        f"--features fuzzing{release_flag} --target {DEFAULT_TARGET} --all",
+        "check" if check_only else "build",
+        f"{profile} --features fuzzing --target {DEFAULT_TARGET} --all",
         env={"CARGO_TARGET_DIR": build_path},
     )
 
-    return build_path / DEFAULT_TARGET / profile
+    return build_path / DEFAULT_TARGET / ("release" if release else "debug")

@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_pci
 from framework.utils import (
     get_stable_rss_mem,
     start_fast_page_fault_helper,
@@ -180,6 +180,8 @@ def test_hinting_fault_latency(
 # pylint: disable=C0103
 @pytest.mark.parametrize("backing", ["anonymous", "memfd"])
 @pytest.mark.parametrize("method", ["traditional", "hinting", "reporting"])
+# The transport does not affect the reduction.
+@pin_pci(True)
 def test_size_reduction(uvm, rootfs, method, backing, huge_pages):
     """
     Verify that ballooning reduces RSS usage on a newly booted guest.

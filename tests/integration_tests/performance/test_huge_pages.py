@@ -58,6 +58,8 @@ def check_hugetlbfs_in_use(pid: int, allocation_name: str):
     assert kernel_page_size_kib > 4
 
 
+# Draws from the host's shared hugetlbfs pool.
+@pytest.mark.serial
 def test_hugetlbfs_boot(uvm):
     """Tests booting a microvm with guest memory backed by 2MB hugetlbfs pages"""
 
@@ -72,6 +74,8 @@ def test_hugetlbfs_boot(uvm):
     )
 
 
+# Draws from the host's shared hugetlbfs pool.
+@pytest.mark.serial
 def test_hugetlbfs_snapshot(microvm_factory, uvm, snapshot_type):
     """
     Test hugetlbfs snapshot restore via uffd
@@ -114,6 +118,8 @@ def test_hugetlbfs_snapshot(microvm_factory, uvm, snapshot_type):
         (HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT, "on_demand"),
     ],
 )
+# Draws from the host's shared hugetlbfs pool.
+@pytest.mark.serial
 def test_snapshot_huge_pages_override(
     microvm_factory,
     uvm,
@@ -152,6 +158,8 @@ def test_snapshot_huge_pages_override(
 
 
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
+# Draws from the host's shared hugetlbfs pool.
+@pytest.mark.serial
 def test_ept_violation_count(
     microvm_factory,
     uvm,

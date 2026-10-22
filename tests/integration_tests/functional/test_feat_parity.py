@@ -6,6 +6,7 @@
 import pytest
 
 import framework.utils_cpuid as cpuid_utils
+from framework.artifacts import pin_pci
 from framework.properties import global_props
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 
@@ -40,6 +41,8 @@ def vm_fxt(uvm, inst_set_cpu_template):
     return vm
 
 
+# The transport plays no part in what is asserted: guest CPU state.
+@pin_pci(True)
 def test_feat_parity_cpuid_mpx(vm):
     """
     Verify that MPX (Memory Protection Extensions) is not enabled in any of the supported CPU templates.
@@ -65,6 +68,8 @@ def test_feat_parity_cpuid_mpx(vm):
     sorted(set(SUPPORTED_CPU_TEMPLATES).intersection(INST_SET_TEMPLATES + ["T2"])),
     indirect=True,
 )
+# The transport plays no part in what is asserted: guest CPU state.
+@pin_pci(True)
 def test_feat_parity_cpuid_inst_set(vm):
     """
     Verify that CPUID feature flags related to instruction sets are properly set

@@ -23,6 +23,7 @@ from framework.artifacts import (
     GUEST_KERNEL_DEFAULT,
     GUEST_KERNELS_6_1,
     pin_guest_kernel,
+    pin_pci,
 )
 from framework.defs import SUPPORTED_HOST_KERNELS
 from framework.properties import global_props
@@ -116,6 +117,8 @@ def skip_test_based_on_artifacts(snapshot_artifacts_dir):
     "htt",
     [True, False],
 )
+# The transport plays no part in what is asserted: guest CPU state.
+@pin_pci(True)
 def test_cpuid(uvm, num_vcpus, htt):
     """
     Check the CPUID for a microvm with the specified config.

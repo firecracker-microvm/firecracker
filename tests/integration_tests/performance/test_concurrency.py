@@ -4,9 +4,13 @@
 
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
+
 NO_OF_MICROVMS = 20
 
 
+# The test is itself the load: 20 VMs at once, not 20 per xdist worker.
+@pytest.mark.serial
 def test_run_concurrency(microvm_factory, guest_kernel, rootfs, pci_enabled):
     """
     Check we can spawn multiple microvms.
