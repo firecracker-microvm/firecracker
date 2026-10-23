@@ -216,13 +216,9 @@ def check_memory_usable(uvm):
     make_guest_dirty_memory(uvm.ssh, amount_mib)
 
 
-def check_hotplug(uvm, requested_size_mib):
+def check_hotplug(uvm, requested_size_mib, base_mib):
     """Verifies memory can be hot(un)plugged"""
     meminfo = MeminfoGuest(uvm)
-    mem_total_fixed = (
-        meminfo.get().mem_total.mib()
-        - uvm.api.memory_hotplug.get().json()["plugged_size_mib"]
-    )
     uvm.hotplug_memory(requested_size_mib)
 
     # verify guest driver received the request
@@ -242,15 +238,15 @@ def check_hotplug(uvm, requested_size_mib):
         with attempt:
             # verify guest driver executed the request
             mem_total_after = meminfo.get().mem_total.mib()
-            assert mem_total_after == mem_total_fixed + requested_size_mib
+            assert mem_total_after == base_mib + requested_size_mib
 
 
-def check_hotunplug(uvm, requested_size_mib):
+def check_hotunplug(uvm, requested_size_mib, base_mib):
     """Verifies memory can be hotunplugged and gets released"""
 
     rss_before = get_resident_memory(uvm.ps)
 
-    check_hotplug(uvm, requested_size_mib)
+    check_hotplug(uvm, requested_size_mib, base_mib)
 
     rss_after = get_resident_memory(uvm.ps)
 
@@ -285,14 +281,15 @@ def test_virtio_mem_hotplug_hotunplug(uvm_any_memhp):
     """
     uvm = uvm_any_memhp
     check_device_detected(uvm)
+    base_mib = MeminfoGuest(uvm).get().mem_total.mib()
 
-    check_hotplug(uvm, 1024)
+    check_hotplug(uvm, 1024, base_mib)
     check_memory_usable(uvm)
 
-    check_hotunplug(uvm, 0)
+    check_hotunplug(uvm, 0, base_mib)
 
     # Check it works again
-    check_hotplug(uvm, 1024)
+    check_hotplug(uvm, 1024, base_mib)
     check_memory_usable(uvm)
 
     validate_metrics(uvm)
@@ -340,11 +337,12 @@ def test_virtio_mem_configs(uvm, memhp_config):
         )
 
     check_device_detected(uvm)
+    base_mib = MeminfoGuest(uvm).get().mem_total.mib()
 
     for size in range(
         0, memhp_config["total_size_mib"] + 1, memhp_config["block_size_mib"]
     ):
-        check_hotplug(uvm, size)
+        check_hotplug(uvm, size, base_mib)
 
     check_memory_usable(uvm)
 
@@ -353,7 +351,7 @@ def test_virtio_mem_configs(uvm, memhp_config):
         -1,
         -memhp_config["block_size_mib"],
     ):
-        check_hotunplug(uvm, size)
+        check_hotunplug(uvm, size, base_mib)
 
     validate_metrics(uvm)
 
@@ -562,6 +560,7 @@ def test_device_reset(uvm):
     """
     config = {"total_size_mib": 1024, "slot_size_mib": 128, "block_size_mib": 2}
     uvm = uvm_booted_memhp(uvm, None, None, False, config, None, None, None)
+    base_mib = MeminfoGuest(uvm).get().mem_total.mib()
 
     # Reset the device via driver unbind/bind.
     virtio_dev = uvm.ssh.check_output(
@@ -575,4 +574,4 @@ def test_device_reset(uvm):
 
     # Verify the device is functional after reset by hotplugging memory.
     # check_hotplug() asserts that guest mem_total reflects the new size.
-    check_hotplug(uvm, 256)
+    check_hotplug(uvm, 256, base_mib)
