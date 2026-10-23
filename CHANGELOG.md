@@ -75,6 +75,12 @@ and this project adheres to
 
 ### Fixed
 
+- [#6265](https://github.com/firecracker-microvm/firecracker/issues/6265): Fixed
+  pause, resume, and snapshot operations failing permanently after one vCPU
+  reply times out. Stale replies are now discarded and every vCPU reply is
+  read. A failed pause resumes any vCPU that already parked, so the guest is
+  not left partly paused while the VM is still reported as running.
+
 - [#6254](https://github.com/firecracker-microvm/firecracker/pull/6254) Fixed
   pausing a vCPU with an unfinished MMIO or port-I/O instruction. Pending I/O
   now completes before the vCPU pauses, so snapshots include its effects without
