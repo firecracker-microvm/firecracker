@@ -65,9 +65,10 @@ and this project adheres to
   This lowers the cost of receiving each frame and improves receive throughput
   for small packets.
 - On x86_64, guest writes to the serial port's transmit register are buffered by
-  KVM (coalesced port I/O) and replayed by Firecracker at the next VM exit,
-  instead of causing an exit each, and the output is written to the host in one
-  go. This reduces the cost of guest serial output.
+  KVM (coalesced port I/O) and replayed by Firecracker at the next VM exit, or
+  within 50 ms if the guest stops exiting, instead of causing an exit each, and
+  the output is written to the host in one go. This reduces the cost of guest
+  serial output.
 
 ### Deprecated
 

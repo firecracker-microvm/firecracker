@@ -11,15 +11,24 @@
 //! KVM keeps a single ring per VM, fills it on behalf of every vCPU, and exposes it through the
 //! mmap of any vCPU file descriptor. KVM advances the producer index (`last`) and the VMM the
 //! consumer index (`first`).
+//!
+//! The vCPUs replay the ring whenever they exit. A guest can also write to a coalesced range and
+//! then not exit for a long time: an idle guest hardly exits to the VMM, and neither does one doing
+//! virtio I/O over PCI. The VMM thread therefore drains the ring too, on a timer that runs while
+//! the vCPUs exit, see [`CoalescedIoDrainTimer`].
 
 use std::mem::{offset_of, size_of};
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, RawFd};
 use std::ptr::NonNull;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
+use event_manager::{EventOps, Events, MutEventSubscriber};
 use kvm_bindings::{KVM_COALESCED_MMIO_PAGE_OFFSET, kvm_coalesced_mmio, kvm_coalesced_mmio_ring};
 use kvm_ioctls::VcpuFd;
+use utils::time::TimerFd;
+use vmm_sys_util::epoll::EventSet;
 
 use crate::arch::host_page_size;
 use crate::logger::{error, warn};
@@ -42,6 +51,10 @@ const _: () = assert!(offset_of!(RingIndices, last) == offset_of!(kvm_coalesced_
 const _: () =
     assert!(size_of::<RingIndices>() == offset_of!(kvm_coalesced_mmio_ring, coalesced_mmio));
 
+/// How often the VMM thread drains the ring while vCPUs exit. A write that no exit follows waits
+/// in the ring for up to this long, provided that some vCPU exited less than a period before it.
+pub const IDLE_DRAIN_PERIOD: Duration = Duration::from_millis(50);
+
 /// The VMM's handle on a VM's coalesced I/O ring.
 #[derive(Debug)]
 pub struct CoalescedIoRing {
@@ -51,12 +64,15 @@ pub struct CoalescedIoRing {
     mapping_len: usize,
     /// Number of entries in the ring.
     capacity: u32,
-    /// Held while consuming. The ring has a single consumer index, shared by every vCPU.
+    /// Held while consuming. The ring has a single consumer index, shared by every vCPU and the
+    /// VMM thread.
     consumer: Mutex<()>,
+    /// Decides when the VMM thread drains the ring.
+    idle_drain: IdleDrain,
 }
 
 // JUSTIFICATION: `NonNull` is neither `Send` nor `Sync`, and the ring has to be shared by every
-// vCPU thread.
+// vCPU thread and the VMM thread.
 // SAFETY: The ring lives in memory shared with KVM rather than in the state of any one thread.
 // Its indices are only ever accessed atomically and its entries are only read by the consumer that
 // holds `consumer`, so the handle can be moved to and shared between threads.
@@ -101,6 +117,7 @@ impl CoalescedIoRing {
             mapping_len: page_size,
             capacity: u32::try_from(capacity).expect("Coalesced I/O ring has too many entries"),
             consumer: Mutex::new(()),
+            idle_drain: IdleDrain::new(TimerFd::new()),
         })
     }
 
@@ -131,8 +148,8 @@ impl CoalescedIoRing {
     ///
     /// Callers consume the ring one at a time, and an entry is released back to KVM only once
     /// `deliver` returns. A concurrent caller that finds the ring non-empty therefore waits for
-    /// the writes in it to be handled rather than overtaking them. Writes that other vCPUs add
-    /// while a call runs are left to their own exits, so one call handles at most a ring's worth.
+    /// the writes in it to be handled rather than overtaking them. Writes added while a call runs
+    /// are left to the next one, so one call handles at most a ring's worth.
     fn drain(&self, mut deliver: impl FnMut(bool, u64, &[u8])) {
         let indices = self.indices();
         // Fast path for the common case of an empty ring, taken without the lock.
@@ -196,6 +213,12 @@ impl CoalescedIoRing {
             end_run(previous);
         }
     }
+
+    /// Tells the ring that a vCPU exited and replayed it, which keeps the VMM thread draining it
+    /// for at least another [`IDLE_DRAIN_PERIOD`] in case the guest stops exiting.
+    pub fn vcpu_exited(&self) {
+        self.idle_drain.vcpu_exited();
+    }
 }
 
 impl Drop for CoalescedIoRing {
@@ -203,5 +226,169 @@ impl Drop for CoalescedIoRing {
         // JUSTIFICATION: There is no safe alternative.
         // SAFETY: `indices` and `mapping_len` describe a mapping that this object owns.
         unsafe { libc::munmap(self.indices.as_ptr().cast(), self.mapping_len) };
+    }
+}
+
+/// Decides when the VMM thread drains the ring: a timer fires every [`IDLE_DRAIN_PERIOD`] while
+/// vCPUs exit, and stops after a period in which none did.
+///
+/// A write the guest makes within a period of an exit therefore reaches its device within about a
+/// period even if no exit follows it, as does the last byte a UART driver sends after polling the
+/// line status. A guest that does not exit costs no wake-ups.
+#[derive(Debug)]
+struct IdleDrain {
+    /// Whether a vCPU exited since the timer last fired.
+    exited: AtomicBool,
+    /// Whether the timer is armed, or about to be.
+    ticking: AtomicBool,
+    /// Fires every period while `ticking` is set.
+    timer: Mutex<TimerFd>,
+}
+
+impl IdleDrain {
+    fn new(timer: TimerFd) -> Self {
+        Self {
+            exited: AtomicBool::new(false),
+            ticking: AtomicBool::new(false),
+            timer: Mutex::new(timer),
+        }
+    }
+
+    /// Called by a vCPU after every exit. Starts the timer unless it is ticking already.
+    fn vcpu_exited(&self) {
+        // Whoever set `exited` makes sure that the timer runs, and the timer sees the flag the next
+        // time it fires. Checking first spares the vCPUs a write to shared memory on most exits.
+        if self.exited.load(Ordering::SeqCst) {
+            return;
+        }
+        self.exited.store(true, Ordering::SeqCst);
+        if !self.ticking.swap(true, Ordering::SeqCst) {
+            self.start();
+        }
+    }
+
+    /// Called on the VMM thread when the timer fires. Runs `drain`, then stops the timer if no vCPU
+    /// exited since it last fired.
+    fn tick(&self, drain: impl FnOnce()) {
+        self.timer.lock().expect("Poisoned lock").read();
+        drain();
+        if self.exited.swap(false, Ordering::SeqCst) {
+            return;
+        }
+
+        // Arming with a zero duration disarms the timer.
+        self.timer
+            .lock()
+            .expect("Poisoned lock")
+            .arm(Duration::ZERO, None);
+        self.ticking.store(false, Ordering::SeqCst);
+        // A vCPU that exited after the swap above may have found `ticking` still set and left the
+        // timer running. The accesses are sequentially consistent, so either that vCPU sees
+        // `ticking` cleared and restarts the timer itself, or this sees its exit.
+        if self.exited.load(Ordering::SeqCst) && !self.ticking.swap(true, Ordering::SeqCst) {
+            self.start();
+        }
+    }
+
+    fn start(&self) {
+        self.timer
+            .lock()
+            .expect("Poisoned lock")
+            .arm(IDLE_DRAIN_PERIOD, Some(IDLE_DRAIN_PERIOD));
+    }
+
+    fn timer_fd(&self) -> RawFd {
+        self.timer.lock().expect("Poisoned lock").as_raw_fd()
+    }
+}
+
+/// Drains a VM's coalesced I/O ring from the VMM thread, onto the buses the vCPUs replay it onto,
+/// for when the vCPUs stop exiting. It does so every [`IDLE_DRAIN_PERIOD`] while vCPUs exit, and
+/// once more a period after the last exit.
+#[derive(Debug)]
+pub struct CoalescedIoDrainTimer {
+    ring: Arc<CoalescedIoRing>,
+    pio_bus: Arc<Bus>,
+    mmio_bus: Arc<Bus>,
+}
+
+impl CoalescedIoDrainTimer {
+    /// Drains `ring` onto `pio_bus` and `mmio_bus`.
+    pub fn new(ring: Arc<CoalescedIoRing>, pio_bus: Arc<Bus>, mmio_bus: Arc<Bus>) -> Self {
+        Self {
+            ring,
+            pio_bus,
+            mmio_bus,
+        }
+    }
+}
+
+impl MutEventSubscriber for CoalescedIoDrainTimer {
+    fn process(&mut self, _events: Events, _ops: &mut EventOps) {
+        self.ring
+            .idle_drain
+            .tick(|| self.ring.replay(Some(&self.pio_bus), Some(&self.mmio_bus)));
+    }
+
+    fn init(&mut self, ops: &mut EventOps) {
+        let timer = Events::new_raw(self.ring.idle_drain.timer_fd(), EventSet::IN);
+        if let Err(err) = ops.add(timer) {
+            error!("Failed to register the coalesced I/O drain timer: {err}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use utils::time::MockClock;
+
+    use super::*;
+
+    fn is_armed(idle: &IdleDrain) -> bool {
+        idle.timer.lock().unwrap().is_armed()
+    }
+
+    #[test]
+    fn test_idle_drain_runs_while_vcpus_exit() {
+        let clock = MockClock::new();
+        let idle = IdleDrain::new(TimerFd::new_mocked(&clock));
+        assert!(!is_armed(&idle));
+
+        idle.vcpu_exited();
+        assert!(is_armed(&idle));
+        idle.vcpu_exited();
+
+        // Some vCPU exited during the last period, so the timer keeps going.
+        let mut drains = 0;
+        clock.advance(IDLE_DRAIN_PERIOD);
+        idle.tick(|| drains += 1);
+        assert_eq!(drains, 1);
+        assert!(is_armed(&idle));
+
+        // A period without exits ends with one more drain, then the timer stops.
+        clock.advance(IDLE_DRAIN_PERIOD);
+        idle.tick(|| drains += 1);
+        assert_eq!(drains, 2);
+        assert!(!is_armed(&idle));
+
+        idle.vcpu_exited();
+        assert!(is_armed(&idle));
+    }
+
+    #[test]
+    fn test_idle_drain_counts_exits_during_a_drain() {
+        let clock = MockClock::new();
+        let idle = IdleDrain::new(TimerFd::new_mocked(&clock));
+        idle.vcpu_exited();
+        clock.advance(IDLE_DRAIN_PERIOD);
+        idle.tick(|| ());
+
+        clock.advance(IDLE_DRAIN_PERIOD);
+        idle.tick(|| idle.vcpu_exited());
+        assert!(is_armed(&idle));
+
+        clock.advance(IDLE_DRAIN_PERIOD);
+        idle.tick(|| ());
+        assert!(!is_armed(&idle));
     }
 }
