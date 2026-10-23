@@ -101,6 +101,16 @@ impl SnapshotLoadHugePageConfig {
     }
 }
 
+/// Allows for changing the host backing file of a virtio-pmem device during
+/// snapshot restore.
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+pub struct PmemOverride {
+    /// The ID of the pmem device to modify.
+    pub id: String,
+    /// The new host path for the pmem device's backing file.
+    pub path_on_host: String,
+}
+
 /// Stores the configuration that will be used for loading a snapshot.
 #[derive(Debug, PartialEq, Eq)]
 pub struct LoadSnapshotParams {
@@ -124,6 +134,8 @@ pub struct LoadSnapshotParams {
     pub clock_realtime: bool,
     /// Selects the huge-page configuration to use for the restored microVM.
     pub huge_pages: SnapshotLoadHugePageConfig,
+    /// The pmem devices to override on load.
+    pub pmem_overrides: Vec<PmemOverride>,
 }
 
 /// Stores the configuration for loading a snapshot that is provided by the user.
@@ -162,6 +174,9 @@ pub struct LoadSnapshotConfig {
     /// Selects the huge-page configuration to use for the restored microVM.
     #[serde(default)]
     pub huge_pages: SnapshotLoadHugePageConfig,
+    /// The pmem devices to override on load.
+    #[serde(default)]
+    pub pmem_overrides: Vec<PmemOverride>,
 }
 
 /// Stores the configuration used for managing snapshot memory.
