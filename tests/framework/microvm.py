@@ -280,6 +280,7 @@ class Microvm:
         self.disks = {}
         self.disks_vhost_user = {}
         self.huge_pages = HugePagesConfig.NONE
+        self.track_dirty_pages = False
         self.vcpus_count = None
         self.mem_size_bytes = None
         self.cpu_template_name = "None"
@@ -538,6 +539,7 @@ class Microvm:
             "vcpus": str(self.vcpus_count),
             "guest_memory": f"{self.mem_size_bytes / (1024 * 1024)}MB",
             "pci": f"{self.pci_enabled}",
+            "track_dirty_pages": f"{self.track_dirty_pages}",
         }
 
     @property
@@ -1012,6 +1014,10 @@ class Microvm:
         If ``sync_snapshot_files`` is left as ``None`` the field is omitted from the
         request, exercising the API default. Otherwise it is sent explicitly.
         """
+        assert not snapshot_type.needs_dirty_page_tracking or self.track_dirty_pages, (
+            "Diff snapshots of untracked microVMs fall back to mincore, "
+            "use SnapshotType.DIFF_MINCORE"
+        )
         self.pause()
         # Notify monitor that snapshot is being created
         if self.memory_monitor:
@@ -1060,8 +1066,13 @@ class Microvm:
         *,
         huge_pages: Optional[HugePagesConfig] = None,
         uffd_handler_name: str = None,
+        track_dirty_pages: Optional[bool] = None,
     ):
-        """Restore a snapshot"""
+        """Restore a snapshot
+
+        If ``track_dirty_pages`` is left as ``None``, dirty page tracking is
+        enabled only for Diff snapshots.
+        """
 
         jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
 
@@ -1134,16 +1145,20 @@ class Microvm:
         if huge_pages is not None:
             optional_kwargs["huge_pages"] = huge_pages
 
+        if track_dirty_pages is None:
+            track_dirty_pages = jailed_snapshot.snapshot_type.needs_dirty_page_tracking
+
         self.api.snapshot_load.put(
             mem_backend=mem_backend,
             snapshot_path=str(jailed_vmstate),
-            enable_diff_snapshots=jailed_snapshot.snapshot_type.needs_dirty_page_tracking,
+            track_dirty_pages=track_dirty_pages,
             resume_vm=resume,
             **optional_kwargs,
         )
 
         if huge_pages is not None:
             self.huge_pages = huge_pages
+        self.track_dirty_pages = track_dirty_pages
 
         if self.memory_monitor:
             response = self.api.machine_config.get()
@@ -1346,18 +1361,14 @@ class MicroVMFactory:
             vm.ssh_key = ssh_key
         return vm
 
-    def build_from_snapshot(
-        self, snapshot: Snapshot, uffd_handler_name=None, clock_realtime=False
-    ):
-        """Build a microvm from a snapshot"""
+    def build_from_snapshot(self, snapshot: Snapshot, **restore_kwargs):
+        """Build a microvm from a snapshot
+
+        Extra keyword arguments are forwarded to `Microvm.restore_from_snapshot`.
+        """
         vm = self.build()
         vm.spawn()
-        vm.restore_from_snapshot(
-            snapshot,
-            resume=True,
-            uffd_handler_name=uffd_handler_name,
-            clock_realtime=clock_realtime,
-        )
+        vm.restore_from_snapshot(snapshot, resume=True, **restore_kwargs)
         return vm
 
     def build_booted(
@@ -1393,13 +1404,15 @@ class MicroVMFactory:
         current_snapshot,
         nr_vms,
         *,
-        uffd_handler_name=None,
         incremental=False,
         use_snapshot_editor=True,
         no_netns_reuse=False,
+        **restore_kwargs,
     ):
         """A generator of `n` microvms restored, either all restored from the same given snapshot
         (incremental=False), or created by taking successive snapshots of restored VMs
+
+        Extra keyword arguments are forwarded to `Microvm.restore_from_snapshot`.
         """
         last_snapshot = None
         for _ in range(nr_vms):
@@ -1413,7 +1426,7 @@ class MicroVMFactory:
             microvm.spawn()
 
             snapshot_copy = microvm.restore_from_snapshot(
-                current_snapshot, resume=True, uffd_handler_name=uffd_handler_name
+                current_snapshot, resume=True, **restore_kwargs
             )
 
             yield microvm

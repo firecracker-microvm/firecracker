@@ -18,12 +18,12 @@ from common import BKPipeline
 perf_test = {
     "virtio-block-sync": {
         "label": "virtio-block-sync",
-        "tests": "integration_tests/performance/test_block.py::test_block_performance -k 'not Async'",
+        "tests": "integration_tests/performance/test_block.py::test_block_performance -k 'not Async' -m 'not dirty_tracking_on'",
         "devtool_opts": "-c 1-10 -m 0",
     },
     "virtio-block-async": {
         "label": "virtio-block-async",
-        "tests": "integration_tests/performance/test_block.py::test_block_performance -k Async",
+        "tests": "integration_tests/performance/test_block.py::test_block_performance -k Async -m 'not dirty_tracking_on'",
         "devtool_opts": "-c 1-10 -m 0",
     },
     "vhost-user-block": {
@@ -39,12 +39,12 @@ perf_test = {
     },
     "network": {
         "label": "network",
-        "tests": "integration_tests/performance/test_network.py",
+        "tests": "integration_tests/performance/test_network.py -m 'not dirty_tracking_on'",
         "devtool_opts": "-c 1-10 -m 0",
     },
     "vsock-throughput": {
         "label": "vsock-throughput",
-        "tests": "integration_tests/performance/test_vsock.py",
+        "tests": "integration_tests/performance/test_vsock.py -m 'not dirty_tracking_on'",
         "devtool_opts": "-c 1-10 -m 0",
     },
     "memory-hotplug": {
@@ -57,7 +57,7 @@ perf_test = {
     },
     "snapshot-latency": {
         "label": "snapshot-latency",
-        "tests": "integration_tests/performance/test_snapshot.py::test_restore_latency integration_tests/performance/test_snapshot.py::test_post_restore_latency integration_tests/performance/test_snapshot.py::test_snapshot_create_latency",
+        "tests": "integration_tests/performance/test_snapshot.py::test_restore_latency integration_tests/performance/test_snapshot.py::test_post_restore_latency integration_tests/performance/test_snapshot.py::test_snapshot_create_latency -m 'not dirty_tracking_on'",
         "devtool_opts": "-c 1-12 -m 0",
     },
     "population-latency": {
@@ -67,7 +67,27 @@ perf_test = {
     },
     "memory-overhead": {
         "label": "memory-overhead",
-        "tests": "integration_tests/performance/test_memory_overhead.py",
+        "tests": "integration_tests/performance/test_memory_overhead.py -m 'not dirty_tracking_on'",
+        "devtool_opts": "-c 1-10 -m 0",
+    },
+    "dirty-tracking": {
+        "label": "dirty-tracking",
+        "tests": "integration_tests/performance/test_snapshot.py integration_tests/performance/test_network.py integration_tests/performance/test_memory_overhead.py -m dirty_tracking_on",
+        "devtool_opts": "-c 1-12 -m 0",
+    },
+    "dirty-tracking-vsock": {
+        "label": "dirty-tracking-vsock",
+        "tests": "integration_tests/performance/test_vsock.py -m dirty_tracking_on",
+        "devtool_opts": "-c 1-10 -m 0",
+    },
+    "dirty-tracking-block-sync": {
+        "label": "dirty-tracking-block-sync",
+        "tests": "integration_tests/performance/test_block.py::test_block_performance -k 'not Async' -m dirty_tracking_on",
+        "devtool_opts": "-c 1-10 -m 0",
+    },
+    "dirty-tracking-block-async": {
+        "label": "dirty-tracking-block-async",
+        "tests": "integration_tests/performance/test_block.py::test_block_performance -k Async -m dirty_tracking_on",
         "devtool_opts": "-c 1-10 -m 0",
     },
     "boottime": {
