@@ -34,7 +34,7 @@ perf_test = {
     },
     "pmem": {
         "label": "pmem",
-        "tests": "integration_tests/performance/test_pmem.py",
+        "tests": "integration_tests/performance/test_pmem.py::test_pmem_performance integration_tests/performance/test_pmem.py::test_pmem_first_read",
         "devtool_opts": "-c 1-10 -m 0",
     },
     "network": {
@@ -49,7 +49,7 @@ perf_test = {
     },
     "memory-hotplug": {
         "label": "memory-hotplug",
-        "tests": "integration_tests/performance/test_hotplug_memory.py",
+        "tests": "integration_tests/performance/test_hotplug_memory.py::test_memory_hotplug_latency",
         "devtool_opts": "-c 1-10 -m 0",
         # The test require polling (5 ms), so any change smaller than that is not significant.
         # Additionally, unplugging memory is dependent on how exactly it's being used, so some volatility is expected.
