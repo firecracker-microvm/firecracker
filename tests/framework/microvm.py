@@ -610,7 +610,11 @@ class Microvm:
         return None
 
     def pin_vmm(self, cpu_id: int) -> bool:
-        """Pin the firecracker process VMM thread to a cpu list."""
+        """Pin the firecracker process VMM thread to a cpu list.
+
+        Return True if the VMM thread was found and pinned, False if there is no
+        firecracker process or no thread named "firecracker".
+        """
         if self.firecracker_pid:
             for thread_name, thread_pids in utils.get_threads(
                 self.firecracker_pid
@@ -619,7 +623,7 @@ class Microvm:
                 if thread_name.startswith("firecracker"):
                     for pid in thread_pids:
                         utils.set_cpu_affinity(pid, [cpu_id])
-                return True
+                    return True
         return False
 
     def pin_vcpu(self, vcpu_id: int, cpu_id: int):
