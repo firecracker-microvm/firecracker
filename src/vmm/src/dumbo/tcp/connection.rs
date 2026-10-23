@@ -13,7 +13,6 @@ use bitflags::bitflags;
 #[cfg(not(feature = "fuzzing"))]
 use vmm_sys_util::rand::xor_pseudo_rng_u32;
 
-use crate::dumbo::ByteBuffer;
 use crate::dumbo::pdu::Incomplete;
 use crate::dumbo::pdu::bytes::NetworkBytes;
 use crate::dumbo::pdu::tcp::{Flags as TcpFlags, TcpError as TcpSegmentError, TcpSegment};
@@ -75,12 +74,34 @@ bitflags! {
 
 /// Defines a segment payload source.
 ///
-/// When not `None`, it contains a [`ByteBuffer`] which holds the actual data, and the sequence
-/// number associated with the first byte from the buffer.
+/// When not `None`, it contains the bytes to send, and the sequence number associated with the
+/// first of them.
 ///
-/// [`ByteBuffer`]: ../../trait.ByteBuffer.html
-// R should have the trait bound R: ByteBuffer, but bounds are ignored on type aliases.
-pub type PayloadSource<'a, R> = Option<(&'a R, Wrapping<u32>)>;
+/// The bytes may begin before the next byte to send, with data that was sent but not acknowledged
+/// yet: the part a retransmission resends.
+pub type PayloadSource<'a> = Option<(&'a [u8], Wrapping<u32>)>;
+
+/// The bytes of a payload source a data segment starting at `seq_to_send` may carry, up to
+/// `actual_end`: `(offset into the source, maximum length)`, or `None` if there are none. The
+/// source holds `len` bytes from `payload_seq`.
+///
+/// Both stay within the source whatever the sequence numbers: part of them comes from the guest
+/// (its ACKs and window), and wrapping comparisons are not transitive. On every path the
+/// connection takes, the source already bounds them and the clamp changes nothing.
+fn segment_bounds(
+    payload_seq: Wrapping<u32>,
+    len: u32,
+    seq_to_send: Wrapping<u32>,
+    actual_end: Wrapping<u32>,
+) -> Option<(usize, usize)> {
+    if !seq_after(actual_end, seq_to_send) {
+        return None;
+    }
+    let offset = (seq_to_send - payload_seq).0;
+    let available = len.checked_sub(offset).filter(|&n| n > 0)?;
+    let max_len = (actual_end - seq_to_send).0.min(available);
+    Some((offset as usize, max_len as usize))
+}
 
 /// Describes errors which may occur during a passive open.
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
@@ -716,17 +737,15 @@ impl Connection {
 
     // The write helper functions return incomplete segments because &self does not have information
     // regarding the identity of the endpoints, such as source and destination ports, or source and
-    // destination L3 addresses (which are required for checksum computation). We need this stupid
-    // ?Sized trait bound, because otherwise Sized would be implied, and we can have unsized types
-    // which implement ByteBuffer (such as [u8]), since payload expects a reference to some R.
-    fn write_segment<'a, R: ByteBuffer + ?Sized + Debug>(
+    // destination L3 addresses (which are required for checksum computation).
+    fn write_segment<'a>(
         &mut self,
         buf: &'a mut [u8],
         mss_reserved: u16,
         seq: Wrapping<u32>,
         ack: Wrapping<u32>,
         flags_after_ns: TcpFlags,
-        payload: Option<(&R, usize)>,
+        payload: Option<(&[u8], usize)>,
     ) -> Result<Incomplete<TcpSegment<'a, &'a mut [u8]>>, WriteNextError> {
         // Write the MSS option on SYNACK segments.
         let mss_option = if flags_after_ns == TcpFlags::SYN | TcpFlags::ACK {
@@ -756,7 +775,7 @@ impl Connection {
     }
 
     // Control segments are segments with no payload (at least I like to use this name).
-    fn write_control_segment<'a, R: ByteBuffer + ?Sized + Debug>(
+    fn write_control_segment<'a>(
         &mut self,
         buf: &'a mut [u8],
         mss_reserved: u16,
@@ -791,7 +810,7 @@ impl Connection {
             }
         }
 
-        self.write_segment::<R>(buf, mss_reserved, seq, ack, flags_after_ns, None)
+        self.write_segment(buf, mss_reserved, seq, ack, flags_after_ns, None)
     }
 
     /// Writes a new segment (if available) to the specified buffer.
@@ -810,11 +829,11 @@ impl Connection {
     /// * `now` - An opaque timestamp representing the current moment in time.
     ///
     /// [`MAX_WINDOW_SIZE`]: ../constant.MAX_WINDOW_SIZE.html
-    pub fn write_next_segment<'a, R: ByteBuffer + ?Sized + Debug>(
+    pub fn write_next_segment<'a>(
         &mut self,
         buf: &'a mut [u8],
         mss_reserved: u16,
-        payload_src: PayloadSource<R>,
+        payload_src: PayloadSource,
         now: u64,
     ) -> Result<Option<Incomplete<TcpSegment<'a, &'a mut [u8]>>>, WriteNextError> {
         if self.is_reset() {
@@ -824,14 +843,14 @@ impl Connection {
         if self.send_rst.is_some() {
             // A RST is pending. Try to write it, and change the state of the connection to reset
             // if successfull.
-            let segment = self.write_control_segment::<R>(buf, mss_reserved)?;
+            let segment = self.write_control_segment(buf, mss_reserved)?;
             self.set_flags(ConnStatusFlags::RESET);
             return Ok(Some(segment));
         }
 
         // The first thing we have to do is reply with a SYNACK if needed.
         if self.synack_pending() {
-            let segment = self.write_control_segment::<R>(buf, mss_reserved)?;
+            let segment = self.write_control_segment(buf, mss_reserved)?;
             self.set_flags(ConnStatusFlags::SYNACK_SENT);
             self.rto_start = now;
             return Ok(Some(segment));
@@ -848,7 +867,7 @@ impl Connection {
                     self.reset();
                     return self.write_next_segment(buf, mss_reserved, payload_src, now);
                 }
-                let segment = self.write_control_segment::<R>(buf, mss_reserved)?;
+                let segment = self.write_control_segment(buf, mss_reserved)?;
                 self.rto_start = now;
                 return Ok(Some(segment));
             }
@@ -882,7 +901,7 @@ impl Connection {
                     {
                         // We're in the relatively unlikely situation where our FIN got lost.
                         // Simply calling write_control_segment() will retransmit it.
-                        let segment = self.write_control_segment::<R>(buf, mss_reserved)?;
+                        let segment = self.write_control_segment(buf, mss_reserved)?;
                         self.rto_start = now;
                         return Ok(Some(segment));
                     }
@@ -924,9 +943,9 @@ impl Connection {
 
             // We only proceed with writing a data segment if the previously computed bounds
             // delimit a valid sequence number interval.
-            if seq_after(actual_end, seq_to_send) {
-                let max_payload_len = (actual_end - seq_to_send).0 as usize;
-
+            if let Some((offset, max_payload_len)) =
+                segment_bounds(payload_seq, len, seq_to_send, actual_end)
+            {
                 // We always set the ACK flag for data segments.
                 let tcp_flags = TcpFlags::ACK;
 
@@ -937,7 +956,7 @@ impl Connection {
                     seq_to_send,
                     ack_to_send,
                     tcp_flags,
-                    Some((read_buf, max_payload_len)),
+                    Some((&read_buf[offset..], max_payload_len)),
                 )?;
 
                 // If self.dup_ack was Some(_), we've just written the retransmission segment,
@@ -985,7 +1004,7 @@ impl Connection {
         // write_control_segment() method.
         let send_first_fin = self.can_send_first_fin();
         if self.pending_ack || send_first_fin {
-            let segment = self.write_control_segment::<R>(buf, mss_reserved)?;
+            let segment = self.write_control_segment(buf, mss_reserved)?;
 
             if send_first_fin {
                 self.first_not_sent += Wrapping(1);
@@ -996,6 +1015,42 @@ impl Connection {
         }
 
         Ok(None)
+    }
+}
+
+#[cfg(kani)]
+#[allow(dead_code)]
+mod verification {
+    use super::*;
+
+    #[kani::proof]
+    fn verify_segment_bounds() {
+        let (payload_seq, len, seq_to_send, actual_end): (u32, u32, u32, u32) =
+            (kani::any(), kani::any(), kani::any(), kani::any());
+        kani::assume(len <= MAX_WINDOW_SIZE);
+        let (payload_seq, seq_to_send, actual_end) = (
+            Wrapping(payload_seq),
+            Wrapping(seq_to_send),
+            Wrapping(actual_end),
+        );
+        let bounds = segment_bounds(payload_seq, len, seq_to_send, actual_end);
+        // Any sequence numbers: a segment never reaches outside the source.
+        if let Some((offset, max_len)) = bounds {
+            assert!(max_len > 0);
+            assert!(offset + max_len <= len as usize);
+        }
+        // The connection's own case, a source ending at or before the window: the bound is the
+        // interval itself, so the clamp leaves sending exactly as it was.
+        let payload_end = payload_seq + Wrapping(len);
+        if seq_at_or_after(seq_to_send, payload_seq)
+            && actual_end == payload_end
+            && seq_after(actual_end, seq_to_send)
+        {
+            let (offset, max_len) = bounds.unwrap();
+            assert_eq!(offset, (seq_to_send - payload_seq).0 as usize);
+            assert_eq!(max_len, (actual_end - seq_to_send).0 as usize);
+        }
+        kani::cover!(bounds.is_some());
     }
 }
 
@@ -1228,6 +1283,70 @@ pub(crate) mod tests {
                 | ConnStatusFlags::ESTABLISHED
         );
         assert!(c.fin_received());
+    }
+
+    #[test]
+    fn test_segment_bounds_stay_in_source() {
+        let (start, len) = (Wrapping(1000u32), 10u32);
+        // From the oldest unacknowledged byte, part of the source already sent.
+        assert_eq!(
+            segment_bounds(start, len, start + Wrapping(4), start + Wrapping(10)),
+            Some((4, 6))
+        );
+        // A window that ends earlier bounds the segment instead.
+        assert_eq!(
+            segment_bounds(start, len, start + Wrapping(4), start + Wrapping(7)),
+            Some((4, 3))
+        );
+        // Everything sent: nothing to carry.
+        assert_eq!(
+            segment_bounds(start, len, start + Wrapping(10), start + Wrapping(10)),
+            None
+        );
+        // Sending past the source, with a window edge that still compares as after it: no bytes
+        // the source does not hold (this used to underflow the source's remaining length).
+        let past = start + Wrapping(11);
+        assert_eq!(
+            segment_bounds(start, len, past, past + Wrapping(MAX_WINDOW_SIZE - 1)),
+            None
+        );
+    }
+
+    #[test]
+    fn test_lost_fin_is_retransmitted_on_timeout() {
+        let mut buf1 = [0u8; 100];
+        let mut buf2 = [0u8; 100];
+        let mut t = ConnectionTester::new();
+
+        let mut syn = t.write_syn(buf1.as_mut());
+        syn.set_flags_after_ns(TcpFlags::SYN);
+        let mut c = t.passive_open(&syn).unwrap();
+        let conn_isn = t
+            .write_next_segment(&mut c, None)
+            .unwrap()
+            .unwrap()
+            .sequence_number();
+
+        let mut ack = t.write_ctrl(buf2.as_mut());
+        ack.set_flags_after_ns(TcpFlags::ACK);
+        ack.set_sequence_number(t.remote_isn.wrapping_add(1));
+        ack.set_ack_number(conn_isn.wrapping_add(1));
+        t.receive_segment(&mut c, &ack).unwrap();
+        assert!(c.is_established());
+
+        // Nothing left to send: an empty payload source at the next byte.
+        let payload_src = Some((&[][..], Wrapping(conn_isn.wrapping_add(1))));
+        c.close();
+        let fin = t.write_next_segment(&mut c, payload_src).unwrap().unwrap();
+        check_control_segment(&fin, 0, TcpFlags::FIN | TcpFlags::ACK);
+        let fin_seq = fin.sequence_number();
+
+        // The FIN is never ACKed: before the timeout nothing goes out, after it the FIN is resent.
+        assert!(t.write_next_segment(&mut c, payload_src).unwrap().is_none());
+        t.now += t.rto_period;
+        let resent = t.write_next_segment(&mut c, payload_src).unwrap().unwrap();
+        check_control_segment(&resent, 0, TcpFlags::FIN | TcpFlags::ACK);
+        assert_eq!(resent.sequence_number(), fin_seq);
     }
 
     #[test]
