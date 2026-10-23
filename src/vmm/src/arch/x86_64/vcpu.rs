@@ -811,15 +811,6 @@ impl KvmVcpu {
 }
 
 impl Peripherals {
-    /// The bus that coalesced writes to port I/O space (`pio`) or to MMIO space belong on.
-    pub fn coalesced_io_bus(&self, pio: bool) -> Option<&Arc<Bus>> {
-        if pio {
-            self.pio_bus.as_ref()
-        } else {
-            self.mmio_bus.as_ref()
-        }
-    }
-
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.

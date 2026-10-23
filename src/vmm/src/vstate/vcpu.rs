@@ -409,7 +409,13 @@ impl Vcpu {
         // Writes that KVM buffered instead of exiting came before whatever made this vCPU exit,
         // so devices have to see them first.
         #[cfg(target_arch = "x86_64")]
-        replay_coalesced_io(&self.kvm_vcpu.peripherals);
+        if let Some(ring) = &self.kvm_vcpu.peripherals.coalesced_io {
+            let peripherals = &self.kvm_vcpu.peripherals;
+            ring.replay(
+                peripherals.pio_bus.as_deref(),
+                peripherals.mmio_bus.as_deref(),
+            );
+        }
         match emulation_result {
             Err(ref err) if err.errno() == libc::EINTR => {
                 self.kvm_vcpu.fd.set_kvm_immediate_exit(0);
@@ -428,39 +434,6 @@ impl Vcpu {
             }
             emulation_result => handle_kvm_exit(&mut self.kvm_vcpu.peripherals, emulation_result),
         }
-    }
-}
-
-/// Replays onto the buses, oldest first, the writes that KVM buffered in the coalesced I/O ring
-/// instead of exiting. Consecutive writes to one address are delivered to their device as one run.
-#[cfg(target_arch = "x86_64")]
-fn replay_coalesced_io(peripherals: &Peripherals) {
-    let Some(ring) = &peripherals.coalesced_io else {
-        return;
-    };
-    let end_run = |(pio, addr): (bool, u64)| {
-        if let Some(bus) = peripherals.coalesced_io_bus(pio) {
-            let _ = bus.coalesced_writes_done(addr);
-        }
-    };
-
-    let mut run = None;
-    ring.drain(|pio, addr, data| {
-        if let Some(previous) = run
-            && previous != (pio, addr)
-        {
-            end_run(previous);
-        }
-        run = Some((pio, addr));
-        if peripherals
-            .coalesced_io_bus(pio)
-            .is_none_or(|bus| bus.write_coalesced(addr, data).is_err())
-        {
-            warn!("vcpu: coalesced write to {addr:#x} reached no device");
-        }
-    });
-    if let Some(previous) = run {
-        end_run(previous);
     }
 }
 

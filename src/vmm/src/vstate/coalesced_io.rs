@@ -22,7 +22,8 @@ use kvm_bindings::{KVM_COALESCED_MMIO_PAGE_OFFSET, kvm_coalesced_mmio, kvm_coale
 use kvm_ioctls::VcpuFd;
 
 use crate::arch::host_page_size;
-use crate::logger::error;
+use crate::logger::{error, warn};
+use crate::vstate::bus::Bus;
 
 /// The indices at the start of KVM's `kvm_coalesced_mmio_ring`, as atomics: KVM advances `last`
 /// and reads `first` while vCPU threads do the opposite, so neither may be accessed as a plain
@@ -132,7 +133,7 @@ impl CoalescedIoRing {
     /// `deliver` returns. A concurrent caller that finds the ring non-empty therefore waits for
     /// the writes in it to be handled rather than overtaking them. Writes that other vCPUs add
     /// while a call runs are left to their own exits, so one call handles at most a ring's worth.
-    pub fn drain(&self, mut deliver: impl FnMut(bool, u64, &[u8])) {
+    fn drain(&self, mut deliver: impl FnMut(bool, u64, &[u8])) {
         let indices = self.indices();
         // Fast path for the common case of an empty ring, taken without the lock.
         if indices.first.load(Ordering::Acquire) == indices.last.load(Ordering::Acquire) {
@@ -165,6 +166,34 @@ impl CoalescedIoRing {
             // Pairs with KVM reading `first` to find free entries, so that it only reuses an entry
             // once it has been handled.
             indices.first.store(first, Ordering::Release);
+        }
+    }
+
+    /// Replays the writes buffered so far, oldest first, onto `pio_bus` or `mmio_bus`, whichever
+    /// address space each went to. Consecutive writes to one address are delivered to their device
+    /// as one run.
+    pub fn replay(&self, pio_bus: Option<&Bus>, mmio_bus: Option<&Bus>) {
+        let bus = |pio: bool| if pio { pio_bus } else { mmio_bus };
+        let end_run = |(pio, addr): (bool, u64)| {
+            if let Some(bus) = bus(pio) {
+                let _ = bus.coalesced_writes_done(addr);
+            }
+        };
+
+        let mut run = None;
+        self.drain(|pio, addr, data| {
+            if let Some(previous) = run
+                && previous != (pio, addr)
+            {
+                end_run(previous);
+            }
+            run = Some((pio, addr));
+            if bus(pio).is_none_or(|bus| bus.write_coalesced(addr, data).is_err()) {
+                warn!("Coalesced write to {addr:#x} reached no device");
+            }
+        });
+        if let Some(previous) = run {
+            end_run(previous);
         }
     }
 }
