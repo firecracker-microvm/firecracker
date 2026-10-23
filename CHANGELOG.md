@@ -75,6 +75,9 @@ and this project adheres to
 
 ### Fixed
 
+- [#6297](https://github.com/firecracker-microvm/firecracker/pull/6297): Fixed
+  `virtio-pmem` rejecting non-empty block devices as zero-sized backing stores.
+
 - [#6254](https://github.com/firecracker-microvm/firecracker/pull/6254) Fixed
   pausing a vCPU with an unfinished MMIO or port-I/O instruction. Pending I/O
   now completes before the vCPU pauses, so snapshots include its effects without

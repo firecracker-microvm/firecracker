@@ -100,7 +100,7 @@
             },
             {
                 "syscall": "lseek",
-                "comment": "Used by the block device"
+                "comment": "Used by the block and pmem devices"
             },
             {
                 "syscall": "mremap",
