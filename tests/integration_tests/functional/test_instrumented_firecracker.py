@@ -8,64 +8,82 @@ markers (ThreadId(...) >> / <<) are emitted when the binary is built with the `t
 feature.
 """
 
-import platform
 import re
+import shutil
 from pathlib import Path
 
 import pytest
 
 from framework import utils
-from host_tools.cargo_build import cargo, get_binary
+from framework.defs import FC_WORKSPACE_DIR, LOCAL_BUILD_PATH
+from host_tools.cargo_build import DEFAULT_TARGET, cargo, get_binary
 
 # Typical markers emitted by the `log_instrument` macro
 TRACE_LEVEL_HINT = "TRACE"
 MARKER_REGEX = re.compile(r"ThreadId\(\d+\).*?(?:>>|<<)")
 PATHS_TO_INSTRUMENT = [
-    "../src/firecracker/src/main.rs",
-    "../src/firecracker/src/api_server",
-    "../src/vmm/src/lib.rs",
-    "../src/vmm/src/builder.rs",
+    "src/firecracker/src/main.rs",
+    "src/firecracker/src/api_server",
+    "src/vmm/src/lib.rs",
+    "src/vmm/src/builder.rs",
 ]
-TMP_BUILD_DIR = "../test_instrumented_firecracker_build"
-ARCH_STR = f"{platform.machine()}"
+# clippy-tracing rewrites sources in place, so we instrument a private copy
+# of the workspace. Mutating the shared source tree would race with any
+# concurrently running test that builds Firecracker (e.g. test_gdb), which
+# then compiles half-written files.
+WORKSPACE_COPY = LOCAL_BUILD_PATH / "instrumented_firecracker"
+TARGET_DIR = LOCAL_BUILD_PATH / "instrumented_firecracker_target"
+# Everything cargo needs to build the `firecracker` binary.
+WORKSPACE_ENTRIES = [
+    ".cargo",
+    "Cargo.lock",
+    "Cargo.toml",
+    "resources/seccomp",
+    "rust-toolchain.toml",
+    "src",
+]
 
 
-def build_instrumented_binary():
+def copy_workspace(dst: Path):
+    """Makes a throwaway copy of the Firecracker sources at `dst`."""
+    shutil.rmtree(dst, ignore_errors=True)
+    for entry in WORKSPACE_ENTRIES:
+        src = FC_WORKSPACE_DIR / entry
+        (dst / entry).parent.mkdir(parents=True, exist_ok=True)
+        if src.is_dir():
+            shutil.copytree(
+                src,
+                dst / entry,
+                symlinks=True,
+                ignore=shutil.ignore_patterns("*.profraw"),
+            )
+        else:
+            shutil.copy2(src, dst / entry)
+
+
+def build_instrumented_binary(workspace: Path):
     """Builds an instrumented Firecracker binary with tracing instrumentation."""
-    # we need a different directory to avoid overriding the main bin
-    instrumented_binary_dir = (
-        Path(TMP_BUILD_DIR) / f"{ARCH_STR}-unknown-linux-musl" / "release"
-    )
-
     clippy_tracing = get_binary("clippy-tracing")
     for p in PATHS_TO_INSTRUMENT:
         utils.check_output(
-            f"{clippy_tracing} --action fix --suffix log_instrument:: --cfg-attr 'feature =\"tracing\"' --path {p}"
+            f"{clippy_tracing} --action fix --suffix log_instrument:: "
+            f"--cfg-attr 'feature =\"tracing\"' --path {workspace / p}"
         )
     cargo(
         "build",
-        f"--workspace --target {platform.machine()}-unknown-linux-musl --release "
+        f"--workspace --target {DEFAULT_TARGET} --release "
         f"--features tracing --bin firecracker",
-        env={"CARGO_TARGET_DIR": TMP_BUILD_DIR},
+        env={"CARGO_TARGET_DIR": TARGET_DIR},
+        cwd=workspace,
     )
-    return get_binary("firecracker", binary_dir=instrumented_binary_dir)
-
-
-def cleanup_instrumentation():
-    """Cleans up tracing instrumentation from the Firecracker binary."""
-    clippy_tracing = get_binary("clippy-tracing")
-    for p in PATHS_TO_INSTRUMENT:
-        utils.check_output(
-            f"{clippy_tracing} --action strip --suffix log_instrument:: --cfg-attr 'feature =\"tracing\"' --path {p}"
-        )
+    return get_binary("firecracker", binary_dir=TARGET_DIR / DEFAULT_TARGET / "release")
 
 
 @pytest.fixture(scope="module")
 def instrumented_binary():
     """Build and provide the path to an instrumented Firecracker binary."""
-    binary_path = build_instrumented_binary()
-    yield binary_path
-    cleanup_instrumentation()
+    copy_workspace(WORKSPACE_COPY)
+    yield build_instrumented_binary(WORKSPACE_COPY)
 
 
 def test_log_instrument_firecracker_basic_functionality(
