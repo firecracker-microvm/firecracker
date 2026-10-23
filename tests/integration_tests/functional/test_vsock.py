@@ -141,6 +141,36 @@ def test_vsock_peer_connection_backlog_full(vsock_uvm_any):
                 assert stream.read(len(payload)) == payload.encode()
 
 
+def test_vsock_host_pending_connection_limit(vsock_uvm_any):
+    """At the limit, evict the oldest pending socket and admit a new connection."""
+    vm = vsock_uvm_any
+    uds_path = start_guest_echo_server(vm)
+
+    with ExitStack() as stack:
+        # Fill the muxer's connection limit (MAX_CONNECTIONS) with host sockets
+        # that never send CONNECT.
+        pending = []
+        for _ in range(1023):
+            client = stack.enter_context(
+                socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            )
+            client.settimeout(5)
+            client.connect(uds_path)
+            pending.append(client)
+
+        # A new connection closes only the oldest pending socket.
+        with vsock_connect_to_guest(uds_path, ECHO_SERVER_PORT) as sock:
+            sock.settimeout(5)
+            assert pending[0].recv(1) == b""
+            pending[1].setblocking(False)
+            with pytest.raises(BlockingIOError):
+                pending[1].recv(1)
+            payload = b"vsock-after-pending-eviction\n"
+            sock.sendall(payload)
+            with sock.makefile("rb") as stream:
+                assert stream.readline() == payload
+
+
 def negative_test_host_connections(vm, blob_path, blob_hash):
     """Negative test for host-initiated connections.
 
