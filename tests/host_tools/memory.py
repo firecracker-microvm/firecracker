@@ -9,6 +9,7 @@ from threading import Thread
 import psutil
 
 from framework.properties import global_props
+from host_tools.pagemap import ProcessRss
 
 
 class MemoryUsageExceededError(Exception):
@@ -27,7 +28,8 @@ class MemoryMonitor(Thread):
     """Class to represent an RSS memory monitor for a Firecracker process.
 
     The guest's memory region is skipped, as the main interest is the
-    VMM memory usage.
+    VMM memory usage. Samples come from pagemap, which lets the guest memory
+    go unread, rather than smaps, which walks all of it every time.
     """
 
     # If guest memory is >3GiB, it is split in a 2nd region
@@ -93,25 +95,27 @@ class MemoryMonitor(Thread):
         guest_mem_bytes = self._vm.mem_size_bytes
         try:
             ps = psutil.Process(self._vm.firecracker_pid)
-        except (psutil.NoSuchProcess, FileNotFoundError):
+            rss = ProcessRss(ps.pid)
+        except (psutil.NoSuchProcess, FileNotFoundError, ProcessLookupError):
             return
-        while not self._should_stop:
-            try:
-                mmaps = ps.memory_maps(grouped=False)
-            except psutil.NoSuchProcess:
-                return
-            mem_total = 0
-            for mmap in mmaps:
-                if self.is_guest_mem(mmap.size, guest_mem_bytes):
-                    continue
 
-                mem_total += mmap.rss
-            self._current_rss = mem_total
-            if mem_total > self.threshold:
-                self._exceeded = ps
-                return
+        def skip(start, end):
+            return self.is_guest_mem(end - start, guest_mem_bytes)
 
-            time.sleep(self._period_s)
+        try:
+            while not self._should_stop:
+                try:
+                    mem_total = rss.sample(skip)
+                except (FileNotFoundError, ProcessLookupError):
+                    return
+                self._current_rss = mem_total
+                if mem_total > self.threshold:
+                    self._exceeded = ps
+                    return
+
+                time.sleep(self._period_s)
+        finally:
+            rss.close()
 
     def is_guest_mem_x86(self, size, guest_mem_bytes):
         """
