@@ -151,8 +151,16 @@ def test_restore_latency(
 # wakes up, because it gets faulted in on the first page fault. In this scenario, we are not measuring UFFD
 # latencies, but KVM latencies of setting up missing EPT entries.
 @pytest.mark.nonci
-@pytest.mark.parametrize("uffd_handler", [None, "on_demand", "fault_all"])
-@pytest.mark.parametrize("huge_pages", HugePagesConfig)
+@pytest.mark.parametrize(
+    "huge_pages,uffd_handler",
+    [
+        (HugePagesConfig.NONE, None),
+        (HugePagesConfig.NONE, "on_demand"),
+        (HugePagesConfig.NONE, "fault_all"),
+        (HugePagesConfig.HUGETLBFS_2MB, "on_demand"),
+        (HugePagesConfig.HUGETLBFS_2MB, "fault_all"),
+    ],
+)
 def test_post_restore_latency(
     microvm_factory,
     rootfs,
@@ -163,9 +171,6 @@ def test_post_restore_latency(
     huge_pages,
 ):
     """Collects latency metric of post-restore memory accesses done inside the guest"""
-    if huge_pages != HugePagesConfig.NONE and uffd_handler is None:
-        pytest.skip("huge page snapshots can only be restored using uffd")
-
     test_setup = SnapshotRestoreTest(mem=1024, vcpus=2, huge_pages=huge_pages)
     vm = test_setup.boot_vm(microvm_factory, guest_kernel, rootfs, pci_enabled)
 
@@ -184,7 +189,7 @@ def test_post_restore_latency(
 
     # Starts the helper and blocks until it has touched its memory and is
     # waiting in sigwait, so the snapshot below captures it in that state.
-    start_fast_page_fault_helper(vm.ssh)
+    pid = start_fast_page_fault_helper(vm.ssh)
 
     snapshot = vm.snapshot_full()
     vm.kill()
@@ -192,11 +197,9 @@ def test_post_restore_latency(
     for microvm in microvm_factory.build_n_from_snapshot(
         snapshot, ITERATIONS, uffd_handler_name=uffd_handler
     ):
-        _, pid, _ = microvm.ssh.check_output("pidof fast_page_fault_helper")
-
         microvm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
 
-        duration = wait_for_fast_page_fault_helper_output(microvm.ssh)
+        duration = wait_for_fast_page_fault_helper_output(microvm.ssh, pid)
 
         metrics.put_metric("fault_latency", int(duration) / NS_IN_MSEC, "Milliseconds")
 
