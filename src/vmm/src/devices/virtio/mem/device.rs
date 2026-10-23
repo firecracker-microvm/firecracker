@@ -21,7 +21,7 @@ use crate::devices::virtio::mem::VIRTIO_MEM_DEV_ID;
 use crate::devices::virtio::mem::metrics::METRICS;
 use crate::devices::virtio::mem::request::{BlockRangeState, Request, RequestedRange, Response};
 use crate::devices::virtio::queue::{
-    DescriptorChain, FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue, QueueError,
+    DescriptorChain, FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue, QueueConfig, QueueError,
 };
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::impl_device_type;
@@ -642,16 +642,20 @@ impl VirtioDevice for VirtioMem {
         VIRTIO_MEM_DEV_ID
     }
 
-    fn queues(&self) -> &[Queue] {
-        &self.queues
+    fn num_queues(&self) -> usize {
+        self.queues.len()
     }
 
-    fn queues_mut(&mut self) -> &mut [Queue] {
-        &mut self.queues
+    fn queue_config(&self, index: usize) -> Option<&QueueConfig> {
+        self.queues.get(index).map(|queue| &queue.config)
     }
 
-    fn queue_events(&self) -> &[EventFd] {
-        &self.queue_events
+    fn queue_config_mut(&mut self, index: usize) -> Option<&mut QueueConfig> {
+        self.queues.get_mut(index).map(|queue| &mut queue.config)
+    }
+
+    fn queue_event(&self, index: usize) -> Option<&EventFd> {
+        self.queue_events.get(index)
     }
 
     fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
@@ -703,6 +707,16 @@ impl VirtioDevice for VirtioMem {
         // Note: the Linux virtio-mem driver does not support rebinding when
         // memory is plugged
         true
+    }
+
+    fn reset_queues(&mut self) {
+        self.queues.iter_mut().for_each(Queue::reset);
+    }
+
+    fn commit_dirty(&self) {
+        for queue in &self.queues {
+            queue.commit_dirty();
+        }
     }
 
     fn activate(
@@ -761,7 +775,7 @@ pub(crate) mod test_utils {
             self.queues = queues;
         }
 
-        fn num_queues(&self) -> usize {
+        fn num_queues_supported(&self) -> usize {
             MEM_NUM_QUEUES
         }
     }
@@ -794,6 +808,12 @@ mod tests {
     use crate::vstate::vm::tests::setup_vm_with_memory;
 
     #[test]
+    fn test_queue_accessors() {
+        let mut mem_dev = default_virtio_mem();
+        crate::devices::virtio::test_utils::check_queue_accessors(&mut mem_dev);
+    }
+
+    #[test]
     fn test_new() {
         let mem = default_virtio_mem();
 
@@ -809,8 +829,9 @@ mod tests {
 
         assert!(!mem.is_activated());
 
-        assert_eq!(mem.queues().len(), MEM_NUM_QUEUES);
-        assert_eq!(mem.queue_events().len(), MEM_NUM_QUEUES);
+        assert_eq!(mem.queues.len(), MEM_NUM_QUEUES);
+        assert_eq!(mem.num_queues(), MEM_NUM_QUEUES);
+        assert!((0..mem.num_queues()).all(|index| mem.queue_event(index).is_some()));
     }
 
     #[test]

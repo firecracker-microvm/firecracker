@@ -110,22 +110,18 @@ workloads and measure the efficiency as (IOPS/CPU load).
 
 ## Known limitations
 
-Resetting a device that uses the `Async` engine can fail. Before reporting a
-reset as complete, Firecracker waits for the operations that are still in
-flight, because the kernel may write into the guest's buffers at any point until
-an operation has completed, and there is no way to stop it. If that wait fails,
-the reset does not complete.
+Before reporting a reset of a device that uses the `Async` engine as complete,
+Firecracker waits for every operation that is still in flight, because the
+kernel may write into the guest's buffers at any point until an operation has
+completed, and there is no way to stop it. The wait happens while the guest's
+write to the device status is being handled, so the guest cannot observe the
+reset as complete before then.
 
-Firecracker then rejects any attempt to re-initialize the device, so the device
-becomes unusable for the rest of the lifetime of the microVM. The guest, on the
-other hand, considers the reset complete. It is free to reuse the pages that
-held the virtqueue and the request buffers, and a completion that arrives
-afterwards is written into them. The guest's memory may be corrupted as a
-result.
-
-Handling a draining failure is tracked in
-[#6278](https://github.com/firecracker-microvm/firecracker/issues/6278), and how
-long Firecracker should keep waiting before it gives up depends on
+The wait is retried when a signal interrupts it, and it has no time limit: if
+the backing file stops completing requests, the vCPU that resets the device
+stays blocked until it does. If the wait fails for any other reason, Firecracker
+stops rather than complete the reset with operations still in flight. Whether
+the wait should be bounded is tracked in
 [#6281](https://github.com/firecracker-microvm/firecracker/issues/6281).
 
 ## Developer preview status

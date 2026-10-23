@@ -281,7 +281,7 @@ def test_cycled_snapshot_restore(
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
-def test_patch_drive_snapshot(uvm_configured, microvm_factory):
+def test_patch_drive_snapshot(uvm_configured, microvm_factory, io_engine):
     """
     Test that a patched drive is correctly used by guests loaded from snapshot.
     """
@@ -295,7 +295,12 @@ def test_patch_drive_snapshot(uvm_configured, microvm_factory):
     root = Path(basevm.path)
     scratch_path1 = str(root / "scratch1")
     scratch_disk1 = drive_tools.FilesystemFile(scratch_path1, size=128)
-    basevm.add_drive("scratch", scratch_disk1.path)
+    basevm.add_drive(
+        "scratch",
+        scratch_disk1.path,
+        io_engine=io_engine,
+        num_queues=1,
+    )
     basevm.start()
 
     # Update drive to have another backing file, double in size.
@@ -488,7 +493,7 @@ def test_negative_snapshot_create(uvm_configured):
     vm = uvm_configured
     vm.start()
 
-    with pytest.raises(RuntimeError, match="save/restore unavailable while running"):
+    with pytest.raises(RuntimeError, match="snapshot requires a paused microVM"):
         vm.api.snapshot_create.put(
             mem_file_path="memfile", snapshot_path="statefile", snapshot_type="Full"
         )

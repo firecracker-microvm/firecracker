@@ -532,6 +532,12 @@ impl Vmm {
     pub fn save_state(&mut self, vm_info: &VmInfo) -> Result<MicrovmState, MicrovmStateError> {
         self.check_unsnapshottable_devices()?;
 
+        if self.instance_info.state != VmState::Paused {
+            return Err(MicrovmStateError::NotAllowed(
+                "snapshot requires a paused microVM".into(),
+            ));
+        }
+
         // We need to save device state before saving KVM state.
         // Some devices, (at the time of writing this comment block device with async engine)
         // might modify the VirtIO transport and send an interrupt to the guest. If we save KVM
@@ -742,6 +748,10 @@ impl Vmm {
         event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
         log_dev_preview_warning("PCI device hotplug", None);
+        if let HotplugDeviceConfig::Block(block_config) = &config {
+            self.machine_config
+                .validate_num_queues(&block_config.drive_id, block_config.num_queues)?;
+        }
         let kvm_vm = self
             .vm
             .as_kvm()

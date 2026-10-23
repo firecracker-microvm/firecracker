@@ -75,6 +75,15 @@ impl CompletionQueue {
         self.count
     }
 
+    /// Number of completed entries in the ring that have not been popped yet.
+    pub(crate) fn ready(&self) -> Result<u32, CQueueError> {
+        let unmasked_tail = self
+            .cqes
+            .as_volatile_slice()
+            .load::<u32>(self.tail_off, Ordering::Acquire)?;
+        Ok((Wrapping(unmasked_tail) - self.unmasked_head).0)
+    }
+
     pub(crate) fn pop<T: Debug>(
         &mut self,
         slab: &mut slab::Slab<T>,

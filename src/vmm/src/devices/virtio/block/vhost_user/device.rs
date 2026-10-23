@@ -19,7 +19,7 @@ use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, Vir
 use crate::devices::virtio::generated::virtio_blk::{VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::queue::{Queue, QueueConfig};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vhost_user::{VhostUserHandleBackend, VhostUserHandleImpl};
 use crate::devices::virtio::vhost_user_metrics::{
@@ -67,10 +67,11 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
     type Error = VhostUserBlockError;
 
     fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
-        if let (Some(socket), None, None, None, None, None, None, None) = (
+        if let (Some(socket), None, None, None, None, None, None, None, None) = (
             &value.socket,
             &value.is_read_only,
             &value.discard,
+            &value.num_queues,
             &value.path_on_host,
             &value.rate_limiter,
             &value.file_engine_type,
@@ -101,6 +102,7 @@ impl From<VhostUserBlockConfig> for BlockDeviceConfig {
 
             is_read_only: None,
             discard: None,
+            num_queues: None,
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
@@ -318,16 +320,20 @@ where
         self.acked_features = acked_features;
     }
 
-    fn queues(&self) -> &[Queue] {
-        &self.queues
+    fn num_queues(&self) -> usize {
+        self.queues.len()
     }
 
-    fn queues_mut(&mut self) -> &mut [Queue] {
-        &mut self.queues
+    fn queue_config(&self, index: usize) -> Option<&QueueConfig> {
+        self.queues.get(index).map(|queue| &queue.config)
     }
 
-    fn queue_events(&self) -> &[EventFd] {
-        &self.queue_evts
+    fn queue_config_mut(&mut self, index: usize) -> Option<&mut QueueConfig> {
+        self.queues.get_mut(index).map(|queue| &mut queue.config)
+    }
+
+    fn queue_event(&self, index: usize) -> Option<&EventFd> {
+        self.queue_evts.get(index)
     }
 
     fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
@@ -397,6 +403,16 @@ where
         // https://github.com/firecracker-microvm/firecracker/issues/6277
         false
     }
+
+    fn reset_queues(&mut self) {
+        self.queues.iter_mut().for_each(Queue::reset);
+    }
+
+    fn commit_dirty(&self) {
+        for queue in &self.queues {
+            queue.commit_dirty();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -428,6 +444,7 @@ mod tests {
 
             is_read_only: None,
             discard: None,
+            num_queues: None,
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
@@ -439,6 +456,12 @@ mod tests {
         VhostUserBlockConfig::try_from(&block_config).unwrap();
 
         let block_config = BlockDeviceConfig {
+            num_queues: std::num::NonZeroU16::new(1),
+            ..block_config
+        };
+        VhostUserBlockConfig::try_from(&block_config).unwrap_err();
+
+        let block_config = BlockDeviceConfig {
             drive_id: "".to_string(),
             partuuid: None,
             is_root_device: false,
@@ -446,6 +469,7 @@ mod tests {
 
             is_read_only: Some(true),
             discard: None,
+            num_queues: None,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
@@ -464,6 +488,7 @@ mod tests {
 
             is_read_only: Some(true),
             discard: None,
+            num_queues: None,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),

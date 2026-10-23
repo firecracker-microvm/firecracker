@@ -5,20 +5,27 @@
 
 use device::ConfigSpace;
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroU16;
+use std::sync::{Arc, Mutex};
 use vmm_sys_util::eventfd::EventFd;
 
-use super::device::DiskProperties;
+use super::device::{BlockResources, BlockRuntimeState, DiskProperties};
+use super::worker::WorkerHandle;
 use super::*;
 use crate::devices::virtio::block::persist::BlockConstructorArgs;
-use crate::devices::virtio::block::virtio::device::FileEngineType;
-use crate::devices::virtio::block::virtio::device::VirtioBlkTopology;
+use crate::devices::virtio::block::virtio::device::{
+    FileEngineType, VirtioBlkTopology, VirtioBlockConfig,
+};
 use crate::devices::virtio::block::virtio::metrics::BlockMetricsPerDevice;
-use crate::devices::virtio::device::{DeviceState, VirtioDeviceType};
-use crate::devices::virtio::generated::virtio_blk::VIRTIO_BLK_F_RO;
-use crate::devices::virtio::persist::VirtioDeviceState;
+use crate::devices::virtio::device::VirtioDeviceType;
+use crate::devices::virtio::generated::virtio_blk::{
+    VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_MQ, VIRTIO_BLK_F_RO,
+};
+use crate::devices::virtio::persist::{PersistError, VirtioDeviceState};
 use crate::rate_limiter::RateLimiter;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::snapshot::Persist;
+use crate::vmm_config::RateLimiterConfig;
 
 /// Holds info about block's file engine type. Gets saved in snapshot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +71,7 @@ pub struct VirtioBlockState {
     blk_size: u32,
     topology: VirtioBlkTopology,
     discard_sector_alignment: u32,
+    num_queues: Option<NonZeroU16>,
 }
 
 impl Persist<'_> for VirtioBlock {
@@ -72,19 +80,34 @@ impl Persist<'_> for VirtioBlock {
     type Error = VirtioBlockError;
 
     fn save(&self) -> Self::State {
-        // Save device state.
+        let virtio_state = if let BlockRuntimeState::Threaded(active) = &self.state {
+            VirtioDeviceState {
+                device_type: VirtioDeviceType::Block,
+                avail_features: self.avail_features,
+                acked_features: self.acked_features,
+                queues: active
+                    .worker_handles
+                    .iter()
+                    .map(WorkerHandle::get_queue_state)
+                    .collect(),
+                activated: true,
+            }
+        } else {
+            VirtioDeviceState::from_device(self, self.resources().iter().map(|r| &r.queue))
+        };
         VirtioBlockState {
-            id: self.id.clone(),
-            partuuid: self.partuuid.clone(),
-            cache_type: self.cache_type,
-            root_device: self.root_device,
-            disk_path: self.disk.file_path.clone(),
-            virtio_state: VirtioDeviceState::from_device(self),
-            rate_limiter_state: self.rate_limiter.save(),
+            id: self.config.drive_id.clone(),
+            partuuid: self.config.partuuid.clone(),
+            cache_type: self.config.cache_type,
+            root_device: self.config.is_root_device,
+            disk_path: self.config.path_on_host.clone(),
+            virtio_state,
+            rate_limiter_state: self.lock_rate_limiter().save(),
             file_engine_type: FileEngineTypeState::from(self.file_engine_type()),
             blk_size: self.config_space.blk_size,
             topology: self.config_space.topology,
             discard_sector_alignment: self.config_space.discard_sector_alignment,
+            num_queues: self.config.num_queues,
         }
     }
 
@@ -95,55 +118,71 @@ impl Persist<'_> for VirtioBlock {
         let is_read_only = state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_RO) != 0;
         let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)
             .map_err(VirtioBlockError::RateLimiter)?;
-
-        let disk_properties = DiskProperties::new(
-            state.disk_path.clone(),
+        let rate_limiter_config: RateLimiterConfig = (&rate_limiter).into();
+        let num_queues = state
+            .num_queues
+            .map_or(DEFAULT_BLOCK_NUM_QUEUES, NonZeroU16::get);
+        let mq_offered = state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_MQ) != 0;
+        if num_queues > 1 && !mq_offered {
+            return Err(VirtioBlockError::Persist(PersistError::InvalidInput));
+        }
+        let config = VirtioBlockConfig {
+            drive_id: state.id.clone(),
+            partuuid: state.partuuid.clone(),
+            is_root_device: state.root_device,
+            cache_type: state.cache_type,
             is_read_only,
-            state.file_engine_type.into(),
-        )?;
-
-        let queue_evts = [EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?];
+            discard: state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD) != 0,
+            num_queues: state.num_queues,
+            path_on_host: state.disk_path.clone(),
+            rate_limiter: rate_limiter_config.into_option(),
+            file_engine_type: state.file_engine_type.into(),
+            blk_size: Some(state.blk_size),
+            topology: Some(state.topology),
+        };
 
         let queues = state
             .virtio_state
             .build_queues_checked(
                 &constructor_args.mem,
                 VirtioDeviceType::Block,
-                BLOCK_NUM_QUEUES,
+                usize::from(num_queues),
                 FIRECRACKER_MAX_QUEUE_SIZE,
             )
             .map_err(VirtioBlockError::Persist)?;
-
-        let avail_features = state.virtio_state.avail_features;
-        let acked_features = state.virtio_state.acked_features;
+        let mut resources = Vec::with_capacity(usize::from(num_queues));
+        for (queue_idx, queue) in (0..num_queues).zip(queues) {
+            resources.push(BlockResources {
+                queue,
+                queue_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
+                queue_idx,
+                disk: DiskProperties::new(
+                    &state.disk_path,
+                    is_read_only,
+                    state.file_engine_type.into(),
+                )?,
+                is_io_engine_throttled: false,
+            });
+        }
 
         let config_space = ConfigSpace {
-            capacity: disk_properties.nsectors.to_le(),
+            capacity: resources[0].disk.nsectors.to_le(),
             blk_size: state.blk_size,
             topology: state.topology,
             discard_sector_alignment: state.discard_sector_alignment,
+            num_queues: num_queues.to_le(),
             ..Default::default()
         };
 
         Ok(VirtioBlock {
-            avail_features,
-            acked_features,
+            avail_features: state.virtio_state.avail_features,
+            acked_features: state.virtio_state.acked_features,
             config_space,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
 
-            queues,
-            queue_evts,
-            device_state: DeviceState::Inactive,
-
-            id: state.id.clone(),
-            partuuid: state.partuuid.clone(),
-            cache_type: state.cache_type,
-            root_device: state.root_device,
-            read_only: is_read_only,
-
-            disk: disk_properties,
-            rate_limiter,
-            is_io_engine_throttled: false,
+            config,
+            rate_limiter: Arc::new(Mutex::new(rate_limiter)),
+            state: BlockRuntimeState::Configuring(resources, Vec::new()),
             metrics: BlockMetricsPerDevice::alloc(state.id.clone()),
         })
     }
@@ -151,12 +190,16 @@ impl Persist<'_> for VirtioBlock {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
-    use crate::devices::virtio::block::virtio::device::VirtioBlockConfig;
+    use crate::devices::virtio::block::virtio::test_utils::{
+        default_block_with_path, default_config, set_queue,
+    };
     use crate::devices::virtio::device::VirtioDevice;
-    use crate::devices::virtio::test_utils::default_mem;
+    use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
+    use crate::vstate::memory::GuestAddress;
 
     #[test]
     fn test_cache_semantic_ser() {
@@ -171,6 +214,7 @@ mod tests {
             partuuid: None,
             is_read_only: false,
             discard: false,
+            num_queues: None,
             cache_type: CacheType::Writeback,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
@@ -215,6 +259,7 @@ mod tests {
             partuuid: None,
             is_read_only: false,
             discard: false,
+            num_queues: None,
             cache_type: CacheType::Unsafe,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
@@ -238,17 +283,94 @@ mod tests {
         assert_eq!(restored_block.device_type(), VirtioDeviceType::Block);
         assert_eq!(restored_block.avail_features(), block.avail_features());
         assert_eq!(restored_block.acked_features(), block.acked_features());
-        assert!(
-            restored_block
-                .queues()
-                .iter()
-                .map(Persist::save)
-                .eq(block.queues().iter().map(Persist::save))
+        assert_eq!(
+            restored_block.resources()[0].queue.save(),
+            block.resources()[0].queue.save()
         );
         assert!(!block.is_activated());
         assert!(!restored_block.is_activated());
 
         // Test that block specific fields are the same.
-        assert_eq!(restored_block.disk.file_path, block.disk.file_path);
+        assert_eq!(
+            restored_block.config().path_on_host,
+            block.config().path_on_host
+        );
+    }
+
+    #[test]
+    fn test_threaded_persistence() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let disk = TempFile::new().unwrap();
+            disk.as_file().set_len(0x1000).unwrap();
+            let mut block =
+                default_block_with_path(disk.as_path().to_str().unwrap().to_string(), engine);
+            block.config.num_queues = NonZeroU16::new(1);
+            block.spawn_worker(Arc::new(vec![])).unwrap();
+            let mem = default_mem();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, BLOCK_QUEUE_SIZE);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.set_acked_features(block.avail_features());
+            block.activate(mem.clone(), default_interrupt()).unwrap();
+            // Pause the worker for snapshotting
+            block.prepare_save();
+
+            let state = block.save();
+            let serialized = bitcode::serialize(&state).unwrap();
+            let restored_state = bitcode::deserialize(&serialized).unwrap();
+            let restored =
+                VirtioBlock::restore(BlockConstructorArgs { mem }, &restored_state).unwrap();
+
+            assert_eq!(state.num_queues, NonZeroU16::new(1));
+            assert!(state.virtio_state.activated);
+            assert_eq!(restored.config().num_queues, NonZeroU16::new(1));
+            assert!(!restored.is_activated());
+            assert_eq!(restored.acked_features(), block.acked_features());
+            assert_eq!(restored.queue_config(0), block.queue_config(0));
+            assert_eq!(restored.file_engine_type(), engine);
+        }
+    }
+
+    #[test]
+    fn test_mq_persistence() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let disk = TempFile::new().unwrap();
+            disk.as_file().set_len(0x1000).unwrap();
+            let disk_path = disk.as_path().to_str().unwrap().to_owned();
+            let mut config = default_config(disk_path, engine);
+            config.num_queues = NonZeroU16::new(2);
+            let mut block = VirtioBlock::new(config).unwrap();
+            block.spawn_worker(Arc::new(vec![])).unwrap();
+            let mem = default_mem();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, BLOCK_QUEUE_SIZE);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.set_acked_features(block.avail_features());
+            block.activate(mem.clone(), default_interrupt()).unwrap();
+            assert!(!block.queue_config(1).unwrap().ready);
+
+            // Unused queues stay idle through the worker and snapshot lifecycle.
+            block.kick();
+            block.prepare_save();
+            block.commit_dirty();
+
+            let state = block.save();
+            let serialized = bitcode::serialize(&state).unwrap();
+            let restored_state = bitcode::deserialize(&serialized).unwrap();
+            let restored =
+                VirtioBlock::restore(BlockConstructorArgs { mem }, &restored_state).unwrap();
+
+            assert_eq!(state.virtio_state.queues.len(), 2);
+            assert_eq!(restored.num_queues(), 2);
+            assert_eq!(restored.config().num_queues, NonZeroU16::new(2));
+            assert_eq!(u16::from_le(restored.config_space.num_queues), 2);
+            assert_eq!(restored.avail_features(), block.avail_features());
+            assert_eq!(restored.acked_features(), block.acked_features());
+            for idx in 0..2 {
+                assert_eq!(
+                    restored.resources()[idx].queue_idx,
+                    u16::try_from(idx).unwrap()
+                );
+                assert_eq!(restored.queue_config(idx), block.queue_config(idx));
+            }
+        }
     }
 }
