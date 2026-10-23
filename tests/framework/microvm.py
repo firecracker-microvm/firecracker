@@ -18,6 +18,7 @@ import select
 import shutil
 import signal
 import socket
+import stat
 import time
 import uuid
 from collections import namedtuple
@@ -83,7 +84,11 @@ class SnapshotType(Enum):
 
 
 def hardlink_or_copy(src, dst):
-    """If src and dst are in the same device, hardlink. Otherwise, copy."""
+    """If src is a block device, create a read-only device node for it. If src
+    and dst are in the same device, hardlink. Otherwise, copy."""
+    if src.is_block_device():
+        os.mknod(dst, mode=stat.S_IFBLK | 0o444, device=src.stat().st_rdev)
+        return
     dst.touch(exist_ok=False)
     if dst.stat().st_dev == src.stat().st_dev:
         dst.unlink()

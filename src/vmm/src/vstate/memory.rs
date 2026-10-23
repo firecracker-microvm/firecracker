@@ -8,7 +8,7 @@
 use std::ffi::c_void;
 use std::fs::File;
 use std::io;
-use std::io::SeekFrom;
+use std::io::{Seek, SeekFrom};
 use std::ops::Deref;
 use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
@@ -58,8 +58,6 @@ pub enum MemoryError {
     MemfdSetLen(std::io::Error),
     /// Total sum of memory regions exceeds largest possible file offset
     OffsetTooLarge,
-    /// Cannot retrieve snapshot file metadata: {0}
-    FileMetadata(std::io::Error),
     /// Memory region has zero size
     ZeroSize,
     /// Memory region has zero slots
@@ -971,11 +969,11 @@ pub fn memory_regions_from_ranges_file_backed(
             acc.checked_add(size as u64)
         })
         .ok_or(MemoryError::OffsetTooLarge)?;
+    // Use the end offset rather than `fstat`: a block device reports `st_size == 0`.
     let file_size = file_offset
         .file()
-        .metadata()
-        .map_err(MemoryError::FileMetadata)?
-        .len();
+        .seek(SeekFrom::End(0))
+        .map_err(MemoryError::SeekError)?;
 
     // Ensure we do not mmap beyond EOF. The kernel would allow that, but a SIGBUS is triggered
     // on an attempted access to a page of the mapping that lies beyond the end of the file.
