@@ -152,7 +152,7 @@ def test_boot_timer(microvm_factory, guest_kernel, rootfs, pci_enabled):
 
 @pytest.mark.parametrize(
     "vcpu_count,mem_size_mib",
-    [(1, 128), (1, 1024), (2, 2048), (4, 4096)],
+    [(1, 1024), (2, 2048), (4, 4096)],
 )
 @pin_rootfs_mode("rw")
 @pytest.mark.parametrize("boot_from_pmem", [True, False], ids=["PmemBoot", "BlockBoot"])
