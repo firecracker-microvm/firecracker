@@ -888,12 +888,15 @@ impl InterruptMetrics {
 pub struct VmmMetrics {
     /// Metric for signaling a panic has occurred.
     pub panic_count: SharedStoreMetric,
+    /// CPU time the VMM thread used since the last metrics flush, in microseconds.
+    pub thread_cpu_us: SharedIncMetric,
 }
 impl VmmMetrics {
     /// Const default construction.
     pub const fn new() -> Self {
         Self {
             panic_count: SharedStoreMetric::new(),
+            thread_cpu_us: SharedIncMetric::new(),
         }
     }
 }
