@@ -9,15 +9,21 @@ Discard is configured per virtio-block device through the `discard` field in the
 
 ## Supported configuration
 
-Discard is currently supported only for writable virtio-block devices using the
-`Sync` IO engine. It is not supported for:
+For virtio-block devices, discard is currently supported only for writable
+drives using the `Sync` IO engine. It is not supported for:
 
 - read-only drives;
-- `Async` IO engine drives;
-- vhost-user block devices.
+- `Async` IO engine drives.
 
 For regular backing files, Firecracker uses hole punching. For block-device
 backends, Firecracker uses `BLKDISCARD`.
+
+For vhost-user block devices, setting `discard` makes Firecracker offer
+`VIRTIO_BLK_F_DISCARD` to the backend during feature negotiation. The feature is
+exposed to the guest only if the backend acks it; the backend provides the
+discard limits (`max_discard_sectors`, `max_discard_seg`,
+`discard_sector_alignment`) through its config space and handles the discard
+requests itself, exactly as it does for all other requests.
 
 ## Discard alignment and drive updates
 
