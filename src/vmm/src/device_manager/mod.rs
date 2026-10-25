@@ -36,6 +36,7 @@ use crate::devices::legacy::serial::{SerialOut, SerialOutInner};
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::{PL061Device, PL061Error, RTCDevice};
 use crate::devices::pseudo::BootTimer;
+use crate::devices::pseudo::PvPanic;
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::block::BlockError;
@@ -107,6 +108,8 @@ pub enum AttachDeviceError {
     #[cfg(target_arch = "aarch64")]
     /// Error creating PL061 GPIO device: {0}
     CreateGpioPl061(#[from] PL061Error),
+    /// Error creating the pvpanic device eventfd: {0}
+    PvPanicEventFd(std::io::Error),
     /// Error attach PCI device: {0}
     PciTransport(#[from] PciManagerError),
     /// Operation not supported on this VM type
@@ -323,6 +326,40 @@ impl DeviceManager {
         Ok(())
     }
 
+    /// Attaches a [`PvPanic`] device and returns its VMM notification eventfd.
+    pub(crate) fn attach_pvpanic_device(
+        &mut self,
+        vm: &KvmVm,
+    ) -> Result<EventFd, AttachDeviceError> {
+        let panic_evt =
+            EventFd::new(libc::EFD_NONBLOCK).map_err(AttachDeviceError::PvPanicEventFd)?;
+        let vmm_panic_evt = panic_evt
+            .try_clone()
+            .map_err(AttachDeviceError::PvPanicEventFd)?;
+        let pvpanic = Arc::new(Mutex::new(PvPanic::new(panic_evt)));
+
+        self.mmio_platform_devices
+            .register_mmio_pvpanic(&vm.common.mmio_bus, pvpanic, None)?;
+
+        Ok(vmm_panic_evt)
+    }
+
+    /// Clones the pvpanic notification eventfd, if present. The restore path uses
+    /// this to retrieve the VMM end from the restored device.
+    pub(crate) fn pvpanic_evt(&self) -> Result<Option<EventFd>, std::io::Error> {
+        self.mmio_platform_devices
+            .pvpanic
+            .as_ref()
+            .map(|device| {
+                device
+                    .inner
+                    .lock()
+                    .expect("Poisoned lock")
+                    .try_clone_panic_evt()
+            })
+            .transpose()
+    }
+
     pub(crate) fn attach_vmgenid_device(&mut self, vm: &KvmVm) -> Result<(), AttachDeviceError> {
         self.acpi_devices.attach_vmgenid(vm)?;
         self.acpi_devices.activate_vmgenid(vm)?;
@@ -345,7 +382,8 @@ impl DeviceManager {
             VirtioDevices::Pci(devices) => devices.append_aml_bytes(dsdt_data)?,
         }
 
-        self.acpi_devices.append_aml_bytes(dsdt_data)
+        self.acpi_devices.append_aml_bytes(dsdt_data)?;
+        self.mmio_platform_devices.append_aml_bytes(dsdt_data)
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -727,6 +765,8 @@ pub enum DevicePersistError {
     #[cfg(target_arch = "aarch64")]
     /// PL061 GPIO: {0}
     GpioPl061(#[from] PL061Error),
+    /// pvpanic eventfd: {0}
+    PvPanicEventFd(std::io::Error),
     /// Net: {0}
     Net(#[from] NetPersistError),
     /// Vsock: {0}

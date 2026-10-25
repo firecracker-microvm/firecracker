@@ -7,6 +7,7 @@ use std::fmt::{self, Debug};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
+use vmm_sys_util::eventfd::EventFd;
 
 use super::acpi::ACPIDeviceManager;
 use super::mmio::*;
@@ -17,6 +18,7 @@ use crate::devices::acpi::vmclock::{VmClock, VmClockState};
 use crate::devices::acpi::vmgenid::{VMGenIDState, VmGenId};
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::{PL061Device, PL061State, RTCDevice};
+use crate::devices::pseudo::PvPanic;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::block::device::Block;
@@ -178,6 +180,8 @@ pub struct ACPIDeviceManagerState {
 /// Holds the states of the non-virtio (platform) devices connected over the MMIO transport.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct MMIOPlatformDevicesState {
+    /// State of the pvpanic device in MMIO space (present if it was enabled).
+    pub pvpanic: Option<MMIODeviceInfo>,
     #[cfg(target_arch = "aarch64")]
     /// State of the serial device in MMIO space.
     pub serial: Option<MMIODeviceInfo>,
@@ -229,6 +233,7 @@ impl<'a> Persist<'a> for MMIOPlatformDevices {
 
     fn save(&self) -> Self::State {
         MMIOPlatformDevicesState {
+            pvpanic: self.pvpanic.as_ref().map(|device| device.resources),
             #[cfg(target_arch = "aarch64")]
             serial: self.serial.as_ref().map(|device| device.resources),
             #[cfg(target_arch = "aarch64")]
@@ -250,6 +255,17 @@ impl<'a> Persist<'a> for MMIOPlatformDevices {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let mut platform_devices = MMIOPlatformDevices::new();
+
+        if let Some(device_info) = state.pvpanic {
+            let panic_evt =
+                EventFd::new(libc::EFD_NONBLOCK).map_err(DevicePersistError::PvPanicEventFd)?;
+            let pvpanic = Arc::new(Mutex::new(PvPanic::new(panic_evt)));
+            platform_devices.register_mmio_pvpanic(
+                &constructor_args.vm.common.mmio_bus,
+                pvpanic,
+                Some(device_info),
+            )?;
+        }
 
         #[cfg(target_arch = "aarch64")]
         {
@@ -677,6 +693,7 @@ mod tests {
     use super::*;
     #[cfg(target_arch = "aarch64")]
     use crate::arch::KvmVm;
+    use crate::arch::PVPANIC_MEM_START;
     use crate::builder::tests::*;
     use crate::device_manager;
     #[cfg(target_arch = "aarch64")]
@@ -832,6 +849,131 @@ mod tests {
             fresh[0],
             restored_gsis
         );
+    }
+
+    impl PartialEq for MMIOPlatformDevicesState {
+        fn eq(&self, other: &MMIOPlatformDevicesState) -> bool {
+            #[cfg(target_arch = "aarch64")]
+            {
+                if self.serial != other.serial
+                    || self.rtc != other.rtc
+                    || self.gpio_pl061 != other.gpio_pl061
+                    || self.gpio_pl061_state != other.gpio_pl061_state
+                {
+                    return false;
+                }
+            }
+
+            self.pvpanic == other.pvpanic
+        }
+    }
+
+    const PVPANIC_PANICKED: u8 = 1 << 0;
+    const PVPANIC_CRASH_LOADED: u8 = 1 << 1;
+
+    /// Round-trip `state` through serialization and restore its devices into `vm`.
+    fn restore_platform_devices(
+        state: &MMIOPlatformDevicesState,
+        vm: &Arc<KvmVm>,
+    ) -> MMIOPlatformDevices {
+        let serialized = bitcode::serialize(state).unwrap();
+        let state: MMIOPlatformDevicesState = bitcode::deserialize(&serialized).unwrap();
+
+        let mut event_manager = EventManager::new().unwrap();
+        let mut vm_resources = VmResources::default();
+        let restore_args = MMIOPlatformDevicesConstructorArgs {
+            vm,
+            event_manager: &mut event_manager,
+            vm_resources: &mut vm_resources,
+            serial_state: None,
+        };
+
+        MMIOPlatformDevices::restore(restore_args, &state).unwrap()
+    }
+
+    #[test]
+    fn test_pvpanic_persistence() {
+        let mut vmm = default_vmm();
+        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
+        let boot_evt = vmm.device_manager.attach_pvpanic_device(&kvm_vm).unwrap();
+
+        let state = vmm.device_manager.mmio_platform_devices.save();
+        let device_info = state.pvpanic.expect("the pvpanic device must be saved");
+        assert_eq!(device_info.addr, PVPANIC_MEM_START);
+        assert_eq!(device_info.len, MMIO_LEN);
+        assert_eq!(device_info.gsi, None);
+
+        // Restore from snapshot state without enabling pvpanic on the new VM.
+        let restored_vmm = default_vmm();
+        let restored_kvm_vm = restored_vmm.vm.as_kvm().unwrap().clone();
+        let restored = restore_platform_devices(&state, &restored_kvm_vm);
+        assert_eq!(restored.save(), state);
+
+        let mut data = [0u8; 1];
+        restored_kvm_vm
+            .common
+            .mmio_bus
+            .read(PVPANIC_MEM_START, &mut data)
+            .unwrap();
+        assert_eq!(data[0], PVPANIC_PANICKED | PVPANIC_CRASH_LOADED);
+
+        // The eventfd is not serialized; restore must create a new one.
+        let restored_evt = restored
+            .pvpanic
+            .as_ref()
+            .unwrap()
+            .inner
+            .lock()
+            .unwrap()
+            .try_clone_panic_evt()
+            .unwrap();
+
+        restored_kvm_vm
+            .common
+            .mmio_bus
+            .write(PVPANIC_MEM_START, &[PVPANIC_PANICKED])
+            .unwrap();
+        assert_eq!(restored_evt.read().unwrap(), 1);
+        boot_evt.read().unwrap_err();
+    }
+
+    #[test]
+    fn test_pvpanic_persistence_when_disabled() {
+        let vmm = default_vmm();
+        let state = vmm.device_manager.mmio_platform_devices.save();
+        assert!(state.pvpanic.is_none());
+
+        let restored_vmm = default_vmm();
+        let restored_kvm_vm = restored_vmm.vm.as_kvm().unwrap().clone();
+        let restored = restore_platform_devices(&state, &restored_kvm_vm);
+
+        assert!(restored.pvpanic.is_none());
+        restored_kvm_vm
+            .common
+            .mmio_bus
+            .write(PVPANIC_MEM_START, &[PVPANIC_PANICKED])
+            .unwrap_err();
+    }
+
+    #[test]
+    fn test_pvpanic_evt_is_taken_from_the_device() {
+        let mut vmm = default_vmm();
+        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
+        assert!(vmm.device_manager.pvpanic_evt().unwrap().is_none());
+
+        vmm.device_manager.attach_pvpanic_device(&kvm_vm).unwrap();
+
+        let evt = vmm
+            .device_manager
+            .pvpanic_evt()
+            .unwrap()
+            .expect("the eventfd of an attached pvpanic device must be reachable");
+        kvm_vm
+            .common
+            .mmio_bus
+            .write(PVPANIC_MEM_START, &[PVPANIC_PANICKED])
+            .unwrap();
+        assert_eq!(evt.read().unwrap(), 1);
     }
 
     #[test]

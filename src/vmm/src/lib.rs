@@ -127,6 +127,7 @@ use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEvent
 use snapshot::Persist;
 use vm_memory::GuestMemoryBackend;
 use vmm_sys_util::epoll::EventSet;
+use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::terminal::Terminal;
 use vstate::vcpu::{self, VcpuSendEventError};
 
@@ -311,6 +312,8 @@ pub struct Vmm {
     pub vm: Vm,
     // Device manager
     device_manager: DeviceManager,
+    /// VMM end of the pvpanic notification eventfd, if enabled.
+    pvpanic_evt: Option<EventFd>,
 }
 
 impl Vmm {
@@ -720,6 +723,23 @@ impl Vmm {
         Ok(())
     }
 
+    /// Handles a pvpanic notification on the VMM thread.
+    fn handle_guest_panic(&mut self) {
+        let Some(pvpanic_evt) = self.pvpanic_evt.as_ref() else {
+            return;
+        };
+        // Drain the counter, otherwise the event loop keeps waking up on it.
+        if let Err(err) = pvpanic_evt.read()
+            && err.raw_os_error() != Some(libc::EAGAIN)
+        {
+            error!("pvpanic: failed to drain the guest panic eventfd: {err}");
+        }
+
+        // TODO(https://github.com/firecracker-microvm/firecracker/issues/6067):
+        // currently we only log the guest panic.
+        warn!("pvpanic: guest panic handed over to the VMM");
+    }
+
     /// Signals Vmm to stop and exit.
     pub fn stop(&mut self, exit_code: FcExitCode) {
         info!("Vmm is stopping.");
@@ -835,6 +855,7 @@ impl MutEventSubscriber for Vmm {
     fn process(&mut self, event: Events, _: &mut EventOps) {
         let source = event.fd();
         let event_set = event.event_set();
+        let pvpanic_fd = self.pvpanic_evt.as_ref().map(|evt| evt.as_raw_fd());
 
         // We can't call complete_hotplug_removals() here because we have no
         // reference to the EventManager. Simply drain the eventfd so it stops
@@ -875,6 +896,8 @@ impl MutEventSubscriber for Vmm {
                         FcExitCode::Ok
                     };
                     self.stop(exit_code);
+                } else if Some(source) == pvpanic_fd && event_set == EventSet::IN {
+                    self.handle_guest_panic();
                 } else {
                     error!("Spurious EventManager event for handler: Vmm");
                 }
@@ -895,5 +918,76 @@ impl MutEventSubscriber for Vmm {
         {
             error!("Failed to register hot-unplug completion event: {}", err);
         }
+
+        if let Some(pvpanic_evt) = self.pvpanic_evt.as_ref()
+            && let Err(err) = ops.add(Events::new(pvpanic_evt, EventSet::IN))
+        {
+            error!("Failed to register pvpanic event: {}", err);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use event_manager::SubscriberOps;
+
+    use super::*;
+    use crate::builder::tests::default_vmm;
+
+    struct DummySubscriber;
+
+    impl MutEventSubscriber for DummySubscriber {
+        fn process(&mut self, _: Events, _: &mut EventOps) {}
+        fn init(&mut self, _: &mut EventOps) {}
+    }
+
+    #[test]
+    fn test_handle_guest_panic_without_device() {
+        let mut vmm = default_vmm();
+        assert!(vmm.pvpanic_evt.is_none());
+
+        vmm.handle_guest_panic();
+    }
+
+    #[test]
+    fn test_handle_guest_panic_drains_event() {
+        let mut vmm = default_vmm();
+        let panic_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        vmm.pvpanic_evt = Some(panic_evt.try_clone().unwrap());
+
+        // Nothing pending: EAGAIN is expected and must not be treated as an error.
+        vmm.handle_guest_panic();
+
+        panic_evt.write(1).unwrap();
+        vmm.handle_guest_panic();
+
+        assert_eq!(
+            panic_evt.read().unwrap_err().raw_os_error(),
+            Some(libc::EAGAIN)
+        );
+    }
+
+    #[test]
+    fn test_process_dispatches_pvpanic_event() {
+        let mut vmm = default_vmm();
+        let panic_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        vmm.pvpanic_evt = Some(panic_evt.try_clone().unwrap());
+
+        // `EventOps` cannot be constructed outside the event-manager crate, so
+        // borrow one from a throw-away subscriber. `Vmm::process` ignores it.
+        let mut event_manager = EventManager::new().unwrap();
+        let id = event_manager.add_subscriber(Arc::new(Mutex::new(DummySubscriber)));
+        let mut ops = event_manager.event_ops(id).unwrap();
+
+        panic_evt.write(1).unwrap();
+        // `Vmm::process` matches on the raw fd stored in the VMM and a clone has
+        // a different fd number, so the event must carry the stored one.
+        let source_fd = vmm.pvpanic_evt.as_ref().unwrap().as_raw_fd();
+        vmm.process(Events::new_raw(source_fd, EventSet::IN), &mut ops);
+
+        assert_eq!(
+            panic_evt.read().unwrap_err().raw_os_error(),
+            Some(libc::EAGAIN)
+        );
     }
 }
