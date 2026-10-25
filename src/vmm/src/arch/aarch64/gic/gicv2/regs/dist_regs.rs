@@ -3,7 +3,7 @@
 
 use std::ops::Range;
 
-use kvm_bindings::KVM_DEV_ARM_VGIC_GRP_DIST_REGS;
+use kvm_bindings::{KVM_DEV_ARM_VGIC_CPUID_MASK, KVM_DEV_ARM_VGIC_GRP_DIST_REGS};
 use kvm_ioctls::DeviceFd;
 
 use crate::arch::aarch64::gic::GicError;
@@ -58,10 +58,8 @@ pub struct SharedIrqReg {
 
 impl MmioReg for SharedIrqReg {
     fn range(&self) -> Range<u64> {
-        // The ARM® TrustZone® implements a protection logic which contains a
-        // read-as-zero/write-ignore (RAZ/WI) policy.
-        // The first part of a shared-irq register, the one corresponding to the
-        // SGI and PPI IRQs (0-32) is RAZ/WI, so we skip it.
+        // The first part of a shared-irq register, for SGIs and PPIs (IRQs 0-31), is banked per
+        // vCPU and saved separately. The rest, for SPIs (IRQs 32 and up), is shared by all vCPUs.
         let start = self.offset + u64::from(SPI_START) * u64::from(self.bits_per_irq) / 8;
 
         let size_in_bits = u64::from(self.bits_per_irq) * u64::from(GSI_LEGACY_NUM);
@@ -112,8 +110,31 @@ impl VgicRegEngine for DistRegEngine {
     }
 
     fn mpidr_mask() -> u64 {
-        0
+        KVM_DEV_ARM_VGIC_CPUID_MASK
     }
+}
+
+// The banked SGI/PPI part of the registers that hold per-interrupt state.
+static VGIC_BANKED_DIST_REGS: &[DistReg] = &[
+    DistReg::simple(0x0100, 4),  // GICD_ISENABLER0
+    DistReg::simple(0x0200, 4),  // GICD_ISPENDR0
+    DistReg::simple(0x0300, 4),  // GICD_ISACTIVER0
+    DistReg::simple(0x0400, 32), // GICD_IPRIORITYR0-7
+];
+
+pub(crate) fn get_banked_dist_regs(
+    fd: &DeviceFd,
+    mpidr: u64,
+) -> Result<Vec<GicRegState<u32>>, GicError> {
+    DistRegEngine::get_regs_data(fd, Box::new(VGIC_BANKED_DIST_REGS.iter()), mpidr)
+}
+
+pub(crate) fn set_banked_dist_regs(
+    fd: &DeviceFd,
+    mpidr: u64,
+    state: &[GicRegState<u32>],
+) -> Result<(), GicError> {
+    DistRegEngine::set_regs_data(fd, Box::new(VGIC_BANKED_DIST_REGS.iter()), state, mpidr)
 }
 
 pub(crate) fn get_dist_regs(fd: &DeviceFd) -> Result<Vec<GicRegState<u32>>, GicError> {
