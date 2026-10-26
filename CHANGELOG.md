@@ -51,6 +51,11 @@ and this project adheres to
   files of pmem devices when loading a snapshot. See
   [Overriding host resources](docs/snapshotting/snapshot-support.md#overriding-host-resources)
   for more information.
+- [#6365](https://github.com/firecracker-microvm/firecracker/pull/6365): Added
+  a `--features` option to `firecracker`. It prints the sorted list of
+  enabled build features and exits, in the same way as `--version`, which is
+  unchanged. See the [getting started](docs/getting-started.md) documentation
+  page for details.
 
 ### Changed
 
