@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::ActivateError;
-use super::queue::{Queue, QueueError};
+use super::queue::Queue;
 use super::transport::VirtioInterrupt;
 use crate::MutEventSubscriber;
 use crate::devices::virtio::AsAny;
@@ -205,6 +205,8 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
         }
         self.deactivate();
         self.set_acked_features(0);
+        // The queues go with the reset; commit the used ring pages written since the last snapshot
+        self.commit_dirty();
         for queue in self.queues_mut() {
             *queue = Queue::new(queue.max_size);
         }
@@ -228,12 +230,11 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     /// https://github.com/firecracker-microvm/firecracker/issues/6281
     fn _reset(&mut self) -> bool;
 
-    /// Mark pages used by queues as dirty.
-    fn mark_queue_memory_dirty(&mut self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
-        for queue in self.queues_mut() {
-            queue.initialize(mem)?
+    /// Marks dirty the queue pages written since the last call.
+    fn commit_dirty(&self) {
+        for queue in self.queues() {
+            queue.commit_dirty();
         }
-        Ok(())
     }
 
     /// Notify all queues by writing to the eventfds.

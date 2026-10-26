@@ -201,7 +201,7 @@ pub mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::ffi::OsStrExt;
 
-    use vm_memory::{GuestMemoryBackend, GuestMemoryRegion};
+    use vm_memory::{GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion};
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
@@ -351,6 +351,85 @@ pub mod tests {
         engine.flush(PendingRequest::default()).unwrap();
         engine.drain(true).unwrap();
         engine.drain_and_flush(true).unwrap();
+    }
+
+    #[test]
+    fn test_sync_dirty_tracking() {
+        let temp_file = TempFile::new().unwrap();
+        // A second, write-only handle on the same file, for the failing read below.
+        let write_only = std::fs::OpenOptions::new()
+            .write(true)
+            .open(temp_file.as_path())
+            .unwrap();
+        let mut engine =
+            FileEngine::from_file(temp_file.into_file(), FileEngineType::Sync).unwrap();
+        let data = vmm_sys_util::rand::rand_alphanumerics(FILE_LEN as usize)
+            .as_bytes()
+            .to_vec();
+        let mem = create_mem();
+        mem.write(&data, GuestAddress(0)).unwrap();
+        assert_sync_execution!(
+            engine.write(
+                0,
+                &mem,
+                GuestAddress(0),
+                FILE_LEN,
+                PendingRequest::default()
+            ),
+            FILE_LEN
+        );
+
+        // A read into the second page marks that page and not the first.
+        let mem = create_mem();
+        let addr = GuestAddress(4096);
+        assert_sync_execution!(
+            engine.read(0, &mem, addr, FILE_LEN, PendingRequest::default()),
+            FILE_LEN
+        );
+        check_clean_mem(&mem, GuestAddress(0), 4096);
+        check_dirty_mem(&mem, addr, FILE_LEN);
+
+        // A read past the end of the file fails after reading what there is, and marks only
+        // that: the file ends in the first page, so the second page stays clean.
+        let mem = create_mem();
+        let too_long = FILE_LEN + 4096;
+        match engine.read(
+            0,
+            &mem,
+            GuestAddress(0),
+            too_long,
+            PendingRequest::default(),
+        ) {
+            Err(err) => assert!(matches!(
+                err.error,
+                BlockIoError::Sync(SyncIoError::Transfer(GuestMemoryError::IOError(_)))
+            )),
+            Ok(_) => panic!("read past the end of the file succeeded"),
+        }
+        let mut buf = vec![0u8; FILE_LEN as usize];
+        mem.read_slice(&mut buf, GuestAddress(0)).unwrap();
+        assert_eq!(buf, data.as_slice());
+        check_dirty_mem(&mem, GuestAddress(0), FILE_LEN);
+        check_clean_mem(&mem, GuestAddress(4096), 4096);
+
+        // A `read` that fails outright writes nothing, so nothing is marked: on the write-only
+        // handle `read` fails with EBADF on the first call.
+        let mut engine = FileEngine::from_file(write_only, FileEngineType::Sync).unwrap();
+        let mem = create_mem();
+        match engine.read(
+            0,
+            &mem,
+            GuestAddress(0),
+            2 * 4096,
+            PendingRequest::default(),
+        ) {
+            Err(err) => assert!(matches!(
+                err.error,
+                BlockIoError::Sync(SyncIoError::Transfer(GuestMemoryError::IOError(_)))
+            )),
+            Ok(_) => panic!("read from a write-only file succeeded"),
+        }
+        check_clean_mem(&mem, GuestAddress(0), 2 * 4096);
     }
 
     #[test]

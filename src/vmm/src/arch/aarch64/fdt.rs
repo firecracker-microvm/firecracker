@@ -281,10 +281,6 @@ fn create_chosen_node(
         )?;
     }
 
-    // Prevent the kernel from reassigning PCI BAR addresses.
-    // https://elixir.bootlin.com/linux/v6.19.8/source/drivers/pci/of.c#L255
-    fdt.property_u32("linux,pci-probe-only", 1)?;
-
     let mut rng_seed = [0u8; 64];
     rand::fill(&mut rng_seed).expect("could not generate rng-seed");
     fdt.property("rng-seed", &rng_seed)?;
@@ -594,7 +590,7 @@ fn create_pci_nodes(fdt: &mut FdtWriter, segment: &PciSegment) -> Result<(), Fdt
     ];
 
     let pci_node = fdt.begin_node(&pci_node_name)?;
-    let last_bus = u32::from(segment.pci_buses.num_buses() - 1);
+    let last_bus = u32::from(segment.last_bus_number());
 
     fdt.property_string("compatible", "pci-host-ecam-generic")?;
     fdt.property_string("device_type", "pci")?;

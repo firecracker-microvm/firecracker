@@ -270,6 +270,7 @@ class Microvm:
         self.metrics_file = None
         self._spawned = False
         self._killed = False
+        self._dumping_debug_information = False
 
         # The spawn/basic_config/start verbs delegate to the configured backend.
         self.backend = backend
@@ -332,8 +333,14 @@ class Microvm:
         # We start with vhost-user backends,
         # because if we stop Firecracker first, the backend will want
         # to exit as well and this will cause a race condition.
-        for backend in self.disks_vhost_user.values():
-            backend.kill()
+        backend_errors = []
+        for drive_id, backend in self.disks_vhost_user.items():
+            rc = backend.kill()
+            if rc not in (None, 0):
+                backend_errors.append(
+                    f"vhost-user backend {drive_id} exited with {rc}. "
+                    f"Its log:\n{backend.log_data}"
+                )
         self.disks_vhost_user.clear()
 
         assert (
@@ -401,6 +408,9 @@ class Microvm:
         # Mark the microVM as not spawned, so we avoid trying to kill twice.
         self._spawned = False
         self._killed = True
+
+        # Firecracker is dead by now, so failing here cannot leak it.
+        assert might_be_dead or not backend_errors, "\n".join(backend_errors)
 
         if self.time_api_requests:
             self._validate_api_response_times()
@@ -1181,16 +1191,7 @@ class Microvm:
     @property
     def thread_backtraces(self):
         """Return backtraces of all threads"""
-        backtraces = []
-        for thread_name, thread_pids in utils.get_threads(self.firecracker_pid).items():
-            for pid in thread_pids:
-                try:
-                    stack = Path(f"/proc/{pid}/stack").read_text("UTF-8")
-                except FileNotFoundError:
-                    continue  # process might've gone away between get_threads() call and here
-
-                backtraces.append(f"{thread_name} ({pid=}):\n{stack}")
-        return "\n".join(backtraces)
+        return utils.thread_backtraces(self.firecracker_pid)
 
     def _dump_debug_information(self, what: str):
         """
@@ -1198,12 +1199,60 @@ class Microvm:
 
         Used for example when running a command inside the guest via `SSHConnection.check_output` fails.
         """
+        # This runs from the SSH error hook, and it issues SSH commands of its
+        # own, which reach the same hook when they fail.
+        if self._dumping_debug_information:
+            return
+        self._dumping_debug_information = True
+        try:
+            self._dump_debug_information_inner(what)
+        finally:
+            self._dumping_debug_information = False
+
+    def _dump_debug_information_inner(self, what: str):
         LOG.error(what)
         LOG.error("Firecracker logs:\n%s", self.log_data)
         if self.uffd_handler:
             LOG.error("Uffd logs:\n%s", self.uffd_handler.log_data)
         if not self._killed:
             LOG.error("Thread backtraces:\n%s", self.thread_backtraces)
+        # A vhost-user drive serves its queues from a separate process, so a
+        # request the guest is still waiting for is only visible there.
+        for drive_id, backend in self.disks_vhost_user.items():
+            LOG.error("vhost-user backend %s logs:\n%s", drive_id, backend.log_data)
+            LOG.error(
+                "vhost-user backend %s thread backtraces:\n%s",
+                drive_id,
+                backend.thread_backtraces,
+            )
+        LOG.error("Guest blocked tasks:\n%s", self._guest_blocked_tasks())
+
+    def _guest_blocked_tasks(self):
+        """Only for `_dump_debug_information`, whose guard stops the SSH error
+        hook that a failed query triggers."""
+        # A new connection would sit through SSHConnection's retry loop, ~60s
+        # against a guest that does not answer.
+        if not self._connections:
+            return "no SSH connection was ever established"
+        # A guest that cannot run would only make the query wait out its
+        # timeout.
+        try:
+            state = self.state
+        except Exception as exc:  # pylint: disable=broad-except
+            return f"Firecracker did not answer: {exc}"
+        if state == "Paused":
+            return "microVM is paused"
+        # A guest waiting on a request that never completed is in
+        # uninterruptible sleep, and sysrq-w prints the stack of every task in
+        # that state. The guest's log keeps every earlier report, and only the
+        # newest belongs to this failure.
+        cmd = "echo w > /proc/sysrq-trigger && dmesg | tac | sed '/sysrq: Show Blocked State/q' | tac"
+        try:
+            return self._connections[0].check_output(cmd, timeout=5).stdout
+        except Exception as exc:  # pylint: disable=broad-except
+            # A guest that cannot answer is worth recording too, and raising
+            # here would replace the original failure.
+            return f"unavailable: {exc}"
 
     def wait_for_ssh_up(self):
         """Wait for guest running inside the microVM to come up and respond."""

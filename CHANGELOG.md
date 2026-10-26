@@ -10,6 +10,14 @@ and this project adheres to
 
 ### Added
 
+- [#6226](https://github.com/firecracker-microvm/firecracker/pull/6226),
+  [#6227](https://github.com/firecracker-microvm/firecracker/pull/6227),
+  [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228),
+  [#6229](https://github.com/firecracker-microvm/firecracker/pull/6229): Added
+  PCIe device hotplug auto-discovery. A manual bus rescan is no longer needed
+  after hot-plugging a device. New configuration options have been added
+  (`pcie_hotplug_ports` and a `force` option for `DELETE`). See the
+  [Device Hotplugging](docs/device-hotplug.md) documentation page for details.
 - [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
   `SendCtrlAltDel` action is now supported on aarch64. It injects a virtual
   power-button press through a new PL061 GPIO controller exposed to the guest as
@@ -23,6 +31,9 @@ and this project adheres to
 
 ### Changed
 
+- [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228): Device
+  hotplug now requires `pcie_hotplug_ports` to be set in the machine
+  configuration, and only devices behind a PCIe root port can be hot-unplugged.
 - [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
   PL061 GPIO controller backing the new aarch64 power button is always attached
   and uses one extra GSI, which reduces the GSIs left for VirtIO devices. With
@@ -75,6 +86,12 @@ and this project adheres to
   now completes before the vCPU pauses, so snapshots include its effects without
   executing further guest instructions.
 
+- [#6315](https://github.com/firecracker-microvm/firecracker/pull/6315): Fixed
+  the vsock device mixing up a guest-initiated connection with a host-initiated
+  one when the guest connected to a port in the `[2^30, 2^31)` range, which is
+  used for host-side ports of host-initiated connections. Guest connection
+  requests to ports in this range are now refused.
+
 - [#6208](https://github.com/firecracker-microvm/firecracker/pull/6208): Fixed
   the vsock device stalling the VMM thread when the guest connects to a
   host-side Unix socket whose accept backlog is full. Such connection requests
@@ -109,10 +126,10 @@ and this project adheres to
   5.16 and later), the restored TSC offset of vCPU 0 is now applied to all vCPUs
   before they start running.
 
-- [#6253](https://github.com/firecracker-microvm/firecracker/pull/6253): Guest
-  memory written by the virtio-net, vsock and entropy devices is now tracked
-  more accurately. This will lead to smaller incremental snapshots when dirty
-  tracking is enabled.
+- [#6253](https://github.com/firecracker-microvm/firecracker/pull/6253),
+  [#6274](https://github.com/firecracker-microvm/firecracker/pull/6274): Guest
+  memory written by the virtio devices is now tracked more accurately. This will
+  lead to smaller incremental snapshots when dirty tracking is enabled.
 
 ## [1.17.0]
 

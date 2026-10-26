@@ -2,13 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fs::File;
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{ErrorKind, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::FileTypeExt;
 
-use vm_memory::{GuestMemoryBackend, GuestMemoryError, ReadVolatile, WriteVolatile};
+use vm_memory::{
+    GuestMemoryBackend, GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice,
+    WriteVolatile,
+};
 
-use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
+use crate::vstate::memory::{Bitmap, GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum SyncIoError {
@@ -102,9 +105,42 @@ impl SyncFileEngine {
         self.file
             .seek(SeekFrom::Start(offset))
             .map_err(SyncIoError::Seek)?;
-        mem.get_slice(addr, count as usize)
-            .and_then(|mut slice| Ok(self.file.read_exact_volatile(&mut slice)?))
+        let slice = mem
+            .get_slice(addr, count as usize)
             .map_err(SyncIoError::Transfer)?;
+        // SAFETY: `get_slice` checked that `count` bytes at this address are guest memory, which
+        // the device keeps mapped. The copy carries no bitmap: vm-memory would mark the whole
+        // remainder dirty if a read failed, so marking is done below for the bytes read.
+        let mut unmarked =
+            unsafe { VolatileSlice::new(slice.ptr_guard_mut().as_ptr(), count as usize) };
+
+        // Read until the buffer is full, then mark dirty exactly what was read. A failed `read`
+        // writes nothing, so what the earlier ones filled is all there is to mark either way.
+        let mut filled = 0;
+        let result = loop {
+            if unmarked.is_empty() {
+                break Ok(());
+            }
+            // `unmarked` carries no bitmap, so vm-memory marks nothing; see above.
+            #[expect(clippy::disallowed_methods)]
+            match self.file.read_volatile(&mut unmarked) {
+                Ok(0) => {
+                    break Err(VolatileMemoryError::IOError(std::io::Error::new(
+                        ErrorKind::UnexpectedEof,
+                        "failed to fill whole buffer",
+                    )));
+                }
+                Ok(read) => {
+                    filled += read;
+                    // `read` cannot exceed the slice's length.
+                    unmarked = unmarked.offset(read).unwrap();
+                }
+                Err(VolatileMemoryError::IOError(err)) if err.kind() == ErrorKind::Interrupted => {}
+                Err(err) => break Err(err),
+            }
+        };
+        slice.bitmap().mark_dirty(0, filled);
+        result.map_err(|err| SyncIoError::Transfer(err.into()))?;
         Ok(count)
     }
 

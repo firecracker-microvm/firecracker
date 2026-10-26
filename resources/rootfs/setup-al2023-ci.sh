@@ -25,11 +25,11 @@ function build_unavailable_packages() {
   # msr-tools (x86_64 only)
   if [ "$(uname -m)" == "x86_64" ]; then
     git clone https://github.com/intel/msr-tools.git /tmp/msr-tools
-    cd /tmp/msr-tools
+    pushd /tmp/msr-tools >/dev/null
     CFLAGS="-Wall -O2 -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64"
     gcc $CFLAGS -o /usr/sbin/rdmsr rdmsr.c
     gcc $CFLAGS -o /usr/sbin/wrmsr wrmsr.c
-    cd /
+    popd >/dev/null
     rm -rf /tmp/msr-tools
   fi
 
@@ -113,3 +113,9 @@ mkdir -pv $rootfs/var/lib/systemd
 
 # So rpm works
 mkdir -pv $rootfs/var/lib/rpm
+
+# Stamp /etc and /var as up to date so the ConditionNeedsUpdate= units
+# (systemd-hwdb-update, ldconfig, ...) don't run on every boot. The stamps
+# record the mtime of /usr: keep this last, and leave /usr alone afterwards.
+ldconfig
+/usr/lib/systemd/systemd-update-done

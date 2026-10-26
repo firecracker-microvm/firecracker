@@ -47,6 +47,20 @@ def get_threads(pid: int) -> dict:
         return {}
 
 
+def thread_backtraces(pid: int) -> str:
+    """Return the kernel backtrace of every thread of a process."""
+    backtraces = []
+    for thread_name, thread_pids in get_threads(pid).items():
+        for tid in thread_pids:
+            try:
+                stack = Path(f"/proc/{tid}/stack").read_text("UTF-8")
+            except FileNotFoundError:
+                continue  # thread might've gone away between get_threads() and here
+
+            backtraces.append(f"{thread_name} (pid={tid}):\n{stack}")
+    return "\n".join(backtraces)
+
+
 def get_cpu_affinity(pid: int) -> list:
     """Get CPU affinity for a thread."""
     return psutil.Process(pid).cpu_affinity()
@@ -418,6 +432,18 @@ def start_fast_page_fault_helper(ssh_connection, timeout_s=10) -> str:
     pid = pid.strip()
     wait_for_fast_page_fault_helper_ready(ssh_connection, pid, timeout_s)
     return pid
+
+
+def wait_for_fast_page_fault_helper_output(ssh_connection) -> str:
+    """Wait for fast_page_fault_helper to finish and return the duration it
+    reported, in nanoseconds. The helper writes the whole output in the single
+    flush at fclose, so a non-empty file is also a complete one.
+    """
+    _, duration, _ = ssh_connection.check_output(
+        f"while [ ! -s {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH} ]; do sleep 1; done; "
+        f"cat {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH}"
+    )
+    return duration
 
 
 def _format_output_message(proc, stdout, stderr):

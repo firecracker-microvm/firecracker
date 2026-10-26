@@ -13,13 +13,13 @@ use std::sync::{Arc, Mutex};
 
 #[cfg(target_arch = "x86_64")]
 use acpi_tables::{Aml, aml};
-#[cfg(target_arch = "x86_64")]
-use uuid::Uuid;
 use vm_allocator::AllocPolicy;
 
 use crate::arch::PCI_MMCONFIG_START;
 use crate::device_manager::pci_mngr::PciManagerError;
-use crate::devices::pci::root_port::{PciRootPort, ROOT_PORT_MSIX_BAR_SIZE};
+use crate::devices::pci::root_port::{
+    HotplugCompletion, PciRootPort, PciRootPortState, ROOT_PORT_MSIX_BAR, ROOT_PORT_MSIX_BAR_SIZE,
+};
 use crate::logger::info;
 use crate::pci::PciSBDF;
 #[cfg(target_arch = "x86_64")]
@@ -27,7 +27,6 @@ use crate::pci::bus::{PCI_CONFIG_IO_PORT, PCI_CONFIG_IO_PORT_SIZE, PciConfigIo};
 use crate::pci::bus::{
     PCI_MMIO_CONFIG_SIZE_PER_SEGMENT, PciBusError, PciBuses, PciConfigMmio, PciHostBridge,
 };
-use crate::vstate::bus::BusError;
 use crate::vstate::vm::KvmVm;
 
 pub struct PciSegment {
@@ -55,6 +54,8 @@ pub struct PciSegment {
     // Hot-plug capable root ports on the primary bus.
     // Root port `i` starts secondary bus `i + 1`.
     pub(crate) root_ports: Vec<Arc<Mutex<PciRootPort>>>,
+    /// Channel by which the root ports report acknowledged device removals
+    pub(crate) hotplug_completion: Arc<HotplugCompletion>,
 }
 
 impl std::fmt::Debug for PciSegment {
@@ -79,7 +80,7 @@ impl PciSegment {
         vm: &Arc<KvmVm>,
         pci_irq_slots: &[u8; 32],
         num_root_ports: u8,
-    ) -> Result<PciSegment, BusError> {
+    ) -> Result<PciSegment, PciManagerError> {
         let pci_buses = Arc::new(PciBuses::new(num_root_ports));
         pci_buses
             .root_bus()
@@ -119,6 +120,9 @@ impl PciSegment {
             end_of_mem64_area,
             pci_irq_slots: *pci_irq_slots,
             root_ports: Vec::new(),
+            hotplug_completion: Arc::new(
+                HotplugCompletion::new().map_err(PciManagerError::HotplugCompletion)?,
+            ),
         };
 
         Ok(segment)
@@ -130,7 +134,7 @@ impl PciSegment {
         vm: &Arc<KvmVm>,
         pci_irq_slots: &[u8; 32],
         num_root_ports: u8,
-    ) -> Result<PciSegment, BusError> {
+    ) -> Result<PciSegment, PciManagerError> {
         let mut segment = Self::build(id, vm, pci_irq_slots, num_root_ports)?;
         let pci_config_io = Arc::new(Mutex::new(PciConfigIo::new(segment.pci_buses.clone())));
 
@@ -163,7 +167,7 @@ impl PciSegment {
         vm: &Arc<KvmVm>,
         pci_irq_slots: &[u8; 32],
         num_root_ports: u8,
-    ) -> Result<PciSegment, BusError> {
+    ) -> Result<PciSegment, PciManagerError> {
         let segment = Self::build(id, vm, pci_irq_slots, num_root_ports)?;
         info!(
             "pci: adding PCI segment: id={:#x}, PCI MMIO config address: {:#x}, mem32 area: \
@@ -177,6 +181,11 @@ impl PciSegment {
         );
 
         Ok(segment)
+    }
+
+    /// Number of the highest bus that exists in this segment.
+    pub(crate) fn last_bus_number(&self) -> u8 {
+        self.pci_buses.num_buses() - 1
     }
 
     /// Attach hot-plug capable root ports to the primary bus.
@@ -201,9 +210,38 @@ impl PciSegment {
                 secondary_bus,
                 msix_vectors,
                 msix_bar_addr,
+                self.hotplug_completion.clone(),
             )));
 
             self.attach_root_port(vm, sbdf, root_port, msix_bar_addr)?;
+        }
+
+        Ok(())
+    }
+
+    /// Re-create the root ports of a snapshot.
+    pub(crate) fn restore_root_ports(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        states: &[PciRootPortState],
+    ) -> Result<(), PciManagerError> {
+        for (idx, state) in states.iter().enumerate() {
+            if state.sbdf.bus() != 0 || usize::from(state.secondary_bus) != idx + 1 {
+                return Err(PciManagerError::InconsistentRootPort(
+                    idx,
+                    state.sbdf,
+                    state.secondary_bus,
+                ));
+            }
+
+            let root_port = Arc::new(Mutex::new(PciRootPort::from_state(
+                state,
+                vm.clone(),
+                self.hotplug_completion.clone(),
+            )?));
+
+            let msix_bar_addr = state.bars.get_bar_addr(ROOT_PORT_MSIX_BAR);
+            self.attach_root_port(vm, state.sbdf, root_port, msix_bar_addr)?;
         }
 
         Ok(())
@@ -238,6 +276,39 @@ impl PciSegment {
         Ok(())
     }
 
+    /// Enable the root ports' MSI-X vectors after a restore. Must run after the
+    /// GSI routes have been set up.
+    pub(crate) fn enable_rp_unmasked_vectors(&self) -> Result<(), PciManagerError> {
+        for port in &self.root_ports {
+            port.lock()
+                .expect("Poisoned lock")
+                .enable_unmasked_vectors()?;
+        }
+        Ok(())
+    }
+
+    /// Find a root port whose slot is empty.
+    pub(crate) fn next_free_root_port(&self) -> Result<&Mutex<PciRootPort>, PciManagerError> {
+        for port in &self.root_ports {
+            let secondary_bus = port.lock().expect("Poisoned lock").secondary_bus();
+            let bus = self
+                .pci_buses
+                .get(secondary_bus)
+                .expect("A root port references a bus that doesn't exist");
+            if bus.lock().expect("Poisoned lock").get_device(0).is_none() {
+                return Ok(port);
+            }
+        }
+
+        Err(PciManagerError::NoFreeRootPort)
+    }
+
+    /// Return the root port that starts the given bus, if any.
+    pub(crate) fn root_port_for_bus(&self, bus: u8) -> Option<&Mutex<PciRootPort>> {
+        let index = usize::from(bus.checked_sub(1)?);
+        self.root_ports.get(index).map(|port| port.as_ref())
+    }
+
     pub(crate) fn next_device_sbdf(&self) -> Result<PciSBDF, PciBusError> {
         Ok(PciSBDF::new(
             self.id,
@@ -245,73 +316,6 @@ impl PciSegment {
             self.pci_buses.root_bus().lock().unwrap().next_device_id()?,
             0,
         ))
-    }
-}
-
-#[cfg(target_arch = "x86_64")]
-struct PciDsmMethod {}
-
-#[cfg(target_arch = "x86_64")]
-impl Aml for PciDsmMethod {
-    fn append_aml_bytes(&self, v: &mut Vec<u8>) -> Result<(), aml::AmlError> {
-        // Refer to ACPI spec v6.3 Ch 9.1.1 and PCI Firmware spec v3.3 Ch 4.6.1
-        // _DSM (Device Specific Method), the following is the implementation in ASL.
-
-        // Method (_DSM, 4, NotSerialized)  // _DSM: Device-Specific Method
-        // {
-        //      If ((Arg0 == ToUUID ("e5c937d0-3553-4d7a-9117-ea4d19c3434d") /* Device Labeling
-        // Interface */))      {
-        //          If ((Arg2 == Zero))
-        //          {
-        //              Return (Buffer (One) { 0x21 })
-        //          }
-        //          If ((Arg2 == 0x05))
-        //          {
-        //              Return (Zero)
-        //          }
-        //      }
-        //
-        //      Return (Buffer (One) { 0x00 })
-        // }
-        //
-        // As per ACPI v6.3 Ch 19.6.142, the UUID is required to be in mixed endian:
-        // Among the fields of a UUID:
-        //   {d1 (8 digits)} - {d2 (4 digits)} - {d3 (4 digits)} - {d4 (16 digits)}
-        // d1 ~ d3 need to be little endian, d4 be big endian.
-        // See https://en.wikipedia.org/wiki/Universally_unique_identifier#Encoding .
-        let uuid = Uuid::parse_str("E5C937D0-3553-4D7A-9117-EA4D19C3434D").unwrap();
-        let (uuid_d1, uuid_d2, uuid_d3, uuid_d4) = uuid.as_fields();
-        let mut uuid_buf = vec![];
-        uuid_buf.extend(uuid_d1.to_le_bytes());
-        uuid_buf.extend(uuid_d2.to_le_bytes());
-        uuid_buf.extend(uuid_d3.to_le_bytes());
-        uuid_buf.extend(uuid_d4);
-        aml::Method::new(
-            "_DSM".try_into()?,
-            4,
-            false,
-            vec![
-                &aml::If::new(
-                    &aml::Equal::new(&aml::Arg(0), &aml::Buffer::new(uuid_buf)),
-                    vec![
-                        &aml::If::new(
-                            &aml::Equal::new(&aml::Arg(2), &aml::ZERO),
-                            vec![&aml::Return::new(&aml::Buffer::new(vec![0x21]))],
-                        ),
-                        // Define DSM_PCI_PRESERVE_BOOT_CONFIG(0x05) function. The return
-                        // value of 0 indicates that the guest should preserve PCI resource
-                        // assignment done by us.
-                        // https://elixir.bootlin.com/linux/v6.19.8/source/drivers/pci/pci-acpi.c#L123
-                        &aml::If::new(
-                            &aml::Equal::new(&aml::Arg(2), &0x05u8),
-                            vec![&aml::Return::new(&aml::ZERO)],
-                        ),
-                    ],
-                ),
-                &aml::Return::new(&aml::Buffer::new(vec![0])),
-            ],
-        )
-        .append_aml_bytes(v)
     }
 }
 
@@ -362,13 +366,10 @@ impl Aml for PciSegment {
         let pxm = aml::Method::new("_PXM".try_into()?, 0, false, vec![&pxm_return]);
         pci_dsdt_inner_data.push(&pxm);
 
-        let pci_dsm = PciDsmMethod {};
-        pci_dsdt_inner_data.push(&pci_dsm);
-
         let pci_osc = PciOscMethod {};
         pci_dsdt_inner_data.push(&pci_osc);
 
-        let last_bus = u16::from(self.pci_buses.num_buses() - 1);
+        let last_bus = u16::from(self.last_bus_number());
 
         #[allow(clippy::if_same_then_else)]
         let crs = if self.id == 0 {

@@ -757,6 +757,7 @@ impl Vmm {
         &mut self,
         device_id: VirtioDeviceId,
         event_manager: &mut EventManager,
+        force: bool,
     ) -> Result<(), VmmActionError> {
         log_dev_preview_warning("PCI device hot-unplug", None);
         let kvm_vm = self
@@ -765,7 +766,15 @@ impl Vmm {
             .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?
             .clone();
         self.device_manager
-            .hot_unplug_device(kvm_vm, device_id, event_manager)
+            .hot_unplug_device(kvm_vm, device_id, event_manager, force)
+    }
+
+    /// Remove any devices that the guest acknowledged that they can go.
+    pub fn complete_hotplug_removals(&mut self, event_manager: &mut EventManager) {
+        if let Some(kvm_vm) = self.vm.as_kvm() {
+            self.device_manager
+                .complete_hotplug_removals(kvm_vm, event_manager);
+        }
     }
 }
 
@@ -801,6 +810,9 @@ impl Drop for Vmm {
             kvm_vm.shutdown_vcpus();
         }
 
+        // The devices go with the Vmm; commit the dirty pages before dropping them.
+        self.device_manager.commit_dirty();
+
         if let Err(err) = std::io::stdin().lock().set_canon_mode() {
             warn!("Cannot set canonical mode for the terminal. {:?}", err);
         }
@@ -823,6 +835,17 @@ impl MutEventSubscriber for Vmm {
     fn process(&mut self, event: Events, _: &mut EventOps) {
         let source = event.fd();
         let event_set = event.event_set();
+
+        // We can't call complete_hotplug_removals() here because we have no
+        // reference to the EventManager. Simply drain the eventfd so it stops
+        // firing. complete_hotplug_removals() is called in the VMM event loop.
+        if let Some(evt) = self.device_manager.hotplug_completion_evt()
+            && source == evt.as_raw_fd()
+            && event_set == EventSet::IN
+        {
+            let _ = evt.read();
+            return;
+        }
 
         match &self.vm {
             Vm::Kvm(kvm_vm) => {
@@ -866,6 +889,11 @@ impl MutEventSubscriber for Vmm {
                     error!("Failed to register vmm exit event: {}", err);
                 }
             }
+        }
+        if let Some(evt) = self.device_manager.hotplug_completion_evt()
+            && let Err(err) = ops.add(Events::new(evt, EventSet::IN))
+        {
+            error!("Failed to register hot-unplug completion event: {}", err);
         }
     }
 }
