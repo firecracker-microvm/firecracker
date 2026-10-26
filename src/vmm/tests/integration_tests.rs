@@ -38,6 +38,7 @@ use vmm::vmm_config::snapshot::{
     SnapshotLoadHugePageConfig, SnapshotType,
 };
 use vmm::vmm_config::vsock::VsockDeviceConfig;
+use vmm::vstate::memory::MemoryError;
 use vmm::vstate::memory::test_utils::into_region_ext;
 use vmm::vstate::memory::{
     Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryRegion, MemfdBacking,
@@ -436,7 +437,7 @@ fn test_load_snapshot_huge_pages_override() {
 }
 
 #[test]
-fn test_load_snapshot_rejects_hugetlbfs_with_file_backend() {
+fn test_load_snapshot_rejects_2m_with_regular_memory_file() {
     let (snapshot_file, memory_file) = verify_create_snapshot(false, false, false);
     let mut event_manager = EventManager::new().unwrap();
     let empty_seccomp_filters = get_empty_filters();
@@ -468,7 +469,7 @@ fn test_load_snapshot_rejects_hugetlbfs_with_file_backend() {
         error,
         VmmActionError::LoadSnapshot(LoadSnapshotError::RestoreFromSnapshot(
             RestoreFromSnapshotError::GuestMemory(RestoreFromSnapshotGuestMemoryError::File(
-                GuestMemoryFromFileError::HugetlbfsSnapshot
+                GuestMemoryFromFileError::Restore(MemoryError::SnapshotFilePageSize { .. })
             ))
         ))
     ));

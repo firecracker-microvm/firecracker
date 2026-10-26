@@ -42,7 +42,8 @@ and this project adheres to
   `blk_worker` thread category. See
   [block documentation](docs/block.md#threaded-mode-and-multiqueue).
 - [#6099](https://github.com/firecracker-microvm/firecracker/issues/6099): Added
-  support for creating snapshot memory files on 2 MiB hugetlbfs mounts.
+  support for creating snapshot memory files on 2 MiB hugetlbfs mounts and
+  restoring them directly with the `File` memory backend.
 
 ### Changed
 

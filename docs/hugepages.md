@@ -62,17 +62,21 @@ snapshot and is the default when the field is omitted. `None` uses the host's
 default memory-mapping behavior, while `Transparent` and `2M` select their
 corresponding huge page configurations.
 
-Explicit `2M` hugetlbfs pages require UFFD, so combining `2M` with file-backed
-restore returns an error. `Transparent` is accepted with UFFD, although UFFD may
-limit the effectiveness of transparent huge pages.
-
 Firecracker can create a snapshot memory file on a hugetlbfs mount configured
-for 2 MiB pages. A `Full` snapshot on hugetlbfs leaves zero huge pages as holes,
-so the file only takes huge pages for memory the guest holds, and the snapshot
-fails if the pool or mount cannot provide them. hugetlbfs does not report holes,
-so a `Diff` snapshot cannot be a separate layer marking unchanged pages: it must
-be merged into an existing memory file of the same size, such as a previous
-`Full` snapshot of the same microVM.
+for 2 MiB pages, and the `File` backend can restore it with `2M` pages. A `2M`
+restore with the `File` backend requires such a memory file, and a hugetlbfs
+memory file is rejected unless the restored page configuration resolves to `2M`.
+Restore maps the file privately, so guest writes do not modify the snapshot.
+
+A `Full` snapshot on hugetlbfs leaves zero huge pages as holes, so the file only
+takes huge pages for memory the guest holds, and the snapshot fails if the pool
+or mount cannot provide them. hugetlbfs does not report holes, so a `Diff`
+snapshot cannot be a separate layer marking unchanged pages: it must be merged
+into an existing memory file of the same size, such as a previous `Full`
+snapshot of the same microVM.
+
+`Transparent` is accepted with UFFD, although UFFD may limit the effectiveness
+of transparent huge pages.
 
 When restoring snapshots via UFFD, Firecracker will send the configured page
 size (in KiB) for each memory region as part of the initial handshake, as
