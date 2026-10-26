@@ -98,10 +98,6 @@ impl KvmVm {
             ret => Some(usize::try_from(ret).unwrap()),
         };
 
-        if secret_free && !common.fd.check_extension(Cap::UserMemory2) {
-            return Err(VmError::UserMemory2NotSupported);
-        }
-
         common
             .fd
             .set_tss_address(u64_to_usize(crate::arch::x86_64::layout::KVM_TSS_ADDRESS))
