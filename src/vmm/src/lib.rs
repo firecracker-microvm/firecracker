@@ -153,7 +153,7 @@ use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{METRICS, MetricsError, log_dev_preview_warning};
 use crate::mmds::data_store::Mmds;
-use crate::persist::{FaultRequest, MicrovmState, MicrovmStateError, VmInfo};
+use crate::persist::{FaultReply, FaultRequest, MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::resources::VmmConfig;
 use crate::rpc_interface::VmmActionError;
@@ -308,6 +308,81 @@ pub enum DumpCpuConfigError {
     DumpCpuConfig(#[from] vcpu::VcpuError),
     /// Operation not allowed: {0}
     NotAllowed(String),
+}
+
+/// Reason why a [`FaultReply`] received from the UFFD handler is invalid.
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
+enum InvalidFaultReply {
+    /// KVM userfault is not enabled for this VM, so no fault reply is expected
+    UserfaultDisabled,
+    /// vCPU index {0} is out of range (the VM has {1} vCPUs)
+    VcpuOutOfRange(u32, usize),
+    /// APF fault reply does not carry the faulting GPA
+    MissingGpa,
+}
+
+/// Validates a sync [`FaultReply`] and returns the index of the vCPU to wake up.
+///
+/// # Arguments
+///
+/// * `fault_reply` - Reply received on the UFFD socket.
+/// * `userfault_enabled` - Whether KVM userfault is enabled for this VM.
+/// * `vcpu_count` - Number of vCPUs of this VM.
+fn validate_sync_fault_reply(
+    fault_reply: &FaultReply,
+    userfault_enabled: bool,
+    vcpu_count: usize,
+) -> Result<usize, InvalidFaultReply> {
+    if !userfault_enabled {
+        return Err(InvalidFaultReply::UserfaultDisabled);
+    }
+    let vcpu = fault_reply.vcpu as usize;
+    if vcpu >= vcpu_count {
+        return Err(InvalidFaultReply::VcpuOutOfRange(
+            fault_reply.vcpu,
+            vcpu_count,
+        ));
+    }
+    Ok(vcpu)
+}
+
+/// Validates an APF [`FaultReply`] and returns the vCPU index and the faulting GPA.
+///
+/// # Arguments
+///
+/// * `fault_reply` - Reply received on the APF socket.
+/// * `userfault_enabled` - Whether KVM userfault is enabled for this VM.
+/// * `vcpu_count` - Number of vCPUs of this VM.
+fn validate_apf_fault_reply(
+    fault_reply: &FaultReply,
+    userfault_enabled: bool,
+    vcpu_count: usize,
+) -> Result<(usize, u64), InvalidFaultReply> {
+    if !userfault_enabled {
+        return Err(InvalidFaultReply::UserfaultDisabled);
+    }
+    let vcpu = fault_reply.vcpu as usize;
+    if vcpu >= vcpu_count {
+        return Err(InvalidFaultReply::VcpuOutOfRange(
+            fault_reply.vcpu,
+            vcpu_count,
+        ));
+    }
+    let gpa = fault_reply.gpa.ok_or(InvalidFaultReply::MissingGpa)?;
+    Ok((vcpu, gpa))
+}
+
+/// Aborts Firecracker on an invalid [`FaultReply`] from the UFFD handler.
+///
+/// An invalid reply means that the handler, a trusted host component, misbehaves and may be in
+/// an inconsistent state. The handler sends one reply per request and Firecracker does not
+/// track in-flight requests, so the vCPU or guest task waiting for its page fault to be
+/// resolved would never resume, and a stuck vCPU soon stalls the whole guest. Rather than
+/// continuing with a stalled VM, fail fast so that both the handler and the process
+/// orchestrating Firecracker notice at once, and name the reason and the reply in the panic
+/// message.
+fn panic_on_invalid_fault_reply(fault_reply: &FaultReply, err: InvalidFaultReply) -> ! {
+    panic!("Invalid fault reply from UFFD handler ({err}): {fault_reply:?}");
 }
 
 /// Contains the state and associated methods required for the Firecracker VMM.
@@ -869,7 +944,19 @@ impl Vmm {
             .clone();
         let socket = self.uffd_socket.as_mut().unwrap();
         for fault_reply in socket.by_ref() {
-            kvm_vm.vcpus_handles()[fault_reply.vcpu as usize].send_userfault_resolved();
+            let vcpus_handles = kvm_vm.vcpus_handles();
+            // Sync fault replies are only expected when KVM userfault is enabled, which
+            // Firecracker currently does only for secret free VMs.
+            match validate_sync_fault_reply(&fault_reply, kvm_vm.secret_free(), vcpus_handles.len())
+            {
+                Ok(vcpu) => vcpus_handles[vcpu].send_userfault_resolved(),
+                Err(err) => {
+                    // Release the vCPU handles first, so that tearing down the Vmm while
+                    // unwinding (e.g. in tests) does not hit a poisoned lock.
+                    drop(vcpus_handles);
+                    panic_on_invalid_fault_reply(&fault_reply, err);
+                }
+            }
         }
     }
 
@@ -877,10 +964,14 @@ impl Vmm {
         let Some(apf_stream) = self.apf_stream.as_ref() else {
             return;
         };
+        // APF fault replies are only expected when KVM userfault is enabled, which Firecracker
+        // currently does only for secret free VMs.
+        let userfault_enabled = self.vm.as_kvm().is_some_and(|vm| vm.secret_free());
         let mut stream = apf_stream.lock().expect("APF stream lock poisoned");
         for fault_reply in stream.by_ref() {
-            let vcpu = fault_reply.vcpu as usize;
-            let gpa = fault_reply.gpa.unwrap();
+            let (vcpu, gpa) =
+                validate_apf_fault_reply(&fault_reply, userfault_enabled, self.vcpu_fds.len())
+                    .unwrap_or_else(|err| panic_on_invalid_fault_reply(&fault_reply, err));
             self.apf_ready_ioctl(vcpu, gpa);
         }
     }
@@ -1082,5 +1173,107 @@ impl MutEventSubscriber for Vmm {
                 error!("Failed to register APF socket: {}", err);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+
+    use super::*;
+    use crate::builder::tests::default_vmm;
+    use crate::uffd_broker::UffdMessageBroker;
+
+    fn fault_reply(vcpu: u32, gpa: Option<u64>) -> FaultReply {
+        FaultReply {
+            vcpu,
+            offset: 0,
+            len: 4096,
+            flags: 0,
+            gpa,
+            zero: false,
+        }
+    }
+
+    /// Writes `fault_reply` to `stream` as a length-prefixed bitcode frame.
+    fn send_fault_reply(stream: &mut UnixStream, fault_reply: &FaultReply) {
+        let encoded = bitcode::encode(fault_reply);
+        let len = u32::try_from(encoded.len()).unwrap();
+        stream.write_all(&len.to_le_bytes()).unwrap();
+        stream.write_all(&encoded).unwrap();
+    }
+
+    /// Returns a non-blocking broker and the peer stream that plays the UFFD handler.
+    fn broker_pair() -> (UffdMessageBroker, UnixStream) {
+        let (vmm_end, handler_end) = UnixStream::pair().unwrap();
+        vmm_end.set_nonblocking(true).unwrap();
+        (UffdMessageBroker::new(vmm_end), handler_end)
+    }
+
+    #[test]
+    fn test_validate_sync_fault_reply() {
+        assert_eq!(
+            validate_sync_fault_reply(&fault_reply(1, None), true, 2),
+            Ok(1)
+        );
+        assert_eq!(
+            validate_sync_fault_reply(&fault_reply(2, None), true, 2),
+            Err(InvalidFaultReply::VcpuOutOfRange(2, 2))
+        );
+        // A VM without KVM userfault never expects sync fault replies, even for a valid vCPU.
+        assert_eq!(
+            validate_sync_fault_reply(&fault_reply(0, None), false, 2),
+            Err(InvalidFaultReply::UserfaultDisabled)
+        );
+    }
+
+    #[test]
+    fn test_validate_apf_fault_reply() {
+        assert_eq!(
+            validate_apf_fault_reply(&fault_reply(1, Some(0x1000)), true, 2),
+            Ok((1, 0x1000))
+        );
+        assert_eq!(
+            validate_apf_fault_reply(&fault_reply(2, Some(0x1000)), true, 2),
+            Err(InvalidFaultReply::VcpuOutOfRange(2, 2))
+        );
+        assert_eq!(
+            validate_apf_fault_reply(&fault_reply(0, None), true, 2),
+            Err(InvalidFaultReply::MissingGpa)
+        );
+        // A VM without KVM userfault never expects APF fault replies, even valid ones.
+        assert_eq!(
+            validate_apf_fault_reply(&fault_reply(0, Some(0x1000)), false, 2),
+            Err(InvalidFaultReply::UserfaultDisabled)
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Invalid fault reply from UFFD handler (KVM userfault is not enabled for \
+                    this VM, so no fault reply is expected)"
+    )]
+    fn test_sync_fault_reply_without_userfault_panics() {
+        // `default_vmm()` is not secret free and does not enable KVM userfault.
+        let mut vmm = default_vmm();
+        let (broker, mut handler) = broker_pair();
+        vmm.uffd_socket = Some(broker);
+        send_fault_reply(&mut handler, &fault_reply(0, None));
+        vmm.process_uffd_socket();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Invalid fault reply from UFFD handler (KVM userfault is not enabled for \
+                    this VM, so no fault reply is expected)"
+    )]
+    fn test_apf_fault_reply_without_userfault_panics() {
+        // `default_vmm()` is not secret free and does not enable KVM userfault.
+        let mut vmm = default_vmm();
+        let (broker, mut handler) = broker_pair();
+        vmm.apf_stream = Some(Arc::new(Mutex::new(broker)));
+        send_fault_reply(&mut handler, &fault_reply(0, Some(0x1000)));
+        vmm.process_apf_socket();
     }
 }
