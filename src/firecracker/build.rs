@@ -12,6 +12,12 @@ const SECCOMPILER_SRC_DIR: &str = "../seccompiler/src";
 // It compiles the JSON seccomp policies into a serializable BPF format, using seccompiler-bin.
 // The generated binary code will get included in Firecracker's code, at compile-time.
 fn main() {
+    // Cargo provides the original feature names, including optional dependencies.
+    let features = std::env::var("CARGO_CFG_FEATURE").unwrap_or_default();
+    let mut features: Vec<_> = features.split(',').filter(|s| !s.is_empty()).collect();
+    features.sort_unstable();
+    println!("cargo:rustc-env=FIRECRACKER_ENABLED_FEATURES={features:?}");
+
     // Target triple
     let target = std::env::var("TARGET").expect("Missing target.");
     let debug: bool = std::env::var("DEBUG")
