@@ -9,6 +9,7 @@ use std::ffi::c_void;
 use std::fs::File;
 use std::io;
 use std::io::{Seek, SeekFrom};
+use std::mem::MaybeUninit;
 use std::ops::Deref;
 use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
@@ -58,6 +59,28 @@ pub enum MemoryError {
     MemfdSetLen(std::io::Error),
     /// Total sum of memory regions exceeds largest possible file offset
     OffsetTooLarge,
+    /// Cannot retrieve snapshot file metadata: {0}
+    FileMetadata(std::io::Error),
+    /// Snapshot memory file uses {actual} byte pages, but the huge page configuration requires {expected} byte pages
+    SnapshotFilePageSize {
+        /// Page size required by the huge page configuration.
+        expected: usize,
+        /// Page size of the snapshot memory file: the hugetlbfs page size, or 4 KiB otherwise.
+        actual: usize,
+    },
+    /// Cannot punch a hole in the snapshot memory file: {0}
+    PunchHole(std::io::Error),
+    /// Cannot fault in guest memory to snapshot it: {0}
+    PopulateGuestMemory(std::io::Error),
+    /// Snapshot memory region at guest address {guest_addr:#x} with size {size} is not aligned to {page_size} bytes
+    UnalignedHugetlbfsRegion {
+        /// Guest physical start address of the region.
+        guest_addr: u64,
+        /// Size of the region.
+        size: usize,
+        /// Required huge page alignment.
+        page_size: usize,
+    },
     /// Memory region has zero size
     ZeroSize,
     /// Memory region has zero slots
@@ -323,6 +346,35 @@ impl Drop for RawGuestRegionMmap {
 unsafe impl Send for RawGuestRegionMmap {}
 /// SAFETY: See comment above.
 unsafe impl Sync for RawGuestRegionMmap {}
+
+/// A shared, writable mapping of a file that does not reserve backing pages. Unmapped on drop.
+#[derive(Debug)]
+pub(crate) struct SharedFileMapping(RawGuestRegionMmap);
+
+impl SharedFileMapping {
+    /// Maps the first `len` bytes of `file`, which must be at least `len` bytes long and open for
+    /// reading and writing.
+    pub(crate) fn new(file: &File, len: usize) -> Result<Self, MemoryError> {
+        // MAP_NORESERVE: on hugetlbfs, the mapping would otherwise reserve huge pages for the whole
+        // file, including its holes.
+        RawGuestRegionMmap::allocate(
+            len,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_SHARED | libc::MAP_NORESERVE,
+            file.as_raw_fd(),
+            0,
+        )
+        .map(Self)
+    }
+
+    /// Returns the mapped bytes.
+    pub(crate) fn as_mut_slice(&mut self) -> &mut [u8] {
+        // SAFETY: The mapping is readable and writable for `mmap_size` bytes, lives as long as
+        // `self`, and is not shared with a guest, so the exclusive borrow of `self` guarantees no
+        // other reference to it.
+        unsafe { std::slice::from_raw_parts_mut(self.0.mmap_address, self.0.mmap_size) }
+    }
+}
 
 /// A region of guest memory. Unmapped on drop.
 /// Note: this implements automatic defer for vm_memory::GuestRegionMmap, so it can be used in its place.
@@ -1113,6 +1165,74 @@ impl MemfdBacking {
     }
 }
 
+/// Faults in the `len` bytes of guest memory at `addr` for reading. A huge page that cannot be
+/// allocated fails this call instead of raising `SIGBUS` when the memory is read. Kernels without
+/// `MADV_POPULATE_READ` (before 5.14) skip this, so reading the memory can still raise `SIGBUS`.
+fn populate_read(addr: *const u8, len: usize) -> Result<(), MemoryError> {
+    // SAFETY: `addr` is the page-aligned start of `len` bytes of mapped guest memory, and
+    // `MADV_POPULATE_READ` only faults them in, as reading them would.
+    let ret = unsafe { libc::madvise(addr.cast_mut().cast(), len, libc::MADV_POPULATE_READ) };
+    if ret == 0 {
+        return Ok(());
+    }
+    let err = io::Error::last_os_error();
+    if err.raw_os_error() == Some(libc::EINVAL) {
+        return Ok(());
+    }
+    Err(MemoryError::PopulateGuestMemory(err))
+}
+
+/// Returns the huge-page size for a hugetlbfs-backed file, or `None` for other file systems.
+pub(crate) fn hugetlbfs_page_size(file: &File) -> Result<Option<usize>, MemoryError> {
+    let mut stat = MaybeUninit::<libc::statfs>::uninit();
+
+    // SAFETY: `file` owns a valid file descriptor and `stat` points to enough writable memory for
+    // `fstatfs` to initialize on success.
+    let ret = unsafe { libc::fstatfs(file.as_raw_fd(), stat.as_mut_ptr()) };
+    if ret != 0 {
+        return Err(MemoryError::FileMetadata(io::Error::last_os_error()));
+    }
+
+    // SAFETY: A successful `fstatfs` initialized the structure.
+    let stat = unsafe { stat.assume_init() };
+    if i128::from(stat.f_type) != i128::from(libc::HUGETLBFS_MAGIC) {
+        return Ok(None);
+    }
+
+    // hugetlbfs reports its huge page size as the block size.
+    usize::try_from(stat.f_bsize)
+        .map(Some)
+        .map_err(|err| MemoryError::FileMetadata(io::Error::new(io::ErrorKind::InvalidData, err)))
+}
+
+/// Checks that a snapshot memory file with pages of `file_page_size` (see
+/// [`hugetlbfs_page_size`]) can hold `regions` with the given huge page configuration.
+pub(crate) fn validate_snapshot_file_page_size(
+    file_page_size: Option<usize>,
+    huge_pages: HugePageConfig,
+    regions: &[(GuestAddress, usize)],
+) -> Result<(), MemoryError> {
+    let expected = huge_pages.page_size();
+    let actual = file_page_size.unwrap_or_else(|| HugePageConfig::None.page_size());
+    if actual != expected {
+        return Err(MemoryError::SnapshotFilePageSize { expected, actual });
+    }
+
+    // Regions are laid out back to back in the file, so whole-page sizes also keep every file
+    // offset page-aligned.
+    for (guest_addr, size) in regions {
+        if !size.is_multiple_of(expected) {
+            return Err(MemoryError::UnalignedHugetlbfsRegion {
+                guest_addr: guest_addr.raw_value(),
+                size: *size,
+                page_size: expected,
+            });
+        }
+    }
+
+    Ok(())
+}
+
 /// Creates a GuestMemoryMmap given a `file` containing the data
 /// and a `state` containing mapping information.
 pub fn snapshot_file(
@@ -1166,6 +1286,22 @@ where
 
     /// Dumps all contents of GuestMemoryMmap to a writer.
     fn dump<T: WriteVolatile + std::io::Seek>(&self, writer: &mut T) -> Result<(), MemoryError>;
+
+    /// Like [`Self::dump`], but skips `chunk_size` chunks that are entirely zero, passing their
+    /// file offset and length to `on_zero` instead of writing them.
+    ///
+    /// Like [`Self::dump`], this reads all plugged memory, which allocates the hugetlb pages the
+    /// guest has not touched. Each hugetlb chunk is faulted in first (see [`populate_read`]), so
+    /// an exhausted pool fails the dump rather than raising `SIGBUS`.
+    fn dump_skipping_zero_chunks<T, F>(
+        &self,
+        writer: &mut T,
+        chunk_size: usize,
+        on_zero: F,
+    ) -> Result<(), MemoryError>
+    where
+        T: WriteVolatile + std::io::Seek,
+        F: FnMut(u64, usize) -> Result<(), MemoryError>;
 
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
     fn dump_dirty<T: WriteVolatile + std::io::Seek>(
@@ -1268,6 +1404,55 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                 Ok(())
             })
             .map_err(MemoryError::WriteMemory)
+    }
+
+    fn dump_skipping_zero_chunks<T, F>(
+        &self,
+        writer: &mut T,
+        chunk_size: usize,
+        mut on_zero: F,
+    ) -> Result<(), MemoryError>
+    where
+        T: WriteVolatile + std::io::Seek,
+        F: FnMut(u64, usize) -> Result<(), MemoryError>,
+    {
+        let mut buffer = vec![0u8; chunk_size];
+        let mut offset = 0u64;
+        for region in self.iter() {
+            let hugetlb =
+                RawGuestRegionMmap::extract_huge_tlb_mmap_flags(region.inner.flags()) != 0;
+            for (mem_slot, plugged) in region.slots() {
+                let len = mem_slot.slice.len();
+                let mut done = 0;
+                while plugged && done < len {
+                    let n = (len - done).min(chunk_size);
+                    let chunk = mem_slot
+                        .slice
+                        .subslice(done, n)
+                        .map_err(MemoryError::VolatileMemoryError)?;
+                    if hugetlb {
+                        populate_read(chunk.ptr_guard().as_ptr(), n)?;
+                    }
+                    let chunk_buffer = &mut buffer[..n];
+                    chunk.copy_to(chunk_buffer);
+
+                    let chunk_offset = offset + done as u64;
+                    if chunk_buffer.iter().all(|byte| *byte == 0) {
+                        on_zero(chunk_offset, n)?;
+                    } else {
+                        writer
+                            .seek(SeekFrom::Start(chunk_offset))
+                            .map_err(MemoryError::SeekError)?;
+                        writer
+                            .write_all_volatile(&VolatileSlice::from(chunk_buffer))
+                            .map_err(MemoryError::VolatileMemoryError)?;
+                    }
+                    done += n;
+                }
+                offset += len as u64;
+            }
+        }
+        Ok(())
     }
 
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
@@ -1435,7 +1620,7 @@ pub mod test_utils {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
     use std::collections::HashMap;
@@ -1524,6 +1709,59 @@ mod tests {
         assert!(matches!(
             backing.allocate(&[(GuestAddress(0), 0x1001)], false, HugePageConfig::None),
             Err(MemoryError::OffsetTooLarge)
+        ));
+    }
+
+    #[test]
+    fn test_regular_file_is_not_hugetlbfs() {
+        let file = TempFile::new().unwrap().into_file();
+        assert_eq!(hugetlbfs_page_size(&file).unwrap(), None);
+    }
+
+    #[test]
+    fn test_validate_snapshot_file_page_size() {
+        let page_size = HugePageConfig::Hugetlbfs2M.page_size();
+        let aligned_regions = [
+            (GuestAddress(0), page_size),
+            (GuestAddress(page_size as u64), 2 * page_size),
+        ];
+
+        validate_snapshot_file_page_size(None, HugePageConfig::None, &aligned_regions).unwrap();
+        validate_snapshot_file_page_size(
+            Some(page_size),
+            HugePageConfig::Hugetlbfs2M,
+            &aligned_regions,
+        )
+        .unwrap();
+
+        // A regular file with 2M pages requested.
+        assert!(matches!(
+            validate_snapshot_file_page_size(None, HugePageConfig::Hugetlbfs2M, &aligned_regions)
+                .unwrap_err(),
+            MemoryError::SnapshotFilePageSize { expected, actual: 4096 } if expected == page_size
+        ));
+        // A hugetlbfs file without 2M pages requested.
+        assert!(matches!(
+            validate_snapshot_file_page_size(
+                Some(page_size),
+                HugePageConfig::None,
+                &aligned_regions,
+            )
+            .unwrap_err(),
+            MemoryError::SnapshotFilePageSize { expected: 4096, actual } if actual == page_size
+        ));
+        assert!(matches!(
+            validate_snapshot_file_page_size(
+                Some(page_size),
+                HugePageConfig::Hugetlbfs2M,
+                &[(GuestAddress(0), page_size + 1)],
+            )
+            .unwrap_err(),
+            MemoryError::UnalignedHugetlbfsRegion {
+                guest_addr: 0,
+                size,
+                page_size: actual_page_size,
+            } if size == page_size + 1 && actual_page_size == page_size
         ));
     }
 
@@ -2305,6 +2543,90 @@ mod tests {
         check_discard_range_on_memfd(HugePageConfig::Hugetlbfs2M);
     }
 
+    #[test]
+    fn test_dump_skipping_zero_chunks() {
+        let page_size = host_page_size();
+        let mem = into_region_ext(
+            anonymous(
+                &[(GuestAddress(0), 4 * page_size)],
+                false,
+                HugePageConfig::None,
+            )
+            .unwrap(),
+        );
+        mem.write(&[7; 8], GuestAddress(page_size as u64 + 16))
+            .unwrap();
+        mem.write(&[9; 8], GuestAddress(3 * page_size as u64))
+            .unwrap();
+        let mut buffer = vec![0xaa; 4 * page_size];
+        let mut zero_chunks = Vec::new();
+
+        mem.dump_skipping_zero_chunks(
+            &mut std::io::Cursor::new(buffer.as_mut_slice()),
+            page_size,
+            |offset, len| {
+                zero_chunks.push((offset, len));
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            zero_chunks,
+            vec![(0, page_size), (2 * page_size as u64, page_size)]
+        );
+        // Zero chunks are left untouched for the caller to deallocate.
+        assert!(buffer[..page_size].iter().all(|byte| *byte == 0xaa));
+        assert!(
+            buffer[2 * page_size..3 * page_size]
+                .iter()
+                .all(|byte| *byte == 0xaa)
+        );
+        assert_eq!(&buffer[page_size + 16..page_size + 24], &[7; 8]);
+        assert_eq!(&buffer[3 * page_size..3 * page_size + 8], &[9; 8]);
+        assert!(buffer[3 * page_size + 8..].iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
+    fn test_dump_skipping_zero_chunks_on_hugetlb_memory() {
+        // Dumping faults in every page, including the one the guest never touched.
+        if free_hugepages_2m() < 3 {
+            println!("Skipping: fewer than three free 2 MiB hugepages available");
+            return;
+        }
+        let page_size = HugePageConfig::Hugetlbfs2M.page_size();
+        let mem = into_region_ext(
+            anonymous(
+                &[(GuestAddress(0), 3 * page_size)],
+                false,
+                HugePageConfig::Hugetlbfs2M,
+            )
+            .unwrap(),
+        );
+        // Page 0 is never touched, page 1 holds data, and page 2 is allocated but zero.
+        mem.write(&[7; 8], GuestAddress(page_size as u64)).unwrap();
+        mem.write(&[0; 8], GuestAddress(2 * page_size as u64))
+            .unwrap();
+        let mut buffer = vec![0xaa; 3 * page_size];
+        let mut zero_chunks = Vec::new();
+
+        mem.dump_skipping_zero_chunks(
+            &mut std::io::Cursor::new(buffer.as_mut_slice()),
+            page_size,
+            |offset, len| {
+                zero_chunks.push((offset, len));
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            zero_chunks,
+            vec![(0, page_size), (2 * page_size as u64, page_size)]
+        );
+        assert_eq!(&buffer[page_size..page_size + 8], &[7; 8]);
+    }
+
     fn check_discard_range_on_memfd(huge_pages: HugePageConfig) {
         use std::os::unix::fs::FileExt;
 
@@ -2823,7 +3145,7 @@ mod tests {
     }
 
     /// Returns the number of free 2 MiB hugepages on the system.
-    fn free_hugepages_2m() -> usize {
+    pub(crate) fn free_hugepages_2m() -> usize {
         let meminfo = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
         meminfo
             .lines()

@@ -241,6 +241,11 @@ After executing the command above, the base would be a resumable snapshot memory
 file describing the state of the memory at the moment of creation of the layer.
 More layers which were created later can be merged on top of this base.
 
+A layer cannot be a memory file on hugetlbfs, including the diff snapshot of a
+booted VM. Firecracker instead merges a `Diff` snapshot directly into an
+existing hugetlbfs memory file of the same size, as described in the
+[huge pages documentation](../hugepages.md#huge-pages-and-snapshotting).
+
 This process needs to be repeated for each layer until the one describing the
 desired memory state is merged on top of the base, which is constantly updated
 with information from previously merged layers. Please note that users should
