@@ -55,6 +55,7 @@ const FIRECRACKER_VERSION: &str = if cfg!(feature = "fuzzing") {
     env!("CARGO_PKG_VERSION")
 };
 const MMDS_CONTENT_ARG: &str = "metadata";
+const FEATURES_ARG: &str = "features";
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum MainError {
@@ -161,6 +162,11 @@ fn main_exec() -> Result<(), MainError> {
                     .takes_value(true)
                     .default_value(DEFAULT_API_SOCK_PATH)
                     .help("Path to unix domain socket used by the API."),
+            )
+            .arg(
+                Argument::new(FEATURES_ARG)
+                    .takes_value(false)
+                    .help("Print the enabled build features (warning: format may change)."),
             )
             .arg(
                 Argument::new("id")
@@ -286,6 +292,14 @@ fn main_exec() -> Result<(), MainError> {
     if arguments.flag_present("help") {
         println!("Firecracker v{}\n", FIRECRACKER_VERSION);
         println!("{}", arg_parser.formatted_help());
+        return Ok(());
+    }
+
+    if arguments.flag_present(FEATURES_ARG) {
+        println!(
+            "Enabled features: {}\n",
+            env!("FIRECRACKER_ENABLED_FEATURES")
+        );
         return Ok(());
     }
 
