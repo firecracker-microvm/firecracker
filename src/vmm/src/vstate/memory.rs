@@ -867,6 +867,7 @@ impl GuestRegionMmapExt {
         // Keep MAP_NORESERVE to match the flags the region was created with (see `create`).
         // Without it the replacement is subject to overcommit accounting and can fail with
         // ENOMEM, by which point MAP_FIXED has already unmapped the range.
+        // Keep the region's hugetlb flags, so restored hugetlbfs memory stays on huge pages.
         // TODO: this does not re-apply the region's madvise flags, so it would drop the
         // MADV_HUGEPAGE hint on a THP + file-restore VM. That combination is unsupported
         // today; revisit if it becomes supported.
@@ -882,6 +883,7 @@ impl GuestRegionMmapExt {
         let to = from
             .checked_add(len as u64)
             .expect("range should be within the region");
+        let hugetlb_flags = RawGuestRegionMmap::extract_huge_tlb_mmap_flags(self.inner.flags());
         for (slot, plugged) in self.slots_intersecting_range(GuestAddress(from), len) {
             let slot_start = slot.guest_addr.raw_value();
             let slot_end = slot_start
@@ -902,7 +904,11 @@ impl GuestRegionMmapExt {
                     host.cast(),
                     u64_to_usize(end - start),
                     prot,
-                    libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE | libc::MAP_NORESERVE,
+                    libc::MAP_FIXED
+                        | libc::MAP_ANONYMOUS
+                        | libc::MAP_PRIVATE
+                        | libc::MAP_NORESERVE
+                        | hugetlb_flags,
                     -1,
                     0,
                 )
@@ -1241,9 +1247,11 @@ pub fn snapshot_file(
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+    validate_snapshot_file_page_size(hugetlbfs_page_size(&file)?, huge_pages, regions)?;
+
     memory_regions_from_ranges_file_backed(
         regions,
-        libc::MAP_PRIVATE,
+        libc::MAP_PRIVATE | huge_pages.mmap_flags(),
         FileOffset::new(file, 0),
         track_dirty_pages,
         huge_pages.madvise_flags(),
@@ -2543,6 +2551,96 @@ pub(crate) mod tests {
         check_discard_range_on_memfd(HugePageConfig::Hugetlbfs2M);
     }
 
+    /// Returns a hugetlbfs file of `pages` 2 MiB pages, where page `i` holds byte `i + 1`.
+    fn patterned_hugetlbfs_file(pages: usize) -> File {
+        sparse_hugetlbfs_file(pages, &(0..pages).collect::<Vec<_>>())
+    }
+
+    /// Returns a hugetlbfs file of `pages` 2 MiB pages, where page `i` holds byte `i + 1` if it
+    /// is in `data_pages`, and is a hole otherwise.
+    fn sparse_hugetlbfs_file(pages: usize, data_pages: &[usize]) -> File {
+        let page_size = HugePageConfig::Hugetlbfs2M.page_size();
+        let len = pages * page_size;
+        let file = create_memfd(len as u64, HugePageConfig::Hugetlbfs2M.into())
+            .unwrap()
+            .into_file();
+        // hugetlbfs does not implement write(2), so fill the file through a shared mapping.
+        let addr = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                file.as_raw_fd(),
+                0,
+            )
+        };
+        assert_ne!(addr, libc::MAP_FAILED);
+        for &page in data_pages {
+            let value = u8::try_from(page + 1).unwrap();
+            unsafe {
+                std::ptr::write_bytes(addr.cast::<u8>().add(page * page_size), value, page_size)
+            };
+        }
+        assert_eq!(unsafe { libc::munmap(addr, len) }, 0);
+        file
+    }
+
+    /// Returns the `KernelPageSize`, in KiB, of the mapping of this process containing `addr`.
+    fn kernel_page_size_kib(addr: usize) -> usize {
+        let smaps = std::fs::read_to_string("/proc/self/smaps").unwrap();
+        let mut in_mapping = false;
+        for line in smaps.lines() {
+            let range = line
+                .split_once(' ')
+                .and_then(|(range, _)| range.split_once('-'));
+            if let Some((start, end)) = range
+                && let (Ok(start), Ok(end)) = (
+                    usize::from_str_radix(start, 16),
+                    usize::from_str_radix(end, 16),
+                )
+            {
+                in_mapping = (start..end).contains(&addr);
+            } else if in_mapping && let Some(size) = line.strip_prefix("KernelPageSize:") {
+                return size.trim().trim_end_matches("kB").trim().parse().unwrap();
+            }
+        }
+        panic!("no mapping contains {addr:#x}");
+    }
+
+    #[test]
+    fn test_discard_range_on_hugetlbfs_file_keeps_huge_pages() {
+        // Two pages for the file and one for the private page that replaces the discarded one.
+        if free_hugepages_2m() < 3 {
+            println!("Skipping: fewer than three free 2 MiB hugepages available");
+            return;
+        }
+        let page_size = HugePageConfig::Hugetlbfs2M.page_size();
+        let mem = into_region_ext(
+            snapshot_file(
+                patterned_hugetlbfs_file(2),
+                &[(GuestAddress(0), 2 * page_size)],
+                false,
+                HugePageConfig::Hugetlbfs2M,
+            )
+            .unwrap(),
+        );
+        let host_addr = mem.get_host_address(GuestAddress(0)).unwrap() as usize;
+
+        mem.discard_range(GuestAddress(0), page_size).unwrap();
+
+        assert_eq!(kernel_page_size_kib(host_addr), 2048);
+        let mut actual = vec![0; 2 * page_size];
+        mem.read(&mut actual, GuestAddress(0)).unwrap();
+        assert_eq!(actual, [vec![0; page_size], vec![2; page_size]].concat());
+
+        // The guest reuses the discarded page.
+        mem.write(&vec![3; page_size], GuestAddress(0)).unwrap();
+        mem.read(&mut actual, GuestAddress(0)).unwrap();
+        assert_eq!(actual, [vec![3; page_size], vec![2; page_size]].concat());
+        assert_eq!(kernel_page_size_kib(host_addr), 2048);
+    }
+
     #[test]
     fn test_dump_skipping_zero_chunks() {
         let page_size = host_page_size();
@@ -2625,6 +2723,60 @@ pub(crate) mod tests {
             vec![(0, page_size), (2 * page_size as u64, page_size)]
         );
         assert_eq!(&buffer[page_size..page_size + 8], &[7; 8]);
+    }
+
+    #[test]
+    fn test_dump_skipping_zero_chunks_after_hugetlbfs_file_restore() {
+        // Three pages for the file, and one private page each for the page the guest changes, the
+        // page it frees, and the hole, which dumping faults in. Page 0 maps the file's page.
+        if free_hugepages_2m() < 6 {
+            println!("Skipping: fewer than six free 2 MiB hugepages available");
+            return;
+        }
+        let page_size = HugePageConfig::Hugetlbfs2M.page_size();
+        // Page 1 is a hole; pages 0, 2 and 3 hold 1, 3 and 4.
+        let mem = into_region_ext(
+            snapshot_file(
+                sparse_hugetlbfs_file(4, &[0, 2, 3]),
+                &[(GuestAddress(0), 4 * page_size)],
+                false,
+                HugePageConfig::Hugetlbfs2M,
+            )
+            .unwrap(),
+        );
+        // The guest changes page 2 and frees page 3, and never touches pages 0 and 1.
+        mem.write(&[9; 8], GuestAddress(2 * page_size as u64))
+            .unwrap();
+        mem.discard_range(GuestAddress(3 * page_size as u64), page_size)
+            .unwrap();
+        let mut buffer = vec![0xaa; 4 * page_size];
+        let mut zero_chunks = Vec::new();
+
+        mem.dump_skipping_zero_chunks(
+            &mut std::io::Cursor::new(buffer.as_mut_slice()),
+            page_size,
+            |offset, len| {
+                zero_chunks.push((offset, len));
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        // The hole and the discarded page are zero, although the file holds data for the latter.
+        assert_eq!(
+            zero_chunks,
+            vec![
+                (page_size as u64, page_size),
+                (3 * page_size as u64, page_size)
+            ]
+        );
+        assert!(buffer[..page_size].iter().all(|byte| *byte == 1));
+        assert_eq!(&buffer[2 * page_size..2 * page_size + 8], &[9; 8]);
+        assert!(
+            buffer[2 * page_size + 8..3 * page_size]
+                .iter()
+                .all(|byte| *byte == 3)
+        );
     }
 
     fn check_discard_range_on_memfd(huge_pages: HugePageConfig) {

@@ -1070,9 +1070,14 @@ class Microvm:
         clock_realtime: bool = False,
         *,
         huge_pages: Optional[HugePagesConfig] = None,
+        mem_backend_path: Optional[str] = None,
         uffd_handler_name: str = None,
     ):
         """Restore a snapshot"""
+
+        assert not (
+            mem_backend_path is not None and uffd_handler_name is not None
+        ), "mem_backend_path cannot be combined with a UFFD handler"
 
         jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
 
@@ -1084,6 +1089,8 @@ class Microvm:
             )
 
         jailed_mem = Path("/") / jailed_snapshot.mem.name
+        if mem_backend_path is not None:
+            jailed_mem = Path(mem_backend_path)
         jailed_vmstate = Path("/") / jailed_snapshot.vmstate.name
 
         snapshot_disks = [v for k, v in jailed_snapshot.disks.items()]
