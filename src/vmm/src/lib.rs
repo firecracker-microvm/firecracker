@@ -869,8 +869,7 @@ impl Vmm {
             .clone();
         let socket = self.uffd_socket.as_mut().unwrap();
         for fault_reply in socket.by_ref() {
-            let vcpu = fault_reply.vcpu.expect("vCPU must be set");
-            kvm_vm.vcpus_handles()[vcpu as usize].send_userfault_resolved();
+            kvm_vm.vcpus_handles()[fault_reply.vcpu as usize].send_userfault_resolved();
         }
     }
 
@@ -880,7 +879,7 @@ impl Vmm {
         };
         let mut stream = apf_stream.lock().expect("APF stream lock poisoned");
         for fault_reply in stream.by_ref() {
-            let vcpu = fault_reply.vcpu.expect("vCPU must be set") as usize;
+            let vcpu = fault_reply.vcpu as usize;
             let gpa = fault_reply.gpa.unwrap();
             self.apf_ready_ioctl(vcpu, gpa);
         }
