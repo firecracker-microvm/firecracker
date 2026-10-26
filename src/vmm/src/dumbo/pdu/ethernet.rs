@@ -258,27 +258,31 @@ mod kani_proofs {
     #[kani::proof]
     fn verify_from_bytes_unchecked() {
         // Create non-deterministic stream of bytes up to MAX_FRAME_SIZE
-        let mut bytes: [u8; MAX_FRAME_SIZE] = kani::Arbitrary::any_array::<MAX_FRAME_SIZE>();
+        let mut buffer: [u8; MAX_FRAME_SIZE] = kani::Arbitrary::any_array::<MAX_FRAME_SIZE>();
+        let bytes = kani::slice::any_slice_of_array_mut(&mut buffer);
         let slice_length = bytes.len();
 
         // Verify from_bytes_unchecked
-        let ethernet = EthernetFrame::from_bytes_unchecked(bytes.as_mut());
+        let ethernet = EthernetFrame::from_bytes_unchecked(bytes);
 
         // Check for post-conditions
         assert_eq!(ethernet.len(), slice_length);
         assert!(
             !(ethernet.is_valid()) || (ethernet.payload().len() == slice_length - PAYLOAD_OFFSET)
         );
+        kani::cover!(!ethernet.is_valid(), "frame shorter than the header");
+        kani::cover!(ethernet.is_valid(), "frame with a header");
     }
 
     #[kani::proof]
     fn verify_from_bytes() {
         // Create non-deterministic stream of bytes up to MAX_FRAME_SIZE
-        let mut bytes: [u8; MAX_FRAME_SIZE] = kani::Arbitrary::any_array::<MAX_FRAME_SIZE>();
+        let mut buffer: [u8; MAX_FRAME_SIZE] = kani::Arbitrary::any_array::<MAX_FRAME_SIZE>();
+        let bytes = kani::slice::any_slice_of_array_mut(&mut buffer);
         let slice_length = bytes.len();
 
         // Verify from_bytes
-        let ethernet = EthernetFrame::from_bytes(bytes.as_mut());
+        let ethernet = EthernetFrame::from_bytes(bytes);
 
         // Check for post-conditions
         if slice_length >= PAYLOAD_OFFSET {
@@ -286,8 +290,10 @@ mod kani_proofs {
             assert!(ethernet.is_valid());
             assert_eq!(ethernet.len(), slice_length);
             assert_eq!(ethernet.payload().len(), slice_length - PAYLOAD_OFFSET);
+            kani::cover!(true, "frame with a header");
         } else {
             ethernet.unwrap_err();
+            kani::cover!(true, "frame shorter than the header");
         }
     }
 
