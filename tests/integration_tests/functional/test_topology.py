@@ -61,15 +61,15 @@ def _check_cpu_topology(
         }
     elif expected_threads_per_core > 1:
         # On aarch64 the L1 caches are attributes of the cpu node in the FDT, so
-        # Linux always reports them as private to a vCPU. A Core spanning its
-        # thread siblings therefore contains the per-vCPU caches, and hwloc,
-        # which orders objects by containment, places Core above them.
+        # Linux always reports them as private to a vCPU, while L2 is shared by
+        # the thread siblings of a core. hwloc orders objects by containment, so
+        # Core sits between L2 and the per-vCPU L1 caches.
         expected_hwloc_output = {
             "depth 0": "1 Machine (type #0)",
             "depth 1": "1 Package (type #1)",
             "depth 2": "1 L3Cache (type #6)",
-            "depth 3": f"{int(expected_cpu_count / expected_threads_per_core)} Core (type #2)",
-            "depth 4": f"{expected_cpu_count} L2Cache (type #5)",
+            "depth 3": f"{int(expected_cpu_count / expected_threads_per_core)} L2Cache (type #5)",
+            "depth 4": f"{int(expected_cpu_count / expected_threads_per_core)} Core (type #2)",
             "depth 5": f"{expected_cpu_count} L1dCache (type #4)",
             "depth 6": f"{expected_cpu_count} L1iCache (type #9)",
             "depth 7": f"{expected_cpu_count} PU (type #3)",

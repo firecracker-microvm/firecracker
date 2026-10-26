@@ -143,6 +143,17 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64], smt: bool) -> Resul
     fdt.property_u32("#size-cells", 0x0)?;
     let num_cpus = vcpu_mpidr.len();
     let threads_per_core = if smt && num_cpus > 1 { 2 } else { 1 };
+
+    // A non-L1 cache must cover whole cores, otherwise thread siblings in the cpu-map would
+    // see separate caches, which no physical machine has. Round the host-derived count up
+    // instead of overwriting it so that caches shared by more than one core on the host
+    // (e.g. a cluster-wide L2) keep their wider sharing.
+    for cache in non_l1_caches.iter_mut() {
+        cache.cpus_per_unit = cache
+            .cpus_per_unit
+            .next_multiple_of(u16::try_from(threads_per_core).unwrap());
+    }
+
     for (cpu_index, mpidr) in vcpu_mpidr.iter().enumerate() {
         let cpu = fdt.begin_node(&format!("cpu@{:x}", cpu_index))?;
         fdt.property_string("device_type", "cpu")?;
@@ -719,6 +730,21 @@ mod tests {
                 ))
                 .unwrap();
             assert_eq!(thread.prop_u32("cpu").unwrap(), phandle);
+        }
+
+        // Thread siblings share their non-L1 caches, whatever the host cache layout is.
+        for core_index in 0..mpidrs.len() / 2 {
+            let next_level_cache = |cpu_index: usize| {
+                generated_fdt
+                    .find(&format!("/cpus/cpu@{cpu_index:x}"))
+                    .unwrap()
+                    .prop_u32("next-level-cache")
+                    .ok()
+            };
+            assert_eq!(
+                next_level_cache(2 * core_index),
+                next_level_cache(2 * core_index + 1)
+            );
         }
     }
 
