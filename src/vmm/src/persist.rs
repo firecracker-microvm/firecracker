@@ -199,8 +199,8 @@ pub struct FaultRequest {
 /// FaultReply
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Encode, Decode)]
 pub struct FaultReply {
-    /// vCPU that encountered the fault, from `FaultRequest` (if present, otherwise 0)
-    pub vcpu: Option<u32>,
+    /// vCPU that encountered the fault, must be copied from `FaultRequest`
+    pub vcpu: u32,
     /// Offset in guest_memfd where population started
     pub offset: u64,
     /// Length of populated area

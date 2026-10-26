@@ -356,7 +356,7 @@ pub struct FaultRequest {
 impl FaultRequest {
     pub fn into_reply(self, len: u64) -> FaultReply {
         FaultReply {
-            vcpu: Some(self.vcpu),
+            vcpu: self.vcpu,
             offset: self.offset,
             len,
             flags: self.flags,
@@ -369,8 +369,8 @@ impl FaultRequest {
 /// FaultReply
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, bitcode::Encode, bitcode::Decode)]
 pub struct FaultReply {
-    /// vCPU that encountered the fault, from `FaultRequest` (if present, otherwise 0)
-    pub vcpu: Option<u32>,
+    /// vCPU that encountered the fault, must be copied from `FaultRequest`
+    pub vcpu: u32,
     /// Offset in guest_memfd where population started
     pub offset: u64,
     /// Length of populated area
