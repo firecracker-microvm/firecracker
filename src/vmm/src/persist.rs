@@ -156,6 +156,8 @@ pub enum CreateSnapshotError {
     DirtyBitmap(#[from] VmError),
     /// Cannot write memory file: {0}
     Memory(#[from] MemoryError),
+    /// A diff snapshot on hugetlbfs must be merged into an existing memory file of the same size; create a full snapshot instead
+    HugetlbfsDiffLayer,
     /// Cannot perform {0} on the memory backing file: {1}
     MemoryBackingFile(&'static str, io::Error),
     /// Cannot save the microVM state: {0}

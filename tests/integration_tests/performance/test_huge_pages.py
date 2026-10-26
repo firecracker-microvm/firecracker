@@ -4,11 +4,14 @@
 
 import signal
 import time
+from pathlib import Path
+from typing import Optional
 
 import pytest
 
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.microvm import SnapshotType
 from framework.properties import global_props
 from framework.utils_ftrace import ftrace_events
 from framework.utils_hugepages import HugePagesConfig
@@ -58,6 +61,17 @@ def check_hugetlbfs_in_use(pid: int, allocation_name: str):
     assert kernel_page_size_kib > 4
 
 
+def bind_hugetlbfs_into_jail(vm, hugetlbfs_path: Path, name: str = "hugetlbfs") -> Path:
+    """Bind an existing hugetlbfs mount into a microVM jail, as `/name`, before it starts."""
+    jailed_mount = Path(vm.chroot()) / name
+    jailed_mount.mkdir(parents=True, exist_ok=True)
+    utils.check_output(
+        ["mount", "--bind", str(hugetlbfs_path), str(jailed_mount)],
+        shell=False,
+    )
+    return jailed_mount
+
+
 def test_hugetlbfs_boot(uvm):
     """Tests booting a microvm with guest memory backed by 2MB hugetlbfs pages"""
 
@@ -104,6 +118,62 @@ def test_hugetlbfs_snapshot(microvm_factory, uvm, snapshot_type):
     vm.restore_from_snapshot(snapshot, resume=True, uffd_handler_name="on_demand")
 
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
+
+
+def mount_hugetlbfs(vm, path: Path, size: Optional[str] = None):
+    """Mount a 2 MiB hugetlbfs at `path` for the jailed `vm`, limited to `size` if given."""
+    options = f"pagesize=2M,uid={vm.jailer.uid},gid={vm.jailer.gid},mode=0770"
+    if size is not None:
+        options += f",size={size}"
+    path.mkdir(exist_ok=True)
+    utils.check_output(
+        ["mount", "-t", "hugetlbfs", "-o", options, "none", str(path)], shell=False
+    )
+
+
+def test_hugetlbfs_sparse_snapshot_mount_capacity(uvm, tmp_path):
+    """A full snapshot on hugetlbfs only needs huge pages for the guest's nonzero memory, which
+    for a freshly booted guest fits in half of its memory. Running out fails the snapshot without
+    killing Firecracker.
+    """
+    mem_size_mib = 1024
+    mounts = {"half": f"{mem_size_mib // 2}M", "tiny": "2M"}
+    host_mounts = []
+    jail_mounts = []
+    try:
+        vm = uvm
+        vm.memory_monitor = None
+        for name, size in mounts.items():
+            host_mount = tmp_path / name
+            mount_hugetlbfs(vm, host_mount, size)
+            host_mounts.append(host_mount)
+            jail_mounts.append(bind_hugetlbfs_into_jail(vm, host_mount, name))
+        vm.spawn()
+        vm.basic_config(huge_pages=HugePagesConfig.NONE, mem_size_mib=mem_size_mib)
+        vm.add_net_iface()
+        vm.start()
+
+        vm.pause()
+        vm.api.snapshot_create.put(
+            mem_file_path="half/mem",
+            snapshot_path="vmstate",
+            snapshot_type=SnapshotType.FULL.api_type,
+        )
+        allocated = (tmp_path / "half" / "mem").stat().st_blocks * 512
+        assert 0 < allocated < mem_size_mib * 2**20 // 2
+
+        with pytest.raises(RuntimeError, match="No space left on device"):
+            vm.api.snapshot_create.put(
+                mem_file_path="tiny/mem",
+                snapshot_path="vmstate-tiny",
+                snapshot_type=SnapshotType.FULL.api_type,
+            )
+        vm.resume()
+        vm.ssh.check_output("true")
+    finally:
+        uvm.kill(might_be_dead=True)
+        for mount_path in reversed(jail_mounts + host_mounts):
+            utils.run_cmd(["umount", str(mount_path)], shell=False)
 
 
 @pytest.mark.parametrize(
