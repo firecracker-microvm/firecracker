@@ -414,11 +414,11 @@ fn data_mask(offset: u64) -> u8 {
 }
 
 impl BusDevice for PL061Device {
-    fn read(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
+    fn read(&mut self, _tag: u8, offset: u64, data: &mut [u8]) {
         self.bus_read(offset, data);
     }
 
-    fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write(&mut self, _tag: u8, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
         self.bus_write(offset, data);
         None
     }
