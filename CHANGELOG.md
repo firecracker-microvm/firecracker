@@ -41,6 +41,10 @@ and this project adheres to
   exceed the vCPU count. Custom seccomp filters must include the new
   `blk_worker` thread category. See
   [block documentation](docs/block.md#threaded-mode-and-multiqueue).
+- Added a `--features` option to `firecracker`. It prints the sorted list of
+  enabled build features and exits, in the same way as `--version`, which is
+  unchanged. See the [getting started](docs/getting-started.md) documentation
+  page for details.
 
 ### Changed
 
