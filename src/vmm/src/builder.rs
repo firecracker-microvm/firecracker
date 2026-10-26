@@ -15,7 +15,6 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
 use event_manager::SubscriberOps;
-use kvm_ioctls::Cap;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use utils::time::TimestampUs;
 use vm_allocator::AllocPolicy;
@@ -26,9 +25,7 @@ use crate::Vcpu;
 use crate::arch::{ConfigurationError, configure_system_for_boot, host_page_size, load_kernel};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
-use crate::cpu_config::templates::{
-    GetCpuTemplate, GetCpuTemplateError, GuestConfigError, KvmCapability,
-};
+use crate::cpu_config::templates::{GetCpuTemplate, GetCpuTemplateError, GuestConfigError};
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager;
 use crate::device_manager::{
@@ -63,17 +60,16 @@ use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::pmem::PmemConfig;
 use crate::vmm_config::snapshot::{LoadSnapshotParams, MemBackendType};
-use crate::vstate::kvm::{Kvm, KvmError};
+use crate::vstate::kvm::{
+    Kvm, KvmError, SECRET_FREE_BOOT_GUEST_MEMFD_FLAGS, SECRET_FREE_RESTORE_GUEST_MEMFD_FLAGS,
+};
 use crate::vstate::memory::{
     GuestMemoryState, MaybeBounce, MemoryError, bitmap_size, create_memfd,
 };
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::{SharedApfStream, VcpuError};
-use crate::vstate::vm::{
-    KVM_CAP_GUEST_MEMFD_FLAGS, KvmVm, SECRET_FREE_BOOT_GUEST_MEMFD_FLAGS,
-    SECRET_FREE_RESTORE_GUEST_MEMFD_FLAGS, Vm, VmError, ensure_guest_memfd_flags,
-};
+use crate::vstate::vm::{KvmVm, Vm, VmError};
 use crate::{EventManager, UffdMessageBroker, Vmm, VmmError};
 
 const KVM_CAP_ASYNC_PF_USERFAULT: u32 = 246;
@@ -198,17 +194,11 @@ pub fn build_microvm_for_boot(
 
     let secret_free = vm_resources.machine_config.secret_free;
 
-    let mut kvm_capabilities = cpu_template.kvm_capabilities.clone();
-
-    if secret_free {
-        kvm_capabilities.push(KvmCapability::Add(Cap::GuestMemfd as u32));
-        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_GUEST_MEMFD_FLAGS));
-    }
-
-    let kvm = Kvm::new(kvm_capabilities)?;
-    if secret_free {
-        ensure_guest_memfd_flags(&kvm, SECRET_FREE_BOOT_GUEST_MEMFD_FLAGS)?;
-    }
+    let kvm = Kvm::new(
+        cpu_template.kvm_capabilities.clone(),
+        secret_free,
+        false, /* from_snapshot */
+    )?;
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm, secret_free)?;
@@ -634,19 +624,10 @@ pub fn build_microvm_from_snapshot(
     vm_resources: &mut VmResources,
     clock_realtime: bool,
 ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
-    // TODO: take it from kvm-bindings when userfault support is merged upstream
-    const KVM_CAP_USERFAULT: u32 = 245;
-
     // Build Vmm.
     debug!("event_start: build microvm from snapshot");
 
     let secret_free = vm_resources.machine_config.secret_free;
-    let mut kvm_capabilities = microvm_state.kvm_state.kvm_cap_modifiers.clone();
-    if secret_free {
-        kvm_capabilities.push(KvmCapability::Add(Cap::GuestMemfd as u32));
-        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_GUEST_MEMFD_FLAGS));
-        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_USERFAULT));
-    }
 
     let apf_sock = params
         .mem_backend
@@ -662,11 +643,12 @@ pub fn build_microvm_from_snapshot(
         .map(|s| std::sync::Arc::new(std::sync::Mutex::new(UffdMessageBroker::new(s))))
         .ok();
 
-    let kvm = Kvm::new(kvm_capabilities).map_err(StartMicrovmError::Kvm)?;
-    if secret_free {
-        ensure_guest_memfd_flags(&kvm, SECRET_FREE_RESTORE_GUEST_MEMFD_FLAGS)
-            .map_err(StartMicrovmError::KvmVm)?;
-    }
+    let kvm = Kvm::new(
+        microvm_state.kvm_state.kvm_cap_modifiers.clone(),
+        secret_free,
+        true, /* from_snapshot */
+    )
+    .map_err(StartMicrovmError::Kvm)?;
 
     // Check APF capability at runtime — don't require it
     let apf_supported = apf_stream.is_some()

@@ -19,7 +19,7 @@ use kvm_bindings::{
     KVM_IRQ_ROUTING_IRQCHIP, KVM_IRQ_ROUTING_MSI, KVM_MSI_VALID_DEVID, KVMIO, KvmIrqRouting,
     kvm_create_guest_memfd, kvm_irq_routing_entry, kvm_userspace_memory_region,
 };
-use kvm_ioctls::{Cap, VmFd};
+use kvm_ioctls::VmFd;
 use serde::{Deserialize, Serialize};
 use userfaultfd::Uffd;
 use vm_memory::GuestMemoryBackend;
@@ -54,37 +54,6 @@ pub enum StartVcpusError {
     SetTerminalMode(#[from] vmm_sys_util::errno::Error),
     /// Vcpu handle error: {0}
     VcpuHandle(#[from] StartThreadedError),
-}
-
-pub(crate) const GUEST_MEMFD_FLAG_MMAP: u64 = 1;
-pub(crate) const GUEST_MEMFD_FLAG_INIT_SHARED: u64 = 2;
-pub(crate) const GUEST_MEMFD_FLAG_NO_DIRECT_MAP: u64 = 4;
-pub(crate) const GUEST_MEMFD_FLAG_WRITE: u64 = 8;
-pub(crate) const KVM_CAP_GUEST_MEMFD_FLAGS: u32 = 244;
-
-pub(crate) const SECRET_FREE_BOOT_GUEST_MEMFD_FLAGS: u64 =
-    GUEST_MEMFD_FLAG_MMAP | GUEST_MEMFD_FLAG_INIT_SHARED | GUEST_MEMFD_FLAG_NO_DIRECT_MAP;
-pub(crate) const SECRET_FREE_RESTORE_GUEST_MEMFD_FLAGS: u64 =
-    SECRET_FREE_BOOT_GUEST_MEMFD_FLAGS | GUEST_MEMFD_FLAG_WRITE;
-
-pub(crate) fn guest_memfd_flags_supported(supported_flags: u64, required_flags: u64) -> bool {
-    supported_flags & required_flags == required_flags
-}
-
-pub(crate) fn ensure_guest_memfd_flags(kvm: &Kvm, required_flags: u64) -> Result<(), VmError> {
-    let supported_flags = kvm
-        .fd
-        .check_extension_raw(u64::from(KVM_CAP_GUEST_MEMFD_FLAGS));
-    let supported_flags = u64::try_from(supported_flags).unwrap_or_default();
-
-    if guest_memfd_flags_supported(supported_flags, required_flags) {
-        Ok(())
-    } else {
-        Err(VmError::GuestMemfdFlagsNotSupported(
-            required_flags,
-            supported_flags,
-        ))
-    }
 }
 
 /// KVM userfault information
@@ -171,12 +140,6 @@ pub enum VmError {
     MemoryError(#[from] MemoryError),
     /// Failure to create guest_memfd: {0}
     GuestMemfd(kvm_ioctls::Error),
-    /// guest_memfd flags requested by Firecracker are not supported on this host kernel: requested {0:#x}, supported {1:#x}.
-    GuestMemfdFlagsNotSupported(u64, u64),
-    /// guest_memfd is not supported on this host kernel.
-    GuestMemfdNotSupported,
-    /// UserMemory2 is not supported on this host kernel.
-    UserMemory2NotSupported,
 }
 
 // Upstream `kvm_userspace_memory_region2` definition does not include `userfault_bitmap` field yet.
@@ -224,10 +187,6 @@ impl Vm {
 impl KvmVm {
     /// Create a KVM VM
     pub fn create_common(kvm: Kvm, secret_free: bool) -> Result<VmCommon, VmError> {
-        if secret_free && !kvm.fd.check_extension(Cap::GuestMemfd) {
-            return Err(VmError::GuestMemfdNotSupported);
-        }
-
         // It is known that KVM_CREATE_VM occasionally fails with EINTR on heavily loaded machines
         // with many VMs.
         //
@@ -1032,7 +991,7 @@ pub(crate) mod tests {
 
     // Auxiliary function being used throughout the tests.
     pub(crate) fn setup_vm() -> KvmVm {
-        let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
+        let kvm = Kvm::new(vec![], false, false).expect("Cannot create Kvm");
         KvmVm::new(kvm, false).expect("Cannot create new vm")
     }
 
@@ -1078,46 +1037,20 @@ pub(crate) mod tests {
     #[test]
     fn test_new() {
         // Testing with a valid /dev/kvm descriptor.
-        let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
+        let kvm = Kvm::new(vec![], false, false).expect("Cannot create Kvm");
         KvmVm::new(kvm, false).unwrap();
     }
 
     #[test]
     fn test_new_secret_free() {
-        let kvm = Kvm::new(vec![]).unwrap();
+        let kvm = Kvm::new(vec![], false, false).unwrap();
 
-        if !kvm.fd.check_extension(Cap::GuestMemfd) {
+        if !kvm.fd.check_extension(kvm_ioctls::Cap::GuestMemfd) {
             return;
         }
 
         KvmVm::new(kvm, true)
             .expect("should be able to create secret free VMs if guest_memfd is supported");
-    }
-
-    #[test]
-    fn test_secret_free_boot_guest_memfd_flags() {
-        let upstream_flags = GUEST_MEMFD_FLAG_MMAP | GUEST_MEMFD_FLAG_INIT_SHARED;
-
-        assert!(!guest_memfd_flags_supported(
-            upstream_flags,
-            SECRET_FREE_BOOT_GUEST_MEMFD_FLAGS,
-        ));
-        assert!(guest_memfd_flags_supported(
-            SECRET_FREE_BOOT_GUEST_MEMFD_FLAGS,
-            SECRET_FREE_BOOT_GUEST_MEMFD_FLAGS,
-        ));
-    }
-
-    #[test]
-    fn test_secret_free_restore_guest_memfd_flags() {
-        assert!(!guest_memfd_flags_supported(
-            SECRET_FREE_BOOT_GUEST_MEMFD_FLAGS,
-            SECRET_FREE_RESTORE_GUEST_MEMFD_FLAGS,
-        ));
-        assert!(guest_memfd_flags_supported(
-            SECRET_FREE_RESTORE_GUEST_MEMFD_FLAGS,
-            SECRET_FREE_RESTORE_GUEST_MEMFD_FLAGS,
-        ));
     }
 
     #[test]
