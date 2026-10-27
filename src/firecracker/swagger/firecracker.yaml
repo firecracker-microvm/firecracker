@@ -405,6 +405,40 @@ paths:
           description: Internal server error.
           schema:
             $ref: "#/definitions/Error"
+    delete:
+      summary: Hot-unplugs a passthrough device. Post-boot only.
+      description:
+        Removes the passthrough device with the ID specified by the id path
+        parameter. The device must have been placed behind a PCIe root port.
+        When the optional force flag is not set, the detach is graceful; the
+        guest is notified and Firecracker waits for a guest acknowledgement
+        before actually removing the device. When force is set, then the device
+        is removed immediately. In either case the DELETE request is
+        non-blocking.
+      operationId: deleteGuestDevicePassthroughByID
+      parameters:
+        - name: id
+          in: path
+          description: The id of the passthrough device
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: Hot-unplug properties
+          required: false
+          schema:
+            $ref: "#/definitions/UnplugParams"
+      responses:
+        204:
+          description: Device removal started
+        400:
+          description: Device cannot be removed due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
 
   /pmem/{id}:
     put:

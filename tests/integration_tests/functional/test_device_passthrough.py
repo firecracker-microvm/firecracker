@@ -7,6 +7,7 @@ import json
 import os
 import re
 import stat
+import time
 from pathlib import Path
 from typing import NamedTuple
 
@@ -32,6 +33,9 @@ NVME_VERSION_REGISTER_OFFSET = 0x8
 
 # Guest path the devmem tool is copied to
 DEVMEM_PATH = "/tmp/devmem"
+
+# The guest's pciehp driver sleeps for 5 seconds after a hot-unplug (add some buffer)
+UNPLUG_SLEEP = 6
 
 
 def vfio_device_test(test):
@@ -610,3 +614,46 @@ def test_vfio_nvme_bar_relocation_refused(uvm_with_vfio, devmem_bin):
     # The NVMe driver is not aware of any of this and keeps working
     _set_bar_base(vm, nvme_slot, bar0, bar0.base, memory_decoding=True)
     _check_write_readback(vm, "1M", 64)
+
+
+@vfio_device_test
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pytest.mark.parametrize("uvm_with_vfio", ["coldplug"], indirect=True)
+def test_vfio_nvme_cold_plugged_not_removable(uvm_with_vfio):
+    """A device attached before boot is not behind a root port, so it stays."""
+    vm = uvm_with_vfio
+    with pytest.raises(RuntimeError, match="is not removable"):
+        vm.api.device_passthrough.delete("nvme0", force=True)
+    _check_write_readback(vm, "4k", 1)
+
+
+@vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pytest.mark.parametrize("uvm_with_vfio", ["hotplug"], indirect=True)
+@pytest.mark.parametrize("force", [False, True], ids=["graceful", "forced"])
+def test_vfio_nvme_hot_unplug(uvm_with_vfio, force):
+    """
+    A hot-plugged device can be unplugged and plugged back. Plugging it back
+    after the last passthrough device is gone recreates the VFIO container.
+    """
+    vm = uvm_with_vfio
+    nvme_slot = _get_pcie_slot(vm, "/sys/class/nvme/nvme0/device")
+
+    for i in range(2):
+        if i:
+            _hotplug_vfio_device(vm)
+        _check_write_readback(vm, "1M", 64)
+        vm.api.device_passthrough.delete("nvme0", force=force)
+        if not force:
+            # The device stays until the guest releases it
+            assert vm.api.vm_config.get().json()["device-passthrough"]
+            time.sleep(UNPLUG_SLEEP)
+        assert vm.api.vm_config.get().json()["device-passthrough"] == []
+        vm.ssh.check_output(
+            f"timeout 2 sh -c 'while test -e /sys/bus/pci/devices/{nvme_slot}; do sleep 0.1; done'"
+        )
+        with pytest.raises(RuntimeError, match="Device with id: nvme0 not found"):
+            vm.api.device_passthrough.delete("nvme0", force=force)
+
+    # Nothing blocks snapshots once the passthrough device is gone
+    vm.snapshot_full()
