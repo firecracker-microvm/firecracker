@@ -24,7 +24,8 @@ use zerocopy::IntoBytes;
 use crate::arch::host_page_size;
 use crate::logger::{debug, error, warn};
 use crate::pci::configuration::{
-    BAR0_REG_IDX, Bars, COMMAND_MEMORY_SPACE_ENABLE, COMMAND_REG, NUM_BAR_REGS, ROM_BAR_REG,
+    BAR0_REG_IDX, Bars, COMMAND_BUS_MASTER_ENABLE, COMMAND_INTX_DISABLE, COMMAND_IO_SPACE_ENABLE,
+    COMMAND_MEMORY_SPACE_ENABLE, COMMAND_REG, NUM_BAR_REGS, ROM_BAR_REG,
 };
 use crate::pci::msix::{MsixCap, MsixConfig};
 use crate::pci::{PciCapabilityId, PciDevice, PciExpressCapabilityId, PciSBDF};
@@ -357,6 +358,29 @@ fn vfio_device_memory_space_enabled(device: &InternalVfioDevice) -> bool {
         command_reg_offset,
     );
     result & COMMAND_MEMORY_SPACE_ENABLE != 0
+}
+
+fn vfio_device_reset_command_reg(device: &InternalVfioDevice) {
+    let command_reg_offset = COMMAND_REG as u64 * 4;
+    let mut reg: u32 = 0;
+    device.region_read(
+        VFIO_PCI_CONFIG_REGION_INDEX,
+        reg.as_mut_bytes(),
+        command_reg_offset,
+    );
+    // Reset I/O space, memory space, bus master and INTx disable bits to their default
+    // value of 0. This is the state the guest expects the device to be in during init.
+    reg &= !(COMMAND_IO_SPACE_ENABLE
+        | COMMAND_MEMORY_SPACE_ENABLE
+        | COMMAND_BUS_MASTER_ENABLE
+        | COMMAND_INTX_DISABLE);
+
+    // Only write the command register, the status register has write-1-to-clear bits
+    device.region_write(
+        VFIO_PCI_CONFIG_REGION_INDEX,
+        &reg.as_bytes()[..2],
+        command_reg_offset,
+    );
 }
 
 impl PciDevice for VfioDevice {
@@ -1254,6 +1278,7 @@ fn vfio_init_device(
         Path::new(&sysfs_path),
         container.clone() as Arc<dyn vfio_ioctls::VfioOps>,
     )?;
+    vfio_device_reset_command_reg(&device);
     device.reset();
 
     let Some(msix_irq_info) = device.get_irq_info(VFIO_PCI_MSIX_IRQ_INDEX) else {
