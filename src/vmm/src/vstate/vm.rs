@@ -428,7 +428,7 @@ impl KvmVm {
         region: kvm_userspace_memory_region,
     ) -> Result<(), VmError> {
         #[cfg(test)]
-        if self.common.fail_set_user_memory_region_in.fetch_update(
+        if self.common.fail_set_user_memory_region_in.try_update(
             Ordering::Relaxed,
             Ordering::Relaxed,
             |n| (n > 0).then(|| n - 1),
