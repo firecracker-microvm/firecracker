@@ -32,6 +32,11 @@
 # - devctr builds on kani rather than python-deps, so the large Rust tree is
 #   not copied again; only the venv and the tool binaries are copied in.
 
+# Paths shared between stages. A stage brings one into scope by declaring the
+# bare name, e.g. `ARG VENV`.
+ARG RUST_HOME=/usr/local/rust
+ARG VENV=/opt/venv
+
 # ============================================================
 # Base image: Shared between builders
 # ============================================================
@@ -188,7 +193,7 @@ RUN cd /usr/local/bin \
 # anything installed elsewhere here does not reach the final image.
 FROM apt-base AS python-deps
 ARG ARCH
-ARG VENV="/opt/venv"
+ARG VENV
 
 RUN curl -sSL https://install.python-poetry.org | python3 -
 ENV PATH="/root/.local/bin:$PATH"
@@ -213,10 +218,11 @@ RUN cp /usr/lib/python3/dist-packages/seccomp.cpython-312-"$ARCH"-linux-gnu.so "
 FROM base-image AS rust-toolchain
 ARG ARCH
 ARG RUST_TOOLCHAIN="1.99.1"
-ENV CARGO_HOME=/usr/local/rust
-ENV RUSTUP_HOME=/usr/local/rust
+ARG RUST_HOME
+ENV CARGO_HOME=$RUST_HOME
+ENV RUSTUP_HOME=$RUST_HOME
 ENV PATH="$PATH:$CARGO_HOME/bin"
-# - Everything rustup installs lives under /usr/local/rust, which is all that
+# - Everything rustup installs lives under $RUST_HOME, which is all that
 #   rust-base copies. PATH comes from ENV, so leave the shell rc files alone.
 # - Always install both x86_64 and aarch64 musl targets, as our
 #   rust-toolchain.toml would force on-the-fly installation of both anyway.
@@ -238,10 +244,11 @@ RUN apt-get update \
 # Base: apt packages + Rust toolchain, for everything that compiles Rust
 # ============================================================
 FROM apt-base AS rust-base
-ENV CARGO_HOME=/usr/local/rust
-ENV RUSTUP_HOME=/usr/local/rust
+ARG RUST_HOME
+ENV CARGO_HOME=$RUST_HOME
+ENV RUSTUP_HOME=$RUST_HOME
 ENV PATH="$PATH:$CARGO_HOME/bin"
-COPY --from=rust-toolchain /usr/local/rust /usr/local/rust
+COPY --from=rust-toolchain $RUST_HOME $RUST_HOME
 
 # ============================================================
 # Builder: crosvm (used as vhost-user-blk backend)
@@ -311,16 +318,16 @@ RUN cargo install --locked kani-verifier --version 0.67.0 && cargo kani setup \
 # Devctr (final): Rust + Kani, plus Python env and built artifacts
 # ============================================================
 FROM kani AS devctr
-ARG VENV="/opt/venv"
+ARG VENV
 ENV VIRTUAL_ENV=$VENV
 ENV PATH="$VENV/bin:/root/.local/bin:$PATH"
 
-COPY --from=grcov-builder /staging/bin/ /usr/local/rust/bin/
-COPY --from=cargo-sort-builder /staging/bin/ /usr/local/rust/bin/
-COPY --from=cargo-afl-builder /staging/bin/ /usr/local/rust/bin/
+COPY --from=grcov-builder /staging/bin/ $CARGO_HOME/bin/
+COPY --from=cargo-sort-builder /staging/bin/ $CARGO_HOME/bin/
+COPY --from=cargo-afl-builder /staging/bin/ $CARGO_HOME/bin/
 COPY --from=cargo-afl-builder /root/.local/share/afl.rs /root/.local/share/afl.rs
-COPY --from=cargo-deny-builder /staging/bin/ /usr/local/rust/bin/
-COPY --from=cargo-udeps-builder /staging/bin/ /usr/local/rust/bin/
+COPY --from=cargo-deny-builder /staging/bin/ $CARGO_HOME/bin/
+COPY --from=cargo-udeps-builder /staging/bin/ $CARGO_HOME/bin/
 COPY --from=qemu-builder /usr/local/bin/vhost-user-blk /usr/local/bin/
 COPY --from=libseccomp-builder /staging /
 COPY --from=iperf3-builder /usr/local/bin/iperf3-vsock /usr/local/bin/
