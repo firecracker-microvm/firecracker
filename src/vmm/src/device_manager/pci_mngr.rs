@@ -27,7 +27,8 @@ use crate::devices::virtio::pmem::persist::{PmemConstructorArgs, PmemState};
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::rng::persist::{EntropyConstructorArgs, EntropyState};
 use crate::devices::virtio::transport::pci::device::{
-    CAPABILITY_BAR_SIZE, VirtioPciDevice, VirtioPciDeviceError, VirtioPciDeviceState,
+    BRIDGE_WINDOW_SIZE, CAPABILITY_BAR_SIZE, VirtioPciDevice, VirtioPciDeviceError,
+    VirtioPciDeviceState,
 };
 use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
@@ -183,10 +184,19 @@ impl PciDevices {
         let port_window =
             root_port.and_then(|port| port.lock().expect("Poisoned lock").nonpref_memory_window());
 
+        let bar_alignment = match placement {
+            PciPlacement::PrimaryBus => CAPABILITY_BAR_SIZE,
+            PciPlacement::SecondaryBus => BRIDGE_WINDOW_SIZE,
+        };
+
         // Don't hold the resource allocator lock across attach_common()
         // below: a device access holds the bus lock and can take the allocator
         // lock, so the reverse order can deadlock.
-        virtio_device.allocate_bars(&mut vm.resource_allocator().mmio32_memory, port_window)?;
+        virtio_device.allocate_bars(
+            &mut vm.resource_allocator().mmio32_memory,
+            bar_alignment,
+            port_window,
+        )?;
 
         let virtio_device = Arc::new(Mutex::new(virtio_device));
 
