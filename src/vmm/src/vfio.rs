@@ -24,7 +24,8 @@ use zerocopy::IntoBytes;
 use crate::arch::host_page_size;
 use crate::logger::{debug, error, warn};
 use crate::pci::configuration::{
-    BAR0_REG_IDX, Bars, COMMAND_MEMORY_SPACE_ENABLE, COMMAND_REG, NUM_BAR_REGS, ROM_BAR_REG,
+    BAR0_REG_IDX, Bars, COMMAND_BUS_MASTER_ENABLE, COMMAND_INTERRUPT_DISABLE_ENABLE,
+    COMMAND_IO_SPACE_ENABLE, COMMAND_MEMORY_SPACE_ENABLE, COMMAND_REG, NUM_BAR_REGS, ROM_BAR_REG,
 };
 use crate::pci::msix::{MsixCap, MsixConfig};
 use crate::pci::{PciCapabilityId, PciDevice, PciExpressCapabilityId, PciSBDF};
@@ -53,6 +54,11 @@ const PCI_CONFIG_IO_BAR: u32 = 1 << 0;
 const PCI_CONFIG_MEMORY_BAR_64BIT: u32 = 1 << 2;
 // Prefetchable BAR bit
 const PCI_CONFIG_BAR_PREFETCHABLE: u32 = 1 << 3;
+// Bits to disable on device reset during init
+const PCI_CONFIG_COMMAND_DISABLE_MASK: u32 = COMMAND_IO_SPACE_ENABLE
+    | COMMAND_MEMORY_SPACE_ENABLE
+    | COMMAND_BUS_MASTER_ENABLE
+    | COMMAND_INTERRUPT_DISABLE_ENABLE;
 
 /// VfioError
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -357,6 +363,23 @@ fn vfio_device_memory_space_enabled(device: &InternalVfioDevice) -> bool {
         command_reg_offset,
     );
     result & COMMAND_MEMORY_SPACE_ENABLE != 0
+}
+
+fn vfio_device_disable(device: &InternalVfioDevice) {
+    let command_reg_offset = COMMAND_REG as u64 * 4;
+    let mut reg: u32 = 0;
+    device.region_read(
+        VFIO_PCI_CONFIG_REGION_INDEX,
+        reg.as_mut_bytes(),
+        command_reg_offset,
+    );
+    reg &= !PCI_CONFIG_COMMAND_DISABLE_MASK;
+    // Only write the command register, the status register has write-1-to-clear bits
+    device.region_write(
+        VFIO_PCI_CONFIG_REGION_INDEX,
+        &reg.as_bytes()[..2],
+        command_reg_offset,
+    );
 }
 
 impl PciDevice for VfioDevice {
@@ -1254,6 +1277,9 @@ fn vfio_init_device(
         Path::new(&sysfs_path),
         container.clone() as Arc<dyn vfio_ioctls::VfioOps>,
     )?;
+    // Disable I/O sapce, memory space, bus master and INTx bits in the device command register.
+    // Kernel will enable needed bits during device bring up.
+    vfio_device_disable(&device);
     device.reset();
 
     let Some(msix_irq_info) = device.get_irq_info(VFIO_PCI_MSIX_IRQ_INDEX) else {
