@@ -700,7 +700,7 @@ def get_firecracker_version_from_toml():
     """
     cmd = "cd ../src/firecracker && cargo pkgid | cut -d# -f2 | cut -d: -f2"
     _, stdout, _ = check_output(cmd)
-    return semver.Version.parse(stdout)
+    return semver.Version.parse(stdout.strip())
 
 
 def get_kernel_version(level=2):
