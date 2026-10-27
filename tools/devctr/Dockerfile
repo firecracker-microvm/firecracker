@@ -14,12 +14,20 @@
 #       |-- python-deps --------------------|
 #       `-- rust-toolchain                  |
 #           |-- crosvm-builder -------------|
-#           `-- devctr <--------------------'
+#           |-- grcov-builder --------------|
+#           |-- cargo-sort-builder ---------|
+#           |-- cargo-afl-builder ----------|
+#           |-- cargo-deny-builder ---------|
+#           |-- cargo-udeps-builder --------|
+#           `-- kani                        |
+#               `-- devctr <----------------'
 #
 # - Python and Rust are independent, so a poetry.lock change does not rebuild
 #   any Rust stage, and vice versa.
-# - devctr builds on rust-toolchain rather than python-deps, so the large Rust
-#   tree is not copied again; only the venv is copied in.
+# - Every cargo tool gets its own stage, because `cargo install a b c` builds
+#   the crates one after another.
+# - devctr builds on kani rather than python-deps, so the large Rust tree is
+#   not copied again; only the venv and the tool binaries are copied in.
 
 # ============================================================
 # Base image: Shared between builders
@@ -150,7 +158,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 
-# Add cross-compile toolchain for devtool checkbuild command (rust target added in devctr stage)
+# Add cross-compile toolchain for devtool checkbuild command (rust target added in rust-toolchain stage)
 RUN case "${ARCH}" in \
     "aarch64") \
         apt-get update && apt install -y gcc-x86-64-linux-gnu libc6-dev-amd64-cross linux-libc-dev-amd64-cross \
@@ -200,14 +208,22 @@ RUN cp /usr/lib/python3/dist-packages/seccomp.cpython-312-"$ARCH"-linux-gnu.so "
 # Base: Rust toolchain (current version)
 # ============================================================
 FROM apt-base AS rust-toolchain
+ARG ARCH
 ARG RUST_TOOLCHAIN="1.99.1"
 ENV CARGO_HOME=/usr/local/rust
 ENV RUSTUP_HOME=/usr/local/rust
 ENV PATH="$PATH:$CARGO_HOME/bin"
+# - Always install both x86_64 and aarch64 musl targets, as our
+#   rust-toolchain.toml would force on-the-fly installation of both anyway.
+# - The other arch's gnu target is for the devtool checkbuild command.
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
     && rustup target add x86_64-unknown-linux-musl \
     && rustup target add aarch64-unknown-linux-musl \
-    && rustup component add llvm-tools-preview clippy rustfmt
+    && rustup component add llvm-tools-preview clippy rustfmt \
+    && case "${ARCH}" in \
+        "aarch64") rustup target add x86_64-unknown-linux-gnu ;; \
+        "x86_64")  rustup target add aarch64-unknown-linux-gnu ;; \
+       esac
 
 # ============================================================
 # Builder: crosvm (used as vhost-user-blk backend)
@@ -230,39 +246,63 @@ RUN apt-get update && \
     && cp -a ./target/release/crosvm /usr/local/bin
 
 # ============================================================
-# Devctr (final): Kani, cargo targets and assembled artifacts
+# Builders: cargo tools, one stage per crate
 # ============================================================
-FROM rust-toolchain AS devctr
+# Each installs into its own --root, so devctr copies only the executables.
+# cargo-deny and cargo-udeps ship with fat LTO and codegen-units = 1, which
+# compiles their final crate on a single core for minutes. These are dev
+# tools, so trade that for a parallel build. Pass the overrides per command:
+# as ENV they would leak into devctr and change every build run inside it.
+FROM rust-toolchain AS grcov-builder
+RUN cargo install --locked --root /staging grcov
+
+FROM rust-toolchain AS cargo-sort-builder
+RUN cargo install --locked --root /staging cargo-sort
+
+# Installing cargo-afl also builds AFL++ into ~/.local/share/afl.rs, keyed by
+# the rustc version.
+FROM rust-toolchain AS cargo-afl-builder
+RUN cargo install --locked --root /staging cargo-afl
+
+FROM rust-toolchain AS cargo-deny-builder
+RUN CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
+    cargo install --locked --root /staging cargo-deny --version 0.19.0
+
+# cargo-udeps needs nightly to run, not to build, so build it with stable
+# rather than waiting for kani to install the nightly toolchain.
+FROM rust-toolchain AS cargo-udeps-builder
+RUN CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
+    cargo install --locked --root /staging cargo-udeps --version 0.1.60
+
+# ============================================================
+# Kani and the nightly toolchain
+# ============================================================
+# Kani always installs _some_ nightly toolchain, we reuse it for the seccomp
+# filter analysis test and to run cargo-udeps. Dynamically determine the exact
+# toolchain name, and install more components into it. Clean up the cargo
+# registry, as this stage is the base of devctr.
+FROM rust-toolchain AS kani
 ARG ARCH
-ENV CARGO_HOME=/usr/local/rust
+RUN cargo install --locked kani-verifier --version 0.67.0 && cargo kani setup \
+    && NIGHTLY_TOOLCHAIN=$(rustup toolchain list | grep nightly | tr -d '\n') \
+    && rustup component add rust-src --toolchain "$NIGHTLY_TOOLCHAIN" \
+    && rustup target add "$ARCH"-unknown-linux-musl --toolchain "$NIGHTLY_TOOLCHAIN" \
+    && rm -rf "$CARGO_HOME/registry" "$CARGO_HOME/git"
+
+# ============================================================
+# Devctr (final): Rust + Kani, plus Python env and built artifacts
+# ============================================================
+FROM kani AS devctr
 ARG VENV="/opt/venv"
 ENV VIRTUAL_ENV=$VENV
 ENV PATH="$VENV/bin:/root/.local/bin:$PATH"
 
-# Run these as a single dockerfile command to avoid inflation of the image:
-# - Install required binary crates, including cargo-afl (fuzzer) and Kani (formal verification)
-# - Kani always installs _some_ nightly toolchain, we reuse it for the seccomp filter analysis test. Dynamically
-#   determine the exact toolchain name, and install more components into it.
-# - Always install both x86_64 and aarch64 musl targets, as our rust-toolchain.toml would force on-the-fly installation of both anyway
-# - Clean up cargo compilation directories
-RUN cargo install --locked grcov cargo-sort cargo-afl \
-    && cargo install --locked cargo-deny --version 0.19.0 \
-    && cargo install --locked kani-verifier --version 0.67.0 && cargo kani setup \
-    \
-    && NIGHTLY_TOOLCHAIN=$(rustup toolchain list | grep nightly | tr -d '\n') \
-    && rustup component add rust-src --toolchain "$NIGHTLY_TOOLCHAIN" \
-    && rustup target add "$ARCH"-unknown-linux-musl --toolchain "$NIGHTLY_TOOLCHAIN" \
-    && cargo +"$NIGHTLY_TOOLCHAIN" install --locked cargo-udeps --version 0.1.60 \
-    \
-    && case "${ARCH}" in \
-        "aarch64") rustup target add x86_64-unknown-linux-gnu ;; \
-        "x86_64")  rustup target add aarch64-unknown-linux-gnu ;; \
-       esac \
-    \
-    && rm -rf "$CARGO_HOME/registry" \
-    && rm -rf "$CARGO_HOME/git"
-
-# Copy pre-built artifacts LAST — builder changes don't invalidate Rust layer
+COPY --from=grcov-builder /staging/bin/ /usr/local/rust/bin/
+COPY --from=cargo-sort-builder /staging/bin/ /usr/local/rust/bin/
+COPY --from=cargo-afl-builder /staging/bin/ /usr/local/rust/bin/
+COPY --from=cargo-afl-builder /root/.local/share/afl.rs /root/.local/share/afl.rs
+COPY --from=cargo-deny-builder /staging/bin/ /usr/local/rust/bin/
+COPY --from=cargo-udeps-builder /staging/bin/ /usr/local/rust/bin/
 COPY --from=qemu-builder /usr/local/bin/vhost-user-blk /usr/local/bin/
 COPY --from=libseccomp-builder /staging /
 COPY --from=iperf3-builder /usr/local/bin/iperf3-vsock /usr/local/bin/
