@@ -13,7 +13,6 @@ use bitflags::bitflags;
 #[cfg(not(feature = "fuzzing"))]
 use vmm_sys_util::rand::xor_pseudo_rng_u32;
 
-use crate::dumbo::ByteBuffer;
 use crate::dumbo::pdu::Incomplete;
 use crate::dumbo::pdu::bytes::NetworkBytes;
 use crate::dumbo::pdu::tcp::{Flags as TcpFlags, TcpError as TcpSegmentError, TcpSegment};
@@ -75,12 +74,9 @@ bitflags! {
 
 /// Defines a segment payload source.
 ///
-/// When not `None`, it contains a [`ByteBuffer`] which holds the actual data, and the sequence
-/// number associated with the first byte from the buffer.
-///
-/// [`ByteBuffer`]: ../../trait.ByteBuffer.html
-// R should have the trait bound R: ByteBuffer, but bounds are ignored on type aliases.
-pub type PayloadSource<'a, R> = Option<(&'a R, Wrapping<u32>)>;
+/// When not `None`, it contains the bytes to send, and the sequence number associated with the
+/// first of them.
+pub type PayloadSource<'a> = Option<(&'a [u8], Wrapping<u32>)>;
 
 /// Describes errors which may occur during a passive open.
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
@@ -716,17 +712,15 @@ impl Connection {
 
     // The write helper functions return incomplete segments because &self does not have information
     // regarding the identity of the endpoints, such as source and destination ports, or source and
-    // destination L3 addresses (which are required for checksum computation). We need this stupid
-    // ?Sized trait bound, because otherwise Sized would be implied, and we can have unsized types
-    // which implement ByteBuffer (such as [u8]), since payload expects a reference to some R.
-    fn write_segment<'a, R: ByteBuffer + ?Sized + Debug>(
+    // destination L3 addresses (which are required for checksum computation).
+    fn write_segment<'a>(
         &mut self,
         buf: &'a mut [u8],
         mss_reserved: u16,
         seq: Wrapping<u32>,
         ack: Wrapping<u32>,
         flags_after_ns: TcpFlags,
-        payload: Option<(&R, usize)>,
+        payload: Option<(&[u8], usize)>,
     ) -> Result<Incomplete<TcpSegment<'a, &'a mut [u8]>>, WriteNextError> {
         // Write the MSS option on SYNACK segments.
         let mss_option = if flags_after_ns == TcpFlags::SYN | TcpFlags::ACK {
@@ -756,7 +750,7 @@ impl Connection {
     }
 
     // Control segments are segments with no payload (at least I like to use this name).
-    fn write_control_segment<'a, R: ByteBuffer + ?Sized + Debug>(
+    fn write_control_segment<'a>(
         &mut self,
         buf: &'a mut [u8],
         mss_reserved: u16,
@@ -791,7 +785,7 @@ impl Connection {
             }
         }
 
-        self.write_segment::<R>(buf, mss_reserved, seq, ack, flags_after_ns, None)
+        self.write_segment(buf, mss_reserved, seq, ack, flags_after_ns, None)
     }
 
     /// Writes a new segment (if available) to the specified buffer.
@@ -810,11 +804,11 @@ impl Connection {
     /// * `now` - An opaque timestamp representing the current moment in time.
     ///
     /// [`MAX_WINDOW_SIZE`]: ../constant.MAX_WINDOW_SIZE.html
-    pub fn write_next_segment<'a, R: ByteBuffer + ?Sized + Debug>(
+    pub fn write_next_segment<'a>(
         &mut self,
         buf: &'a mut [u8],
         mss_reserved: u16,
-        payload_src: PayloadSource<R>,
+        payload_src: PayloadSource,
         now: u64,
     ) -> Result<Option<Incomplete<TcpSegment<'a, &'a mut [u8]>>>, WriteNextError> {
         if self.is_reset() {
@@ -824,14 +818,14 @@ impl Connection {
         if self.send_rst.is_some() {
             // A RST is pending. Try to write it, and change the state of the connection to reset
             // if successfull.
-            let segment = self.write_control_segment::<R>(buf, mss_reserved)?;
+            let segment = self.write_control_segment(buf, mss_reserved)?;
             self.set_flags(ConnStatusFlags::RESET);
             return Ok(Some(segment));
         }
 
         // The first thing we have to do is reply with a SYNACK if needed.
         if self.synack_pending() {
-            let segment = self.write_control_segment::<R>(buf, mss_reserved)?;
+            let segment = self.write_control_segment(buf, mss_reserved)?;
             self.set_flags(ConnStatusFlags::SYNACK_SENT);
             self.rto_start = now;
             return Ok(Some(segment));
@@ -848,7 +842,7 @@ impl Connection {
                     self.reset();
                     return self.write_next_segment(buf, mss_reserved, payload_src, now);
                 }
-                let segment = self.write_control_segment::<R>(buf, mss_reserved)?;
+                let segment = self.write_control_segment(buf, mss_reserved)?;
                 self.rto_start = now;
                 return Ok(Some(segment));
             }
@@ -882,7 +876,7 @@ impl Connection {
                     {
                         // We're in the relatively unlikely situation where our FIN got lost.
                         // Simply calling write_control_segment() will retransmit it.
-                        let segment = self.write_control_segment::<R>(buf, mss_reserved)?;
+                        let segment = self.write_control_segment(buf, mss_reserved)?;
                         self.rto_start = now;
                         return Ok(Some(segment));
                     }
@@ -985,7 +979,7 @@ impl Connection {
         // write_control_segment() method.
         let send_first_fin = self.can_send_first_fin();
         if self.pending_ack || send_first_fin {
-            let segment = self.write_control_segment::<R>(buf, mss_reserved)?;
+            let segment = self.write_control_segment(buf, mss_reserved)?;
 
             if send_first_fin {
                 self.first_not_sent += Wrapping(1);
