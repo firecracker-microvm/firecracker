@@ -76,7 +76,36 @@ bitflags! {
 ///
 /// When not `None`, it contains the bytes to send, and the sequence number associated with the
 /// first of them.
+///
+/// The bytes may begin before the next byte to send, with data that was sent but not acknowledged
+/// yet: the part a retransmission resends.
 pub type PayloadSource<'a> = Option<(&'a [u8], Wrapping<u32>)>;
+
+/// The bytes of a payload source that a data segment from `segment_start` to `segment_end` may
+/// carry: `(offset into the source, maximum length)`, or `None` if there are none. The source
+/// holds `payload_len` bytes from `payload_start`.
+///
+/// Both stay within the source whatever the sequence numbers: part of them comes from the guest
+/// (its ACKs and window), and wrapping comparisons are not transitive. On every path the
+/// connection takes, the source already bounds them and the clamp changes nothing.
+fn segment_bounds(
+    payload_start: Wrapping<u32>,
+    payload_len: u32,
+    segment_start: Wrapping<u32>,
+    segment_end: Wrapping<u32>,
+) -> Option<(usize, usize)> {
+    if !seq_after(segment_end, segment_start) {
+        return None;
+    }
+    let offset = (segment_start - payload_start).0;
+    let available = if offset < payload_len {
+        payload_len - offset
+    } else {
+        return None;
+    };
+    let max_len = (segment_end - segment_start).0.min(available);
+    Some((offset as usize, max_len as usize))
+}
 
 /// Describes errors which may occur during a passive open.
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
@@ -918,9 +947,9 @@ impl Connection {
 
             // We only proceed with writing a data segment if the previously computed bounds
             // delimit a valid sequence number interval.
-            if seq_after(actual_end, seq_to_send) {
-                let max_payload_len = (actual_end - seq_to_send).0 as usize;
-
+            if let Some((offset, max_payload_len)) =
+                segment_bounds(payload_seq, len, seq_to_send, actual_end)
+            {
                 // We always set the ACK flag for data segments.
                 let tcp_flags = TcpFlags::ACK;
 
@@ -931,7 +960,7 @@ impl Connection {
                     seq_to_send,
                     ack_to_send,
                     tcp_flags,
-                    Some((read_buf, max_payload_len)),
+                    Some((&read_buf[offset..], max_payload_len)),
                 )?;
 
                 // If self.dup_ack was Some(_), we've just written the retransmission segment,
@@ -990,6 +1019,61 @@ impl Connection {
         }
 
         Ok(None)
+    }
+}
+
+#[cfg(kani)]
+mod verification {
+    use super::*;
+
+    /// For any sequence numbers, `segment_bounds` returns the part of the interval
+    /// `[segment_start, segment_end)` that the source holds (`payload_len` bytes from
+    /// `payload_start`), and nothing if that part is empty:
+    /// - the segment starts at `segment_start` and is not empty;
+    /// - it stays within the source and within the interval;
+    /// - it is the whole of that part, so no sendable byte is held back.
+    ///
+    /// On the connection's paths the interval lies within the source: it starts at or after
+    /// `payload_start` and ends at the end of the source or at an earlier edge of the guest's
+    /// window. There the segment is the whole interval, so bounding it by the source changes
+    /// nothing.
+    #[kani::proof]
+    fn verify_segment_bounds() {
+        let (payload_start, payload_len, segment_start, segment_end): (u32, u32, u32, u32) =
+            (kani::any(), kani::any(), kani::any(), kani::any());
+        kani::assume(payload_len <= MAX_WINDOW_SIZE);
+        let (payload_start, segment_start, segment_end) = (
+            Wrapping(payload_start),
+            Wrapping(segment_start),
+            Wrapping(segment_end),
+        );
+        let bounds = segment_bounds(payload_start, payload_len, segment_start, segment_end);
+
+        let offset = (segment_start - payload_start).0;
+        let interval = (segment_end - segment_start).0;
+        let held = seq_after(segment_end, segment_start) && offset < payload_len;
+        match bounds {
+            Some((segment_offset, segment_len)) => {
+                assert!(held);
+                assert_eq!(segment_offset, offset as usize);
+                assert!(segment_len > 0);
+                assert!(segment_offset + segment_len <= payload_len as usize);
+                assert!(segment_len <= interval as usize);
+                assert_eq!(segment_len, interval.min(payload_len - offset) as usize);
+            }
+            None => assert!(!held),
+        }
+
+        let payload_end = payload_start + Wrapping(payload_len);
+        if seq_at_or_after(segment_start, payload_start)
+            && seq_at_or_after(payload_end, segment_start)
+            && seq_after(segment_end, segment_start)
+            && seq_at_or_after(payload_end, segment_end)
+        {
+            assert_eq!(bounds, Some((offset as usize, interval as usize)));
+        }
+        kani::cover!(bounds.is_some() && segment_end == payload_end);
+        kani::cover!(bounds.is_some() && segment_end != payload_end);
     }
 }
 
@@ -1222,6 +1306,33 @@ pub(crate) mod tests {
                 | ConnStatusFlags::ESTABLISHED
         );
         assert!(c.fin_received());
+    }
+
+    #[test]
+    fn test_segment_bounds_stay_in_source() {
+        let (start, len) = (Wrapping(1000u32), 10u32);
+        // From the oldest unacknowledged byte, part of the source already sent.
+        assert_eq!(
+            segment_bounds(start, len, start + Wrapping(4), start + Wrapping(10)),
+            Some((4, 6))
+        );
+        // A window that ends earlier bounds the segment instead.
+        assert_eq!(
+            segment_bounds(start, len, start + Wrapping(4), start + Wrapping(7)),
+            Some((4, 3))
+        );
+        // Everything sent: nothing to carry.
+        assert_eq!(
+            segment_bounds(start, len, start + Wrapping(10), start + Wrapping(10)),
+            None
+        );
+        // Sending past the source, with a window edge that still compares as after it: no bytes
+        // the source does not hold (this used to underflow the source's remaining length).
+        let past = start + Wrapping(11);
+        assert_eq!(
+            segment_bounds(start, len, past, past + Wrapping(MAX_WINDOW_SIZE - 1)),
+            None
+        );
     }
 
     #[test]
