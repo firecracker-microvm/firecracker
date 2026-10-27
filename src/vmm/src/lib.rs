@@ -802,6 +802,21 @@ impl Vmm {
             .hot_unplug_device(kvm_vm, device_id, event_manager, force)
     }
 
+    /// Detaches a passthrough device after VM start
+    pub fn hot_unplug_passthrough_device(
+        &mut self,
+        id: String,
+        force: bool,
+    ) -> Result<(), VmmActionError> {
+        log_dev_preview_warning("device passthrough hot-unplug", None);
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?;
+        self.device_manager
+            .hot_unplug_passthrough_device(kvm_vm, id, force)
+    }
+
     /// Remove any devices that the guest acknowledged that they can go.
     pub fn complete_hotplug_removals(&mut self, event_manager: &mut EventManager) {
         if let Some(kvm_vm) = self.vm.as_kvm() {

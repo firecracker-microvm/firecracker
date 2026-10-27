@@ -116,6 +116,10 @@ pub enum PciManagerError {
     DeviceIdDuplicate(String),
     /// Trying to add a device with duplicate SBDF: {0}
     DeviceSBDFDuplicate(PciSBDF),
+    /// Device with id: {0} not found
+    DeviceNotFound(String),
+    /// Device '{0}' is not removable because it's not plugged to a PCIe root port.
+    DeviceNotRemovable(String),
 }
 
 impl PciDevices {
@@ -404,6 +408,90 @@ impl PciDevices {
         self.vfio_devices.push(device);
 
         Ok(pci_device_bdf)
+    }
+
+    fn find_removable_vfio_device_by_id(&self, id: String) -> Result<(usize, u8), PciManagerError> {
+        for (idx, device) in self.vfio_devices.iter().enumerate() {
+            let device = device.lock().expect("Poisoned lock");
+            if device.config.id == id {
+                let bus = device.sbdf.bus();
+                if bus == 0 {
+                    return Err(PciManagerError::DeviceNotRemovable(id));
+                }
+                return Ok((idx, bus));
+            }
+        }
+        Err(PciManagerError::DeviceNotFound(id))
+    }
+
+    /// Ask the guest to release a VFIO device.
+    pub fn request_unplug_vfio(&self, id: String) -> Result<(), PciManagerError> {
+        let (_, bus) = self.find_removable_vfio_device_by_id(id)?;
+        self.pci_segment
+            .root_port_for_bus(bus)
+            .unwrap()
+            .lock()
+            .expect("Poisoned lock")
+            .request_unplug();
+        Ok(())
+    }
+
+    /// Detach VFIO device and notify guest about it. Search for a device by id.
+    pub fn detach_vfio_device_by_id(
+        &mut self,
+        vm: &KvmVm,
+        id: String,
+    ) -> Result<(), PciManagerError> {
+        let (idx, _) = self.find_removable_vfio_device_by_id(id)?;
+        self.detach_vfio_device_by_idx(vm, idx);
+        Ok(())
+    }
+
+    /// Detach VFIO device and notify guest about it. Search for a device by the bus number.
+    pub fn detach_vfio_device_by_bus(&mut self, vm: &KvmVm, bus: u8) -> bool {
+        assert_ne!(bus, 0);
+
+        if let Some(idx) = self
+            .vfio_devices
+            .iter()
+            .position(|device| device.lock().expect("Poisoned lock").sbdf.bus() == bus)
+        {
+            self.detach_vfio_device_by_idx(vm, idx);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn detach_vfio_device_by_idx(&mut self, vm: &KvmVm, idx: usize) {
+        let device = self.vfio_devices.remove(idx);
+        let sbdf = device.lock().expect("Poisoned lock").sbdf;
+
+        self.pci_segment
+            .root_port_for_bus(sbdf.bus())
+            .unwrap()
+            .lock()
+            .expect("Poisoned lock")
+            .eject();
+
+        // Remove the device from the PCI bus first, so the guest cannot relocate its BARs anymore
+        self.pci_segment
+            .pci_buses
+            .get(sbdf.bus())
+            .unwrap()
+            .lock()
+            .expect("Poisoned lock")
+            .remove_device(sbdf.device());
+
+        let emulated_areas = device.lock().expect("Poisoned lock").emulated_areas.clone();
+        for area in emulated_areas {
+            // SAFETY: areas were inserted on attach and follow BAR relocations
+            vm.common.mmio_bus.remove(area.gpa, area.size).unwrap();
+        }
+
+        // Ensure no other references to the device remain, so it is freed when this function
+        // returns
+        assert_eq!(Arc::strong_count(&device), 1);
     }
 
     fn restore_pci_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(

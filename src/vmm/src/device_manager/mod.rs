@@ -663,6 +663,25 @@ impl DeviceManager {
         }
     }
 
+    /// Detaches a passthrough device after VM start
+    pub fn hot_unplug_passthrough_device(
+        &mut self,
+        vm: &KvmVm,
+        id: String,
+        force: bool,
+    ) -> Result<(), VmmActionError> {
+        let VirtioDevices::Pci(pci_devices) = &mut self.virtio_devices else {
+            return Err(VmmActionError::PciNotEnabled);
+        };
+
+        if force {
+            pci_devices.detach_vfio_device_by_id(vm, id)?;
+        } else {
+            pci_devices.request_unplug_vfio(id)?;
+        }
+        Ok(())
+    }
+
     /// Returns the eventfd root ports signal upon hotplug completion.
     pub fn hotplug_completion_evt(&self) -> Option<&EventFd> {
         match &self.virtio_devices {
@@ -688,6 +707,11 @@ impl DeviceManager {
         let acked = acked_buses.swap(0, Ordering::Acquire);
 
         for bus in (0..MAX_PCI_BUSES).filter(|&bus| acked & (1 << bus) != 0) {
+            if pci_devices.detach_vfio_device_by_bus(vm, bus) {
+                info!("Completing hot-unplug of passthrough device on bus {bus}");
+                continue;
+            }
+
             let Some(device_id) = pci_devices.virtio_devices.iter().find_map(|(id, device)| {
                 (device.lock().expect("Poisoned lock").sbdf.bus() == bus).then(|| id.clone())
             }) else {
@@ -1258,11 +1282,21 @@ pub(crate) mod tests {
             vmm.hotplug_passthrough_device(cfg.clone()),
             Err(VmmActionError::PciNotEnabled)
         ));
+        assert!(matches!(
+            vmm.hot_unplug_passthrough_device("dev0".to_string(), true),
+            Err(VmmActionError::PciNotEnabled)
+        ));
 
         let mut vmm = default_vmm_with_pci();
         assert!(matches!(
             vmm.hotplug_passthrough_device(cfg.clone()),
             Err(VmmActionError::PciManager(PciManagerError::NoFreeRootPort))
+        ));
+        assert!(matches!(
+            vmm.hot_unplug_passthrough_device("dev0".to_string(), true),
+            Err(VmmActionError::PciManager(PciManagerError::DeviceNotFound(
+                ..
+            )))
         ));
 
         let mut vmm = default_vmm_with_hotplug_ports(2);

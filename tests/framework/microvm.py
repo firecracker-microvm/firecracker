@@ -467,7 +467,12 @@ class Microvm:
                         "Got API call duration log entry before request entry"
                     )
 
-                if current_call.url not in ["/snapshot/create", "/snapshot/load"]:
+                # Passthrough device hot-plug and forced hot-unplug reset the device and
+                # (un)pin the guest memory, which can take over a second.
+                if current_call.url not in [
+                    "/snapshot/create",
+                    "/snapshot/load",
+                ] and not current_call.url.startswith("/device-passthrough"):
                     exec_time = float(match.group("execution_time")) / 1000.0
 
                     assert (
