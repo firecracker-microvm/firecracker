@@ -271,6 +271,11 @@ COPY --from=iperf3-builder /usr/local/bin/iperf3-vsock /usr/local/bin/
 COPY --from=git-secrets-builder /staging /
 COPY --from=crosvm-builder /usr/local/bin/crosvm /usr/local/bin/
 
+# Fail the build if a binary copied in from a builder stage needs a shared
+# library that only that stage installed.
+RUN ldd /usr/local/bin/* "$CARGO_HOME"/bin/* 2>/dev/null \
+    | awk '/:$/ { bin = $1 } /not found/ { print bin, $0; missing = 1 } END { exit missing }'
+
 ADD tools/devctr/ctr_gitconfig /root/.gitconfig
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
