@@ -181,7 +181,6 @@ RUN cd /usr/local/bin \
 # Base: Python/Poetry deps (changes with poetry.lock)
 # ============================================================
 FROM apt-base AS python-deps
-ARG PIP_BREAK_SYSTEM_PACKAGES=1
 ARG ARCH
 ARG VENV="/opt/venv"
 
