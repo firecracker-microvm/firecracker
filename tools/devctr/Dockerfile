@@ -1,32 +1,25 @@
-# Building the devctr is a multi-stage process. The dependency graph is as follows:
+# Building the devctr is a multi-stage process. BuildKit builds independent
+# stages concurrently, so the build takes as long as the longest chain below,
+# not the sum of all stages.
 #
-# Stage dependency graph:
+# Stage dependency graph (tree edges are FROM, the right-hand rail is
+# COPY --from into devctr):
 #
-#                                   +--- qemu-builder -------+
-#                                   |                        |
-#                                   +--- libseccomp-builder -+
-#                                   |                        |
-#   base-image +--------------------+--- iperf3-builder -----+--- devctr
-#              |                    |                        |
-#              |                    +--- git-secrets-builder +
-#              |                                             |
-#              +--- apt-base                                 |
-#                      |                                     |
-#                      |                                     |
-#                  python-deps      +--- crosvm-builder -----+
-#                      |            |                        |
-#                 rust-toolchain ---+------------------------+
+#   base-image
+#   |-- qemu-builder -----------------------.
+#   |-- libseccomp-builder -----------------|
+#   |-- iperf3-builder ---------------------|
+#   |-- git-secrets-builder ----------------|
+#   `-- apt-base                            |
+#       |-- python-deps --------------------|
+#       `-- rust-toolchain                  |
+#           |-- crosvm-builder -------------|
+#           `-- devctr <--------------------'
 #
-# Parallel builders (from base-image):
-#   qemu-builder, libseccomp-builder, iperf3-builder, git-secrets-builder
-#
-# Sequential base chain:
-#   base-image -> apt-base -> python-deps -> rust-toolchain
-#
-# Rust fork (from rust-toolchain):
-#   crosvm-builder  (build deps thrown away, only binary copied)
-#   devctr           (cargo tools, kani, nightly, then COPY from all builders)
-#
+# - Python and Rust are independent, so a poetry.lock change does not rebuild
+#   any Rust stage, and vice versa.
+# - devctr builds on rust-toolchain rather than python-deps, so the large Rust
+#   tree is not copied again; only the venv is copied in.
 
 # ============================================================
 # Base image: Shared between builders
@@ -180,6 +173,8 @@ RUN cd /usr/local/bin \
 # ============================================================
 # Base: Python/Poetry deps (changes with poetry.lock)
 # ============================================================
+# devctr copies only /root/.local (poetry) and $VENV out of this stage, so
+# anything installed elsewhere here does not reach the final image.
 FROM apt-base AS python-deps
 ARG ARCH
 ARG VENV="/opt/venv"
@@ -204,7 +199,7 @@ RUN cp /usr/lib/python3/dist-packages/seccomp.cpython-312-"$ARCH"-linux-gnu.so "
 # ============================================================
 # Base: Rust toolchain (current version)
 # ============================================================
-FROM python-deps AS rust-toolchain
+FROM apt-base AS rust-toolchain
 ARG RUST_TOOLCHAIN="1.99.1"
 ENV CARGO_HOME=/usr/local/rust
 ENV RUSTUP_HOME=/usr/local/rust
@@ -240,6 +235,9 @@ RUN apt-get update && \
 FROM rust-toolchain AS devctr
 ARG ARCH
 ENV CARGO_HOME=/usr/local/rust
+ARG VENV="/opt/venv"
+ENV VIRTUAL_ENV=$VENV
+ENV PATH="$VENV/bin:/root/.local/bin:$PATH"
 
 # Run these as a single dockerfile command to avoid inflation of the image:
 # - Install required binary crates, including cargo-afl (fuzzer) and Kani (formal verification)
@@ -270,6 +268,9 @@ COPY --from=libseccomp-builder /staging /
 COPY --from=iperf3-builder /usr/local/bin/iperf3-vsock /usr/local/bin/
 COPY --from=git-secrets-builder /staging /
 COPY --from=crosvm-builder /usr/local/bin/crosvm /usr/local/bin/
+# Python last: poetry.lock changes most often. /root/.local holds poetry.
+COPY --from=python-deps /root/.local /root/.local
+COPY --from=python-deps $VENV $VENV
 
 # Fail the build if a binary copied in from a builder stage needs a shared
 # library that only that stage installed.
