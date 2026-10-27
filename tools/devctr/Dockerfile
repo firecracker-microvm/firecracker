@@ -219,6 +219,8 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-too
 # ============================================================
 FROM rust-toolchain AS crosvm-builder
 ENV CROSVM_VER="9d542e6dafa3a85acd1fb6cd6f1adfa1331c4e96"
+# crosvm pins Rust 1.68, whose cargo still fetches the crates.io index as a
+# full git clone (~90s). Opt in to the sparse protocol, the default since 1.70.
 RUN apt-get update && \
     apt-get -y install --no-install-recommends \
         libcap2 \
@@ -227,7 +229,8 @@ RUN apt-get update && \
     && git clone https://github.com/google/crosvm.git /tmp/crosvm \
     && cd /tmp/crosvm && git checkout ${CROSVM_VER} \
     && git submodule update --init \
-    && cargo build --no-default-features --release \
+    && CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
+       cargo build --no-default-features --release \
     && strip ./target/release/crosvm \
     && cp -a ./target/release/crosvm /usr/local/bin
 
