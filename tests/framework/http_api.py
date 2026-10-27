@@ -178,6 +178,7 @@ class Api:
         self.describe = Resource(self, "/")
         self.vm = Resource(self, "/vm")
         self.vm_config = Resource(self, "/vm/config")
+        self.vm_kvm_stats = Resource(self, "/vm/kvm-stats")
         self.actions = Resource(self, "/actions")
         self.boot = Resource(self, "/boot-source")
         self.drive = Resource(self, "/drives", "drive_id")

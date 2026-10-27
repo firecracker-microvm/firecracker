@@ -30,6 +30,10 @@
                 "syscall": "read"
             },
             {
+                "syscall": "pread64",
+                "comment": "Used to read KVM's binary statistics for GET /vm/kvm-stats"
+            },
+            {
                 "syscall": "write"
             },
             {

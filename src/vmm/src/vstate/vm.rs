@@ -15,8 +15,8 @@ use std::sync::{Arc, Barrier, Mutex, MutexGuard};
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::KVM_IRQCHIP_IOAPIC;
 use kvm_bindings::{
-    KVM_IRQ_ROUTING_IRQCHIP, KVM_IRQ_ROUTING_MSI, KVM_MSI_VALID_DEVID, KvmIrqRouting,
-    kvm_irq_routing_entry, kvm_userspace_memory_region,
+    KVM_CAP_BINARY_STATS_FD, KVM_IRQ_ROUTING_IRQCHIP, KVM_IRQ_ROUTING_MSI, KVM_MSI_VALID_DEVID,
+    KvmIrqRouting, kvm_irq_routing_entry, kvm_userspace_memory_region,
 };
 use kvm_ioctls::VmFd;
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,7 @@ use vmm_sys_util::terminal::Terminal;
 
 use crate::arch::{GSI_MSI_END, host_page_size};
 pub use crate::arch::{KvmVm, KvmVmError, VmState};
-use crate::logger::{debug, info};
+use crate::logger::{debug, info, warn};
 use crate::pci::PciSBDF;
 use crate::pci::msix::MsixTableEntry;
 use crate::persist::CreateSnapshotError;
@@ -36,6 +36,7 @@ use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::bus::Bus;
 use crate::vstate::interrupts::{InterruptError, MsixVector, MsixVectorGroup};
 use crate::vstate::kvm::Kvm;
+use crate::vstate::kvm_stats::{KvmStats, KvmStatsError, KvmStatsFds};
 use crate::vstate::memory::{
     GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestMemoryState, GuestRegionMmap,
     GuestRegionMmapExt, MemoryError,
@@ -83,6 +84,8 @@ pub struct VmCommon {
     pub vcpus_handles: Mutex<Vec<VcpuHandle>>,
     /// Event fd written to by vCPUs on exit.
     pub vcpus_exit_evt: EventFd,
+    /// KVM's binary statistics descriptors, opened with the vCPUs if the host supports them.
+    pub kvm_stats: Option<KvmStatsFds>,
     /// Test-only countdown that forces the Nth-next `set_user_memory_region` call to fail, used
     /// to exercise partial-failure handling. 0 means never fail.
     #[cfg(test)]
@@ -137,6 +140,13 @@ impl Vm {
     pub fn as_kvm(&self) -> Option<&Arc<KvmVm>> {
         match self {
             Vm::Kvm(v) => Some(v),
+        }
+    }
+
+    /// Reads KVM's binary statistics for the VM and each vCPU.
+    pub fn kvm_stats(&self) -> Result<KvmStats, KvmStatsError> {
+        match self {
+            Vm::Kvm(v) => v.kvm_stats(),
         }
     }
 }
@@ -195,6 +205,7 @@ impl KvmVm {
             uffd: None,
             vcpus_handles: Mutex::new(Vec::new()),
             vcpus_exit_evt,
+            kvm_stats: None,
             #[cfg(test)]
             fail_set_user_memory_region_in: AtomicU32::new(0),
         })
@@ -218,7 +229,33 @@ impl KvmVm {
 
         self.arch_post_create_vcpus(vcpu_count)?;
 
+        // Before the VMM thread's seccomp filter, which doesn't allow KVM_GET_STATS_FD.
+        if self
+            .common
+            .fd
+            .check_extension_raw(u64::from(KVM_CAP_BINARY_STATS_FD))
+            > 0
+        {
+            let vcpu_fds: Vec<_> = vcpus
+                .iter()
+                .map(|vcpu| (vcpu.kvm_vcpu.index, &vcpu.kvm_vcpu.fd))
+                .collect();
+            match KvmStatsFds::open(&self.common.fd, &vcpu_fds) {
+                Ok(fds) => self.common.kvm_stats = Some(fds),
+                Err(err) => warn!("Failed to open KVM statistics: {}", err),
+            }
+        }
+
         Ok(vcpus)
+    }
+
+    /// Reads KVM's binary statistics for the VM and each vCPU.
+    pub fn kvm_stats(&self) -> Result<KvmStats, KvmStatsError> {
+        self.common
+            .kvm_stats
+            .as_ref()
+            .ok_or(KvmStatsError::Unsupported)?
+            .read()
     }
 
     /// Returns a reference to the [`Kvm`] instance.
