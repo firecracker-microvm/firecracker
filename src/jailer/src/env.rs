@@ -1094,9 +1094,8 @@ mod tests {
         let bad_string = String::from_utf8(bad_string_bytes).unwrap();
         assert_eq!(
             format!("{}", env.setup_jailed_folder(bad_string).err().unwrap()),
-            format!(
-                "Failed to create directory \\0foo\\0: file name contained an unexpected NUL byte"
-            )
+            "Failed to create directory \\0foo\\0: file name contained an unexpected NUL byte"
+                .to_string()
         );
 
         // Error case: inaccessible path - can't be triggered with unit tests running as root.
