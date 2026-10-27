@@ -32,7 +32,7 @@ use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
-use crate::logger::{debug, warn};
+use crate::logger::{debug, info, warn};
 use crate::pci::PciSBDF;
 use crate::pci::bus::PciBusError;
 use crate::resources::VmResources;
@@ -118,6 +118,10 @@ pub enum PciManagerError {
     DeviceIdDuplicate(String),
     /// Trying to add a device with duplicate SBDF: {0}
     DeviceSBDFDuplicate(PciSBDF),
+    /// Device with id: {0} not found
+    DeviceNotFound(String),
+    /// Device '{0}' is not removable because it's not plugged to a PCIe root port
+    DeviceNotRemovable(String),
 }
 
 impl PciDevices {
@@ -417,6 +421,95 @@ impl PciDevices {
         self.vfio_devices.push(device);
 
         Ok(pci_device_bdf)
+    }
+
+    fn find_removable_vfio_device_by_string_id(
+        &self,
+        id: String,
+    ) -> Result<(usize, u8), PciManagerError> {
+        for (idx, device) in self.vfio_devices.iter().enumerate() {
+            let device = device.lock().expect("Poisoned lock");
+            if device.config.id == id {
+                let bus = device.sbdf.bus();
+                if bus == 0 {
+                    return Err(PciManagerError::DeviceNotRemovable(id));
+                }
+                return Ok((idx, bus));
+            }
+        }
+        Err(PciManagerError::DeviceNotFound(id))
+    }
+
+    /// Find an index of the VFIO device attached to the specified bus
+    pub fn find_removable_vfio_device_by_bus(&self, bus: u8) -> Option<usize> {
+        self.vfio_devices
+            .iter()
+            .position(|device| device.lock().expect("Poisoned lock").sbdf.bus() == bus)
+    }
+
+    /// Ask the guest to release a VFIO device.
+    pub fn request_unplug_vfio(&self, id: String) -> Result<(), PciManagerError> {
+        let (_, bus) = self.find_removable_vfio_device_by_string_id(id)?;
+        self.pci_segment
+            .root_port_for_bus(bus)
+            .unwrap()
+            .lock()
+            .expect("Poisoned lock")
+            .request_unplug();
+        Ok(())
+    }
+
+    /// Delete VFIO device and notify guest about it. Search for a device by id.
+    pub fn detach_vfio_device_by_string_id(
+        &mut self,
+        vm: &KvmVm,
+        id: String,
+    ) -> Result<(), PciManagerError> {
+        let (idx, _) = self.find_removable_vfio_device_by_string_id(id)?;
+        self.detach_vfio_device_by_idx(vm, idx);
+        Ok(())
+    }
+
+    /// Delete VFIO device at specified index
+    ///
+    /// Panics if `idx` is out of bounds
+    pub fn detach_vfio_device_by_idx(&mut self, vm: &KvmVm, idx: usize) {
+        let device = self.vfio_devices.remove(idx);
+        let sbdf = device.lock().expect("Poisoned lock").sbdf;
+
+        self.pci_segment
+            .root_port_for_bus(sbdf.bus())
+            .unwrap()
+            .lock()
+            .expect("Poisoned lock")
+            .eject();
+
+        // Remove the device from the PCI bus first, so the guest cannot relocate its BARs anymore
+        self.pci_segment
+            .pci_buses
+            .get(sbdf.bus())
+            .unwrap()
+            .lock()
+            .expect("Poisoned lock")
+            .remove_device(sbdf.device());
+
+        let emulated_areas = device.lock().expect("Poisoned lock").emulated_areas.clone();
+        for area in emulated_areas {
+            // SAFETY: areas were inserted on attach and follow BAR relocations
+            vm.common.mmio_bus.remove(area.gpa, area.size).unwrap();
+        }
+
+        {
+            let locked_device = device.lock().expect("Poisoned lock");
+            info!(
+                "Completing hot-unplug of passthrough device {}({})",
+                locked_device.config.id, locked_device.config.sbdf
+            );
+        }
+
+        // Ensure no other references to the device remain, so it is freed when this function
+        // returns
+        assert_eq!(Arc::strong_count(&device), 1);
     }
 
     fn restore_pci_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
