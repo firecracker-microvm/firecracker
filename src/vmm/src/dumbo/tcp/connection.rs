@@ -1225,6 +1225,43 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_lost_fin_is_retransmitted_on_timeout() {
+        let mut buf1 = [0u8; 100];
+        let mut buf2 = [0u8; 100];
+        let mut t = ConnectionTester::new();
+
+        let mut syn = t.write_syn(buf1.as_mut());
+        syn.set_flags_after_ns(TcpFlags::SYN);
+        let mut c = t.passive_open(&syn).unwrap();
+        let conn_isn = t
+            .write_next_segment(&mut c, None)
+            .unwrap()
+            .unwrap()
+            .sequence_number();
+
+        let mut ack = t.write_ctrl(buf2.as_mut());
+        ack.set_flags_after_ns(TcpFlags::ACK);
+        ack.set_sequence_number(t.remote_isn.wrapping_add(1));
+        ack.set_ack_number(conn_isn.wrapping_add(1));
+        t.receive_segment(&mut c, &ack).unwrap();
+        assert!(c.is_established());
+
+        // Nothing left to send: an empty payload source at the next byte.
+        let payload_src = Some((&[][..], Wrapping(conn_isn.wrapping_add(1))));
+        c.close();
+        let fin = t.write_next_segment(&mut c, payload_src).unwrap().unwrap();
+        check_control_segment(&fin, 0, TcpFlags::FIN | TcpFlags::ACK);
+        let fin_seq = fin.sequence_number();
+
+        // The FIN is never ACKed: before the timeout nothing goes out, after it the FIN is resent.
+        assert!(t.write_next_segment(&mut c, payload_src).unwrap().is_none());
+        t.now += t.rto_period;
+        let resent = t.write_next_segment(&mut c, payload_src).unwrap().unwrap();
+        check_control_segment(&resent, 0, TcpFlags::FIN | TcpFlags::ACK);
+        assert_eq!(resent.sequence_number(), fin_seq);
+    }
+
+    #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_connection() {
         // These are used to support some segments we play around with.
