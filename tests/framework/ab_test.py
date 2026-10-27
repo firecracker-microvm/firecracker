@@ -95,7 +95,7 @@ def git_ab_test(
 
 
 def git_ab_test_host_command_if_pr(
-    command: str,
+    command: str | list[str],
     *,
     comparator: Callable[[CommandReturn, CommandReturn], bool] = default_comparator,
     check_in_nonpr=True,
@@ -115,7 +115,7 @@ def git_ab_test_host_command_if_pr(
 
 
 def git_ab_test_host_command(
-    command: str,
+    command: str | list[str],
     *,
     comparator: Callable[[CommandReturn, CommandReturn], bool] = default_comparator,
     a_revision: str = DEFAULT_A_REVISION,
