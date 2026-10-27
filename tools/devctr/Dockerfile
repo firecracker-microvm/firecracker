@@ -10,9 +10,10 @@
 #   |-- libseccomp-builder -----------------|
 #   |-- iperf3-builder ---------------------|
 #   |-- git-secrets-builder ----------------|
+#   |-- rust-toolchain  (copied into rust-base)
 #   `-- apt-base                            |
 #       |-- python-deps --------------------|
-#       `-- rust-toolchain                  |
+#       `-- rust-base                       |
 #           |-- crosvm-builder -------------|
 #           |-- grcov-builder --------------|
 #           |-- cargo-sort-builder ---------|
@@ -22,6 +23,8 @@
 #           `-- kani                        |
 #               `-- devctr <----------------'
 #
+# - rust-toolchain only needs curl, so rustup downloads while apt-base installs.
+#   rust-base layers the toolchain onto apt-base for everything that compiles.
 # - Python and Rust are independent, so a poetry.lock change does not rebuild
 #   any Rust stage, and vice versa.
 # - Every cargo tool gets its own stage, because `cargo install a b c` builds
@@ -205,18 +208,24 @@ ENV PATH=$VENV/bin:$PATH
 RUN cp /usr/lib/python3/dist-packages/seccomp.cpython-312-"$ARCH"-linux-gnu.so "$VENV"/lib/python3.12/site-packages/
 
 # ============================================================
-# Base: Rust toolchain (current version)
+# Rust toolchain (current version), independent of apt-base
 # ============================================================
-FROM apt-base AS rust-toolchain
+FROM base-image AS rust-toolchain
 ARG ARCH
 ARG RUST_TOOLCHAIN="1.99.1"
 ENV CARGO_HOME=/usr/local/rust
 ENV RUSTUP_HOME=/usr/local/rust
 ENV PATH="$PATH:$CARGO_HOME/bin"
+# - Everything rustup installs lives under /usr/local/rust, which is all that
+#   rust-base copies. PATH comes from ENV, so leave the shell rc files alone.
 # - Always install both x86_64 and aarch64 musl targets, as our
 #   rust-toolchain.toml would force on-the-fly installation of both anyway.
 # - The other arch's gnu target is for the devtool checkbuild command.
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
+RUN apt-get update \
+    && apt-get -y install --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path \
+        --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
     && rustup target add x86_64-unknown-linux-musl \
     && rustup target add aarch64-unknown-linux-musl \
     && rustup component add llvm-tools-preview clippy rustfmt \
@@ -226,9 +235,18 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-too
        esac
 
 # ============================================================
+# Base: apt packages + Rust toolchain, for everything that compiles Rust
+# ============================================================
+FROM apt-base AS rust-base
+ENV CARGO_HOME=/usr/local/rust
+ENV RUSTUP_HOME=/usr/local/rust
+ENV PATH="$PATH:$CARGO_HOME/bin"
+COPY --from=rust-toolchain /usr/local/rust /usr/local/rust
+
+# ============================================================
 # Builder: crosvm (used as vhost-user-blk backend)
 # ============================================================
-FROM rust-toolchain AS crosvm-builder
+FROM rust-base AS crosvm-builder
 ENV CROSVM_VER="9d542e6dafa3a85acd1fb6cd6f1adfa1331c4e96"
 # crosvm pins Rust 1.68, whose cargo still fetches the crates.io index as a
 # full git clone (~90s). Opt in to the sparse protocol, the default since 1.70.
@@ -253,24 +271,24 @@ RUN apt-get update && \
 # compiles their final crate on a single core for minutes. These are dev
 # tools, so trade that for a parallel build. Pass the overrides per command:
 # as ENV they would leak into devctr and change every build run inside it.
-FROM rust-toolchain AS grcov-builder
+FROM rust-base AS grcov-builder
 RUN cargo install --locked --root /staging grcov
 
-FROM rust-toolchain AS cargo-sort-builder
+FROM rust-base AS cargo-sort-builder
 RUN cargo install --locked --root /staging cargo-sort
 
 # Installing cargo-afl also builds AFL++ into ~/.local/share/afl.rs, keyed by
 # the rustc version.
-FROM rust-toolchain AS cargo-afl-builder
+FROM rust-base AS cargo-afl-builder
 RUN cargo install --locked --root /staging cargo-afl
 
-FROM rust-toolchain AS cargo-deny-builder
+FROM rust-base AS cargo-deny-builder
 RUN CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
     cargo install --locked --root /staging cargo-deny --version 0.19.0
 
 # cargo-udeps needs nightly to run, not to build, so build it with stable
 # rather than waiting for kani to install the nightly toolchain.
-FROM rust-toolchain AS cargo-udeps-builder
+FROM rust-base AS cargo-udeps-builder
 RUN CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
     cargo install --locked --root /staging cargo-udeps --version 0.1.60
 
@@ -281,7 +299,7 @@ RUN CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
 # filter analysis test and to run cargo-udeps. Dynamically determine the exact
 # toolchain name, and install more components into it. Clean up the cargo
 # registry, as this stage is the base of devctr.
-FROM rust-toolchain AS kani
+FROM rust-base AS kani
 ARG ARCH
 RUN cargo install --locked kani-verifier --version 0.67.0 && cargo kani setup \
     && NIGHTLY_TOOLCHAIN=$(rustup toolchain list | grep nightly | tr -d '\n') \
