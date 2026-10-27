@@ -36,7 +36,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG ARCH
 RUN apt-get update \
     && apt-get -y install --no-install-recommends \
-        git gcc make libc-dev ca-certificates musl-tools
+        git gcc make libc-dev ca-certificates musl-tools \
+    && rm -rf /var/lib/apt/lists/*
 
 # help musl-gcc find linux headers
 RUN cd /usr/include/$ARCH-linux-musl \
@@ -80,7 +81,8 @@ ENV LIBSECCOMP_VER="v2.6.1"
 # for our musl builds.
 # We specify the tag in order to have a fixed version
 # of the library.
-RUN apt-get -y install --no-install-recommends \
+RUN apt-get update \
+    && apt-get -y install --no-install-recommends \
         libtool gperf autoconf automake \
     && git clone https://github.com/seccomp/libseccomp /tmp/libseccomp \
     && cd /tmp/libseccomp \
