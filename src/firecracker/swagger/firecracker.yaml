@@ -1870,6 +1870,7 @@ definitions:
         enum:
           - File
           - Uffd
+          - SharedMemfd
       backend_path:
         type: string
         description: Based on 'backend_type' it is either
@@ -1877,6 +1878,8 @@ definitions:
           2) Path to the UDS where a process is listening for a UFFD initialization
           control payload and open file descriptor that it can use to serve this
           process's guest memory page faults
+          3) Path to the UDS where a process is listening for the same control
+          payload and the UFFD followed by the memfd backing guest memory
 
   Metrics:
     type: object
@@ -2211,9 +2214,9 @@ definitions:
           Selects the huge pages configuration for the restored microVM.
           Snapshot reuses the value serialized in the snapshot and is the
           default when this field is omitted; None uses the host's default
-          memory-mapping behavior. Explicit hugetlbfs (`2M`) pages require a UFFD
-          memory backend. With UFFD, the effectiveness of transparent huge pages
-          may be limited.
+          memory-mapping behavior. Explicit hugetlbfs (`2M`) pages require the
+          `Uffd` or `SharedMemfd` memory backend. With either of them, the
+          effectiveness of transparent huge pages may be limited.
 
 
   TokenBucket:

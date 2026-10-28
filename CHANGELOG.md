@@ -51,6 +51,14 @@ and this project adheres to
   files of pmem devices when loading a snapshot. See
   [Overriding host resources](docs/snapshotting/snapshot-support.md#overriding-host-resources)
   for more information.
+- [#6362](https://github.com/firecracker-microvm/firecracker/pull/6362): Added
+  the `SharedMemfd` memory backend (developer preview): guest memory is backed
+  by a single memfd, laid out like a memory snapshot file, which is handed to an
+  external process over a Unix domain socket with the same handshake message a
+  UFFD page fault handler receives. `SharedMemfd` is accepted as `backend_type`
+  in `PUT /snapshot/load`, where the handshake carries the userfaultfd and then
+  the memfd. See
+  [docs/snapshotting/shared-memfd.md](docs/snapshotting/shared-memfd.md).
 
 ### Changed
 
