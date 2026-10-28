@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import host_tools.drive as drive_tools
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.utils_drive import partuuid_and_disk_path
 from host_tools.fcmetrics import FcDeviceMetrics
 
@@ -341,3 +342,50 @@ def test_config_change(uvm):
 
         # Check that we can create a filesystem and mount it
         vm.ssh.check_output(mkfs_mount_cmd)
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_vhost_user_block_discard(uvm):
+    """
+    Verify that `discard` is only negotiated with the backend when requested,
+    and that guest discards then punch holes in the file behind the backend.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config(vcpu_count=1)
+    vm.add_net_iface()
+
+    # The crosvm backend advertises VIRTIO_BLK_F_DISCARD for both drives, but
+    # Firecracker must only offer it to the guest for the drive that asks for it.
+    fs_discard = drive_tools.FilesystemFile(
+        os.path.join(vm.fsfiles, "discard"), size=64
+    )
+    vm.add_vhost_user_drive("discard", fs_discard.path, discard=True)
+    fs_no_discard = drive_tools.FilesystemFile(
+        os.path.join(vm.fsfiles, "no_discard"), size=64
+    )
+    vm.add_vhost_user_drive("no_discard", fs_no_discard.path)
+    vm.start()
+
+    _, stdout, stderr = vm.ssh.run("cat /sys/block/vdb/queue/discard_max_bytes")
+    assert stderr == ""
+    assert int(stdout.strip()) > 0
+
+    _, stdout, stderr = vm.ssh.run("cat /sys/block/vdc/queue/discard_max_bytes")
+    assert stderr == ""
+    assert int(stdout.strip()) == 0
+
+    _, _, stderr = vm.ssh.run(
+        "dd if=/dev/zero of=/dev/vdb bs=1M count=32 oflag=direct conv=fsync status=none",
+        timeout=30.0,
+    )
+    assert stderr == ""
+
+    blocks_before = os.stat(fs_discard.path).st_blocks
+    assert blocks_before > 0
+
+    _, _, stderr = vm.ssh.run("blkdiscard -f /dev/vdb", timeout=30.0)
+    assert stderr in ("", "blkdiscard: Operation forced, data will be lost!\n")
+
+    blocks_after = os.stat(fs_discard.path).st_blocks
+    assert blocks_after < blocks_before

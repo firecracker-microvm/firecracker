@@ -901,6 +901,7 @@ class Microvm:
         partuuid=None,
         is_root_device=False,
         is_read_only=False,
+        discard=None,
         cache_type=None,
         backend_type=VhostUserBlkBackendType.CROSVM,
     ):
@@ -924,6 +925,7 @@ class Microvm:
             socket=socket_path,
             partuuid=partuuid,
             is_root_device=is_root_device,
+            discard=discard,
             cache_type=cache_type,
         )
 
