@@ -1781,6 +1781,7 @@ definitions:
         enum:
           - File
           - Uffd
+          - SharedMemfd
       backend_path:
         type: string
         description: Based on 'backend_type' it is either
@@ -1788,6 +1789,8 @@ definitions:
           2) Path to the UDS where a process is listening for a UFFD initialization
           control payload and open file descriptor that it can use to serve this
           process's guest memory page faults
+          3) Path to the UDS where a process is listening for the same control
+          payload, accompanied by the guest memory memfd (and the UFFD on restore)
 
   Metrics:
     type: object
