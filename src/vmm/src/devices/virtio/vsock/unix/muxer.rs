@@ -1495,6 +1495,31 @@ mod tests {
     }
 
     #[test]
+    fn test_peer_half_close() {
+        let peer_port = 1025;
+        let mut ctx = MuxerTestContext::new("peer_half_close");
+        let (mut stream, local_port) = ctx.local_connect(peer_port);
+
+        // The guest shuts down only its sending side. The host reads EOF.
+        ctx.init_tx_pkt(local_port, peer_port, uapi::VSOCK_OP_SHUTDOWN)
+            .hdr
+            .set_flags(uapi::VSOCK_FLAGS_SHUTDOWN_SEND);
+        ctx.send();
+        let mut buf = [0u8; 4];
+        assert_eq!(stream.read(&mut buf).unwrap(), 0);
+
+        // The host can still send, and the guest receives what it sends.
+        let data = [5, 6, 7, 8];
+        stream.write_all(&data).unwrap();
+        ctx.notify_muxer();
+        assert!(ctx.muxer.has_pending_rx());
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RW);
+        let buf = test_utils::read_packet_data(&ctx.tx_pkt, 4);
+        assert_eq!(&buf, &data);
+    }
+
+    #[test]
     fn test_peer_close() {
         let peer_port = 1025;
         let local_port = 1026;

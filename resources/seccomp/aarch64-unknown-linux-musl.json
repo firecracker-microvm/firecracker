@@ -144,6 +144,19 @@
                 ]
             },
             {
+                "syscall": "shutdown",
+                "comment": "Called to pass a guest's vsock half-close on to the host-side Unix socket",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "libc::SHUT_WR"
+                    }
+                ]
+            },
+            {
                 "syscall": "fcntl",
                 "comment": "Used by snapshotting, drive patching and rescanning",
                 "args": [
