@@ -34,7 +34,7 @@ def warmup_sec_for(mode: fio.Mode) -> int:
 
 
 # Time (in seconds) for which fio runs after warmup is done
-RUNTIME_SEC = 30
+RUNTIME_SEC = 15
 
 # VM guest memory size
 GUEST_MEM_MIB = 1024
