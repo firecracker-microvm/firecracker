@@ -588,9 +588,9 @@ impl KvmVm {
 
     /// Whether a vhost-user backend can map this VM's guest memory.
     ///
-    /// Guest memory is a shared memfd mapping when a vhost-user device is
-    /// configured before boot, or when it is restored with `SharedMemfd`.
-    /// Anonymous memory and a private mapping of a read-only
+    /// Guest memory is a shared memfd mapping when a vhost-user device or a
+    /// memory backend is configured before boot, or when it is restored with
+    /// `SharedMemfd`. Anonymous memory and a private mapping of a read-only
     /// snapshot file cannot be mapped by a backend at all. Memory served by a
     /// page fault handler is rejected too: a vhost-user backend maps the memfd
     /// without the userfaultfd, so it would read holes where pages have not

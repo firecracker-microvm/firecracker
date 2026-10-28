@@ -719,9 +719,9 @@ impl<'a> PrebootApiController<'a> {
                 VmmData::Empty
             })
             .inspect_err(|err| {
-                // The microVM is built at this point: its vCPU threads exist and it is
-                // registered with the event manager. We consider the process too dirty to
-                // build another one.
+                // The microVM is built at this point: its vCPU threads exist, it is registered
+                // with the event manager, and a memory backend has received guest memory. We
+                // consider the process too dirty to build another one.
                 if matches!(err, StartMicrovmError::Resume(_)) {
                     self.fatal_error = Some(BuildMicrovmFromRequestsError::Resume);
                 }
