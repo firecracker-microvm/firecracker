@@ -8,6 +8,8 @@ mod logging;
 mod metrics;
 pub mod rate_limited;
 
+use std::time::Instant;
+
 pub use log::{Level, log_enabled, trace};
 
 // Re-export log macros under hidden names for use by wrapper macros.
@@ -26,7 +28,6 @@ pub use metrics::{
     IncMetric, LatencyAggregateMetrics, METRICS, MetricsError, ProcessTimeReporter,
     SharedIncMetric, SharedStoreMetric, StoreMetric,
 };
-use utils::time::{ClockType, get_time_us};
 
 /// Alias for `std::io::LineWriter<std::fs::File>`.
 pub type FcLineWriter = std::io::LineWriter<std::fs::File>;
@@ -51,10 +52,9 @@ pub fn log_dev_preview_warning(feature_name: &str, msg_opt: Option<String>) {
     }
 }
 
-/// Helper function for updating the value of a store metric with elapsed time since some time in a
-/// past.
-pub fn update_metric_with_elapsed_time(metric: &SharedStoreMetric, start_time_us: u64) -> u64 {
-    let delta_us = get_time_us(ClockType::Monotonic) - start_time_us;
+/// Stores the time elapsed since `start` into `metric` and returns it, in microseconds.
+pub fn update_metric_with_elapsed_time(metric: &SharedStoreMetric, start: Instant) -> u64 {
+    let delta_us = u64::try_from(start.elapsed().as_micros()).expect("elapsed time fits in u64");
     metric.store(delta_us);
     delta_us
 }

@@ -28,14 +28,14 @@ impl Xsdt {
         oem_revision: u32,
         tables: Vec<u64>,
     ) -> Self {
-        let mut tables_bytes = Vec::with_capacity(8 * tables.len());
+        let mut tables_bytes = Vec::with_capacity(8usize.strict_mul(tables.len()));
         for addr in tables {
             tables_bytes.extend(&addr.to_le_bytes());
         }
 
         let header = SdtHeader::new(
             *b"XSDT",
-            (std::mem::size_of::<SdtHeader>() + tables_bytes.len())
+            (std::mem::size_of::<SdtHeader>().strict_add(tables_bytes.len()))
                 .try_into()
                 .unwrap(),
             1,
@@ -58,7 +58,7 @@ impl Xsdt {
 
 impl Sdt for Xsdt {
     fn len(&self) -> usize {
-        std::mem::size_of::<SdtHeader>() + self.tables.len()
+        std::mem::size_of::<SdtHeader>().strict_add(self.tables.len())
     }
 
     fn write_to_guest<M: GuestMemory>(&mut self, mem: &M, address: GuestAddress) -> Result<()> {

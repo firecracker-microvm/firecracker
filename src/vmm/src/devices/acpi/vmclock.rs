@@ -212,7 +212,10 @@ impl Aml for VmClock {
                         aml::AddressSpaceCacheable::Cacheable,
                         false,
                         self.guest_address.0,
-                        self.guest_address.0 + VMCLOCK_SIZE as u64 - 1,
+                        self.guest_address
+                            .0
+                            .strict_add(u64::from(VMCLOCK_SIZE))
+                            .strict_sub(1),
                     )?]),
                 )?,
             ],

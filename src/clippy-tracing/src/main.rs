@@ -105,7 +105,7 @@ macro_rules! create_strip_visitor_function {
     ($func_name:ident, $item:ident) => {
         fn $func_name(&mut self, i: &syn::$item) {
             if let Some(instrument) = find_instrumented(&i.attrs) {
-                let start = instrument.span().start().line - 1;
+                let start = instrument.span().start().line.strict_sub(1);
                 let end = instrument.span().end().line;
                 for line in start..end {
                     self.0.remove(&line);
@@ -170,7 +170,7 @@ macro_rules! create_fix_visitor_function {
                 let attr_string = instrument(&i.sig, self.suffix, self.cfg_attr);
                 let indent = i.span().start().column;
                 let indent_attr = format!("{}{attr_string}", " ".repeat(indent));
-                self.list.set_before(line - 1, indent_attr);
+                self.list.set_before(line.strict_sub(1), indent_attr);
             }
             self.visit_block(&i.block);
         }

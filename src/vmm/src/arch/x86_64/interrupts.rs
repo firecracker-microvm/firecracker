@@ -27,13 +27,13 @@ const APIC_MODE_NMI: u32 = 0x4;
 const APIC_MODE_EXTINT: u32 = 0x7;
 
 fn get_klapic_reg(klapic: &kvm_lapic_state, reg_offset: usize) -> u32 {
-    let range = reg_offset..reg_offset + 4;
+    let range = reg_offset..reg_offset.strict_add(4);
     let reg = klapic.regs.get(range).expect("get_klapic_reg range");
     byte_order::read_le_u32(reg.as_bytes())
 }
 
 fn set_klapic_reg(klapic: &mut kvm_lapic_state, reg_offset: usize, value: u32) {
-    let range = reg_offset..reg_offset + 4;
+    let range = reg_offset..reg_offset.strict_add(4);
     let reg = klapic.regs.get_mut(range).expect("set_klapic_reg range");
     byte_order::write_le_u32(reg.as_mut_bytes(), value);
 }

@@ -35,7 +35,7 @@ fn gcd(x: u64, y: u64) -> u64 {
     let mut y = y;
     while y != 0 {
         let t = y;
-        y = x % y;
+        y = x.strict_rem(y);
         x = t;
     }
     x
@@ -130,10 +130,10 @@ impl TokenBucket {
         // Get the greatest common factor between `size` and `complete_refill_time_ns`.
         let common_factor = gcd(size, complete_refill_time_ns);
         // The division will be exact since `common_factor` is a factor of `size`.
-        let processed_capacity: u64 = size / common_factor;
+        let processed_capacity: u64 = size.strict_div(common_factor);
         // The division will be exact since `common_factor` is a factor of
         // `complete_refill_time_ns`.
-        let processed_refill_time: u64 = complete_refill_time_ns / common_factor;
+        let processed_refill_time: u64 = complete_refill_time_ns.strict_div(common_factor);
 
         Some(TokenBucket {
             size,
@@ -153,7 +153,7 @@ impl TokenBucket {
     /// Returns the time needed to refill `tokens`, rounded up and saturated at `u64::MAX`
     /// nanoseconds.
     fn time_to_refill(&self, tokens: u64) -> Duration {
-        let ns = (u128::from(tokens) * u128::from(self.processed_refill_time))
+        let ns = (u128::from(tokens).strict_mul(u128::from(self.processed_refill_time)))
             .div_ceil(u128::from(self.processed_capacity));
 
         Duration::from_nanos(u64::try_from(ns).unwrap_or(u64::MAX))
@@ -164,9 +164,11 @@ impl TokenBucket {
     fn auto_replenish(&mut self) {
         // Compute time passed since last refill/update, according to the bucket's clock.
         let now = self.clock.now();
-        let time_delta = (now - self.last_update).as_nanos();
+        // Clock is monotonic, but use `saturating_duration_since` rather than `Instant::sub`,
+        // which panics if `now < last_update`.
+        let time_delta = now.saturating_duration_since(self.last_update).as_nanos();
 
-        if time_delta >= u128::from(self.refill_time * NANOSEC_IN_ONE_MILLISEC) {
+        if time_delta >= u128::from(self.refill_time.strict_mul(NANOSEC_IN_ONE_MILLISEC)) {
             self.budget = self.size;
             self.last_update = now;
         } else {
@@ -183,15 +185,20 @@ impl TokenBucket {
             // u128 multiplication cannot overflow.
             // Since `time_delta` is less than the full refill time, `tokens` is less than
             // `self.size`, so this cast cannot truncate.
-            let tokens = ((time_delta * processed_capacity) / processed_refill_time) as u64;
+            // `processed_refill_time` is nonzero for the lifetime of the bucket (set in the constructor).
+            let tokens = ((time_delta.strict_mul(processed_capacity))
+                .strict_div(processed_refill_time)) as u64;
 
             // Increment `last_update` by the minimum time required to generate `tokens`.
             // Rounding up carries the unused fractional token time over to the next call.
             let time_adjustment = self.time_to_refill(tokens);
 
-            debug_assert!(time_adjustment.as_nanos() <= time_delta);
-            debug_assert!(
-                (time_delta - time_adjustment.as_nanos()) * processed_capacity
+            // `tokens = floor(time_delta * c / r)` and `time_adjustment = ceil(tokens * r / c)`
+            // with `c = processed_capacity`, `r = processed_refill_time`, so the adjustment is
+            // at most `time_delta` and leaves less than one token's worth of time (`r / c`).
+            assert!(time_adjustment.as_nanos() <= time_delta);
+            assert!(
+                (time_delta.strict_sub(time_adjustment.as_nanos())).strict_mul(processed_capacity)
                     <= processed_refill_time
             );
 
@@ -206,7 +213,7 @@ impl TokenBucket {
         if self.one_time_burst > 0 {
             // We still have burst budget for *all* tokens requests.
             if self.one_time_burst >= tokens {
-                self.one_time_burst -= tokens;
+                self.one_time_burst = self.one_time_burst.strict_sub(tokens);
                 self.last_update = self.clock.now();
                 // No need to continue to the refill process, we still have burst budget to consume
                 // from.
@@ -214,7 +221,7 @@ impl TokenBucket {
             } else {
                 // We still have burst budget for *some* of the tokens requests.
                 // The tokens left unfulfilled will be consumed from current `self.budget`.
-                tokens -= self.one_time_burst;
+                tokens = tokens.strict_sub(self.one_time_burst);
                 self.one_time_burst = 0;
             }
         }
@@ -232,7 +239,7 @@ impl TokenBucket {
                 );
                 // Empty the bucket and report the time required to replenish
                 // the tokens consumed in excess of the bucket capacity
-                tokens -= self.budget;
+                tokens = tokens.strict_sub(self.budget);
                 self.budget = 0;
                 return BucketReduction::OverConsumption(self.time_to_refill(tokens));
             }
@@ -243,7 +250,7 @@ impl TokenBucket {
             }
         }
 
-        self.budget -= tokens;
+        self.budget = self.budget.strict_sub(tokens);
         BucketReduction::Success
     }
 

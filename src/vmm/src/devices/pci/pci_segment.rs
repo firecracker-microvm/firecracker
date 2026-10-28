@@ -90,7 +90,8 @@ impl PciSegment {
             .expect("Slot 0 of the root bus is free");
 
         let pci_config_mmio = Arc::new(Mutex::new(PciConfigMmio::new(pci_buses.clone())));
-        let mmio_config_address = PCI_MMCONFIG_START + PCI_MMIO_CONFIG_SIZE_PER_SEGMENT * id as u64;
+        let mmio_config_address = PCI_MMCONFIG_START
+            .strict_add(PCI_MMIO_CONFIG_SIZE_PER_SEGMENT.strict_mul(u64::from(id)));
 
         vm.common.mmio_bus.insert(
             pci_config_mmio.clone(),
@@ -185,7 +186,8 @@ impl PciSegment {
 
     /// Number of the highest bus that exists in this segment.
     pub(crate) fn last_bus_number(&self) -> u8 {
-        self.pci_buses.num_buses() - 1
+        // There is always at least the root bus.
+        self.pci_buses.num_buses().strict_sub(1)
     }
 
     /// Attach hot-plug capable root ports to the primary bus.
@@ -226,7 +228,7 @@ impl PciSegment {
         states: &[PciRootPortState],
     ) -> Result<(), PciManagerError> {
         for (idx, state) in states.iter().enumerate() {
-            if state.sbdf.bus() != 0 || usize::from(state.secondary_bus) != idx + 1 {
+            if state.sbdf.bus() != 0 || usize::from(state.secondary_bus) != idx.strict_add(1) {
                 return Err(PciManagerError::InconsistentRootPort(
                     idx,
                     state.sbdf,

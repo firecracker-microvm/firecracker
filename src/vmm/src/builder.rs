@@ -593,7 +593,7 @@ fn allocate_pvtime_region(
     vcpu_count: usize,
     policy: vm_allocator::AllocPolicy,
 ) -> Result<GuestAddress, StartMicrovmError> {
-    let size = STEALTIME_STRUCT_MEM_SIZE * vcpu_count as u64;
+    let size = STEALTIME_STRUCT_MEM_SIZE.strict_mul(vcpu_count as u64);
     let addr = resource_allocator
         .system_memory
         .allocate(size, STEALTIME_STRUCT_MEM_SIZE, policy)
@@ -619,7 +619,9 @@ fn setup_pvtime(
     for (i, vcpu) in vcpus.iter_mut().enumerate() {
         vcpu.kvm_vcpu
             .enable_pvtime(GuestAddress(
-                pvtime_mem.0 + i as u64 * STEALTIME_STRUCT_MEM_SIZE,
+                pvtime_mem
+                    .0
+                    .strict_add((i as u64).strict_mul(STEALTIME_STRUCT_MEM_SIZE)),
             ))
             .map_err(StartMicrovmError::EnablePVTime)?;
     }

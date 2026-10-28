@@ -499,6 +499,7 @@ impl TcpIPv4Handler {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     use std::fmt::Debug;
 
     use super::*;

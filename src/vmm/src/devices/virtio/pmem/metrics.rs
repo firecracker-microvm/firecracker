@@ -125,7 +125,7 @@ pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let pmem_metrics = METRICS.read().unwrap();
     let metrics_len = pmem_metrics.metrics.len();
     // +1 to accommodate aggregate pmem metrics
-    let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
+    let mut seq = serializer.serialize_map(Some(1usize.strict_add(metrics_len)))?;
 
     let mut pmem_aggregated: PmemMetrics = PmemMetrics::default();
 

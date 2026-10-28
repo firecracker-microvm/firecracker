@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![doc(hidden)]
+#![allow(clippy::arithmetic_side_effects)]
 
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::mem;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::align_up;
 use crate::devices::virtio::queue::Queue;
@@ -22,7 +22,13 @@ macro_rules! check_metric_after_block {
     ($metric:expr, $delta:expr, $block:expr) => {{
         let before = $metric.count();
         let _ = $block;
-        assert_eq!($metric.count() - before, $delta, "unexpected metric value");
+        // A metric counter only ever increases within the block above, so the current value
+        // is bounded below by `before`.
+        assert_eq!(
+            $metric.count().strict_sub(before),
+            $delta,
+            "unexpected metric value"
+        );
     }};
 }
 
@@ -35,19 +41,6 @@ pub fn default_mem() -> GuestMemoryMmap {
 /// Creates a default ['IrqTrigger'] interrupt for a VirtIO device.
 pub fn default_interrupt() -> Arc<dyn VirtioInterrupt> {
     Arc::new(IrqTrigger::new())
-}
-
-#[derive(Debug)]
-pub struct InputData {
-    pub data: Vec<u8>,
-    pub read_pos: AtomicUsize,
-}
-
-impl InputData {
-    pub fn get_slice(&self, len: usize) -> &[u8] {
-        let old_pos = self.read_pos.fetch_add(len, Ordering::AcqRel);
-        &self.data[old_pos..old_pos + len]
-    }
 }
 
 // Represents a location in GuestMemoryMmap which holds a given type.

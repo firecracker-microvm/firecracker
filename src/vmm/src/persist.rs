@@ -626,7 +626,7 @@ fn create_guest_memory(
             page_size: huge_pages.page_size(),
             page_size_kib: huge_pages.page_size(),
         });
-        offset += mem_region.size() as u64;
+        offset = offset.strict_add(mem_region.size() as u64);
     }
 
     Ok((guest_memory, backend_mappings))

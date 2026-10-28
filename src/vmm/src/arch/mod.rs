@@ -22,8 +22,8 @@ pub use aarch64::vcpu::*;
 pub use aarch64::vm::{KvmVm, KvmVmError, VmState};
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::{
-    ConfigurationError, arch_memory_regions, configure_system_for_boot, get_kernel_start,
-    initrd_load_addr, layout::*, load_kernel,
+    ConfigurationError, MAX_GUEST_MEM_SIZE, arch_memory_regions, configure_system_for_boot,
+    get_kernel_start, initrd_load_addr, layout::*, load_kernel,
 };
 
 /// Module for x86_64 related functionality.
@@ -39,8 +39,8 @@ pub use x86_64::vm::{KvmVm, KvmVmError, VmState};
 
 #[cfg(target_arch = "x86_64")]
 pub use crate::arch::x86_64::{
-    ConfigurationError, arch_memory_regions, configure_system_for_boot, get_kernel_start,
-    initrd_load_addr, layout::*, load_kernel,
+    ConfigurationError, MAX_GUEST_MEM_SIZE, arch_memory_regions, configure_system_for_boot,
+    get_kernel_start, initrd_load_addr, layout::*, load_kernel,
 };
 
 /// Types of devices that can get attached to this platform.
@@ -171,8 +171,8 @@ fn arch_memory_regions_with_gap(
     // 0-sized gaps don't really make sense. We should never receive such a gap.
     assert!(gap_size > 0);
 
-    let first_addr_past_gap = gap_start + gap_size;
-    match (region_start + region_size).checked_sub(gap_start) {
+    let first_addr_past_gap = gap_start.strict_add(gap_size);
+    match (region_start.strict_add(region_size)).checked_sub(gap_start) {
         // case0: region fits all before gap
         None | Some(0) => {
             regions.push((GuestAddress(region_start as u64), region_size));
@@ -180,7 +180,10 @@ fn arch_memory_regions_with_gap(
         }
         // case1: region starts before the gap and goes past it
         Some(remaining) if region_start < gap_start => {
-            regions.push((GuestAddress(region_start as u64), gap_start - region_start));
+            regions.push((
+                GuestAddress(region_start as u64),
+                gap_start.strict_sub(region_start),
+            ));
             Some((first_addr_past_gap, remaining))
         }
         // case2: region starts past the gap

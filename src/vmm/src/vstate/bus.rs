@@ -60,7 +60,9 @@ impl BusRange {
         if len == 0 {
             return Err(BusError::ZeroSizedRange);
         }
-        let end = base.checked_add(len - 1).ok_or(BusError::InvalidRange)?;
+        let end = base
+            .checked_add(len.strict_sub(1))
+            .ok_or(BusError::InvalidRange)?;
         Ok(BusRange { base, end })
     }
 
@@ -211,7 +213,7 @@ impl Bus {
         };
 
         let mut locked = device.lock().unwrap();
-        let offset = addr - base;
+        let offset = addr.strict_sub(base);
         Ok(f(&mut *locked, base, offset))
     }
 
@@ -232,7 +234,8 @@ impl Bus {
             registered.end(),
             old_range.end(),
             "Bus mapping at {old_base:#x} is registered with length {}, not {len}",
-            registered.end() - registered.base() + 1
+            // `BusRange::new` guarantees `end >= base`.
+            registered.end().strict_sub(registered.base()).strict_add(1)
         );
 
         // Reject if the destination overlaps another device
@@ -262,6 +265,7 @@ impl Bus {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     use super::*;
 
     struct DummyDevice;

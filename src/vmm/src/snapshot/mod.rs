@@ -102,7 +102,7 @@ pub fn get_format_version<R: Read>(reader: &mut R) -> Result<Version, SnapshotEr
         )));
     }
 
-    let (data_buf, _crc_buf) = buf.split_at(buf.len() - 8);
+    let (data_buf, _crc_buf) = buf.split_at(buf.len().strict_sub(8));
 
     // Since bitcode requires exact type matching, we need to try deserializing
     // as the specific snapshot type we know about. In practice, all snapshots
@@ -198,7 +198,7 @@ impl<Data: DeserializeOwned> Snapshot<Data> {
             )));
         }
 
-        let (data_buf, _crc_buf) = buf.split_at(buf.len() - 8);
+        let (data_buf, _crc_buf) = buf.split_at(buf.len().strict_sub(8));
         let snapshot = Self::load_without_crc_check(data_buf)?;
 
         let computed_checksum = crc64(0, buf.as_slice());

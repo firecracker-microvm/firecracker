@@ -116,7 +116,7 @@ impl SyncFileEngine {
 
         // Read until the buffer is full, then mark dirty exactly what was read. A failed `read`
         // writes nothing, so what the earlier ones filled is all there is to mark either way.
-        let mut filled = 0;
+        let mut filled: usize = 0;
         let result = loop {
             if unmarked.is_empty() {
                 break Ok(());
@@ -131,7 +131,7 @@ impl SyncFileEngine {
                     )));
                 }
                 Ok(read) => {
-                    filled += read;
+                    filled = filled.strict_add(read);
                     // `read` cannot exceed the slice's length.
                     unmarked = unmarked.offset(read).unwrap();
                 }

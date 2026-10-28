@@ -119,6 +119,7 @@ fn should_exclude_msr_amd(index: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     use std::collections::BTreeMap;
 
     use vmm::cpu_config::x86_64::cpuid::{

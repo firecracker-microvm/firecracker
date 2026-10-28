@@ -159,7 +159,7 @@ impl DirtyPages {
         // 64 bits for the pages from the one holding the start of the range to the one holding
         // its end.
         assert!(
-            (first_page_offset + range_len).div_ceil(1 << page_shift) <= 64,
+            (first_page_offset.strict_add(range_len)).div_ceil(1 << page_shift) <= 64,
             "range covers more than 64 pages"
         );
         Self {
@@ -174,11 +174,16 @@ impl DirtyPages {
     fn record(&self, offset: usize, len: usize) {
         // The write covers the pages from the one holding its first byte to the one holding its
         // last byte, counted from the page holding the start of the range.
-        let first = (offset + self.first_page_offset) >> self.page_shift;
-        let last = (offset + self.first_page_offset + len - 1) >> self.page_shift;
+        // `offset + len <= range_len`, and `new` checked the range fits in 64 pages.
+        let first = (offset.strict_add(self.first_page_offset)) >> self.page_shift;
+        let last = (offset
+            .strict_add(self.first_page_offset)
+            .strict_add(len)
+            .strict_sub(1))
+            >> self.page_shift;
         // Bits `first..=last`: all the bits from `first` up, intersected with all the bits up to
         // `last`.
-        let pages = (u64::MAX << first) & (u64::MAX >> (63 - last));
+        let pages = (u64::MAX << first) & (u64::MAX >> (63usize.strict_sub(last)));
         self.dirty.fetch_or(pages, Ordering::Release);
     }
 
@@ -196,7 +201,7 @@ impl DirtyPages {
             let page = pages.trailing_zeros() as usize;
             // Subtracting 1 flips the lowest set bit and the zeros below it; the AND then keeps
             // all the other bits, clearing exactly the one just read.
-            pages &= pages - 1;
+            pages &= pages.strict_sub(1);
             f(page << self.page_shift);
         }
     }
@@ -223,12 +228,12 @@ impl GuestMemorySliceMut {
         // Regions are page-aligned in both guest and host memory, so host and guest pages
         // coincide: the bitmap tracks guest pages of the host page size.
         let page_size = host_page_size();
-        let first_page_offset = u64_to_usize(addr.0) % page_size;
+        let first_page_offset = u64_to_usize(addr.0).strict_rem(page_size);
         Ok(Self::Tracked {
             slice,
             dirty: DirtyPages::new(first_page_offset, len, page_size.trailing_zeros()),
             mem: tracking_mem,
-            first_page: GuestAddress(addr.0 - usize_to_u64(first_page_offset)),
+            first_page: GuestAddress(addr.0.strict_sub(usize_to_u64(first_page_offset))),
         })
     }
 
@@ -248,7 +253,11 @@ impl GuestMemorySliceMut {
             .expect("range resolved in this memory");
         let first_page_start = u64_to_usize(first_page_start.0);
         // Marking one byte marks the whole page.
-        dirty.take(|page_start| region.bitmap().mark_dirty(first_page_start + page_start, 1));
+        dirty.take(|page_start| {
+            region
+                .bitmap()
+                .mark_dirty(first_page_start.strict_add(page_start), 1)
+        });
     }
 
     /// Writes `val` at `offset` bytes into the range, or returns `None` if it does not fit.

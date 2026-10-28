@@ -27,6 +27,8 @@ pub enum SQueueError {
     VolatileMemory(#[from] VolatileMemoryError),
     /// Error returned by `io_uring_enter`: {0}
     Submit(#[from] IOError),
+    /// Host kernel returned a ring size that overflows
+    RingSizeOverflow,
 }
 
 #[derive(Debug)]
@@ -63,7 +65,7 @@ impl SubmissionQueue {
         // to be array[i] = i;
         let sq_array = ring_slice.offset(params.sq_off.array as usize)?;
         for i in 0..params.sq_entries {
-            sq_array.write_obj(i, mem::size_of::<u32>() * (i as usize))?;
+            sq_array.write_obj(i, (mem::size_of::<u32>()).strict_mul(i as usize))?;
         }
 
         let ring_mask = ring_slice.read_obj(params.sq_off.ring_mask as usize)?;
@@ -101,7 +103,7 @@ impl SubmissionQueue {
         // retrieve and populate the sqe
         if let Err(err) = self.sqes.as_volatile_slice().write_obj(
             sqe.0,
-            (tail as usize) * mem::size_of::<generated::io_uring_sqe>(),
+            (tail as usize).strict_mul(mem::size_of::<generated::io_uring_sqe>()),
         ) {
             return Err((SQueueError::VolatileMemory(err), sqe.user_data()));
         }
@@ -114,7 +116,7 @@ impl SubmissionQueue {
         }
 
         // This is safe since we already checked if there is enough space in the queue;
-        self.to_submit += 1;
+        self.to_submit = self.to_submit.strict_add(1);
 
         Ok(())
     }
@@ -145,9 +147,8 @@ impl SubmissionQueue {
         // It's safe to convert to u32 since the syscall didn't return an error.
         let submitted = u32::try_from(submitted).unwrap();
 
-        // This is safe since submitted <= self.to_submit. However we use a saturating_sub
-        // for extra safety.
-        self.to_submit = self.to_submit.saturating_sub(submitted);
+        // The kernel never reports more submissions than it was asked for.
+        self.to_submit = self.to_submit.strict_sub(submitted);
 
         Ok(submitted)
     }
@@ -158,8 +159,13 @@ impl SubmissionQueue {
     ) -> Result<(MmapRegion, MmapRegion), SQueueError> {
         // map the SQ_ring. The actual size of the ring is `num_entries * size_of(entry_type)`.
         // To this we add an offset as per the io_uring specifications.
-        let sqe_ring_size =
-            (params.sq_off.array as usize) + (params.sq_entries as usize) * mem::size_of::<u32>();
+        let sqe_ring_size = (params.sq_off.array as usize)
+            .checked_add(
+                (params.sq_entries as usize)
+                    .checked_mul(mem::size_of::<u32>())
+                    .ok_or(SQueueError::RingSizeOverflow)?,
+            )
+            .ok_or(SQueueError::RingSizeOverflow)?;
 
         let sqe_ring = mmap(
             sqe_ring_size,
@@ -168,8 +174,9 @@ impl SubmissionQueue {
         )?;
 
         // map the SQEs.
-        let sqes_array_size =
-            (params.sq_entries as usize) * mem::size_of::<generated::io_uring_sqe>();
+        let sqes_array_size = (params.sq_entries as usize)
+            .checked_mul(mem::size_of::<generated::io_uring_sqe>())
+            .ok_or(SQueueError::RingSizeOverflow)?;
 
         let sqes = mmap(
             sqes_array_size,

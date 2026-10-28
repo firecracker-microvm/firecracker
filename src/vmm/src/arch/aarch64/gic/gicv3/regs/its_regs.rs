@@ -95,8 +95,9 @@ impl ItsRegisterState {
     pub fn save(its_fd: &DeviceFd) -> Result<Self, GicError> {
         let mut state = ItsRegisterState::default();
 
-        for i in 0..8 {
-            state.baser[i as usize] = its_read_register(its_fd, GITS_BASER + i * 8)?;
+        for i in 0..8u32 {
+            state.baser[i as usize] =
+                its_read_register(its_fd, GITS_BASER.strict_add(i.strict_mul(8)))?;
         }
         state.ctlr = its_read_register(its_fd, GITS_CTLR)?;
         state.cbaser = its_read_register(its_fd, GITS_CBASER)?;
@@ -125,8 +126,12 @@ impl ItsRegisterState {
         its_set_register(its_fd, GITS_CBASER, self.cbaser)?;
         its_set_register(its_fd, GITS_CREADR, self.creadr)?;
         its_set_register(its_fd, GITS_CWRITER, self.cwriter)?;
-        for i in 0..8 {
-            its_set_register(its_fd, GITS_BASER + i * 8, self.baser[i as usize])?;
+        for i in 0..8u32 {
+            its_set_register(
+                its_fd,
+                GITS_BASER.strict_add(i.strict_mul(8)),
+                self.baser[i as usize],
+            )?;
         }
         // We need to restore saved ITS tables before restoring GITS_CTLR
         its_restore_tables(its_fd)?;

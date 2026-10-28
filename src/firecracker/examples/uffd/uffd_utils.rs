@@ -44,7 +44,7 @@ pub struct GuestRegionUffdMapping {
 impl GuestRegionUffdMapping {
     fn contains(&self, fault_page_addr: u64) -> bool {
         fault_page_addr >= self.base_host_virt_addr
-            && fault_page_addr < self.base_host_virt_addr + self.size as u64
+            && fault_page_addr < self.base_host_virt_addr.strict_add(self.size as u64)
     }
 }
 
@@ -146,7 +146,7 @@ impl UffdHandler {
 
     pub fn serve_pf(&mut self, addr: *mut u8, len: usize) -> bool {
         // Find the start of the page that the current faulting address belongs to.
-        let dst = (addr as usize & !(self.page_size - 1)) as *mut libc::c_void;
+        let dst = (addr as usize & !(self.page_size.strict_sub(1))) as *mut libc::c_void;
         let fault_page_addr = dst as u64;
 
         for region in self.mem_regions.iter() {
@@ -162,8 +162,11 @@ impl UffdHandler {
     }
 
     fn populate_from_file(&self, region: &GuestRegionUffdMapping, dst: u64, len: usize) -> bool {
-        let offset = dst - region.base_host_virt_addr;
-        let src = self.backing_buffer as u64 + region.offset + offset;
+        // `region.contains(dst)` was checked by the caller.
+        let offset = dst.strict_sub(region.base_host_virt_addr);
+        let src = (self.backing_buffer as u64)
+            .strict_add(region.offset)
+            .strict_add(offset);
 
         unsafe {
             match self.uffd.copy(src as *const _, dst as *mut _, len, true) {
@@ -301,7 +304,7 @@ impl Runtime {
                     break;
                 }
                 if pollfds[i].revents & libc::POLLIN != 0 {
-                    nready -= 1;
+                    nready = nready.strict_sub(1);
                     if pollfds[i].fd == self.stream.as_raw_fd() {
                         // Handle new uffd from stream
                         let handler = UffdHandler::from_unix_stream(

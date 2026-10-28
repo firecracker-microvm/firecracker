@@ -123,7 +123,7 @@ pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let net_metrics = METRICS.read().unwrap();
     let metrics_len = net_metrics.metrics.len();
     // +1 to accommodate aggregate net metrics
-    let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
+    let mut seq = serializer.serialize_map(Some(1usize.strict_add(metrics_len)))?;
 
     let mut net_aggregated: NetDeviceMetrics = NetDeviceMetrics::default();
 

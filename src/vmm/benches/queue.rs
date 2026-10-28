@@ -6,7 +6,7 @@
 //   * `Queue.add_used`
 //   * `DescriptorChain.next_descriptor`
 
-#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_possible_truncation, clippy::arithmetic_side_effects)]
 
 use std::num::Wrapping;
 

@@ -5,7 +5,7 @@ use std::fmt::{self, Debug};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde_json::Value;
-use utils::time::{ClockType, get_time_us};
+use std::time::Instant;
 
 use super::builder::build_and_boot_microvm;
 use super::persist::{create_snapshot, restore_from_snapshot};
@@ -649,7 +649,7 @@ impl<'a> PrebootApiController<'a> {
         &mut self,
         load_params: &LoadSnapshotParams,
     ) -> Result<VmmData, LoadSnapshotError> {
-        let load_start_us = get_time_us(ClockType::Monotonic);
+        let load_start = Instant::now();
 
         if self.boot_path {
             let err = LoadSnapshotError::LoadSnapshotNotAllowed;
@@ -684,7 +684,7 @@ impl<'a> PrebootApiController<'a> {
 
         debug!(
             "'load snapshot' VMM action took {} us.",
-            update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_load_snapshot, load_start_us)
+            update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_load_snapshot, load_start)
         );
 
         Ok(VmmData::Empty)
@@ -883,12 +883,12 @@ impl RuntimeApiController {
     /// Device emulation is not stopped here; `ApiServerAdapter::handle_request` stops
     /// polling the event loop once this returns `Ok`.
     pub fn pause(&mut self) -> Result<VmmData, VmmActionError> {
-        let pause_start_us = get_time_us(ClockType::Monotonic);
+        let pause_start = Instant::now();
 
         self.vmm.lock().expect("Poisoned lock").pause_vm()?;
 
         let elapsed_time_us =
-            update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_pause_vm, pause_start_us);
+            update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_pause_vm, pause_start);
         info!("'pause vm' VMM action took {} us.", elapsed_time_us);
 
         Ok(VmmData::Empty)
@@ -896,12 +896,12 @@ impl RuntimeApiController {
 
     /// Resumes the microVM by resuming the vCPUs.
     pub fn resume(&mut self) -> Result<VmmData, VmmActionError> {
-        let resume_start_us = get_time_us(ClockType::Monotonic);
+        let resume_start = Instant::now();
 
         self.vmm.lock().expect("Poisoned lock").resume_vm()?;
 
         let elapsed_time_us =
-            update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_resume_vm, resume_start_us);
+            update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_resume_vm, resume_start);
         info!("'resume vm' VMM action took {} us.", elapsed_time_us);
 
         Ok(VmmData::Empty)
@@ -941,7 +941,7 @@ impl RuntimeApiController {
 
         let mut locked_vmm = self.vmm.lock().unwrap();
         let vm_info = VmInfo::from(&*locked_vmm);
-        let create_start_us = get_time_us(ClockType::Monotonic);
+        let create_start = Instant::now();
 
         create_snapshot(&mut locked_vmm, &vm_info, create_params)?;
 
@@ -949,7 +949,7 @@ impl RuntimeApiController {
             SnapshotType::Full => {
                 let elapsed_time_us = update_metric_with_elapsed_time(
                     &METRICS.latencies_us.vmm_full_create_snapshot,
-                    create_start_us,
+                    create_start,
                 );
                 info!(
                     "'create full snapshot' VMM action took {} us.",
@@ -959,7 +959,7 @@ impl RuntimeApiController {
             SnapshotType::Diff => {
                 let elapsed_time_us = update_metric_with_elapsed_time(
                     &METRICS.latencies_us.vmm_diff_create_snapshot,
-                    create_start_us,
+                    create_start,
                 );
                 info!(
                     "'create diff snapshot' VMM action took {} us.",

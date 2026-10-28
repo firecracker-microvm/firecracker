@@ -284,7 +284,9 @@ impl BusDevice for MmioTransport {
                 };
                 byte_order::write_le_u32(data, v);
             }
-            0x100..=0xfff => self.locked_device().read_config(offset - 0x100, data),
+            0x100..=0xfff => self
+                .locked_device()
+                .read_config(offset.strict_sub(0x100), data),
             _ => {
                 warn!(
                     "invalid virtio mmio read: {base:#x}:{offset:#x}:{:#x}",
@@ -350,7 +352,8 @@ impl BusDevice for MmioTransport {
                     device_status::DRIVER,
                     device_status::FAILED | device_status::DEVICE_NEEDS_RESET,
                 ) {
-                    self.locked_device().write_config(offset - 0x100, data)
+                    self.locked_device()
+                        .write_config(offset.strict_sub(0x100), data)
                 } else {
                     warn!("can not write to device config data area before driver is ready");
                 }
@@ -577,7 +580,7 @@ pub(crate) mod tests {
 
         fn write_config(&mut self, offset: u64, data: &[u8]) {
             for (i, item) in data.iter().enumerate() {
-                self.config_bytes[u64_to_usize(offset) + i] = *item;
+                self.config_bytes[u64_to_usize(offset).strict_add(i)] = *item;
             }
         }
 

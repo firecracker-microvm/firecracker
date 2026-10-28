@@ -712,7 +712,8 @@ impl Env {
             self.mknod_and_own_dev(DEV_UFFD_PATH, DEV_UFFD_MAJOR, minor)?;
         }
 
-        self.jailer_cpu_time_us = get_time_us(ClockType::ProcessCpu) - self.start_time_cpu_us;
+        self.jailer_cpu_time_us =
+            get_time_us(ClockType::ProcessCpu).strict_sub(self.start_time_cpu_us);
 
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(dev_null) = dev_null {
@@ -739,7 +740,9 @@ impl Env {
                 .map_err(JailerError::SetSid)?;
 
             // Meter CPU usage after first fork()
-            self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu);
+            self.jailer_cpu_time_us = self
+                .jailer_cpu_time_us
+                .strict_add(get_time_us(ClockType::ProcessCpu));
 
             // Daemons should not have controlling terminals.
             // If a daemon has a controlling terminal, it can receive signals
@@ -764,7 +767,9 @@ impl Env {
             dup2(dev_null.as_raw_fd(), STDERR_FILENO)?;
 
             // Meter CPU usage after second fork()
-            self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu);
+            self.jailer_cpu_time_us = self
+                .jailer_cpu_time_us
+                .strict_add(get_time_us(ClockType::ProcessCpu));
         }
 
         // If specified, exec the provided binary into a new PID namespace.

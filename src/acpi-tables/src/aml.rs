@@ -217,17 +217,19 @@ fn create_pkg_length(data: &[u8], include_self: bool) -> Vec<u8> {
     let mut result = Vec::new();
 
     // PkgLength is inclusive and includes the length bytes
-    let length_length = if data.len() < (2usize.pow(6) - 1) {
+    let length_length = if data.len() < (2usize.pow(6).strict_sub(1)) {
         1
-    } else if data.len() < (2usize.pow(12) - 2) {
+    } else if data.len() < (2usize.pow(12).strict_sub(2)) {
         2
-    } else if data.len() < (2usize.pow(20) - 3) {
+    } else if data.len() < (2usize.pow(20).strict_sub(3)) {
         3
     } else {
         4
     };
 
-    let length = data.len() + if include_self { length_length } else { 0 };
+    let length = data
+        .len()
+        .strict_add(if include_self { length_length } else { 0 });
 
     match length_length {
         1 => result.push(length.try_into().unwrap()),
@@ -263,9 +265,9 @@ impl EisaName {
 
         let data = name.as_bytes();
 
-        let value: u32 = ((u32::from(data[0] - 0x40) << 26)
-            | (u32::from(data[1] - 0x40) << 21)
-            | (u32::from(data[2] - 0x40) << 16)
+        let value: u32 = ((u32::from(data[0].strict_sub(0x40)) << 26)
+            | (u32::from(data[1].strict_sub(0x40)) << 21)
+            | (u32::from(data[2].strict_sub(0x40)) << 16)
             | (name.chars().nth(3).unwrap().to_digit(16).unwrap() << 12)
             | (name.chars().nth(4).unwrap().to_digit(16).unwrap() << 8)
             | (name.chars().nth(5).unwrap().to_digit(16).unwrap() << 4)
@@ -479,15 +481,15 @@ impl Aml for AddressSpace<u16> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         self.push_header(
             bytes,
-            0x88,                               // Word Address Space Descriptor
-            3 + 5 * std::mem::size_of::<u16>(), // 3 bytes of header + 5 u16 fields
+            0x88,                                         // Word Address Space Descriptor
+            const { 3 + 5 * std::mem::size_of::<u16>() }, // 3 bytes of header + 5 u16 fields
         );
 
         bytes.extend_from_slice(&0u16.to_le_bytes()); // Granularity
         bytes.extend_from_slice(&self.min.to_le_bytes()); // Min
         bytes.extend_from_slice(&self.max.to_le_bytes()); // Max
         bytes.extend_from_slice(&0u16.to_le_bytes()); // Translation
-        let len = self.max - self.min + 1;
+        let len = self.max.strict_sub(self.min).strict_add(1);
         bytes.extend_from_slice(&len.to_le_bytes()); // Length
         Ok(())
     }
@@ -497,15 +499,15 @@ impl Aml for AddressSpace<u32> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         self.push_header(
             bytes,
-            0x87,                               // DWord Address Space Descriptor
-            3 + 5 * std::mem::size_of::<u32>(), // 3 bytes of header + 5 u32 fields
+            0x87,                                         // DWord Address Space Descriptor
+            const { 3 + 5 * std::mem::size_of::<u32>() }, // 3 bytes of header + 5 u32 fields
         );
 
         bytes.extend_from_slice(&0u32.to_le_bytes()); // Granularity
         bytes.extend_from_slice(&self.min.to_le_bytes()); // Min
         bytes.extend_from_slice(&self.max.to_le_bytes()); // Max
         bytes.extend_from_slice(&0u32.to_le_bytes()); // Translation
-        let len = self.max - self.min + 1;
+        let len = self.max.strict_sub(self.min).strict_add(1);
         bytes.extend_from_slice(&len.to_le_bytes()); // Length
         Ok(())
     }
@@ -515,15 +517,15 @@ impl Aml for AddressSpace<u64> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         self.push_header(
             bytes,
-            0x8A,                               // QWord Address Space Descriptor
-            3 + 5 * std::mem::size_of::<u64>(), // 3 bytes of header + 5 u64 fields
+            0x8A,                                         // QWord Address Space Descriptor
+            const { 3 + 5 * std::mem::size_of::<u64>() }, // 3 bytes of header + 5 u64 fields
         );
 
         bytes.extend_from_slice(&0u64.to_le_bytes()); // Granularity
         bytes.extend_from_slice(&self.min.to_le_bytes()); // Min
         bytes.extend_from_slice(&self.max.to_le_bytes()); // Max
         bytes.extend_from_slice(&0u64.to_le_bytes()); // Translation
-        let len = self.max - self.min + 1;
+        let len = self.max.strict_sub(self.min).strict_add(1);
         bytes.extend_from_slice(&len.to_le_bytes()); // Length
         Ok(())
     }
@@ -912,7 +914,7 @@ impl Aml for Arg {
         if self.0 > 6 {
             return Err(AmlError::InvalidPartLength);
         }
-        bytes.push(0x68 + self.0); // Arg0Op
+        bytes.push(0x68u8.strict_add(self.0)); // Arg0Op
         Ok(())
     }
 }
@@ -924,7 +926,7 @@ impl Aml for Local {
         if self.0 > 7 {
             return Err(AmlError::InvalidPartLength);
         }
-        bytes.push(0x60 + self.0); // Local0Op
+        bytes.push(0x60u8.strict_add(self.0)); // Local0Op
         Ok(())
     }
 }

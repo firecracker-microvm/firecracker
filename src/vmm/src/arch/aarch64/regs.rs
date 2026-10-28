@@ -51,7 +51,7 @@ macro_rules! arm64_core_reg_id {
         KVM_REG_ARM64 as u64
             | KVM_REG_ARM_CORE as u64
             | $size
-            | ($offset / std::mem::size_of::<u32>()) as u64
+            | ($offset.strict_div(std::mem::size_of::<u32>())) as u64
     };
 }
 pub(crate) use arm64_core_reg_id;
@@ -137,7 +137,7 @@ pub const KVM_REG_ARM64_SVE_VLS: u64 =
 pub const PC: u64 = {
     let kreg_off = offset_of!(kvm_regs, regs);
     let pc_off = offset_of!(user_pt_regs, pc);
-    arm64_core_reg_id!(KVM_REG_SIZE_U64, kreg_off + pc_off)
+    arm64_core_reg_id!(KVM_REG_SIZE_U64, kreg_off.strict_add(pc_off))
 };
 
 /// Different aarch64 registers sizes
@@ -300,7 +300,12 @@ impl<'de> Deserialize<'de> for Aarch64RegisterVec {
                      not supported",
                 ));
             }
-            total_size += reg_size;
+            // `ids` comes from a snapshot file; don't compare a wrapped sum against `data.len()`.
+            total_size = total_size.checked_add(reg_size).ok_or_else(|| {
+                serde::de::Error::custom(
+                    "Failed to deserialize aarch64 registers. Total register size overflowed",
+                )
+            })?;
         }
 
         if total_size != data.len() {
@@ -330,12 +335,14 @@ impl<'a> Iterator for Aarch64RegisterVecIterator<'a> {
         if self.index < self.ids.len() {
             let id = self.ids[self.index];
             let reg_size = reg_size(id);
+            // `Aarch64RegisterVec` keeps the sum of register sizes within `data.len()`.
+            let end = self.offset.strict_add(reg_size);
             let reg_ref = Aarch64RegisterRef {
                 id,
-                data: &self.data[self.offset..self.offset + reg_size],
+                data: &self.data[self.offset..end],
             };
-            self.index += 1;
-            self.offset += reg_size;
+            self.index = self.index.strict_add(1);
+            self.offset = end;
             Some(reg_ref)
         } else {
             None
@@ -363,8 +370,8 @@ impl<'a> Iterator for Aarch64RegisterVecIteratorMut<'a> {
             let data = std::mem::take(&mut self.data);
             let (head, tail) = data.split_at_mut(reg_size);
 
-            self.index += 1;
-            self.offset += reg_size;
+            self.index = self.index.strict_add(1);
+            self.offset = self.offset.strict_add(reg_size);
             self.data = tail;
             Some(Aarch64RegisterRefMut { id, data: head })
         } else {

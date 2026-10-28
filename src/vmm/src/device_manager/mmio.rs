@@ -81,7 +81,9 @@ fn add_virtio_aml(
     len: u64,
     gsi: u32,
 ) -> Result<(), aml::AmlError> {
-    let dev_id = gsi - crate::arch::GSI_LEGACY_START;
+    // `gsi` comes from `ResourceAllocator::allocate_gsi_legacy`, whose range starts at
+    // `GSI_LEGACY_START`.
+    let dev_id = gsi.strict_sub(crate::arch::GSI_LEGACY_START);
     debug!(
         "acpi: Building AML for VirtIO device _SB_.V{:03}. memory range: {:#010x}:{} gsi: {}",
         dev_id, addr, len, gsi
@@ -202,8 +204,12 @@ impl MMIOVirtioDevices {
             let locked_device = mmio_device.locked_device();
             identifier = (locked_device.device_type(), device_id);
             for (i, queue_evt) in locked_device.queue_events().iter().enumerate() {
+                // `device.resources.addr` is allocated from the MMIO32 address space.
                 let io_addr = IoEventAddress::Mmio(
-                    device.resources.addr + u64::from(crate::devices::virtio::NOTIFY_REG_OFFSET),
+                    device
+                        .resources
+                        .addr
+                        .strict_add(u64::from(crate::devices::virtio::NOTIFY_REG_OFFSET)),
                 );
                 vm.fd()
                     .register_ioevent(queue_evt, &io_addr, u32::try_from(i).unwrap())

@@ -1,0 +1,7 @@
+# `Instant`/`SystemTime` +/- `Duration` and `Duration` +/- `Duration` saturate or panic
+# deterministically; they are not integer overflow hazards.
+arithmetic-side-effects-allowed-binary = [
+    ["std::time::Instant", "std::time::Duration"],
+    ["std::time::SystemTime", "std::time::Duration"],
+    ["std::time::Duration", "std::time::Duration"],
+]

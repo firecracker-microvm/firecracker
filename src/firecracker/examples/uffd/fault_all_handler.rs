@@ -9,9 +9,9 @@ mod uffd_utils;
 
 use std::fs::File;
 use std::os::unix::net::UnixListener;
+use std::time::Instant;
 
 use uffd_utils::{Runtime, UffdHandler};
-use utils::time::{ClockType, get_time_us};
 
 fn main() {
     let mut args = std::env::args();
@@ -35,13 +35,11 @@ fn main() {
 
         match event {
             userfaultfd::Event::Pagefault { .. } => {
-                let start = get_time_us(ClockType::Monotonic);
+                let start = Instant::now();
                 for region in uffd_handler.mem_regions.clone() {
                     uffd_handler.serve_pf(region.base_host_virt_addr as _, region.size);
                 }
-                let end = get_time_us(ClockType::Monotonic);
-
-                println!("Finished Faulting All: {}us", end - start);
+                println!("Finished Faulting All: {}us", start.elapsed().as_micros());
             }
             _ => panic!("Unexpected event on userfaultfd"),
         }

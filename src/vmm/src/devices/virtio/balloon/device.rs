@@ -289,18 +289,18 @@ impl Balloon {
         let mut queue_count = BALLOON_MIN_NUM_QUEUES;
         if stats_polling_interval_s > 0 {
             avail_features |= 1u64 << VIRTIO_BALLOON_F_STATS_VQ;
-            queue_count += 1;
+            queue_count = queue_count.strict_add(1);
         }
 
         if free_page_hinting {
             log_dev_preview_warning("Free Page Hinting", None);
             avail_features |= 1u64 << VIRTIO_BALLOON_F_FREE_PAGE_HINTING;
-            queue_count += 1;
+            queue_count = queue_count.strict_add(1);
         }
 
         if free_page_reporting {
             avail_features |= 1u64 << VIRTIO_BALLOON_F_FREE_PAGE_REPORTING;
-            queue_count += 1;
+            queue_count = queue_count.strict_add(1);
         }
 
         let queues: Vec<Queue> = (0..queue_count)
@@ -413,7 +413,7 @@ impl Balloon {
                     }
                     // Break loop if `pfn_buffer` will be overrun by adding all pfns from current
                     // desc.
-                    if MAX_PAGE_COMPACT_BUFFER - pfn_buffer_idx < len / SIZE_OF_U32 {
+                    if MAX_PAGE_COMPACT_BUFFER.strict_sub(pfn_buffer_idx) < len / SIZE_OF_U32 {
                         queue.undo_pop();
                         break;
                     }
@@ -430,7 +430,7 @@ impl Balloon {
                             .map_err(|_| BalloonError::MalformedDescriptor)?;
 
                         self.pfn_buffer[pfn_buffer_idx] = page_frame_number;
-                        pfn_buffer_idx += 1;
+                        pfn_buffer_idx = pfn_buffer_idx.strict_add(1);
                     }
                 }
 
@@ -734,7 +734,7 @@ impl Balloon {
         let mut idx = BALLOON_MIN_NUM_QUEUES;
 
         if self.stats_polling_interval_s > 0 {
-            idx += 1;
+            idx = idx.strict_add(1);
         }
 
         idx
@@ -748,11 +748,11 @@ impl Balloon {
         let mut idx = BALLOON_MIN_NUM_QUEUES;
 
         if self.stats_polling_interval_s > 0 {
-            idx += 1;
+            idx = idx.strict_add(1);
         }
 
         if self.free_page_hinting() {
-            idx += 1;
+            idx = idx.strict_add(1);
         }
 
         idx
@@ -1016,6 +1016,7 @@ impl VirtioDevice for Balloon {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #![allow(clippy::arithmetic_side_effects)]
     use itertools::iproduct;
 
     use super::super::BALLOON_CONFIG_SPACE_SIZE;

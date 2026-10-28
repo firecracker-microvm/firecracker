@@ -127,9 +127,10 @@ impl VirtioMem {
             block_size: u32_mib_to_bytes(block_size_mib),
             ..Default::default()
         };
+        // `block_size_mib` is validated non-zero by `MemoryHotplugConfig::validate()`.
         let plugged_blocks = BitVec::repeat(
             false,
-            u64_to_usize((total_size_mib / block_size_mib).into()),
+            u64_to_usize((total_size_mib.strict_div(block_size_mib)).into()),
         );
 
         Self::from_state(
@@ -216,8 +217,11 @@ impl VirtioMem {
         &self.device_state.active_state().unwrap().mem
     }
 
-    fn nb_blocks_to_len(&self, nb_blocks: usize) -> usize {
-        nb_blocks * u64_to_usize(self.config.block_size)
+    /// Byte length of `nb_blocks` blocks. `nb_blocks` is guest-controlled, so the product is checked.
+    fn nb_blocks_to_len(&self, nb_blocks: usize) -> Result<usize, VirtioMemError> {
+        nb_blocks
+            .checked_mul(u64_to_usize(self.config.block_size))
+            .ok_or_else(|| VirtioMemError::InvalidSize(usize_to_u64(nb_blocks)))
     }
 
     /// Returns the state of all the blocks in the given range.
@@ -311,7 +315,7 @@ impl VirtioMem {
 
         // Ensure the end offset (exclusive) is within the usable region
         let _end_off = start_off
-            .checked_add(usize_to_u64(self.nb_blocks_to_len(range.nb_blocks)))
+            .checked_add(usize_to_u64(self.nb_blocks_to_len(range.nb_blocks)?))
             .filter(|&end_off| end_off <= self.config.usable_region_size)
             .ok_or(VirtioMemError::InvalidRange(*range))?;
 
@@ -319,15 +323,26 @@ impl VirtioMem {
     }
 
     fn unchecked_block_range(&self, range: &RequestedRange) -> Range<usize> {
-        let start_block = u64_to_usize((range.addr.0 - self.config.addr) / self.config.block_size);
+        // Caller contract: `validate_range` must have run first. `block_size` is validated
+        // non-zero by `MemoryHotplugConfig::validate()`.
+        let start_block = u64_to_usize(
+            range
+                .addr
+                .0
+                .strict_sub(self.config.addr)
+                .strict_div(self.config.block_size),
+        );
 
-        start_block..(start_block + range.nb_blocks)
+        start_block..(start_block.strict_add(range.nb_blocks))
     }
 
     fn process_plug_request(&mut self, range: &RequestedRange) -> Result<(), VirtioMemError> {
         self.validate_range(range)?;
 
-        if self.config.plugged_size + usize_to_u64(self.nb_blocks_to_len(range.nb_blocks))
+        if self
+            .config
+            .plugged_size
+            .strict_add(usize_to_u64(self.nb_blocks_to_len(range.nb_blocks)?))
             > self.config.requested_size
         {
             return Err(VirtioMemError::PlugRequestIsTooBig);
@@ -349,16 +364,17 @@ impl VirtioMem {
         METRICS.plug_count.inc();
         let _metric = METRICS.plug_agg.record_latency_metrics();
 
-        let response = match self.process_plug_request(range) {
+        let response = match self
+            .process_plug_request(range)
+            .and_then(|()| self.nb_blocks_to_len(range.nb_blocks))
+        {
             Err(err) => {
                 METRICS.plug_fails.inc();
                 error!("virtio-mem: Failed to plug range: {}", err);
                 Response::error()
             }
-            Ok(_) => {
-                METRICS
-                    .plug_bytes
-                    .add(usize_to_u64(self.nb_blocks_to_len(range.nb_blocks)));
+            Ok(len) => {
+                METRICS.plug_bytes.add(usize_to_u64(len));
                 Response::ack()
             }
         };
@@ -383,16 +399,17 @@ impl VirtioMem {
     ) -> Result<(), VirtioMemError> {
         METRICS.unplug_count.inc();
         let _metric = METRICS.unplug_agg.record_latency_metrics();
-        let response = match self.process_unplug_request(range) {
+        let response = match self
+            .process_unplug_request(range)
+            .and_then(|()| self.nb_blocks_to_len(range.nb_blocks))
+        {
             Err(err) => {
                 METRICS.unplug_fails.inc();
                 error!("virtio-mem: Failed to unplug range: {}", err);
                 Response::error()
             }
-            Ok(_) => {
-                METRICS
-                    .unplug_bytes
-                    .add(usize_to_u64(self.nb_blocks_to_len(range.nb_blocks)));
+            Ok(len) => {
+                METRICS.unplug_bytes.add(usize_to_u64(len));
                 Response::ack()
             }
         };
@@ -511,7 +528,8 @@ impl VirtioMem {
         req_blocks: &Range<usize>,
         plug: bool,
     ) -> Result<bool, VirtioMemError> {
-        let slot_blocks = slot_first_block..(slot_first_block + slot_nb_blocks);
+        // `slot_*` lie within the device's own region.
+        let slot_blocks = slot_first_block..(slot_first_block.strict_add(slot_nb_blocks));
         let touched = slot_blocks.start.max(req_blocks.start)..slot_blocks.end.min(req_blocks.end);
         // The slot stays plugged into KVM if any of its blocks is plugged once the request applies.
         let keep_plugged = slot_blocks.clone().any(|b| {
@@ -534,16 +552,27 @@ impl VirtioMem {
         let plugged_before = self.plugged_blocks[touched.clone()].count_ones();
         self.plugged_blocks[touched.clone()].fill(plug);
         let plugged_after = self.plugged_blocks[touched.clone()].count_ones();
-        self.config.plugged_size -= usize_to_u64(self.nb_blocks_to_len(plugged_before));
-        self.config.plugged_size += usize_to_u64(self.nb_blocks_to_len(plugged_after));
+        self.config.plugged_size = self
+            .config
+            .plugged_size
+            .strict_sub(usize_to_u64(self.nb_blocks_to_len(plugged_before).expect(
+                "plugged_before is bounded by a single KVM slot's block count",
+            )))
+            .strict_add(usize_to_u64(self.nb_blocks_to_len(plugged_after).expect(
+                "plugged_after is bounded by a single KVM slot's block count",
+            )));
 
         if !plug {
-            let addr =
-                GuestAddress(self.config.addr + touched.start as u64 * self.config.block_size);
-            if let Err(err) = self
-                .guest_memory()
-                .discard_range(addr, self.nb_blocks_to_len(touched.len()))
-            {
+            let addr = GuestAddress(
+                self.config
+                    .addr
+                    .strict_add(usize_to_u64(touched.start).strict_mul(self.config.block_size)),
+            );
+            if let Err(err) = self.guest_memory().discard_range(
+                addr,
+                self.nb_blocks_to_len(touched.len())
+                    .expect("touched.len() is bounded by a single KVM slot's block count"),
+            ) {
                 error!("virtio-mem: Failed to discard memory range: {}", err);
                 return Ok(true);
             }
@@ -573,14 +602,19 @@ impl VirtioMem {
                 .find(|r| r.region_type == GuestRegionType::Hotpluggable)
                 .expect("there should be one and only one hotpluggable region");
             hp_region
-                .slots_intersecting_range(range.addr, self.nb_blocks_to_len(range.nb_blocks))
+                .slots_intersecting_range(range.addr, self.nb_blocks_to_len(range.nb_blocks)?)
                 .map(|(slot, _)| {
-                    let first_block =
-                        u64_to_usize((slot.guest_addr.0 - self.config.addr) / block_size);
+                    // `slot` lies within the device's own region; `block_size` is validated non-zero.
+                    let first_block = u64_to_usize(
+                        slot.guest_addr
+                            .0
+                            .strict_sub(self.config.addr)
+                            .strict_div(block_size),
+                    );
                     (
                         slot.slot,
                         first_block,
-                        slot.slice.len() / u64_to_usize(block_size),
+                        slot.slice.len().strict_div(u64_to_usize(block_size)),
                     )
                 })
                 .collect()
