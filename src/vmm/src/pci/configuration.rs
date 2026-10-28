@@ -44,7 +44,13 @@ const CAPABILITY_MAX_OFFSET: u16 = 192;
 /// PCI configuration register index of the Command/Status DWORD.
 pub const COMMAND_REG: u16 = 1;
 /// Command register "Memory Space Enable" bit
-pub const COMMAND_MEMORY_SPACE_ENABLE: u32 = 0x0000_0002;
+pub const COMMAND_IO_SPACE_ENABLE: u32 = 1 << 0;
+/// Command register "Memory Space Enable" bit
+pub const COMMAND_MEMORY_SPACE_ENABLE: u32 = 1 << 1;
+/// Command register "Bus Master Enable" bit
+pub const COMMAND_BUS_MASTER_ENABLE: u32 = 1 << 2;
+/// Command register "Interrupt Disable" bit
+pub const COMMAND_INTERRUPT_DISABLE_ENABLE: u32 = 1 << 10;
 /// First register in the BARs region
 pub const BAR0_REG_IDX: u16 = 4;
 /// Number of BAR registers
