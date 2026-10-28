@@ -25,6 +25,15 @@ required:
 tools/devtool -y test --performance
 ```
 
+A few functional tests need a `hugetlbfs` pool too, without the rest of the
+tuning. For those, `--huge-pages` is enough; `--performance` implies it. Without
+a pool, their `2M` variants fail when Firecracker allocates guest memory, for
+example
+
+```sh
+tools/devtool -y test --huge-pages -- integration_tests/functional/test_memory_backend.py
+```
+
 To run only tests from specific directories and/or files:
 
 ```sh
@@ -508,7 +517,9 @@ def test_my_perf_thing(uvm_booted, huge_pages):
 ```
 
 Functional tests can leave `huge_pages` at the default and don't need to declare
-it.
+it. The exception is a feature whose behaviour depends on what backs guest
+memory, such as sharing it with a memory backend (shmem or hugetlbfs): those
+tests parametrize over the variants they support.
 
 ### Markers
 
