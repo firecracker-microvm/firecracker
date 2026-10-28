@@ -939,12 +939,17 @@ pub(crate) mod tests {
             )
             .expect("failed to configure vcpu");
 
-        let mut seccomp_filters = get_empty_filters();
+        let seccomp_filters = get_empty_filters();
         let barrier = Arc::new(Barrier::new(2));
         let vcpu_handle = vcpu
             .start_threaded(
                 &vm,
-                seccomp_filters.remove("vcpu").unwrap(),
+                Arc::new(
+                    seccomp_filters
+                        .get("vcpu")
+                        .unwrap()
+                        .compose(crate::seccomp::SeccompFeatures::all()),
+                ),
                 barrier.clone(),
             )
             .expect("failed to start vcpu");

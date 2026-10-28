@@ -89,6 +89,7 @@ def run_seccompiler_bin(
     json_path=defs.SECCOMP_JSON_DIR,
     basic=False,
     split_output=False,
+    features=None,
     binary_dir=DEFAULT_BINARY_DIR,
 ):
     """
@@ -96,6 +97,9 @@ def run_seccompiler_bin(
 
     :param bpf_path: path to the output file
     :param json_path: optional path to json file
+    :param features: with split_output, which feature-tagged rules the raw
+        programs include: "all" (the default), "none" or a comma-separated
+        list of feature names
     """
     # If no custom json filter, use the default one for the current target.
     if json_path == defs.SECCOMP_JSON_DIR:
@@ -108,6 +112,9 @@ def run_seccompiler_bin(
 
     if split_output:
         seccompiler_args += " --split-output"
+
+    if features is not None:
+        seccompiler_args += f" --features {features}"
 
     seccompiler = get_binary("seccompiler-bin", binary_dir=binary_dir)
     utils.check_output(f"{seccompiler} {seccompiler_args}")

@@ -32,6 +32,9 @@ Example usage:
     --basic # Optional, creates basic filters, discarding any parameter checks.
             # (Deprecated).
     --split-output # Optional, creates individual BPF files for each thread.
+    --features "net,block" # Optional, with --split-output: the feature-tagged
+                           # rules to include (`all`, `none` or a list).
+                           # [default: all]
 ```
 
 ### Seccompiler library
@@ -43,10 +46,27 @@ To view the library documentation, navigate to the seccompiler source code, in
 
 Seccompiler-bin generates binary BPF filters serialized using the bitcode
 format. The output file contains a bitcode-serialized map of thread names to
-their corresponding BPF instruction sequences.
+their compiled filters. A compiled filter is a list of parts, each a piece of
+BPF code together with the names of the features it is needed for:
+
+- the libseccomp program of the rules without a `feature` tag, which is always
+  installed;
+- a *fragment* for every distinct set of features the other rules are tagged
+  with: the libseccomp program of the rules tagged with that set;
+- an epilogue returning the default action, which is always installed.
+
+When the filter has tagged rules, every libseccomp program in it falls through
+to the next part instead of returning the default action, and checks the
+architecture itself. Firecracker installs the untagged parts and the fragments
+of the enabled features, in order; see
+[seccomp.md](seccomp.md#feature-tagged-rules) for how the enabled features are
+determined. A filter without tagged rules is a single part, its libseccomp
+program, exactly as before tags existed.
 
 When using the `--split-output` flag, seccompiler-bin will generate individual
-`.bpf` files for each thread containing raw BPF bytecode (useful for testing)
+`.bpf` files for each thread containing raw BPF bytecode, composed with the
+fragments `--features` selects: `all` (the default), `none`, or a
+comma-separated list of feature names (useful for testing).
 
 The individual thread files are named `<thread_name>.bpf` and placed in the same
 directory as the main output file.
@@ -106,10 +126,11 @@ An **action** is the JSON representation of the following enum:
 ```rust
 pub enum SeccompAction {
     Allow, // Allows syscall.
-    Errno(u32), // Returns from syscall with specified error number.
-    Kill, // Kills calling process.
+    Errno(u16), // Returns from syscall with specified error number.
+    KillThread, // Kills calling thread.
+    KillProcess, // Kills calling process.
     Log, // Same as allow but logs call.
-    Trace(u32), // Notifies tracing process of the caller with respective number.
+    Trace(u16), // Notifies tracing process of the caller with respective number.
     Trap, // Sends `SIGSYS` to the calling process.
 }
 ```
@@ -121,7 +142,8 @@ one of them matches, the corresponding action gets triggered).
 The **SyscallRule** object is used for adding a rule to a syscall. It has an
 optional `args` property that is used to specify a vector of and-bound
 conditions that the syscall arguments must satisfy in order for the rule to
-match.
+match, and an optional `feature` (or `features`) property naming the microVM
+feature(s) the rule is needed for.
 
 In the absence of the `args` property, the corresponding action will get
 triggered by any call that matches that name, irrespective of the argument
@@ -133,13 +155,28 @@ Here is the structure of the object:
 {
     "syscall": "accept4", // mandatory, the syscall name
     "comment": "Used by vsock & api thread", // optional, for adding meaningful comments
+    "feature": "vsock", // optional, the feature the rule is needed for
     "args": [...] // optional, vector of and-bound conditions for the parameters
 }
 ```
 
+A rule without a `feature` is always part of the filter. A rule with one is
+compiled, together with the rules tagged with the same features, into a separate
+fragment that Firecracker only installs when the feature is in use by the
+microVM. `"features": ["pmem", "memory-hotplug"]` tags a rule with several
+features, any one of which is enough to install it. The feature names
+Firecracker understands are listed in
+[seccomp.md](seccomp.md#feature-tagged-rules). Since the fragments return the
+filter's `filter_action` and are followed by its `default_action`, a filter with
+tagged rules must use two different actions for those.
+
 Note that the file format expects syscall names, not arch-specific numbers, for
 increased usability. This is not true, however for the syscall arguments, which
 are expected as base-10 integers.
+
+Keys other than the ones described here (and `comment`, on rules and conditions)
+are rejected, so that a misspelled key such as `featrue` is reported instead of
+silently turning a tagged rule into an always installed one.
 
 In order to allow a syscall with multiple alternatives for the same parameters,
 you can write multiple syscall rule objects at the filter-level, each with its

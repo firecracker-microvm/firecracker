@@ -13,7 +13,7 @@ use vmm::rpc_interface::{
     ApiRequest, ApiResponse, BuildMicrovmFromRequestsError, PrebootApiController,
     RuntimeApiController, VmmAction,
 };
-use vmm::seccomp::BpfThreadMap;
+use vmm::seccomp::{BpfThreadMap, SeccompFeatures};
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::{EventManager, FcExitCode, Vmm};
 use vmm_sys_util::epoll::EventSet;
@@ -169,6 +169,7 @@ pub(crate) fn run_with_api(
     process_time_reporter: ProcessTimeReporter,
     boot_timer_enabled: bool,
     pci_enabled: bool,
+    additional_seccomp_features: SeccompFeatures,
     api_payload_limit: usize,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
@@ -187,9 +188,16 @@ pub(crate) fn run_with_api(
     let to_vmm_event_fd = api_event_fd
         .try_clone()
         .expect("Failed to clone API event FD");
+    // The API thread knows nothing about the microVM yet, so its filter only gets the features the
+    // command line enables, plus the API-only operations it exists for.
     let api_seccomp_filter = seccomp_filters
         .remove("api")
         .expect("Missing seccomp filter for API thread.");
+    let api_seccomp_filter = vmm::seccomp::compose_for_thread(
+        &api_seccomp_filter,
+        "api",
+        additional_seccomp_features | SeccompFeatures::API,
+    );
 
     let mut server = match HttpServer::new(&bind_path) {
         Ok(s) => s,
@@ -239,6 +247,8 @@ pub(crate) fn run_with_api(
             instance_info,
             boot_timer_enabled,
             pci_enabled,
+            true,
+            additional_seccomp_features,
             mmds_size_limit,
             metadata_json,
         )
@@ -252,6 +262,7 @@ pub(crate) fn run_with_api(
             &api_event_fd,
             boot_timer_enabled,
             pci_enabled,
+            additional_seccomp_features,
             mmds_size_limit,
             metadata_json,
         )
@@ -261,12 +272,16 @@ pub(crate) fn run_with_api(
     // INVARIANT: seccomp must be applied before entering the event loop.
     // No guest-facing operations may occur between builder return and filter installation.
     let result = build_result.and_then(|vmm| {
-        vmm::seccomp::apply_filter(
-            seccomp_filters
-                .get("vmm")
-                .ok_or(ApiServerError::MissingSeccompFilter)?,
-        )
-        .map_err(ApiServerError::SeccompFilter)?;
+        let enabled_seccomp_features = vmm
+            .lock()
+            .expect("Poisoned lock")
+            .enabled_seccomp_features();
+        let vmm_seccomp_filter = seccomp_filters
+            .get("vmm")
+            .ok_or(ApiServerError::MissingSeccompFilter)?;
+        let vmm_seccomp_filter =
+            vmm::seccomp::compose_for_thread(vmm_seccomp_filter, "vmm", enabled_seccomp_features);
+        vmm::seccomp::apply_filter(&vmm_seccomp_filter).map_err(ApiServerError::SeccompFilter)?;
 
         firecracker_metrics
             .lock()

@@ -150,6 +150,7 @@ use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::resources::VmmConfig;
 use crate::rpc_interface::VmmActionError;
+use crate::seccomp::SeccompFeatures;
 use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::BalloonDeviceConfig;
 use crate::vmm_config::boot_source::BootSourceConfig;
@@ -309,6 +310,10 @@ pub struct Vmm {
 
     /// VM object.
     pub vm: Vm,
+    /// The seccomp features the filters of this microVM's threads are composed with: the ones
+    /// derived from its configuration when it was built, plus the ones the command line added.
+    /// Set by the builders and immutable afterwards; an installed filter cannot be relaxed.
+    pub(crate) enabled_seccomp_features: SeccompFeatures,
     // Device manager
     device_manager: DeviceManager,
 }
@@ -322,6 +327,11 @@ impl Vmm {
     /// Gets Vmm instance info.
     pub fn instance_info(&self) -> InstanceInfo {
         self.instance_info.clone()
+    }
+
+    /// The resolved features used to compose this microVM's seccomp filters at build time.
+    pub fn enabled_seccomp_features(&self) -> SeccompFeatures {
+        self.enabled_seccomp_features
     }
 
     /// Gets MMDS reference, if any.

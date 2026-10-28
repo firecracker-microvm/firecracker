@@ -23,7 +23,11 @@ libc = "0.2.186"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 thiserror = "2.0.18"
+utils = { path = "../utils" }
 zerocopy = { version = "0.8.50" }
+
+[dev-dependencies]
+vmm-sys-util = "0.15.0"
 
 [lints]
 workspace = true
