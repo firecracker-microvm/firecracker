@@ -207,6 +207,11 @@ and this project adheres to
   number bits twice, making all of the vCPU numbers 0 and breaking snapshot
   restore of VMs with more than one vCPU.
 
+- [#6321](https://github.com/firecracker-microvm/firecracker/pull/6321): Fixed
+  dirty pages being lost when syncing the memory file, or reading KVM's dirty
+  log, failed during snapshot creation, so the next Diff snapshot left them out.
+  They are now marked dirty again.
+
 ## [1.18.0]
 
 ### Added
