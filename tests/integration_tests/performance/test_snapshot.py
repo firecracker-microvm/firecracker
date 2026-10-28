@@ -5,11 +5,11 @@
 import re
 import signal
 import tempfile
-import time
 from dataclasses import dataclass
 from functools import lru_cache
 
 import pytest
+from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_fixed
 
 import host_tools.drive as drive_tools
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
@@ -23,6 +23,7 @@ from framework.utils_hugepages import HugePagesConfig
 USEC_IN_MSEC = 1000
 NS_IN_MSEC = 1_000_000
 ITERATIONS = 30
+POPULATION_ITERATIONS = 15
 
 pytestmark = pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 
@@ -206,9 +207,14 @@ def test_post_restore_latency(
 
 
 @pytest.mark.nonci
-@pytest.mark.parametrize("huge_pages", HugePagesConfig)
 @pytest.mark.parametrize(
-    ("vcpus", "mem"), [(1, 128), (1, 1024), (2, 2048), (3, 4096), (4, 6144)]
+    ("vcpus", "mem", "huge_pages"),
+    [
+        (vcpus, mem, huge_pages)
+        for vcpus, mem in [(1, 128), (1, 1024), (2, 2048), (3, 4096), (4, 6144)]
+        for huge_pages in [HugePagesConfig.NONE, HugePagesConfig.HUGETLBFS_2MB]
+    ]
+    + [(1, 1024, HugePagesConfig.TRANSPARENT)],
 )
 def test_population_latency(
     microvm_factory,
@@ -241,7 +247,7 @@ def test_population_latency(
     vm.kill()
 
     for microvm in microvm_factory.build_n_from_snapshot(
-        snapshot, ITERATIONS, uffd_handler_name="fault_all"
+        snapshot, POPULATION_ITERATIONS, uffd_handler_name="fault_all"
     ):
         # API response times are unreliable while the uffd handler is
         # faulting in all pages — skip the timing validation.
@@ -249,22 +255,20 @@ def test_population_latency(
         # do _something_ to trigger a pagefault, which will then cause the UFFD handler to fault in _everything_
         microvm.ssh.check_output("true")
 
-        for _ in range(5):
-            time.sleep(1)
-
-            match = re.match(
-                r"Finished Faulting All: (\d+)us", microvm.uffd_handler.log_data
-            )
-
-            if match:
-                latency_us = int(match.group(1))
-
-                metrics.put_metric(
-                    "populate_latency", latency_us / 1000, "Milliseconds"
+        for attempt in Retrying(
+            retry=retry_if_exception_type(AssertionError),
+            stop=stop_after_delay(5),
+            wait=wait_fixed(0.05),
+            reraise=True,
+        ):
+            with attempt:
+                match = re.match(
+                    r"Finished Faulting All: (\d+)us", microvm.uffd_handler.log_data
                 )
-                break
-        else:
-            raise RuntimeError("UFFD handler did not print population latency after 5s")
+                assert match, "UFFD handler did not print population latency after 5s"
+
+        latency_us = int(match.group(1))
+        metrics.put_metric("populate_latency", latency_us / 1000, "Milliseconds")
 
 
 @pytest.mark.nonci
