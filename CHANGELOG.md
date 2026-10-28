@@ -174,6 +174,11 @@ and this project adheres to
   unusable for the rest of the microVM's lifetime. The reset now waits until
   every in-flight request has completed.
 
+- [#6321](https://github.com/firecracker-microvm/firecracker/pull/6321): Fixed
+  dirty pages being lost when syncing the memory file, or reading KVM's dirty
+  log, failed during snapshot creation, so the next Diff snapshot left them out.
+  They are now marked dirty again.
+
 ## [1.18.0]
 
 ### Added
