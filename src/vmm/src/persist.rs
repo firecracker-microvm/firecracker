@@ -6,6 +6,7 @@
 use std::fmt::Debug;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
+use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -37,7 +38,7 @@ use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, Mach
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, MemBackendType};
 use crate::vstate::kvm::KvmState;
 use crate::vstate::memory::{
-    self, GuestMemoryState, GuestRegionMmap, GuestRegionType, MemoryError,
+    self, GuestMemoryState, GuestRegionMmap, GuestRegionType, MemfdBacking, MemoryError,
 };
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
 use crate::vstate::vm::{VmError, VmState};
@@ -461,11 +462,12 @@ pub fn restore_from_snapshot(
                 None,
             )
         }
-        MemBackendType::Uffd => guest_memory_from_uffd(
+        MemBackendType::Uffd | MemBackendType::SharedMemfd => guest_memory_from_uffd(
             mem_backend_path,
             mem_state,
             track_dirty_pages,
             vm_resources.machine_config.huge_pages,
+            params.mem_backend.backend_type == MemBackendType::SharedMemfd,
         )
         .map_err(RestoreFromSnapshotGuestMemoryError::Uffd)?,
     };
@@ -544,13 +546,31 @@ pub enum GuestMemoryFromUffdError {
     Handshake(#[from] HandshakeError),
 }
 
+/// Creates guest memory for a restore served by a page fault handler: anonymous, or backed by a
+/// single memfd laid out like the memory file when `share_memfd` is set. The handler at
+/// `mem_uds_path` receives the userfaultfd, followed by the memfd when there is one.
 fn guest_memory_from_uffd(
     mem_uds_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
+    share_memfd: bool,
 ) -> Result<(Vec<GuestRegionMmap>, Option<Uffd>), GuestMemoryFromUffdError> {
-    let guest_memory = memory::anonymous(&mem_state.regions(), track_dirty_pages, huge_pages)?;
+    let regions = mem_state.regions();
+    let (guest_memory, memfd) = if share_memfd {
+        let total_size = regions
+            .iter()
+            .try_fold(0u64, |acc, &(_, size)| acc.checked_add(size as u64))
+            .ok_or(MemoryError::OffsetTooLarge)?;
+        let mut backing = MemfdBacking::new(total_size, huge_pages)?;
+        let guest_memory = backing.allocate(&regions, track_dirty_pages, huge_pages)?;
+        (guest_memory, Some(backing.file))
+    } else {
+        (
+            memory::anonymous(&regions, track_dirty_pages, huge_pages)?,
+            None,
+        )
+    };
     let handshake = Handshake::new(guest_memory.iter(), huge_pages);
 
     let mut uffd_builder = UffdBuilder::new();
@@ -573,13 +593,23 @@ fn guest_memory_from_uffd(
             .map_err(GuestMemoryFromUffdError::Register)?;
     }
 
-    handshake.send(mem_uds_path, &uffd)?;
+    // The uffd always comes first, so that a handler written for the plain UFFD protocol (which
+    // reads a single fd) keeps working; the memfd, when shared, comes last.
+    let mut fds = vec![uffd.as_raw_fd()];
+    if let Some(memfd) = &memfd {
+        fds.push(memfd.as_raw_fd());
+    }
+    handshake.send(mem_uds_path, &fds)?;
 
     Ok((guest_memory, Some(uffd)))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::FileExt;
+    use std::os::unix::net::UnixListener;
+
+    use vm_memory::{Bytes, MemoryRegionAddress};
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
@@ -595,10 +625,12 @@ mod tests {
     #[cfg(target_arch = "aarch64")]
     use crate::construct_kvm_mpidrs;
     use crate::devices::virtio::block::CacheType;
+    use crate::mem_backend::receive_handshake;
     use crate::snapshot::Persist;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
+    use crate::vstate::memory::{GuestMemoryRegionState, GuestRegionType};
 
     fn default_vmm_with_devices() -> Vmm {
         let mut event_manager = EventManager::new().expect("Cannot create EventManager");
@@ -701,5 +733,70 @@ mod tests {
             panic!("expected MMIO virtio device state");
         };
         assert_eq!(restored_mmio, mmio)
+    }
+
+    /// Restoring with `SharedMemfd` hands the handler the uffd and then the memfd, one memfd
+    /// as large as guest memory, laid out like the memory file.
+    #[test]
+    fn test_guest_memory_from_uffd_shared_memfd() {
+        let mem_state = GuestMemoryState {
+            regions: vec![
+                GuestMemoryRegionState {
+                    base_address: 0,
+                    size: 0x20000,
+                    region_type: GuestRegionType::Dram,
+                    plugged: vec![true],
+                },
+                GuestMemoryRegionState {
+                    base_address: 0x100000,
+                    size: 0x10000,
+                    region_type: GuestRegionType::Dram,
+                    plugged: vec![true],
+                },
+            ],
+        };
+
+        let uds_path = TempFile::new().unwrap();
+        let uds_path = uds_path.as_path();
+        std::fs::remove_file(uds_path).unwrap();
+        let listener = UnixListener::bind(uds_path).expect("Cannot bind to socket path");
+
+        let (guest_memory, uffd) =
+            guest_memory_from_uffd(uds_path, &mem_state, false, HugePageConfig::None, true)
+                .unwrap();
+        let uffd = uffd.unwrap();
+        let (mappings, files) = receive_handshake(&listener);
+
+        assert_eq!(
+            mappings,
+            Handshake::new(guest_memory.iter(), HugePageConfig::None).regions
+        );
+        assert_eq!(files.len(), 2);
+        // The uffd is an anonymous inode, the memfd a regular (shmem) file as large as all the
+        // regions together.
+        assert!(!files[0].metadata().unwrap().file_type().is_file());
+        let memfd = &files[1];
+        assert!(memfd.metadata().unwrap().file_type().is_file());
+        assert_eq!(memfd.metadata().unwrap().len(), 0x30000);
+
+        // What is written through the memfd is what the guest sees, at the region's offset.
+        let page_size = crate::arch::host_page_size();
+        let pattern = vec![0xABu8; page_size];
+        memfd.write_all_at(&pattern, 0x20000).unwrap();
+        let mut read_back = vec![0u8; page_size];
+        guest_memory[1]
+            .read_slice(&mut read_back, MemoryRegionAddress(0))
+            .unwrap();
+        assert_eq!(read_back, pattern);
+
+        // Without sharing, the handshake carries the uffd alone.
+        drop(uffd);
+        let (_, uffd) =
+            guest_memory_from_uffd(uds_path, &mem_state, false, HugePageConfig::None, false)
+                .unwrap();
+        let (_, files) = receive_handshake(&listener);
+        assert!(uffd.is_some());
+        assert_eq!(files.len(), 1);
+        assert!(!files[0].metadata().unwrap().file_type().is_file());
     }
 }
