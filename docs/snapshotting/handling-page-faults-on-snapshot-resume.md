@@ -92,7 +92,7 @@ Firecracker and the page fault handler.
 
 - Firecracker passes the userfault file descriptor and the guest memory layout
   (e.g. dimensions of each memory region, and their [page size](../hugepages.md)
-  in KiB) to the page fault handler process through the socket.
+  in bytes) to the page fault handler process through the socket.
 
 ![](../images/uffd_flow4.png)
 
@@ -111,6 +111,11 @@ After Firecracker sends the payload (i.e. mem mappings and file descriptor), no
 other communication happens on the UDS socket (or otherwise) between Firecracker
 and the page fault handler process.
 
+With `backend_type: SharedMemfd` instead of `Uffd`, guest memory is backed by a
+memfd, and the same payload carries two file descriptors: the userfaultfd and
+then the memfd. Everything above applies unchanged; see
+[the shared memfd document](shared-memfd.md) for what the memfd adds.
+
 ### Userfaultfd interaction with balloon
 
 The balloon device allows the host to reclaim memory from a microVM. For more
@@ -119,12 +124,14 @@ details on balloon, please refer to [this doc](../ballooning.md).
 When the balloon device asks for removal of a memory range, Firecracker calls
 `madvise` with the `MADV_DONTNEED` flag in order to let the kernel know that it
 can free up memory found in that specific area. On such a system call, the
-userfaultfd interface sends `UFFD_EVENT_REMOVE`. For hugetlbfs-backed memory,
-Firecracker only calls `madvise` on the whole huge pages inside the range. It
-zeroes any partial huge page at either end by writing to it instead, so the
-handler does not receive `UFFD_EVENT_REMOVE` for that page. If the page is not
-populated yet, the write raises a page fault, which the handler serves like any
-other page fault.
+userfaultfd interface sends `UFFD_EVENT_REMOVE`. When guest memory is backed by
+a memfd ([`SharedMemfd`](shared-memfd.md)), Firecracker uses `MADV_REMOVE`
+instead, which punches a hole in the memfd and sends the same event. For
+hugetlbfs-backed memory, Firecracker only calls `madvise` on the whole huge
+pages inside the range. It zeroes any partial huge page at either end by writing
+to it instead, so the handler does not receive `UFFD_EVENT_REMOVE` for that
+page. If the page is not populated yet, the write raises a page fault, which the
+handler serves like any other page fault.
 
 When implementing the logic for the page fault handler, users must identify
 events of type `UFFD_EVENT_REMOVE` and handle them by zeroing out those pages.
@@ -135,6 +142,8 @@ zeroed out by the page fault handler). In such a case, the page fault handler
 process must zero out the faulted page (instead of bringing it from file), as
 recommended by
 [the userfaultfd documentation](https://www.kernel.org/doc/html/latest/admin-guide/mm/userfaultfd.html#non-cooperative-userfaultfd).
+On hugetlbfs, `UFFDIO_ZEROPAGE` is not available (it fails with `EINVAL`); use
+`UFFDIO_COPY` from a zeroed buffer.
 
 In case of a compromised balloon driver, the page fault handler can get flooded
 with `UFFD_EVENT_REMOVE`. We recommend using the jailer's built-in cgroup

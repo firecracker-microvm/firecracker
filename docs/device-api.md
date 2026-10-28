@@ -134,6 +134,7 @@ specification:
 |                           | vcpu_count               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | huge_pages               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | pcie_hotplug_ports       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | mem_backend              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 | `MemoryBackend`           | backend_type             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | backend_path             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 | `Metrics`                 | metrics_path             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
@@ -280,6 +281,7 @@ specification:
 |                        | vcpu_count               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                        | huge_pages               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                        | pcie_hotplug_ports       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                        | mem_backend              |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 | `MemoryHotplugStatus`  | total_size_mib           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |       O        |
 |                        | slot_size_mib            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |       O        |
 |                        | block_size_mib           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |       O        |

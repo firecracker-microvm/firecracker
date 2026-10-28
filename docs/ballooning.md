@@ -489,7 +489,10 @@ your scenario.
 > 1. Track ranges that are written to.
 > 1. Skip these ranges when Firecracker reports them for freeing.
 >
-> This will prevent ranges which have been reclaimed from being freed.
+> This will prevent ranges which have been reclaimed from being freed. On shmem
+> or hugetlbfs guest memory (the `SharedMemfd` backend, `2M` huge pages),
+> userfaultfd write protection needs host Linux 5.19 or later, so on 5.10 hosts
+> this only works with anonymous guest memory.
 
 ## Balloon Caveats
 
