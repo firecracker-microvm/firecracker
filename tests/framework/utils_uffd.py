@@ -16,7 +16,12 @@ SOCKET_PATH = "/firecracker-uffd.sock"
 
 
 class UffdHandler:
-    """Describe the UFFD page fault handler process."""
+    """Describe the UFFD page fault handler process.
+
+    The handler serves page faults from a snapshot on restore, or just holds
+    the guest memory memfd when started without a snapshot, as the memory
+    backend of a boot (`machine-config.mem_backend`).
+    """
 
     def __init__(
         self, name, socket_path, snapshot: "Snapshot", chroot_path, log_file_name
@@ -38,11 +43,9 @@ class UffdHandler:
 
             chroot_log_file = Path("/") / self._log_file
             with open(chroot_log_file, "w", encoding="utf-8") as logfile:
-                args = [
-                    f"/{self._handler_name}",
-                    self.socket_path,
-                    self.snapshot.mem.name,
-                ]
+                args = [f"/{self._handler_name}", self.socket_path]
+                if self.snapshot is not None:
+                    args.append(self.snapshot.mem.name)
                 self._proc = subprocess.Popen(
                     args, stdout=logfile, stderr=subprocess.STDOUT
                 )
@@ -119,7 +122,11 @@ class UffdHandler:
 
 
 def spawn_pf_handler(vm, handler_path, jailed_snapshot):
-    """Spawn page fault handler process."""
+    """Spawn page fault handler process.
+
+    `jailed_snapshot` is the snapshot to populate page faults from, or `None`
+    for the memory backend of a boot.
+    """
     # Copy snapshot memory file into chroot of microVM.
     # Copy the valid page fault binary into chroot of microVM.
     jailed_handler = vm.create_jailed_resource(handler_path)
