@@ -446,22 +446,25 @@ snapshot. Accepted values are:
   for the guest memory range. Please refer to
   [this](handling-page-faults-on-snapshot-resume.md) for more details on
   handling page faults in the user space.
+- `SharedMemfd` - like `Uffd`, but guest memory is backed by a single memfd,
+  which is handed to the user space process together with the userfaultfd.
+  Please refer to [this](shared-memfd.md) for more details.
 
 The meaning of `backend_path` depends on the `backend_type` chosen:
 
 - if using `File`, then `backend_path` should contain the path to the snapshot's
   memory file to be loaded.
-- when using `Uffd`, `backend_path` refers to the path of the unix domain socket
-  used for communication between Firecracker and the user space process that
-  handles page faults.
+- when using `Uffd` or `SharedMemfd`, `backend_path` refers to the path of the
+  unix domain socket used for communication between Firecracker and the user
+  space process that handles page faults.
 
 The `huge_pages` field selects the host page configuration for the restored
 microVM. It accepts `Snapshot`, `None`, `Transparent`, and `2M`. `Snapshot`
 reuses the value stored in the snapshot and is the default when the field is
 omitted; `None` uses the host's default memory-mapping behavior. Explicit `2M`
-hugetlbfs pages require the `Uffd` backend, so combining `2M` with `File`
-returns an error. With `Uffd`, the effectiveness of transparent huge pages may
-be limited.
+hugetlbfs pages require the `Uffd` or `SharedMemfd` backend, so combining `2M`
+with `File` returns an error. With `Uffd`, the effectiveness of transparent huge
+pages may be limited.
 
 When relying on the OS to handle page faults, the command below is also
 accepted. Note that `mem_file_path` field is currently under the deprecation
