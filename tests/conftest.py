@@ -505,6 +505,12 @@ def io_engine(request):
     return request.param
 
 
+@pytest.fixture(params=[None, 1], ids=["inline", "threaded"])
+def num_queues(request):
+    """Block device queue count. `None` keeps the queue on the VMM thread."""
+    return request.param
+
+
 @pytest.fixture(
     params=[SnapshotType.DIFF, SnapshotType.DIFF_MINCORE, SnapshotType.FULL]
 )

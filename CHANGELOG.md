@@ -28,6 +28,19 @@ and this project adheres to
 - [#6237](https://github.com/firecracker-microvm/firecracker/pull/6237): Added
   balloon and virtio-mem memory reclamation for shared memfd-backed guest
   memory, such as memory shared with vhost-user devices.
+- [#6123](https://github.com/firecracker-microvm/firecracker/pull/6123),
+  [#6128](https://github.com/firecracker-microvm/firecracker/pull/6128),
+  [#6131](https://github.com/firecracker-microvm/firecracker/pull/6131),
+  [#6132](https://github.com/firecracker-microvm/firecracker/pull/6132),
+  [#6197](https://github.com/firecracker-microvm/firecracker/pull/6197),
+  [#6312](https://github.com/firecracker-microvm/firecracker/pull/6312): Added
+  an optional `num_queues` field to the virtio-block drive configuration. When
+  set, the drive exposes that number of queues to the guest and processes each
+  of them on a dedicated host worker thread instead of the VMM thread, enabling
+  virtio-blk multiqueue for values greater than `1`. The queue count cannot
+  exceed the vCPU count. Custom seccomp filters must include the new
+  `blk_worker` thread category. See
+  [block documentation](docs/block.md#threaded-mode-and-multiqueue).
 
 ### Changed
 
@@ -135,6 +148,12 @@ and this project adheres to
   [#6274](https://github.com/firecracker-microvm/firecracker/pull/6274): Guest
   memory written by the virtio devices is now tracked more accurately. This will
   lead to smaller incremental snapshots when dirty tracking is enabled.
+
+- [#6278](https://github.com/firecracker-microvm/firecracker/issues/6278): Fixed
+  the reset of a virtio-block device using the `Async` io engine failing when a
+  signal interrupted the wait for its in-flight requests, which left the device
+  unusable for the rest of the microVM's lifetime. The reset now waits until
+  every in-flight request has completed.
 
 ## [1.17.0]
 

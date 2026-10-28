@@ -53,6 +53,7 @@ use crate::pci::bus::MAX_PCI_BUSES;
 use crate::rate_limiter::TokenBucket;
 use crate::resources::VmResources;
 use crate::rpc_interface::VmmActionError;
+use crate::seccomp::BpfProgram;
 use crate::snapshot::Persist;
 use crate::utils::open_file_nonblock;
 use crate::vmm_config::HotplugDeviceConfig;
@@ -132,6 +133,8 @@ pub struct DeviceManager {
     pub acpi_devices: ACPIDeviceManager,
     /// Virtio devices (MMIO or PCI)
     pub virtio_devices: VirtioDevices,
+    /// Seccomp filter installed on block worker threads
+    pub blk_worker_filter: Option<Arc<BpfProgram>>,
 }
 
 impl DeviceManager {
@@ -235,6 +238,7 @@ impl DeviceManager {
     }
 
     #[cfg_attr(target_arch = "aarch64", allow(unused))]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         event_manager: &mut EventManager,
         vcpus_exit_evt: &EventFd,
@@ -243,6 +247,7 @@ impl DeviceManager {
         serial_rate_limiter: Option<TokenBucket>,
         pci_enabled: bool,
         pcie_hotplug_ports: u8,
+        blk_worker_filter: Option<Arc<BpfProgram>>,
     ) -> Result<Self, DeviceManagerCreateError> {
         #[cfg(target_arch = "x86_64")]
         let legacy_devices = Self::create_legacy_devices(
@@ -260,6 +265,7 @@ impl DeviceManager {
             legacy_devices: Some(legacy_devices),
             acpi_devices: ACPIDeviceManager::default(),
             virtio_devices: Self::create_virtio_devices(pci_enabled, vm, pcie_hotplug_ports)?,
+            blk_worker_filter,
         })
     }
 
@@ -493,7 +499,7 @@ impl DeviceManager {
         }
 
         let device = match config {
-            HotplugDeviceConfig::Block(cfg) => Self::hotplug_make_block(cfg)?,
+            HotplugDeviceConfig::Block(cfg) => self.hotplug_make_block(cfg)?,
             HotplugDeviceConfig::Pmem(cfg) => Self::hotplug_make_pmem(vm.clone(), cfg)?,
             HotplugDeviceConfig::Net(cfg) => self.hotplug_make_net(cfg)?,
         };
@@ -530,13 +536,18 @@ impl DeviceManager {
     }
 
     fn hotplug_make_block(
+        &self,
         config: BlockDeviceConfig,
     ) -> Result<Arc<Mutex<dyn VirtioDevice>>, VmmActionError> {
         if config.is_root_device {
             return Err(DriveError::RootBlockDeviceAlreadyAdded.into());
         }
 
-        let block = Block::new(config).map_err(DriveError::CreateBlockDevice)?;
+        let mut block = Block::new(config).map_err(DriveError::CreateBlockDevice)?;
+        block
+            .spawn_worker(self.blk_worker_filter.clone())
+            .map_err(DriveError::CreateBlockDevice)?;
+
         Ok(Arc::new(Mutex::new(block)))
     }
 
@@ -769,6 +780,7 @@ pub struct DeviceRestoreArgs<'a> {
     pub vcpus_exit_evt: &'a EventFd,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
+    pub blk_worker_filter: Option<Arc<BpfProgram>>,
 }
 
 impl std::fmt::Debug for DeviceRestoreArgs<'_> {
@@ -841,6 +853,7 @@ impl<'a> Persist<'a> for DeviceManager {
                     vm_resources: constructor_args.vm_resources,
                     instance_id: constructor_args.instance_id,
                     event_manager: constructor_args.event_manager,
+                    blk_worker_filter: constructor_args.blk_worker_filter.clone(),
                 };
                 let pci_devices = PciDevices::restore(pci_ctor_args, pci_state)
                     .map_err(DeviceManagerPersistError::PciRestore)?;
@@ -853,6 +866,7 @@ impl<'a> Persist<'a> for DeviceManager {
                     event_manager: constructor_args.event_manager,
                     vm_resources: constructor_args.vm_resources,
                     instance_id: constructor_args.instance_id,
+                    blk_worker_filter: constructor_args.blk_worker_filter.clone(),
                 };
                 let mmio_virtio_devices = MMIOVirtioDevices::restore(mmio_ctor_args, mmio_state)
                     .map_err(DeviceManagerPersistError::MmioRestore)?;
@@ -866,6 +880,7 @@ impl<'a> Persist<'a> for DeviceManager {
             legacy_devices: Some(legacy_devices),
             acpi_devices,
             virtio_devices,
+            blk_worker_filter: constructor_args.blk_worker_filter,
         })
     }
 }
@@ -885,6 +900,7 @@ pub(crate) mod tests {
     use crate::rpc_interface::VmmActionError;
     use crate::vmm_config::HotplugDeviceConfig;
     use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
+    use crate::vmm_config::machine_config::MachineConfigError;
     use crate::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceError};
     use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
     use crate::vstate::resources::ResourceAllocator;
@@ -914,6 +930,7 @@ pub(crate) mod tests {
             legacy_devices: Some(legacy_devices),
             acpi_devices,
             virtio_devices,
+            blk_worker_filter: None,
         }
     }
 
@@ -1033,6 +1050,7 @@ pub(crate) mod tests {
             cache_type: CacheType::Unsafe,
             is_read_only: Some(false),
             discard: None,
+            num_queues: None,
             path_on_host: Some(f.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: None,
@@ -1047,6 +1065,16 @@ pub(crate) mod tests {
         let mut evt_manager = EventManager::new().unwrap();
         let mut vmm = default_vmm_with_hotplug_ports(2);
         let f = TempFile::new().unwrap();
+
+        // Queue count cannot exceed the vCPU count.
+        let mut invalid_cfg = make_hotplug_block_cfg("invalid", &f, false);
+        invalid_cfg.num_queues = std::num::NonZeroU16::new(2);
+        assert!(matches!(
+            vmm.hotplug_device(HotplugDeviceConfig::Block(invalid_cfg), &mut evt_manager),
+            Err(VmmActionError::MachineConfig(
+                MachineConfigError::InvalidQueueCount(id, 2, 1)
+            )) if id == "invalid"
+        ));
 
         // Successful case
         let cfg = HotplugDeviceConfig::Block(make_hotplug_block_cfg("block0", &f, false));
@@ -1129,6 +1157,7 @@ pub(crate) mod tests {
         use crate::arch::host_page_size;
         use vm_memory::GuestMemoryBackend;
 
+        use crate::devices::virtio::block::device::Block;
         use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt};
         use crate::test_utils::single_region_mem_dirty_tracking;
         use crate::utils::{u64_to_usize, usize_to_u64};
@@ -1153,10 +1182,13 @@ pub(crate) mod tests {
             .virtio_device();
         {
             let mut device = device.lock().unwrap();
-            device.queues_mut()[0] = vq.create_queue();
+            *device.queue_config_mut(0).unwrap() = vq.create_queue().config;
             device.activate(mem.clone(), default_interrupt()).unwrap();
             mem.reset_dirty();
-            device.queues_mut()[0].add_used(0, 0).unwrap();
+            let Block::Virtio(block) = device.as_mut_any().downcast_mut::<Block>().unwrap() else {
+                unreachable!("block0 is a virtio block device");
+            };
+            block.resources_mut()[0].queue.add_used(0, 0).unwrap();
         }
         drop(device);
         let used_ring = u64_to_usize(vq.used_start().raw_value());

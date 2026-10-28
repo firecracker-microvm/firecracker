@@ -22,6 +22,7 @@ from framework.artifacts import (
     pin_guest_kernel,
     pin_rootfs_mode,
 )
+from framework.kvm import default_boot_args
 from framework.utils import get_firecracker_version_from_toml
 from framework.utils_cpu_templates import (
     CUSTOM_CPU_TEMPLATES,
@@ -152,6 +153,35 @@ def test_api_put_update_pre_boot(uvm, io_engine):
         is_root_device=False,
         io_engine=io_engine,
     )
+
+    # More queues than vCPUs are not allowed. The microVM has 2 vCPUs here.
+    with pytest.raises(
+        RuntimeError,
+        match="Invalid queue count 3 for device scratch; cannot exceed the configured vCPU count 2",
+    ):
+        test_microvm.api.drive.put(
+            drive_id="scratch",
+            path_on_host=test_microvm.get_jailed_resource(fs2.path),
+            is_read_only=True,
+            is_root_device=False,
+            io_engine=io_engine,
+            num_queues=3,
+        )
+
+    # Two queues fit two vCPUs, and the vCPU count cannot drop below them afterwards.
+    test_microvm.api.drive.put(
+        drive_id="scratch",
+        path_on_host=test_microvm.get_jailed_resource(fs2.path),
+        is_read_only=True,
+        is_root_device=False,
+        io_engine=io_engine,
+        num_queues=2,
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="Invalid queue count 2 for device scratch; cannot exceed the configured vCPU count 1",
+    ):
+        test_microvm.api.machine_config.patch(vcpu_count=1)
 
     # Valid updates to all fields in the machine configuration are allowed.
     # The machine configuration has a default value, so all PUTs are updates.
@@ -821,6 +851,7 @@ def test_drive_patch(uvm, io_engine):
         is_root_device=False,
         is_read_only=False,
         io_engine=io_engine,
+        num_queues=1,
     )
 
     fs_vub = drive_tools.FilesystemFile(
@@ -1023,6 +1054,7 @@ def _drive_patch(test_microvm, io_engine):
             "cache_type": "Unsafe",
             "is_read_only": True,
             "discard": False,
+            "num_queues": None,
             "path_on_host": "/" + test_microvm.rootfs_file.name,
             "rate_limiter": None,
             "io_engine": "Sync",
@@ -1042,6 +1074,7 @@ def _drive_patch(test_microvm, io_engine):
             "cache_type": "Unsafe",
             "is_read_only": False,
             "discard": False,
+            "num_queues": 1,
             "path_on_host": "/scratch_new.ext4",
             "rate_limiter": {
                 "bandwidth": {"size": 5000, "one_time_burst": None, "refill_time": 100},
@@ -1064,6 +1097,7 @@ def _drive_patch(test_microvm, io_engine):
             "cache_type": "Unsafe",
             "is_read_only": None,
             "discard": None,
+            "num_queues": None,
             "path_on_host": None,
             "rate_limiter": None,
             "io_engine": None,
@@ -1457,6 +1491,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
             "cache_type": "Unsafe",
             "is_read_only": True,
             "discard": False,
+            "num_queues": None,
             "path_on_host": f"/{uvm_configured.rootfs_file.name}",
             "rate_limiter": None,
             "io_engine": "Sync",
@@ -1550,10 +1585,8 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
             uvm_configured.kernel_file
         ),
         "initrd_path": None,
-        "boot_args": "reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0 cryptomgr.notests",
+        "boot_args": default_boot_args(uvm_configured.pci_enabled),
     }
-    if not uvm_configured.pci_enabled:
-        expected_cfg["boot-source"]["boot_args"] += " pci=off"
 
     # no ipv4_address or imds_compat specified during PUT /mmds/config so we expect the default
     expected_cfg["mmds-config"] = {
@@ -1606,6 +1639,7 @@ def test_get_full_config(uvm):
             "cache_type": "Unsafe",
             "is_read_only": True,
             "discard": False,
+            "num_queues": None,
             "path_on_host": "/" + test_microvm.rootfs_file.name,
             "rate_limiter": None,
             "io_engine": "Sync",

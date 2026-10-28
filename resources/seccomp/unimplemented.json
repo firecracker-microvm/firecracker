@@ -13,5 +13,10 @@
         "default_action": "allow",
         "filter_action": "trap",
         "filter": []
+    },
+    "blk_worker": {
+        "default_action": "allow",
+        "filter_action": "trap",
+        "filter": []
     }
 }
