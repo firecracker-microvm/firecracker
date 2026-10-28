@@ -5,7 +5,7 @@
 //! over a Unix domain socket.
 
 use std::mem::forget;
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::RawFd;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 
@@ -51,7 +51,7 @@ pub enum HandshakeError {
 }
 
 /// The message Firecracker sends to a memory backend once guest memory is set up: the layout of
-/// guest memory, with the file descriptor the backend needs attached as `SCM_RIGHTS` data.
+/// guest memory, with the file descriptors the backend needs attached as `SCM_RIGHTS` data.
 #[derive(Debug)]
 pub struct Handshake {
     /// One entry per guest memory region, in the order the regions were allocated. A region's
@@ -81,18 +81,19 @@ impl Handshake {
         Self { regions: mappings }
     }
 
-    /// Connects to `uds_path` and sends the message with `fd` attached, then keeps the connection
-    /// open for the life of the process.
-    pub fn send(&self, uds_path: &Path, fd: &impl AsRawFd) -> Result<(), HandshakeError> {
+    /// Connects to `uds_path` and sends the message with `fds` attached (the uffd and/or the guest
+    /// memory memfd, depending on the backend), then keeps the connection open for the life of the
+    /// process.
+    pub fn send(&self, uds_path: &Path, fds: &[RawFd]) -> Result<(), HandshakeError> {
         // This is safe to unwrap() because we control the contents of the vector
         // (i.e GuestRegionMapping entries).
         let backend_mappings = serde_json::to_string(&self.regions).unwrap();
 
         let socket = UnixStream::connect(uds_path)?;
-        socket.send_with_fd(
-            backend_mappings.as_bytes(),
-            // In the happy case we can close the fd since the other process has it open and is
-            // using it to serve us pages.
+        socket.send_with_fds(
+            &[backend_mappings.as_bytes()],
+            // In the happy case we can close the fds since the other process has them open and is
+            // using them to serve us pages / read our memory.
             //
             // The problem is that if other process crashes/exits, firecracker guest memory
             // will simply revert to anon-mem behavior which would lead to silent errors and
@@ -121,7 +122,7 @@ impl Handshake {
             // Moreover, Firecracker holds a copy of the UFFD fd as well, so that even if the
             // page fault handler process does not tear down Firecracker when necessary, the
             // uffd will still be alive but with no one to serve faults, leading to guest freeze.
-            fd.as_raw_fd(),
+            fds,
         )?;
 
         // We prevent Rust from closing the socket file descriptor to avoid a potential race
@@ -165,6 +166,7 @@ pub(crate) fn receive_handshake(
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::io::AsRawFd;
     use std::os::unix::net::UnixListener;
 
     use vm_memory::GuestAddress;
@@ -230,10 +232,11 @@ mod tests {
 
         let listener = UnixListener::bind(uds_path).expect("Cannot bind to socket path");
 
-        handshake.send(uds_path, &std::io::stdin()).unwrap();
+        let fds = [std::io::stdin().as_raw_fd(), std::io::stdout().as_raw_fd()];
+        handshake.send(uds_path, &fds).unwrap();
 
         let (deserialized, files) = receive_handshake(&listener);
         assert_eq!(handshake.regions, deserialized);
-        assert_eq!(files.len(), 1);
+        assert_eq!(files.len(), 2);
     }
 }
