@@ -111,6 +111,11 @@ After Firecracker sends the payload (i.e. mem mappings and file descriptor), no
 other communication happens on the UDS socket (or otherwise) between Firecracker
 and the page fault handler process.
 
+With `backend_type: SharedMemfd` instead of `Uffd`, guest memory is backed by a
+memfd, and the same payload carries two file descriptors: the userfaultfd and
+then the memfd. Everything above applies unchanged; see
+[the shared memfd document](shared-memfd.md) for what the memfd adds.
+
 ### Userfaultfd interaction with balloon
 
 The balloon device allows the host to reclaim memory from a microVM. For more
@@ -170,4 +175,7 @@ An example of a handler process can be found
 [here](../../src/firecracker/examples/uffd/on_demand_handler.rs). The process is
 designed to tackle faults on a certain address by loading into memory the entire
 region that the address belongs to, but users can choose any other behavior that
-suits their use case best.
+suits their use case best. It is started as
+`on_demand_handler <backend type> <socket path> <memory file>`, where the
+backend type is the `backend_type` given to Firecracker: `Uffd`, or
+`SharedMemfd` to also receive the guest memory memfd.
