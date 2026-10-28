@@ -434,14 +434,18 @@ def start_fast_page_fault_helper(ssh_connection, timeout_s=10) -> str:
     return pid
 
 
-def wait_for_fast_page_fault_helper_output(ssh_connection) -> str:
+def wait_for_fast_page_fault_helper_output(ssh_connection, pid=None) -> str:
     """Wait for fast_page_fault_helper to finish and return the duration it
     reported, in nanoseconds. The helper writes the whole output in the single
-    flush at fclose, so a non-empty file is also a complete one.
+    flush at fclose, so a non-empty file is also a complete one. With `pid`,
+    wait for the helper to exit instead of polling for the file once a second.
     """
+    if pid:
+        wait = f"tail --pid={pid} -s 0.05 -f /dev/null"
+    else:
+        wait = f"while [ ! -s {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH} ]; do sleep 1; done"
     _, duration, _ = ssh_connection.check_output(
-        f"while [ ! -s {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH} ]; do sleep 1; done; "
-        f"cat {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH}"
+        f"{wait}; cat {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH}"
     )
     return duration
 
