@@ -432,6 +432,7 @@ pub fn restore_from_snapshot(
             track_dirty_pages: Some(track_dirty_pages),
             huge_pages: Some(params.huge_pages.resolve(microvm_state.vm_info.huge_pages)),
             pcie_hotplug_ports: Some(microvm_state.vm_info.pcie_hotplug_ports),
+            mem_backend: None,
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         })
