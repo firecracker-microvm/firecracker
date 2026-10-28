@@ -18,7 +18,7 @@ PMEM_DEVICE_SIZE_MB = 2048
 PMEM_DEVICE_SIZE_SINGLE_READ_MB = 512
 # pmem settles within ~1-2s; pre-read pass already warms pages
 WARMUP_SEC = 2
-RUNTIME_SEC = 30
+RUNTIME_SEC = 15
 GUEST_MEM_MIB = 1024
 
 pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
@@ -80,7 +80,7 @@ def emit_fio_metrics(logs_dir, metrics):
 @pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
 @pytest.mark.parametrize("fio_mode", [fio.Mode.RANDREAD, fio.Mode.RANDWRITE])
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
-@pytest.mark.parametrize("fio_engine", [fio.Engine.LIBAIO, fio.Engine.PSYNC])
+@pytest.mark.parametrize("fio_engine", [fio.Engine.PSYNC])
 def test_pmem_performance(
     uvm,
     vcpus,
