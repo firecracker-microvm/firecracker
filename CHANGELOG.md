@@ -64,6 +64,10 @@ and this project adheres to
   largest frame needs, instead of every buffer the guest has made available.
   This lowers the cost of receiving each frame and improves receive throughput
   for small packets.
+- [#6321](https://github.com/firecracker-microvm/firecracker/pull/6321) Snapshot
+  creation now takes the dirty page bitmaps before copying guest memory,
+  clearing each word atomically, and marks the taken pages dirty again if the
+  snapshot fails.
 
 ### Deprecated
 
