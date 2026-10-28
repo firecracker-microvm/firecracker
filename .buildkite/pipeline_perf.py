@@ -139,7 +139,9 @@ else:
 
 for test in tests:
     devtool_opts = test.pop("devtool_opts")
-    test_selector = test.pop("tests")
+    # Perf tests are marked nonci, so this leaves out the functional tests that
+    # share their files. A group can override it with its own -m in "tests".
+    test_selector = f"-m nonci {test.pop('tests')}"
     ab_opts = test.pop("ab_opts", "")
     max_iterations = test.pop("max_iterations", A_B_TEST_DEFAULT_MAX_ITERATIONS)
     devtool_opts += " --performance"
@@ -153,10 +155,7 @@ for test in tests:
             artifacts.append(REVISION_B_ARTIFACTS)
             test_script_opts += f" --artifacts-a {REVISION_A_ARTIFACTS} --artifacts-b {REVISION_B_ARTIFACTS}"
     else:
-        # Passing `-m ''` below instructs pytest to collect tests regardless of
-        # their markers (e.g. it will collect both tests marked as nonci, and
-        # tests without any markers).
-        test_script_opts += f" -m '' {test_selector}"
+        test_script_opts += f" {test_selector}"
 
     command = []
     if artifacts:
