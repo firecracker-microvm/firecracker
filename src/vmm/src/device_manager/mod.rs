@@ -533,7 +533,9 @@ impl DeviceManager {
         let device = match config {
             HotplugDeviceConfig::Block(cfg) => Self::hotplug_make_block(cfg)?,
             HotplugDeviceConfig::Pmem(cfg) => Self::hotplug_make_pmem(vm.clone(), cfg)?,
-            HotplugDeviceConfig::Net(cfg) => self.hotplug_make_net(cfg)?,
+            HotplugDeviceConfig::Net(cfg) => {
+                Self::hotplug_make_net(self.pci_devices().expect("PCI is checked above"), cfg)?
+            }
         };
 
         match &mut self.virtio_devices {
@@ -592,12 +594,12 @@ impl DeviceManager {
     }
 
     fn hotplug_make_net(
-        &self,
+        pci_devices: &PciDevices,
         config: NetworkInterfaceConfig,
     ) -> Result<Arc<Mutex<dyn VirtioDevice>>, VmmActionError> {
         if let Some(mac) = config.guest_mac {
             let mut mac_in_use = false;
-            self.for_each_virtio_device(|_, device| {
+            pci_devices.for_each_virtio_device(|_, device| {
                 if let Some(net) = device.as_any().downcast_ref::<Net>()
                     && net.guest_mac() == Some(&mac)
                 {
