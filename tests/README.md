@@ -477,7 +477,7 @@ it.
 
 ### Markers
 
-Firecracker uses two special
+Firecracker uses special
 [pytest markers](https://pytest.org/en/7.4.x/example/markers.html) to determine
 which tests are run in which context:
 
@@ -485,6 +485,8 @@ which tests are run in which context:
   in separate pipelines according to various cron schedules.
 - Tests marked as `no_block_pr` are run in the "optional" PR CI pipeline. This
   pipeline is not required to pass for merging a PR.
+- Tests marked as `serial` must not run concurrently with other tests. The PR CI
+  pipeline runs them on their own and the other performance tests in parallel.
 
 All tests without markers are run for every pull request, and are required to
 pass for the PR to be merged.
