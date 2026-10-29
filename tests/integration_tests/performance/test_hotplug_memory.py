@@ -11,7 +11,11 @@ run on an ag=1 host due to the use of HugePages.
 import pytest
 from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_fixed
 
-from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.artifacts import (
+    GUEST_KERNEL_DEFAULT,
+    pin_dirty_tracking,
+    pin_guest_kernel,
+)
 from framework.guest_stats import MeminfoGuest
 from framework.microvm import SnapshotType
 from framework.properties import global_props
@@ -33,6 +37,7 @@ def uvm_booted_memhp(
     huge_pages,
     _uffd_handler,
     snapshot_type,
+    track_dirty_pages=False,
 ):
     """Boots a VM with the given memory hotplugging config"""
 
@@ -43,9 +48,8 @@ def uvm_booted_memhp(
         "huge_pages": huge_pages,
         # we need enough memory to be able to hotplug up to 16GB
         "mem_size_mib": 512,
-        "track_dirty_pages": (
-            snapshot_type.needs_dirty_page_tracking if snapshot_type else False
-        ),
+        "track_dirty_pages": track_dirty_pages
+        or (snapshot_type is not None and snapshot_type.needs_dirty_page_tracking),
     }
     if vhost_user:
         # We need to setup ssh keys manually because we did not specify rootfs
@@ -508,12 +512,22 @@ def timed_memory_hotplug(uvm, size, metrics, metric_prefix, fc_metric_name):
         16384,
     ],
 )
-@pytest.mark.parametrize(
+@pin_dirty_tracking(
     "huge_pages",
-    HugePagesConfig,
+    {
+        HugePagesConfig.NONE: [False],
+        HugePagesConfig.TRANSPARENT: [False, True],
+        HugePagesConfig.HUGETLBFS_2MB: [False, True],
+    },
 )
 def test_memory_hotplug_latency(
-    microvm_factory, guest_kernel, rootfs, hotplug_size, huge_pages, metrics
+    microvm_factory,
+    guest_kernel,
+    rootfs,
+    hotplug_size,
+    huge_pages,
+    track_dirty_pages,
+    metrics,
 ):
     """Test the latency of hotplugging memory"""
 
@@ -524,7 +538,17 @@ def test_memory_hotplug_latency(
             "block_size_mib": 2,
         }
         uvm = microvm_factory.build(guest_kernel, rootfs, pci=True)
-        uvm = uvm_booted_memhp(uvm, None, None, False, config, huge_pages, None, None)
+        uvm = uvm_booted_memhp(
+            uvm,
+            None,
+            None,
+            False,
+            config,
+            huge_pages,
+            None,
+            None,
+            track_dirty_pages=track_dirty_pages,
+        )
 
         if i == 0:
             metrics.set_dimensions(
