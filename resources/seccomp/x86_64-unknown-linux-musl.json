@@ -5,7 +5,7 @@
         "filter": [
             {
                 "syscall": "stat",
-                "comment": "Used when creating snapshots in vmm:persist::snapshot_memory_to_file through std::fs::File::metadata"
+                "comment": "Used when creating snapshots in vmm::vstate::vm::snapshot_memory_to_path through std::fs::File::metadata"
             },
             {
                 "syscall": "epoll_create1",
