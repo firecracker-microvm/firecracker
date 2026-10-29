@@ -386,8 +386,7 @@ pub fn restore_from_snapshot(
     let mut microvm_state = snapshot_state_from_file(&params.snapshot_path)?;
     for entry in &params.network_overrides {
         // Only the active transport carries virtio device state, so we look at whichever
-        // variant this snapshot was saved with. The MMIO and PCI transports wrap their net
-        // devices in distinct types, so we map down to the shared inner `NetState` in each arm.
+        // variant this snapshot was saved with and map down to the shared inner `NetState`.
         let device_state = match &mut microvm_state.device_states.virtio_state {
             VirtioDevicesState::Mmio(mmio_state) => mmio_state
                 .net_devices
@@ -395,6 +394,7 @@ pub fn restore_from_snapshot(
                 .map(|device| &mut device.device_state)
                 .find(|x| x.id == entry.iface_id),
             VirtioDevicesState::Pci(pci_state) => pci_state
+                .virtio_devices
                 .net_devices
                 .iter_mut()
                 .map(|device| &mut device.device_state)
@@ -414,6 +414,7 @@ pub fn restore_from_snapshot(
                 .as_mut()
                 .map(|device| &mut device.device_state),
             VirtioDevicesState::Pci(pci_state) => pci_state
+                .virtio_devices
                 .vsock_device
                 .as_mut()
                 .map(|device| &mut device.device_state),
