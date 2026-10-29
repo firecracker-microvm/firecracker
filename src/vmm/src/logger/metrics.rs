@@ -257,6 +257,13 @@ impl IncMetric for SharedIncMetric {
     }
 }
 
+impl SharedStoreMetric {
+    /// Stores `value` if it is greater than the current value, as a single atomic operation.
+    pub fn store_max(&self, value: u64) {
+        self.0.fetch_max(value, Ordering::Relaxed);
+    }
+}
+
 impl StoreMetric for SharedStoreMetric {
     fn fetch(&self) -> u64 {
         self.0.load(Ordering::Relaxed)
@@ -769,23 +776,17 @@ impl Drop for LatencyMetricsRecorder<'_> {
     ///  self.start_time is recorded in new() and metrics are updated in drop
     fn drop(&mut self) {
         let delta_us = get_time_us(ClockType::Monotonic) - self.start_time;
-        self.metric.sum_us.add(delta_us);
-        let min_us = self.metric.min_us.fetch();
-        let max_us = self.metric.max_us.fetch();
-        if (0 == min_us) || (min_us > delta_us) {
-            self.metric.min_us.store(delta_us);
-        }
-        if (0 == max_us) || (max_us < delta_us) {
-            self.metric.max_us.store(delta_us);
-        }
+        self.metric.record(delta_us);
     }
 }
 
 /// Used to record Aggregate (min/max/sum) of latency metrics
 #[derive(Debug, Default, Serialize)]
 pub struct LatencyAggregateMetrics {
-    /// represents minimum value of the metrics in microseconds
-    pub min_us: SharedStoreMetric,
+    /// represents minimum value of the metrics in microseconds, unset until the first value is
+    /// recorded and reported as 0 until then
+    #[serde(serialize_with = "serialize_min_us")]
+    pub min_us: OnceLock<AtomicU64>,
     /// represents maximum value of the metrics in microseconds
     pub max_us: SharedStoreMetric,
     /// represents sum of the metrics in microseconds
@@ -795,10 +796,22 @@ impl LatencyAggregateMetrics {
     /// Const default construction.
     pub const fn new() -> Self {
         Self {
-            min_us: SharedStoreMetric::new(),
+            min_us: OnceLock::new(),
             max_us: SharedStoreMetric::new(),
             sum_us: SharedIncMetric::new(),
         }
+    }
+
+    /// Records one value, in microseconds, updating min/max/sum.
+    ///
+    /// Each update is a single atomic operation, so values recorded concurrently from several
+    /// threads are not lost.
+    fn record(&self, delta_us: u64) {
+        self.sum_us.add(delta_us);
+        self.min_us
+            .get_or_init(|| AtomicU64::new(delta_us))
+            .fetch_min(delta_us, Ordering::Relaxed);
+        self.max_us.store_max(delta_us);
     }
 
     /// returns a latency recorder which captures stores start_time
@@ -810,6 +823,13 @@ impl LatencyAggregateMetrics {
     pub fn record_latency_metrics(&self) -> LatencyMetricsRecorder<'_> {
         LatencyMetricsRecorder::new(self)
     }
+}
+
+fn serialize_min_us<S: Serializer>(
+    min_us: &OnceLock<AtomicU64>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_u64(min_us.get().map_or(0, |min| min.load(Ordering::Relaxed)))
 }
 
 /// Structure provides Metrics specific to VCPUs' mode of functioning.
@@ -1198,6 +1218,28 @@ mod tests {
         m1.store(1);
         fence(Ordering::SeqCst);
         assert_eq!(1, m1.fetch());
+    }
+
+    #[test]
+    fn test_latency_aggregate_metrics() {
+        let metric = LatencyAggregateMetrics::new();
+        let min_us = |metric: &LatencyAggregateMetrics| {
+            serde_json::to_value(metric).unwrap()["min_us"].clone()
+        };
+        assert!(metric.min_us.get().is_none());
+        assert_eq!(min_us(&metric), 0);
+        assert_eq!(metric.max_us.fetch(), 0);
+
+        metric.record(4);
+        assert_eq!(min_us(&metric), 4);
+        assert_eq!(metric.max_us.fetch(), 4);
+
+        // A 0us value is a valid minimum and must not be overwritten by later values.
+        metric.record(0);
+        metric.record(7);
+        assert_eq!(min_us(&metric), 0);
+        assert_eq!(metric.max_us.fetch(), 7);
+        assert_eq!(metric.sum_us.count(), 11);
     }
 
     #[test]
