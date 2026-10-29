@@ -134,7 +134,7 @@ def test_hotplug_block(uvm_any):
         vm.api.drive.delete("nonexistent")
 
     # Unplugging the root block device must be rejected
-    with pytest.raises(RuntimeError, match="Cannot unplug root device"):
+    with pytest.raises(RuntimeError, match="Device 'rootfs' is not removable"):
         vm.api.drive.delete("rootfs")
 
     # Unplug the block device
@@ -372,7 +372,7 @@ def test_unplug_root_pmem(microvm_factory, guest_kernel, rootfs):
     vm.add_net_iface()
     vm.start()
 
-    with pytest.raises(RuntimeError, match="Cannot unplug root device"):
+    with pytest.raises(RuntimeError, match="Device 'pmem_root' is not removable"):
         vm.api.pmem.delete("pmem_root")
 
 
