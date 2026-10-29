@@ -63,6 +63,8 @@ const GPIO_ACTIVE_HIGH: u32 = 0;
 pub enum FdtError {
     /// Create FDT error: {0}
     CreateFdt(#[from] VmFdtError),
+    /// Guest memory region of {0} bytes is smaller than the reserved system memory size of {1} bytes.
+    GuestMemoryTooSmall(u64, u64),
     /// Read cache info error: {0}
     ReadCacheInfo(String),
     /// Failure in writing FDT in memory.
@@ -249,7 +251,12 @@ fn create_memory_node(fdt: &mut FdtWriter, guest_mem: &GuestMemoryMmap) -> Resul
         .start_addr()
         .unchecked_add(super::layout::SYSTEM_MEM_SIZE);
     // Size of the memory is the region size minus the system memory size
-    let mem_size = dram_region.len() - super::layout::SYSTEM_MEM_SIZE;
+    let mem_size = dram_region
+        .len()
+        .checked_sub(super::layout::SYSTEM_MEM_SIZE)
+        .ok_or_else(|| {
+            FdtError::GuestMemoryTooSmall(dram_region.len(), super::layout::SYSTEM_MEM_SIZE)
+        })?;
 
     let mem_reg_prop = &[start_addr.raw_value(), mem_size];
     let mem = fdt.begin_node("memory@ram")?;
@@ -628,8 +635,19 @@ mod tests {
     use crate::device_manager::mmio::tests::DummyDevice;
     use crate::device_manager::tests::{default_device_manager, mmio_devices_mut};
     use crate::test_utils::arch_mem;
+    use crate::utils::u64_to_usize;
     use crate::vstate::memory::GuestAddress;
     use crate::{EventManager, Kvm};
+
+    #[test]
+    fn test_memory_node_rejects_guest_smaller_than_system_mem() {
+        let mem = arch_mem(u64_to_usize(crate::arch::aarch64::layout::SYSTEM_MEM_SIZE) - 0x1000);
+        let mut fdt = FdtWriter::new().unwrap();
+        assert!(matches!(
+            create_memory_node(&mut fdt, &mem),
+            Err(FdtError::GuestMemoryTooSmall(..))
+        ));
+    }
 
     #[test]
     fn test_create_fdt() {
