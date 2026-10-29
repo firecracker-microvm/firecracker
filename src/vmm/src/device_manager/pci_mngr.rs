@@ -189,6 +189,29 @@ impl PciDevices {
         }
     }
 
+    pub fn hotplug_pci_virtio_device(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        id: String,
+        device: Arc<Mutex<dyn VirtioDevice>>,
+        event_manager: &mut EventManager,
+    ) -> Result<(), PciManagerError> {
+        let sbdf = self.attach_pci_virtio_device(
+            vm,
+            id,
+            device,
+            event_manager,
+            PciPlacement::SecondaryBus,
+        )?;
+
+        // Notify the guest the device is hot-plugged
+        // Hotplugged devices are always behind secondary root_ports.
+        let port = self.pci_segment.root_port_for_bus(sbdf.bus()).unwrap();
+        port.lock().expect("Poisoned lock").plug();
+
+        Ok(())
+    }
+
     pub(crate) fn attach_pci_virtio_device(
         &mut self,
         vm: &Arc<KvmVm>,
@@ -196,7 +219,7 @@ impl PciDevices {
         device: Arc<Mutex<dyn VirtioDevice>>,
         event_manager: &mut EventManager,
         placement: PciPlacement,
-    ) -> Result<(), PciManagerError> {
+    ) -> Result<PciSBDF, PciManagerError> {
         let sbdf = self.next_sbdf(placement)?;
         debug!("Allocating SBDF: {sbdf:?} for device");
 
@@ -226,7 +249,8 @@ impl PciDevices {
 
         let virtio_device = Arc::new(Mutex::new(virtio_device));
 
-        self.attach_common(vm, device_type, id, sbdf, virtio_device, event_manager)
+        self.attach_common(vm, device_type, id, sbdf, virtio_device, event_manager)?;
+        Ok(sbdf)
     }
 
     pub(crate) fn pci_segment(&self) -> &PciSegment {
