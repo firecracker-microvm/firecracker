@@ -453,6 +453,69 @@ def test_guest_mmds_hang(uvm, version):
         assert "Invalid request" in stdout
 
 
+# Sends one SYN carrying ECE and CWR to the MMDS from a raw socket and prints the
+# flags of the reply. A raw socket is used because a client that asks for ECN may
+# hide a refused SYN: Linux resends a plain SYN at once when it gets a RST.
+ECN_SETUP_SYN_SCRIPT = """
+import socket, struct
+
+dst = "{dst}"
+probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+probe.connect((dst, 80))
+src = probe.getsockname()[0]
+sport = 40123
+
+def checksum(data):
+    total = sum(struct.unpack("!%dH" % (len(data) // 2), data))
+    total = (total >> 16) + (total & 0xFFFF)
+    total += total >> 16
+    return ~total & 0xFFFF
+
+# SYN | ECE | CWR, no options.
+header = struct.pack("!HHIIBBHHH", sport, 80, 1000, 0, 5 << 4, 0xC2, 64240, 0, 0)
+pseudo = struct.pack(
+    "!4s4sBBH", socket.inet_aton(src), socket.inet_aton(dst), 0, 6, len(header)
+)
+header = header[:16] + struct.pack("!H", checksum(pseudo + header)) + header[18:]
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
+sock.settimeout(2)
+sock.sendto(header, (dst, 0))
+while True:
+    packet = sock.recv(100)
+    tcp = packet[(packet[0] & 0xF) * 4 :]
+    if struct.unpack("!H", tcp[2:4])[0] == sport:
+        print("%#04x" % tcp[13], end="")
+        break
+"""
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_mmds_ecn_setup_syn(uvm):
+    """
+    Test that the MMDS answers an ECN-setup SYN with a plain SYN-ACK.
+
+    A client that asks for ECN sends a SYN carrying ECE and CWR (RFC 3168). The
+    MMDS does not implement ECN, so it must open the connection with a SYN-ACK
+    that carries neither flag, rather than refuse the SYN.
+    """
+    test_microvm = uvm
+    test_microvm.spawn()
+
+    test_microvm.add_net_iface()
+    configure_mmds(test_microvm, iface_ids=["eth0"])
+
+    test_microvm.basic_config(vcpu_count=1)
+    test_microvm.start()
+    ssh_connection = test_microvm.ssh
+
+    run_guest_cmd(ssh_connection, f"ip route add {DEFAULT_IPV4} dev eth0", "")
+
+    script = ECN_SETUP_SYN_SCRIPT.format(dst=DEFAULT_IPV4)
+    # SYN | ACK, without ECE.
+    run_guest_cmd(ssh_connection, f"python3 -c '{script}'", "0x12")
+
+
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
 def test_mmds_limit_scenario(uvm, version):

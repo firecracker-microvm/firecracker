@@ -225,7 +225,7 @@ impl TcpIPv4Handler {
             } else {
                 RecvSegmentOutcome::EndpointRunning(endpoint.next_segment_status())
             }
-        } else if segment.flags_after_ns() == TcpFlags::SYN {
+        } else if segment.has_only_syn_flag() {
             RecvSegmentOutcome::NewConnection
         } else {
             // We should send a RST for every non-RST unexpected segment we receive.
@@ -862,5 +862,89 @@ mod tests {
         assert_eq!(h.connections.len(), 0);
         assert_eq!(h.next_segment_status(), NextSegmentStatus::Nothing);
         assert_eq!(drain_packets(&mut h, local_addr, remote_addr), Ok(0));
+    }
+
+    const ECN_TEST_LOCAL_ADDR: Ipv4Addr = Ipv4Addr::new(169, 254, 169, 254);
+    const ECN_TEST_REMOTE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 1);
+
+    // A handler on ECN_TEST_LOCAL_ADDR:80, and a segment with `flags` from ECN_TEST_REMOTE_ADDR to
+    // it, with sequence number 123.
+    fn ecn_test_setup(
+        buf: &mut [u8],
+        flags: TcpFlags,
+    ) -> (TcpIPv4Handler, IPv4Packet<'_, &mut [u8]>) {
+        let local_port = 80;
+        let h = TcpIPv4Handler::new(
+            ECN_TEST_LOCAL_ADDR,
+            local_port,
+            NonZeroUsize::new(1).unwrap(),
+            NonZeroUsize::new(1).unwrap(),
+        );
+
+        let mut p =
+            IPv4Packet::write_header(buf, PROTOCOL_TCP, ECN_TEST_REMOTE_ADDR, ECN_TEST_LOCAL_ADDR)
+                .unwrap();
+        let segment_len = TcpSegment::write_segment::<[u8]>(
+            p.inner_mut().payload_mut(),
+            1012,
+            local_port,
+            123,
+            0,
+            flags,
+            10000,
+            Some(1460),
+            1460,
+            None,
+            None,
+        )
+        .unwrap()
+        .len();
+
+        (h, p.with_payload_len_unchecked(segment_len, false))
+    }
+
+    #[test]
+    fn test_ecn_setup_syn_opens_a_connection() {
+        let mut buf = [0u8; 100];
+        let (mut h, p) =
+            ecn_test_setup(buf.as_mut(), TcpFlags::SYN | TcpFlags::ECE | TcpFlags::CWR);
+
+        assert_eq!(
+            h.receive_packet(&p, mock_callback),
+            Ok(RecvEvent::NewConnectionSuccessful)
+        );
+        assert_eq!(h.connections.len(), 1);
+        assert!(h.rst_queue.is_empty());
+
+        let mut buf2 = [0u8; 2000];
+        let s = next_written_segment(&mut h, buf2.as_mut(), WriteEvent::Nothing);
+        assert_eq!(s.flags_after_ns(), TcpFlags::SYN | TcpFlags::ACK);
+        assert_eq!(s.ack_number(), 124);
+    }
+
+    #[test]
+    fn test_ecn_flags_do_not_open_a_connection() {
+        let ecn = TcpFlags::ECE | TcpFlags::CWR;
+
+        for flags in [
+            ecn,
+            TcpFlags::SYN | TcpFlags::ACK | ecn,
+            TcpFlags::SYN | TcpFlags::FIN | ecn,
+        ] {
+            let mut buf = [0u8; 100];
+            let (mut h, p) = ecn_test_setup(buf.as_mut(), flags);
+
+            assert_eq!(
+                h.receive_packet(&p, mock_callback),
+                Ok(RecvEvent::UnexpectedSegment),
+                "{flags:?}"
+            );
+            assert!(h.connections.is_empty(), "{flags:?}");
+            assert_eq!(h.rst_queue.len(), 1, "{flags:?}");
+
+            let mut buf2 = [0u8; 2000];
+            let s = next_written_segment(&mut h, buf2.as_mut(), WriteEvent::Nothing);
+            assert!(s.flags_after_ns().intersects(TcpFlags::RST), "{flags:?}");
+        }
     }
 }
