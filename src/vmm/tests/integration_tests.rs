@@ -167,7 +167,7 @@ fn test_dirty_bitmap_success() {
             .get_dirty_bitmap()
             .unwrap();
         let num_dirty_pages: u32 = bitmap
-            .values()
+            .iter()
             .map(|bitmap_per_region| {
                 // Gently coerce to u32
                 let num_dirty_pages_per_region: u32 =

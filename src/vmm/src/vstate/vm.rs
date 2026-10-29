@@ -584,21 +584,27 @@ impl KvmVm {
 
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
     pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, VmError> {
+        let page_size = host_page_size();
         self.guest_memory()
             .iter()
-            .flat_map(|region| region.plugged_slots())
-            .map(|mem_slot| {
-                let bitmap = match mem_slot.slice.bitmap() {
-                    Some(_) => self
-                        .fd()
-                        .get_dirty_log(mem_slot.slot, mem_slot.slice.len())
-                        .map_err(VmError::GetDirtyLog)?,
-                    None => mincore_bitmap(
-                        mem_slot.slice.ptr_guard_mut().as_ptr(),
-                        mem_slot.slice.len(),
-                    )?,
-                };
-                Ok((mem_slot.slot, bitmap))
+            .map(|region| {
+                let mut bitmap = vec![0; (region.size() / page_size).div_ceil(64)];
+                for (i, (mem_slot, plugged)) in region.slots().enumerate() {
+                    if plugged {
+                        let slot_bitmap = match mem_slot.slice.bitmap() {
+                            Some(_) => self
+                                .fd()
+                                .get_dirty_log(mem_slot.slot, mem_slot.slice.len())
+                                .map_err(VmError::GetDirtyLog)?,
+                            None => mincore_bitmap(
+                                mem_slot.slice.ptr_guard_mut().as_ptr(),
+                                mem_slot.slice.len(),
+                            )?,
+                        };
+                        bitmap[region.slot_words(i)].copy_from_slice(&slot_bitmap);
+                    }
+                }
+                Ok(bitmap)
             })
             .collect()
     }
