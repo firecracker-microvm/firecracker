@@ -171,3 +171,10 @@ An example of a handler process can be found
 designed to tackle faults on a certain address by loading into memory the entire
 region that the address belongs to, but users can choose any other behavior that
 suits their use case best.
+
+A second example,
+[`layered_handler.rs`](../../src/firecracker/examples/uffd/layered_handler.rs),
+restores a microVM from a chain of snapshots: a Full snapshot followed by one or
+more Diff snapshots. It takes the memory files oldest first and serves each page
+from the newest file that contains it. This is one way to resume from a Diff
+snapshot without first merging it into its base.

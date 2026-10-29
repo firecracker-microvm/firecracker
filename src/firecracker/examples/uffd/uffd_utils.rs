@@ -195,13 +195,30 @@ impl UffdHandler {
 #[derive(Debug)]
 pub struct Runtime {
     stream: UnixStream,
-    backing_file: File,
+    // `None` when the caller supplied (and owns) the backing memory.
+    backing_file: Option<File>,
     backing_memory: *mut u8,
     backing_memory_size: usize,
     uffds: HashMap<i32, UffdHandler>,
 }
 
 impl Runtime {
+    /// Creates a runtime serving faults from caller-provided memory, which must stay
+    /// mapped and readable for `backing_memory_size` bytes for the life of the runtime.
+    pub fn with_backing_memory(
+        stream: UnixStream,
+        backing_memory: *mut u8,
+        backing_memory_size: usize,
+    ) -> Self {
+        Self {
+            stream,
+            backing_file: None,
+            backing_memory,
+            backing_memory_size,
+            uffds: HashMap::default(),
+        }
+    }
+
     pub fn new(stream: UnixStream, backing_file: File) -> Self {
         let file_meta = backing_file
             .metadata()
@@ -225,7 +242,7 @@ impl Runtime {
 
         Self {
             stream,
-            backing_file,
+            backing_file: Some(backing_file),
             backing_memory: ret.cast(),
             backing_memory_size,
             uffds: HashMap::default(),
