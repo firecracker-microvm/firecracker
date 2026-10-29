@@ -156,17 +156,19 @@ fn test_dirty_bitmap_success() {
     ];
 
     for (vmm, _) in vmms {
-        // Let it churn for a while and dirty some pages...
+        let take = || {
+            vmm.lock()
+                .unwrap()
+                .vm
+                .as_kvm()
+                .unwrap()
+                .take_dirty_bitmap()
+                .unwrap()
+        };
+        // Drop what booting marked, then let it churn for a while and dirty some pages...
+        take();
         thread::sleep(Duration::from_millis(100));
-        let bitmap = vmm
-            .lock()
-            .unwrap()
-            .vm
-            .as_kvm()
-            .unwrap()
-            .get_dirty_bitmap()
-            .unwrap();
-        let num_dirty_pages: u32 = bitmap
+        let num_dirty_pages: u32 = take()
             .iter()
             .map(|bitmap_per_region| {
                 // Gently coerce to u32
