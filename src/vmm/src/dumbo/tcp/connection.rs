@@ -1293,6 +1293,14 @@ pub(crate) mod tests {
 
         // While the connection is in this state, we send another SYN, with a different ISN.
         syn.set_sequence_number(t.remote_isn.wrapping_add(1));
+
+        // The RST acknowledges the new SYN, which occupies one sequence number.
+        let expected_ack = t.remote_isn.wrapping_add(2);
+        let mut c_reset = c.clone();
+        t.receive_segment(&mut c_reset, &syn).unwrap();
+        let rst = t.write_next_segment(&mut c_reset, None).unwrap().unwrap();
+        check_acks(&rst, expected_ack, TcpFlags::RST);
+
         t.should_reset_after(
             &mut c,
             &syn,

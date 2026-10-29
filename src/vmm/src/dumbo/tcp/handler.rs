@@ -638,9 +638,10 @@ mod tests {
         assert_eq!(h.next_segment_status(), NextSegmentStatus::Available);
         {
             let s = next_written_segment(&mut h, buf2.as_mut(), WriteEvent::Nothing);
-            assert!(s.flags_after_ns().intersects(TcpFlags::RST));
+            assert_eq!(s.flags_after_ns(), TcpFlags::RST | TcpFlags::ACK);
             assert_eq!(s.source_port(), local_port);
             assert_eq!(s.destination_port(), remote_port);
+            assert_eq!(s.ack_number(), seq_number);
         }
 
         assert_eq!(h.rst_queue.len(), 0);
@@ -782,11 +783,12 @@ mod tests {
             );
             assert_eq!(h.connections.len(), 2);
 
-            // We should get a RST.
+            // We should get a RST, acknowledging the SYN so the client accepts it.
             assert_eq!(h.rst_queue.len(), 1);
             let s = next_written_segment(&mut h, buf2.as_mut(), WriteEvent::Nothing);
-            assert!(s.flags_after_ns().intersects(TcpFlags::RST));
+            assert_eq!(s.flags_after_ns(), TcpFlags::RST | TcpFlags::ACK);
             assert_eq!(s.destination_port(), port);
+            assert_eq!(s.ack_number(), seq_number.wrapping_add(1));
         }
 
         // Let's make the second endpoint evictable.
