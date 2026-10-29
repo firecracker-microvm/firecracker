@@ -22,7 +22,7 @@ pub enum PmemConfigError {
 }
 
 /// Configuration for updating a pmem device at runtime.
-/// Only the rate limiter can be updated.
+/// The rate limiter and the backing file can be updated.
 #[derive(Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PmemDeviceUpdateConfig {
@@ -30,6 +30,9 @@ pub struct PmemDeviceUpdateConfig {
     pub id: String,
     /// New rate limiter config.
     pub rate_limiter: Option<RateLimiterConfig>,
+    /// Path of a new backing file, of the same size as the current one, to map in its place.
+    /// Only allowed while the microVM is paused.
+    pub path_on_host: Option<String>,
 }
 
 /// Use this structure to setup a Pmem device before boothing the kernel.

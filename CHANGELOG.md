@@ -10,6 +10,12 @@ and this project adheres to
 
 ### Added
 
+- [#6351](https://github.com/firecracker-microvm/firecracker/pull/6351): Added
+  an optional `path_on_host` field to `PATCH /pmem/{id}`. It replaces the
+  backing file of a paused microVM's `virtio-pmem` device with another file of
+  the same size, mapped at the same address. Restored from one snapshot,
+  microVMs can each be given a different file on the same device. See the
+  [virtio-pmem](docs/pmem.md#replacing-the-backing-file) documentation page.
 - [#6226](https://github.com/firecracker-microvm/firecracker/pull/6226),
   [#6227](https://github.com/firecracker-microvm/firecracker/pull/6227),
   [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228),

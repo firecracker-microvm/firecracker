@@ -1010,6 +1010,13 @@ impl RuntimeApiController {
         &mut self,
         new_cfg: PmemDeviceUpdateConfig,
     ) -> Result<VmmData, VmmActionError> {
+        if let Some(path_on_host) = new_cfg.path_on_host {
+            self.vmm
+                .lock()
+                .expect("Poisoned lock")
+                .update_pmem_backing_file(&new_cfg.id, path_on_host)
+                .map_err(PmemConfigError::DeviceUpdate)?;
+        }
         if new_cfg.rate_limiter.is_some() {
             self.vmm
                 .lock()

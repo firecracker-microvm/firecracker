@@ -126,6 +126,54 @@ def test_pmem_add(uvm, huge_pages, microvm_factory):
     assert stdout.strip() == test_string
 
 
+def test_pmem_update_backing_file(uvm, huge_pages):
+    """
+    Test replacing the backing file of a pmem device on a paused VM
+    """
+
+    vm = uvm
+    vm.spawn()
+    vm.basic_config(add_root_device=True, huge_pages=huge_pages)
+    vm.add_net_iface()
+
+    pmem_size_mb = 2
+    fs_old = drive_tools.FilesystemFile(
+        os.path.join(vm.fsfiles, "scratch_old"), size=pmem_size_mb
+    )
+    fs_new = drive_tools.FilesystemFile(
+        os.path.join(vm.fsfiles, "scratch_new"), size=pmem_size_mb
+    )
+    fs_larger = drive_tools.FilesystemFile(
+        os.path.join(vm.fsfiles, "scratch_larger"), size=pmem_size_mb * 2
+    )
+    vm.add_pmem("pmem", fs_old.path, False, False)
+    vm.start()
+
+    def uuid_on_host(path):
+        _, stdout, _ = utils.check_output(f"blkid -p -o value -s UUID {path}")
+        return stdout.strip()
+
+    def uuid_in_guest():
+        vm.ssh.check_output("blockdev --flushbufs /dev/pmem0")
+        _, stdout, _ = vm.ssh.check_output("blkid -p -o value -s UUID /dev/pmem0")
+        return stdout.strip()
+
+    assert uuid_in_guest() == uuid_on_host(fs_old.path)
+
+    new_path = vm.create_jailed_resource(fs_new.path)
+    with pytest.raises(RuntimeError, match="microVM is paused"):
+        vm.api.pmem.patch(id="pmem", path_on_host=new_path)
+
+    vm.pause()
+    larger_path = vm.create_jailed_resource(fs_larger.path)
+    with pytest.raises(RuntimeError, match="does not match current backing file size"):
+        vm.api.pmem.patch(id="pmem", path_on_host=larger_path)
+    vm.api.pmem.patch(id="pmem", path_on_host=new_path)
+    vm.resume()
+
+    assert uuid_in_guest() == uuid_on_host(fs_new.path)
+
+
 @pin_rootfs_mode("rw")
 def test_pmem_add_as_root_rw(uvm, huge_pages, rootfs, microvm_factory):
     """
