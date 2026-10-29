@@ -121,6 +121,7 @@ def emit_fio_metrics(logs_dir, metrics):
 @pytest.mark.parametrize("fio_mode", [fio.Mode.RANDREAD, fio.Mode.RANDWRITE])
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
 @pytest.mark.parametrize("fio_engine", [fio.Engine.LIBAIO, fio.Engine.PSYNC])
+@pytest.mark.parametrize("threaded", [False, True], ids=["inline", "threaded"])
 def test_block_performance(
     uvm,
     vcpus,
@@ -128,12 +129,19 @@ def test_block_performance(
     fio_block_size,
     fio_engine,
     io_engine,
+    threaded,
     metrics,
     results_dir,
 ):
     """
     Execute block device emulation benchmarking scenarios.
+
+    Inline runs process the drive on the VMM thread. Threaded runs give it one queue per vCPU,
+    each with its own worker thread.
     """
+    if threaded and fio_engine == fio.Engine.PSYNC:
+        pytest.skip("threaded runs use libaio only, to keep the matrix small")
+    num_queues = vcpus if threaded else None
     vm = uvm
     vm.spawn(log_level="Info", emit_metrics=True)
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
@@ -142,13 +150,14 @@ def test_block_performance(
     fs = drive_tools.FilesystemFile(
         os.path.join(vm.fsfiles, "scratch"), BLOCK_DEVICE_SIZE_MB
     )
-    vm.add_drive("scratch", fs.path, io_engine=io_engine)
+    vm.add_drive("scratch", fs.path, io_engine=io_engine, num_queues=num_queues)
     vm.start()
 
     metrics.set_dimensions(
         {
             "performance_test": "test_block_performance",
             "io_engine": io_engine,
+            "num_queues": str(num_queues) if threaded else "inline",
             "fio_mode": fio_mode,
             "fio_block_size": str(fio_block_size),
             "fio_engine": fio_engine,
@@ -156,7 +165,9 @@ def test_block_performance(
         }
     )
 
-    vm.pin_threads(0)
+    next_cpu = vm.pin_threads(0)
+    if threaded:
+        assert vm.pin_block_workers("scratch", next_cpu) == next_cpu + num_queues
 
     cpu_util = run_fio(vm, fio_mode, fio_block_size, results_dir, fio_engine)
 
