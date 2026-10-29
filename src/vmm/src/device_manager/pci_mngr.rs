@@ -123,6 +123,7 @@ pub enum PciManagerError {
 }
 
 impl PciDevices {
+    /// Create the PCI device manager with `hotplug_ports` PCIe root ports for hot-plug
     pub fn new(vm: &Arc<KvmVm>, hotplug_ports: u8) -> Result<Self, PciManagerError> {
         // Currently we don't assign any IRQs to PCI devices. We will be using MSI-X interrupts
         // only.
@@ -189,6 +190,7 @@ impl PciDevices {
         }
     }
 
+    /// Attach VirtIO PCI device and notify the guest about it
     pub fn hotplug_pci_virtio_device(
         &mut self,
         vm: &Arc<KvmVm>,
@@ -212,6 +214,7 @@ impl PciDevices {
         Ok(())
     }
 
+    /// Attach VirtIO PCI device without notifying the guest
     pub fn attach_pci_virtio_device(
         &mut self,
         vm: &Arc<KvmVm>,
@@ -253,6 +256,7 @@ impl PciDevices {
         Ok(sbdf)
     }
 
+    /// Get PCI segment
     pub fn pci_segment(&self) -> &PciSegment {
         &self.pci_segment
     }
@@ -263,6 +267,7 @@ impl PciDevices {
     }
 
     #[cfg(target_arch = "x86_64")]
+    /// Append AML bytes for the PCI segment to the provided vector
     pub fn append_aml_bytes(
         &self,
         dsdt_data: &mut Vec<u8>,
@@ -286,6 +291,7 @@ impl PciDevices {
         Ok(bus)
     }
 
+    /// Detach VirtIO PCI device and notify guest about it
     pub fn detach_pci_virtio_device(
         &mut self,
         vm: &KvmVm,
@@ -359,7 +365,7 @@ impl PciDevices {
         Ok(())
     }
 
-    /// Ask the guest to release a device.
+    /// Ask the guest to release a VirtIO PCI device.
     pub fn request_unplug(&self, device_id: &VirtioDeviceId) -> Result<(), PciManagerError> {
         let bus = self.find_removable_virtio_device_bus_by_id(device_id)?;
         self.pci_segment
@@ -560,7 +566,7 @@ impl PciDevices {
         Ok(())
     }
 
-    /// Gets the specified device.
+    /// Gets the specified VirtIO PCI device.
     pub fn get_virtio_device(
         &self,
         device_type: VirtioDeviceType,
@@ -570,6 +576,7 @@ impl PciDevices {
             .get(&(device_type, device_id.to_string()))
     }
 
+    /// Gets the VirtIO device behind the specified VirtIO PCI device.
     pub fn get_device(
         &self,
         device_type: VirtioDeviceType,
@@ -579,10 +586,12 @@ impl PciDevices {
             .map(|device| device.lock().expect("Poisoned lock").virtio_device())
     }
 
+    /// Check if device with specified id exists
     pub fn contains_virtio_device(&self, device_id: &VirtioDeviceId) -> bool {
         self.virtio_devices.contains_key(device_id)
     }
 
+    /// Run a function per VirtIO PCI device
     pub fn for_each_virtio_device(&self, mut f: impl FnMut(VirtioDeviceType, &dyn VirtioDevice)) {
         for ((device_type, _), pci_device) in &self.virtio_devices {
             let device_arc = pci_device.lock().expect("Poisoned lock").virtio_device();
@@ -591,6 +600,7 @@ impl PciDevices {
         }
     }
 
+    /// Run a function per VirtIO PCI device with possible device mutation
     pub fn for_each_virtio_device_mut(
         &self,
         mut f: impl FnMut(VirtioDeviceType, &mut dyn VirtioDevice),
