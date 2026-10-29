@@ -15,7 +15,7 @@ import semver
 
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
-from framework import utils, utils_cpuid
+from framework import utils
 from framework.artifacts import (
     GUEST_KERNEL_DEFAULT,
     GUEST_KERNELS_6_1,
@@ -187,7 +187,7 @@ def test_api_put_update_pre_boot(uvm, io_engine):
     # The machine configuration has a default value, so all PUTs are updates.
     microvm_config_json = {
         "vcpu_count": 4,
-        "smt": platform.machine() == "x86_64",
+        "smt": True,
         "mem_size_mib": 256,
         "track_dirty_pages": True,
     }
@@ -1463,7 +1463,6 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
     Test the configuration of a microVM after restoring from a snapshot.
     """
     net_iface = uvm_configured.add_net_iface()
-    cpu_vendor = utils_cpuid.get_cpu_vendor()
 
     setup_cfg = {}
     # Basic config also implies a root block device.
@@ -1475,9 +1474,6 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
         "huge_pages": "None",
         "pcie_hotplug_ports": 0,
     }
-
-    if cpu_vendor == utils_cpuid.CpuVendor.ARM:
-        setup_cfg["machine-config"]["smt"] = False
 
     if len(SUPPORTED_CPU_TEMPLATES) != 0:
         setup_cfg["machine-config"]["cpu_template"] = SUPPORTED_CPU_TEMPLATES[0]
