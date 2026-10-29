@@ -311,9 +311,16 @@ impl DeviceManager {
             VirtioDevices::Mmio(mmio_devices) => mmio_devices
                 .attach_mmio_virtio_device(vm, id, device, cmdline, event_manager, is_vhost_user)
                 .map_err(AttachDeviceError::from),
-            VirtioDevices::Pci(pci_devices) => pci_devices
-                .attach_pci_virtio_device(vm, id, device, event_manager, PciPlacement::PrimaryBus)
-                .map_err(AttachDeviceError::from),
+            VirtioDevices::Pci(pci_devices) => {
+                _ = pci_devices.attach_pci_virtio_device(
+                    vm,
+                    id,
+                    device,
+                    event_manager,
+                    PciPlacement::PrimaryBus,
+                )?;
+                Ok(())
+            }
             // Unreachable in practice: enclave VMs fail the as_kvm() check above.
             VirtioDevices::Enclave(_) => Err(AttachDeviceError::NotSupported),
         }
@@ -590,29 +597,7 @@ impl DeviceManager {
         match &mut self.virtio_devices {
             VirtioDevices::Pci(pci_devices) => {
                 let kvm_vm = vm.as_kvm().expect("PCI virtio transport requires KVM VM");
-                pci_devices
-                    .attach_pci_virtio_device(
-                        kvm_vm,
-                        dev_id,
-                        device,
-                        event_manager,
-                        PciPlacement::SecondaryBus,
-                    )
-                    .map_err(VmmActionError::PciManager)?;
-
-                let bus = pci_devices
-                    .get_virtio_device(device_id.0, &device_id.1)
-                    .expect("device was just attached")
-                    .lock()
-                    .expect("Poisoned lock")
-                    .sbdf
-                    .bus();
-
-                // Notify the guest that a device has been attached
-                if let Some(port) = pci_devices.pci_segment().root_port_for_bus(bus) {
-                    port.lock().expect("Poisoned lock").plug();
-                }
-
+                pci_devices.hotplug_pci_virtio_device(kvm_vm, dev_id, device, event_manager)?;
                 Ok(())
             }
             VirtioDevices::Enclave(ne_devices) => {
