@@ -9,7 +9,12 @@ from typing import NamedTuple
 
 import pytest
 
-from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_pci
+from framework.artifacts import (
+    ACPI_GUEST_KERNELS,
+    GUEST_KERNEL_DEFAULT,
+    pin_guest_kernel,
+    pin_pci,
+)
 
 # Flags of /sys/bus/pci/devices/*/resource entries
 IORESOURCE_MEM = 0x200
@@ -293,6 +298,7 @@ def test_vfio_nvme_not_present_without_config(uvm):
 
 
 @vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
 def test_vfio_nvme_visible(uvm_booted, vfio_nvme):
     """The passthrough device appears on the guest PCI bus."""
     vm = uvm_booted
@@ -317,6 +323,7 @@ def test_vfio_nvme_visible(uvm_booted, vfio_nvme):
 
 
 @vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
 def test_vfio_nvme_read(uvm_booted):
     """The guest can read data from the passthrough NVMe device."""
     vm = uvm_booted
@@ -341,6 +348,7 @@ def _check_write_readback(vm, block_size, block_count):
 
 
 @vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pytest.mark.parametrize("block_size,block_count", [("4k", 1), ("1M", 64)])
 def test_vfio_nvme_write_readback(uvm_booted, block_size, block_count):
     """Write data and read it back to confirm DMA in both directions."""
@@ -348,6 +356,7 @@ def test_vfio_nvme_write_readback(uvm_booted, block_size, block_count):
 
 
 @vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
 def test_vfio_nvme_snapshot(uvm_booted):
     """Snapshots are rejected with a passthrough device and the VM keeps working."""
     vm = uvm_booted
@@ -416,6 +425,7 @@ def _set_bar_base(vm, slot, pci_bar, base, memory_decoding):
 
 
 @vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pytest.mark.parametrize(
     "memory_decoding", [True, False], ids=["decoding", "no_decoding"]
 )
@@ -468,6 +478,7 @@ def test_vfio_nvme_bar_relocation(uvm_booted, devmem_bin, memory_decoding):
 
 
 @vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
 def test_vfio_nvme_bar_relocation_refused(uvm_booted, devmem_bin):
     """
     Relocation of a BAR outside of the MMIO windows or on top of another device
