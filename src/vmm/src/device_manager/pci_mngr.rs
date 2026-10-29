@@ -272,12 +272,29 @@ impl PciDevices {
         self.pci_segment().append_aml_bytes(dsdt_data)
     }
 
+    fn find_removable_virtio_device_bus_by_id(
+        &self,
+        device_id: &VirtioDeviceId,
+    ) -> Result<u8, PciManagerError> {
+        let Some(device) = self.get_virtio_device(device_id.0, &device_id.1) else {
+            return Err(PciManagerError::DeviceNotFound(device_id.1.clone()));
+        };
+        let bus = device.lock().expect("Poisoned lock").sbdf.bus();
+        if bus == 0 {
+            return Err(PciManagerError::DeviceNotRemovable(device_id.1.clone()));
+        }
+        Ok(bus)
+    }
+
     pub(crate) fn detach_pci_virtio_device(
         &mut self,
         vm: &KvmVm,
         device_id: VirtioDeviceId,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
+        // We don't need the bus itself, but just a check that the device can be removed
+        _ = self.find_removable_virtio_device_bus_by_id(&device_id)?;
+
         let pci_device_arc = self
             .virtio_devices
             .remove(&device_id)
@@ -343,19 +360,15 @@ impl PciDevices {
     }
 
     /// Ask the guest to release a device.
-    pub(crate) fn request_unplug(&self, device_id: &VirtioDeviceId) {
-        let bus = self
-            .virtio_devices
-            .get(device_id)
-            .expect("device presence should be checked before unplug")
+    pub(crate) fn request_unplug(&self, device_id: &VirtioDeviceId) -> Result<(), PciManagerError> {
+        let bus = self.find_removable_virtio_device_bus_by_id(device_id)?;
+        self.pci_segment
+            .root_port_for_bus(bus)
+            .unwrap()
             .lock()
             .expect("Poisoned lock")
-            .sbdf
-            .bus();
-
-        if let Some(port) = self.pci_segment.root_port_for_bus(bus) {
-            port.lock().expect("Poisoned lock").request_unplug();
-        }
+            .request_unplug();
+        Ok(())
     }
 
     /// Attach VFIO device and notify the guest about it
@@ -565,13 +578,6 @@ impl PciDevices {
     ) -> Option<&Arc<Mutex<VirtioPciDevice>>> {
         self.virtio_devices
             .get(&(device_type, device_id.to_string()))
-    }
-
-    /// Return whether the device sits behind a PCIe root port, and is
-    /// therefore hot-unpluggable.
-    pub(crate) fn is_removable(&self, device_type: VirtioDeviceType, device_id: &str) -> bool {
-        self.get_virtio_device(device_type, device_id)
-            .is_some_and(|device| device.lock().expect("Poisoned lock").sbdf.bus() != 0)
     }
 
     pub(crate) fn get_device(

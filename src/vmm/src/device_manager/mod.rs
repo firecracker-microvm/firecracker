@@ -613,31 +613,22 @@ impl DeviceManager {
         event_manager: &mut EventManager,
         force: bool,
     ) -> Result<(), VmmActionError> {
-        match &mut self.virtio_devices {
-            VirtioDevices::Pci(pci_devices) => {
-                let virtio_device = pci_devices
-                    .get_device(device_id.0, &device_id.1)
-                    .ok_or(VmmActionError::DeviceNotFound)?;
+        let VirtioDevices::Pci(pci_devices) = &mut self.virtio_devices else {
+            return Err(VmmActionError::PciNotEnabled);
+        };
 
-                if Self::is_root_device(&*virtio_device.lock().expect("Poisoned lock")) {
-                    return Err(VmmActionError::CannotUnplugRootDevice);
-                }
-
-                if !pci_devices.is_removable(device_id.0, &device_id.1) {
-                    return Err(VmmActionError::DeviceNotRemovable(device_id.1));
-                }
-
-                if force {
-                    pci_devices
-                        .detach_pci_virtio_device(&vm, device_id, event_manager)
-                        .map_err(VmmActionError::PciManager)
-                } else {
-                    pci_devices.request_unplug(&device_id);
-                    Ok(())
-                }
-            }
-            VirtioDevices::Mmio(_) => Err(VmmActionError::PciNotEnabled),
+        if let Some(device) = pci_devices.get_device(device_id.0, &device_id.1)
+            && Self::is_root_device(&*device.lock().expect("Poisoned lock"))
+        {
+            return Err(VmmActionError::CannotUnplugRootDevice);
         }
+
+        if force {
+            pci_devices.detach_pci_virtio_device(&vm, device_id, event_manager)?;
+        } else {
+            pci_devices.request_unplug(&device_id)?;
+        }
+        Ok(())
     }
 
     /// Detaches a passthrough device after VM start
@@ -1133,7 +1124,9 @@ pub(crate) mod tests {
         let device_id = (VirtioDeviceType::Block, "block9".to_string());
         assert!(matches!(
             vmm.hot_unplug_device(device_id, &mut evt_manager, true),
-            Err(VmmActionError::DeviceNotFound)
+            Err(VmmActionError::PciManager(PciManagerError::DeviceNotFound(
+                ..
+            )))
         ));
 
         // Successful unplug
@@ -1377,7 +1370,9 @@ pub(crate) mod tests {
         let device_id = (VirtioDeviceType::Pmem, "pmem9".to_string());
         assert!(matches!(
             vmm.hot_unplug_device(device_id, &mut evt_manager, true),
-            Err(VmmActionError::DeviceNotFound)
+            Err(VmmActionError::PciManager(PciManagerError::DeviceNotFound(
+                ..
+            )))
         ));
 
         // Successful unplug
@@ -1434,7 +1429,9 @@ pub(crate) mod tests {
         let device_id = (VirtioDeviceType::Net, "eth9".to_string());
         assert!(matches!(
             vmm.hot_unplug_device(device_id, &mut evt_manager, true),
-            Err(VmmActionError::DeviceNotFound)
+            Err(VmmActionError::PciManager(PciManagerError::DeviceNotFound(
+                ..
+            )))
         ));
 
         // Successful unplug
@@ -1538,13 +1535,12 @@ pub(crate) mod tests {
             .unwrap();
 
         let device_id = (VirtioDeviceType::Block, "block0".to_string());
-        let err = vmm
-            .hot_unplug_device(device_id, &mut evt_manager, true)
-            .unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "Device 'block0' is not removable because it's not plugged to a PCIe root port."
-        );
+        assert!(matches!(
+            vmm.hot_unplug_device(device_id, &mut evt_manager, true),
+            Err(VmmActionError::PciManager(
+                PciManagerError::DeviceNotRemovable(..)
+            ))
+        ));
     }
 
     #[test]
