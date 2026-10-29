@@ -119,7 +119,6 @@ pub mod initrd;
 /// Nitro Enclaves kernel ioctl bindings.
 pub mod nitro_enclave;
 
-use std::collections::HashMap;
 use std::io;
 use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
@@ -283,8 +282,8 @@ pub enum VmmError {
     VirtioMem(#[from] VirtioMemError),
 }
 
-/// Shorthand type for KVM dirty page bitmap.
-pub type DirtyBitmap = HashMap<u32, Vec<u64>>;
+/// Dirty pages per guest memory region, in region order, one bit per page.
+pub type DirtyBitmap = Vec<Vec<u64>>;
 
 /// Returns the size of guest memory, in MiB.
 pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
