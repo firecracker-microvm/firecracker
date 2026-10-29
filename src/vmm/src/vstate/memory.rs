@@ -1192,8 +1192,23 @@ where
         dirty_bitmap: &DirtyBitmap,
     ) -> Result<(), MemoryError>;
 
+    /// Takes Firecracker's dirty bits, one bitmap per region, clearing them. Every region must
+    /// track dirty pages.
+    #[must_use]
+    fn take_dirty(&self) -> DirtyBitmap;
+
     /// Resets all the memory region bitmaps
     fn reset_dirty(&self);
+
+    /// ORs into `dirty_bitmap` each plugged slot's log, as `read_log` returns it. Stops at the
+    /// first log that fails to read.
+    fn merge_slot_kvm_dirty_logs<E, F>(
+        &self,
+        dirty_bitmap: &mut DirtyBitmap,
+        read_log: F,
+    ) -> Result<(), E>
+    where
+        F: FnMut(&GuestMemorySlot<'_>) -> Result<Vec<u64>, E>;
 
     /// Marks dirty again every page set in `dirty_bitmap`.
     fn store_dirty_bitmap(&self, dirty_bitmap: &DirtyBitmap);
@@ -1332,6 +1347,20 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         write_result
     }
 
+    /// Takes Firecracker's dirty bits, one bitmap per region, clearing them. Every region must
+    /// track dirty pages.
+    fn take_dirty(&self) -> DirtyBitmap {
+        self.iter()
+            .map(|region| {
+                (**region)
+                    .bitmap()
+                    .as_ref()
+                    .expect("region should track dirty pages")
+                    .get_and_reset()
+            })
+            .collect()
+    }
+
     /// Resets all the memory region bitmaps
     fn reset_dirty(&self) {
         self.iter().for_each(|region| {
@@ -1339,6 +1368,31 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                 bitmap.reset();
             }
         })
+    }
+
+    /// ORs into `dirty_bitmap` each plugged slot's log, as `read_log` returns it. Stops at the
+    /// first log that fails to read.
+    fn merge_slot_kvm_dirty_logs<E, F>(
+        &self,
+        dirty_bitmap: &mut DirtyBitmap,
+        mut read_log: F,
+    ) -> Result<(), E>
+    where
+        F: FnMut(&GuestMemorySlot<'_>) -> Result<Vec<u64>, E>,
+    {
+        for (region, region_bitmap) in self.iter().zip(dirty_bitmap.iter_mut()) {
+            for (i, (mem_slot, plugged)) in region.slots().enumerate() {
+                if plugged {
+                    let log = read_log(&mem_slot)?;
+                    let words = &mut region_bitmap[region.slot_words(i)];
+                    assert_eq!(log.len(), words.len());
+                    for (word, bits) in words.iter_mut().zip(log) {
+                        *word |= bits;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Marks dirty again every page set in `dirty_bitmap`.
@@ -2037,6 +2091,63 @@ mod tests {
     }
 
     #[test]
+    fn test_take_dirty_with_concurrent_marks() {
+        let page_size = host_page_size();
+        let pages = 1 << 16;
+        let guest_memory = into_region_ext(
+            anonymous(
+                &[(GuestAddress(0), pages * page_size)],
+                true,
+                HugePageConfig::None,
+            )
+            .unwrap(),
+        );
+        let take = || guest_memory.take_dirty().remove(0);
+
+        // Each page is marked once, so a mark lost by a take never shows up in a later one.
+        let run = || {
+            let started = std::sync::Barrier::new(2);
+            let marking = std::sync::atomic::AtomicBool::new(true);
+            let mut taken = vec![0u64; pages / 64];
+            let mut takes = 0;
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    started.wait();
+                    for page in 0..pages {
+                        guest_memory.mark_dirty(GuestAddress((page * page_size) as u64), 1);
+                    }
+                    marking.store(false, std::sync::atomic::Ordering::Release);
+                });
+                started.wait();
+                while marking.load(std::sync::atomic::Ordering::Acquire) {
+                    takes += 1;
+                    for (all, word) in taken.iter_mut().zip(take()) {
+                        *all |= word;
+                    }
+                }
+            });
+            for (all, word) in taken.iter_mut().zip(take()) {
+                *all |= word;
+            }
+            let lost: Vec<usize> = (0..pages)
+                .filter(|page| taken[page / 64] & (1 << (page % 64)) == 0)
+                .collect();
+            assert!(
+                lost.is_empty(),
+                "{} marks lost, first {:?}",
+                lost.len(),
+                lost.first()
+            );
+            takes
+        };
+        // A run whose takes missed the marking proves nothing, so it is repeated.
+        assert!(
+            (0..100).any(|_| run() > 1),
+            "the takes never overlapped the marking"
+        );
+    }
+
+    #[test]
     fn test_store_dirty_bitmap() {
         let page_size = host_page_size();
 
@@ -2066,6 +2177,36 @@ mod tests {
             assert!(!r.bitmap().dirty_at(page_size));
             assert!(r.bitmap().dirty_at(page_size * 2));
         });
+    }
+
+    #[test]
+    fn test_merge_slot_kvm_dirty_logs_keeps_logs_read_before_a_failure() {
+        let page_size = host_page_size();
+        let size = 3 * 64 * page_size;
+        let region = anonymous(&[(GuestAddress(0), size)], true, HugePageConfig::None).unwrap();
+        let state = GuestMemoryRegionState {
+            base_address: 0,
+            size,
+            region_type: GuestRegionType::Hotpluggable,
+            plugged: vec![true, true, true],
+        };
+        let region =
+            GuestRegionMmapExt::from_state(region.into_iter().next().unwrap(), &state, 0).unwrap();
+        let guest_memory = GuestMemoryMmap::from_regions(vec![region]).unwrap();
+
+        let mut dirty_bitmap = guest_memory.take_dirty();
+        let mut read = Vec::new();
+        let result = guest_memory.merge_slot_kvm_dirty_logs(&mut dirty_bitmap, |mem_slot| {
+            read.push(mem_slot.slot);
+            match mem_slot.slot {
+                0 => Ok(vec![0b1]),
+                slot => Err(slot),
+            }
+        });
+
+        assert_eq!(result, Err(1));
+        assert_eq!(read, [0, 1]);
+        assert_eq!(dirty_bitmap, [vec![0b1, 0, 0]]);
     }
 
     #[test]
@@ -2542,7 +2683,7 @@ mod tests {
             ]
         }
 
-        /// Build a GuestMemoryMmap and KVM dirty bitmap from region specs.
+        /// Build a GuestMemoryMmap and the KVM dirty log of each plugged slot from region specs.
         fn build_memory(specs: &[RegionSpec]) -> (GuestMemoryMmap, HashMap<u32, Vec<u64>>, usize) {
             let page_size = host_page_size();
             let mut slot_from = 0u32;
@@ -2577,8 +2718,11 @@ mod tests {
                 )
                 .unwrap();
 
+                // KVM only logs plugged slots.
                 for (i, bm) in spec.kvm_bitmaps.iter().enumerate() {
-                    kvm_bitmap.insert(slot_from + i as u32, bm.clone());
+                    if spec.plugged[i] {
+                        kvm_bitmap.insert(slot_from + i as u32, bm.clone());
+                    }
                 }
 
                 regions.push(region);
@@ -2667,6 +2811,58 @@ mod tests {
                 opt_file.read_exact(&mut opt_buf).unwrap();
                 oracle_file.read_exact(&mut oracle_buf).unwrap();
                 prop_assert_eq!(&opt_buf, &oracle_buf);
+            }
+
+            #[test]
+            fn take_dirty_correctness(
+                region_specs in proptest::collection::vec(region_spec(), 1..=3),
+            ) {
+                let page_size = host_page_size();
+                let (guest_memory, kvm_bitmap, _) = build_memory(&region_specs);
+
+                // Mark pages in the firecracker bitmap, in unplugged slots too.
+                for (region, spec) in guest_memory.iter().zip(region_specs.iter()) {
+                    for (slot_idx, (slot, _)) in region.slots().enumerate() {
+                        for (page, dirty) in spec.fc_dirty_pages[slot_idx].iter().enumerate() {
+                            if *dirty {
+                                let addr = slot.guest_addr.0 + (page * page_size) as u64;
+                                guest_memory.mark_dirty(GuestAddress(addr), 1);
+                            }
+                        }
+                    }
+                }
+
+                let mut dirty_bitmap = guest_memory.take_dirty();
+                guest_memory
+                    .merge_slot_kvm_dirty_logs(&mut dirty_bitmap, |slot| {
+                        Ok::<_, ()>(kvm_bitmap[&slot.slot].clone())
+                    })
+                    .unwrap();
+
+                // Every region holds its plugged slots' KVM bits OR its firecracker bits, and
+                // nothing past its last page; the firecracker bitmap is clear.
+                prop_assert_eq!(dirty_bitmap.len(), region_specs.len());
+                for ((region, spec), taken) in
+                    guest_memory.iter().zip(region_specs.iter()).zip(&dirty_bitmap)
+                {
+                    let num_pages = region.size() / page_size;
+                    prop_assert_eq!(taken.len(), num_pages.div_ceil(64));
+                    for bit in 0..taken.len() * 64 {
+                        let (slot_idx, page) = (bit / spec.pages_per_slot, bit % spec.pages_per_slot);
+                        let in_region = bit < num_pages;
+                        let kvm_dirty = in_region
+                            && spec.plugged[slot_idx]
+                            && ((spec.kvm_bitmaps[slot_idx][page / 64] >> (page % 64)) & 1) == 1;
+                        let fc_dirty = in_region && spec.fc_dirty_pages[slot_idx][page];
+                        let is_taken = ((taken[bit / 64] >> (bit % 64)) & 1) == 1;
+                        prop_assert_eq!(is_taken, kvm_dirty || fc_dirty, "mismatch at bit {}", bit);
+                    }
+                    for (slot, _) in region.slots() {
+                        for page in 0..slot.slice.len() / page_size {
+                            prop_assert!(!slot.slice.bitmap().dirty_at(page * page_size));
+                        }
+                    }
+                }
             }
 
             #[test]
