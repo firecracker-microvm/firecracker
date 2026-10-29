@@ -227,12 +227,8 @@ pub enum VmmActionError {
     EnclaveConfig(#[from] EnclaveConfigError),
     /// Device ID in use
     DeviceIdInUse,
-    /// Device not found
-    DeviceNotFound,
     /// Cannot unplug root device
     CannotUnplugRootDevice,
-    /// Device '{0}' is not removable because it's not plugged to a PCIe root port.
-    DeviceNotRemovable(String),
     /// PCI is not enabled
     PciNotEnabled,
     /// PCI manager error: {0}
