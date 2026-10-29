@@ -617,12 +617,6 @@ impl DeviceManager {
             return Err(VmmActionError::PciNotEnabled);
         };
 
-        if let Some(device) = pci_devices.get_device(device_id.0, &device_id.1)
-            && Self::is_root_device(&*device.lock().expect("Poisoned lock"))
-        {
-            return Err(VmmActionError::CannotUnplugRootDevice);
-        }
-
         if force {
             pci_devices.detach_pci_virtio_device(&vm, device_id, event_manager)?;
         } else {
@@ -693,17 +687,6 @@ impl DeviceManager {
                 warn!("Failed to complete hot-unplug of {device_id:?}: {err}");
             }
         }
-    }
-
-    /// Returns true if the given virtio device is a root block or pmem device.
-    fn is_root_device(device: &dyn VirtioDevice) -> bool {
-        if let Some(block) = device.as_any().downcast_ref::<Block>() {
-            return block.root_device();
-        }
-        if let Some(pmem) = device.as_any().downcast_ref::<Pmem>() {
-            return pmem.config.root_device;
-        }
-        false
     }
 }
 
@@ -1470,7 +1453,9 @@ pub(crate) mod tests {
         let device_id = (VirtioDeviceType::Block, "rootfs".to_string());
         assert!(matches!(
             vmm.hot_unplug_device(device_id, &mut evt_manager, true),
-            Err(VmmActionError::CannotUnplugRootDevice)
+            Err(VmmActionError::PciManager(
+                PciManagerError::DeviceNotRemovable(..)
+            ))
         ));
     }
 
@@ -1574,7 +1559,9 @@ pub(crate) mod tests {
         let device_id = (VirtioDeviceType::Pmem, "pmem_root".to_string());
         assert!(matches!(
             vmm.hot_unplug_device(device_id, &mut evt_manager, true),
-            Err(VmmActionError::CannotUnplugRootDevice)
+            Err(VmmActionError::PciManager(
+                PciManagerError::DeviceNotRemovable(..)
+            ))
         ));
     }
 }
