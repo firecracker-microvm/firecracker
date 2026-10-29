@@ -212,7 +212,7 @@ impl PciDevices {
         Ok(())
     }
 
-    pub(crate) fn attach_pci_virtio_device(
+    pub fn attach_pci_virtio_device(
         &mut self,
         vm: &Arc<KvmVm>,
         id: String,
@@ -253,17 +253,17 @@ impl PciDevices {
         Ok(sbdf)
     }
 
-    pub(crate) fn pci_segment(&self) -> &PciSegment {
+    pub fn pci_segment(&self) -> &PciSegment {
         &self.pci_segment
     }
 
     /// Attach the configured number of PCIe root ports.
-    pub(crate) fn attach_root_ports(&mut self, vm: &Arc<KvmVm>) -> Result<(), PciManagerError> {
+    pub fn attach_root_ports(&mut self, vm: &Arc<KvmVm>) -> Result<(), PciManagerError> {
         self.pci_segment.attach_root_ports(vm)
     }
 
     #[cfg(target_arch = "x86_64")]
-    pub(crate) fn append_aml_bytes(
+    pub fn append_aml_bytes(
         &self,
         dsdt_data: &mut Vec<u8>,
     ) -> Result<(), acpi_tables::aml::AmlError> {
@@ -286,7 +286,7 @@ impl PciDevices {
         Ok(bus)
     }
 
-    pub(crate) fn detach_pci_virtio_device(
+    pub fn detach_pci_virtio_device(
         &mut self,
         vm: &KvmVm,
         device_id: VirtioDeviceId,
@@ -360,7 +360,7 @@ impl PciDevices {
     }
 
     /// Ask the guest to release a device.
-    pub(crate) fn request_unplug(&self, device_id: &VirtioDeviceId) -> Result<(), PciManagerError> {
+    pub fn request_unplug(&self, device_id: &VirtioDeviceId) -> Result<(), PciManagerError> {
         let bus = self.find_removable_virtio_device_bus_by_id(device_id)?;
         self.pci_segment
             .root_port_for_bus(bus)
@@ -580,7 +580,7 @@ impl PciDevices {
             .get(&(device_type, device_id.to_string()))
     }
 
-    pub(crate) fn get_device(
+    pub fn get_device(
         &self,
         device_type: VirtioDeviceType,
         device_id: &str,
@@ -589,7 +589,7 @@ impl PciDevices {
             .map(|device| device.lock().expect("Poisoned lock").virtio_device())
     }
 
-    pub(crate) fn contains_virtio_device(&self, device_id: &VirtioDeviceId) -> bool {
+    pub fn contains_virtio_device(&self, device_id: &VirtioDeviceId) -> bool {
         self.virtio_devices.contains_key(device_id)
     }
 
@@ -601,7 +601,7 @@ impl PciDevices {
         }
     }
 
-    pub(crate) fn for_each_virtio_device_mut(
+    pub fn for_each_virtio_device_mut(
         &self,
         mut f: impl FnMut(VirtioDeviceType, &mut dyn VirtioDevice),
     ) {
