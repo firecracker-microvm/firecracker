@@ -502,25 +502,9 @@ impl DeviceManager {
         config: HotplugDeviceConfig,
         event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
-        let dev_type = config.device_type();
-        if let Some(err) = device_passthrough_incompatibility_error(dev_type)
-            && let Some(pci_devices) = self.pci_devices()
-            && !pci_devices.vfio_devices.is_empty()
-        {
-            return Err(VmmActionError::IncompatibleDeviceConfiguration(err));
-        }
-
-        let dev_id = config.device_id().to_string();
-        let device_id = (dev_type, dev_id.clone());
-
-        match &self.virtio_devices {
-            VirtioDevices::Pci(pci_devices) => {
-                if pci_devices.contains_virtio_device(&device_id) {
-                    return Err(VmmActionError::DeviceIdInUse);
-                }
-            }
-            VirtioDevices::Mmio(_) => return Err(VmmActionError::PciNotEnabled),
-        }
+        let VirtioDevices::Pci(pci_devices) = &mut self.virtio_devices else {
+            return Err(VmmActionError::PciNotEnabled);
+        };
 
         if config.is_vhost_user() && !vm.vhost_user_memory_shareable() {
             return Err(VmmActionError::NotSupported(
@@ -530,21 +514,27 @@ impl DeviceManager {
             ));
         }
 
+        let dev_type = config.device_type();
+        if let Some(err) = device_passthrough_incompatibility_error(dev_type)
+            && !pci_devices.vfio_devices.is_empty()
+        {
+            return Err(VmmActionError::IncompatibleDeviceConfiguration(err));
+        }
+
+        let dev_id = config.device_id().to_string();
+        let device_id = (dev_type, dev_id.clone());
+        if pci_devices.contains_virtio_device(&device_id) {
+            return Err(VmmActionError::DeviceIdInUse);
+        }
+
         let device = match config {
             HotplugDeviceConfig::Block(cfg) => Self::hotplug_make_block(cfg)?,
             HotplugDeviceConfig::Pmem(cfg) => Self::hotplug_make_pmem(vm.clone(), cfg)?,
-            HotplugDeviceConfig::Net(cfg) => {
-                Self::hotplug_make_net(self.pci_devices().expect("PCI is checked above"), cfg)?
-            }
+            HotplugDeviceConfig::Net(cfg) => Self::hotplug_make_net(pci_devices, cfg)?,
         };
 
-        match &mut self.virtio_devices {
-            VirtioDevices::Pci(pci_devices) => {
-                pci_devices.hotplug_pci_virtio_device(&vm, dev_id, device, event_manager)?;
-                Ok(())
-            }
-            VirtioDevices::Mmio(_) => Err(VmmActionError::PciNotEnabled),
-        }
+        pci_devices.hotplug_pci_virtio_device(&vm, dev_id, device, event_manager)?;
+        Ok(())
     }
 
     /// Attaches a passthrough device after VM start
