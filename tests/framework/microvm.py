@@ -647,6 +647,22 @@ class Microvm:
             return True
         return False
 
+    def pin_block_workers(self, drive_id: str, first_cpu: int) -> int:
+        """Pin the worker threads of a threaded virtio-block drive to consecutive cores,
+        one per queue in queue order, starting with "first_cpu".
+
+        Return next "free" cpu core.
+        """
+        workers = {}
+        for thread_name, thread_pids in utils.get_threads(self.firecracker_pid).items():
+            match = re.fullmatch(rf"fc_q(\d+)_{re.escape(drive_id)}", thread_name)
+            if match:
+                workers[int(match.group(1))] = thread_pids
+        for cpu, queue in enumerate(sorted(workers), start=first_cpu):
+            for pid in workers[queue]:
+                utils.set_cpu_affinity(pid, [cpu])
+        return first_cpu + len(workers)
+
     def pin_threads(self, first_cpu):
         """
         Pins all microvm threads (VMM, API and vCPUs) to consecutive physical cpu core, starting with "first_cpu"
