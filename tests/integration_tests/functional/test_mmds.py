@@ -514,8 +514,10 @@ def test_mmds_ecn_setup_syn(uvm):
 
     # SYN | ECE | CWR.
     script = SYN_PROBE_SCRIPT.format(dst=DEFAULT_IPV4, flags=0xC2)
+    test_microvm.flush_metrics()
     # SYN | ACK, without ECE.
     run_guest_cmd(ssh_connection, f"python3 -c '{script}'", "0x12 1001")
+    assert test_microvm.flush_metrics()["mmds"]["rst_enqueued"] == 0
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
@@ -541,8 +543,10 @@ def test_mmds_refused_syn_rst(uvm):
 
     # SYN | URG, which the MMDS refuses.
     script = SYN_PROBE_SCRIPT.format(dst=DEFAULT_IPV4, flags=0x22)
+    test_microvm.flush_metrics()
     # RST | ACK, acknowledging the SYN.
     run_guest_cmd(ssh_connection, f"python3 -c '{script}'", "0x14 1001")
+    assert test_microvm.flush_metrics()["mmds"]["rst_enqueued"] == 1
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)

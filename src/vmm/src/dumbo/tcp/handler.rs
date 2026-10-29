@@ -17,6 +17,7 @@ use crate::dumbo::pdu::ipv4::{IPv4Packet, Ipv4Error as IPv4PacketError, PROTOCOL
 use crate::dumbo::pdu::tcp::{Flags as TcpFlags, TcpError as TcpSegmentError, TcpSegment};
 use crate::dumbo::tcp::endpoint::Endpoint;
 use crate::dumbo::tcp::{NextSegmentStatus, RstConfig};
+use crate::logger::{IncMetric, METRICS};
 
 /// Describes events which may occur when the handler receives packets.
 #[derive(Debug, PartialEq, Eq)]
@@ -360,6 +361,7 @@ impl TcpIPv4Handler {
         // We simply forgo sending any RSTs if the queue is already full.
         if self.rst_queue.len() < self.max_pending_resets.get() {
             self.rst_queue.push((tuple, cfg));
+            METRICS.mmds.rst_enqueued.inc();
         }
     }
 

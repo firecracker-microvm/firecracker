@@ -624,6 +624,9 @@ pub struct MmdsMetrics {
     pub connections_created: SharedIncMetric,
     /// The number of connections cleaned up by the MMDS TCP handler.
     pub connections_destroyed: SharedIncMetric,
+    /// The number of RST segments queued by the MMDS TCP handler, in reply to segments it could
+    /// not match to a connection or to connections it evicted.
+    pub rst_enqueued: SharedIncMetric,
 }
 impl MmdsMetrics {
     /// Const default construction.
@@ -642,6 +645,7 @@ impl MmdsMetrics {
             tx_frames: SharedIncMetric::new(),
             connections_created: SharedIncMetric::new(),
             connections_destroyed: SharedIncMetric::new(),
+            rst_enqueued: SharedIncMetric::new(),
         }
     }
 }

@@ -198,6 +198,7 @@ def validate_fc_metrics(metrics):
             "tx_frames",
             "connections_created",
             "connections_destroyed",
+            "rst_enqueued",
         ],
         "net": net_metrics,
         "patch_api_requests": [
