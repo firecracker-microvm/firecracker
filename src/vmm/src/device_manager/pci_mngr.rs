@@ -304,6 +304,18 @@ impl PciDevices {
         Ok(bus)
     }
 
+    /// Ask the guest to release a VirtIO PCI device.
+    pub fn request_unplug(&self, device_id: &VirtioDeviceId) -> Result<(), PciManagerError> {
+        let bus = self.find_removable_virtio_device_bus_by_id(device_id)?;
+        self.pci_segment
+            .root_port_for_bus(bus)
+            .unwrap()
+            .lock()
+            .expect("Poisoned lock")
+            .request_unplug();
+        Ok(())
+    }
+
     /// Detach VirtIO PCI device and notify guest about it
     pub fn detach_pci_virtio_device(
         &mut self,
@@ -375,18 +387,6 @@ impl PciDevices {
         // this function returns.
         assert_eq!(Arc::strong_count(&pci_device_arc), 1);
 
-        Ok(())
-    }
-
-    /// Ask the guest to release a VirtIO PCI device.
-    pub fn request_unplug(&self, device_id: &VirtioDeviceId) -> Result<(), PciManagerError> {
-        let bus = self.find_removable_virtio_device_bus_by_id(device_id)?;
-        self.pci_segment
-            .root_port_for_bus(bus)
-            .unwrap()
-            .lock()
-            .expect("Poisoned lock")
-            .request_unplug();
         Ok(())
     }
 
