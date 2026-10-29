@@ -287,13 +287,10 @@ impl DeviceManager {
 
     /// Attach the configured number of PCIe root ports.
     pub(crate) fn attach_root_ports(&mut self, vm: &Arc<KvmVm>) -> Result<(), AttachDeviceError> {
-        match &mut self.virtio_devices {
-            VirtioDevices::Pci(pci_devices) => pci_devices
-                .attach_root_ports(vm)
-                .map_err(AttachDeviceError::from),
-            // The option cannot be set without PCI enabled.
-            VirtioDevices::Mmio(_) => Ok(()),
+        if let VirtioDevices::Pci(pci_devices) = &mut self.virtio_devices {
+            pci_devices.attach_root_ports(vm)?;
         }
+        Ok(())
     }
 
     /// Attaches a boot-time VirtioDevice device to the device and event managers.
@@ -310,9 +307,16 @@ impl DeviceManager {
     ) -> Result<(), AttachDeviceError> {
         let vm = vm.as_kvm().ok_or(AttachDeviceError::NotSupported)?;
         match &mut self.virtio_devices {
-            VirtioDevices::Mmio(mmio_devices) => mmio_devices
-                .attach_mmio_virtio_device(vm, id, device, cmdline, event_manager, is_vhost_user)
-                .map_err(AttachDeviceError::from),
+            VirtioDevices::Mmio(mmio_devices) => {
+                mmio_devices.attach_mmio_virtio_device(
+                    vm,
+                    id,
+                    device,
+                    cmdline,
+                    event_manager,
+                    is_vhost_user,
+                )?;
+            }
             VirtioDevices::Pci(pci_devices) => {
                 _ = pci_devices.attach_pci_virtio_device(
                     vm,
@@ -321,9 +325,9 @@ impl DeviceManager {
                     event_manager,
                     PciPlacement::PrimaryBus,
                 )?;
-                Ok(())
             }
         }
+        Ok(())
     }
 
     /// Attaches a [`BootTimer`] to the VM
