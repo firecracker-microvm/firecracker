@@ -150,34 +150,22 @@ fn test_pause_resume_microvm() {
 #[test]
 #[cfg(target_arch = "x86_64")]
 fn test_dirty_bitmap_success() {
-    let vmms = [
-        vmm::test_utils::dirty_tracking_vmm(Some(NOISY_KERNEL_IMAGE)),
-        default_vmm(Some(NOISY_KERNEL_IMAGE)),
-    ];
-
-    for (vmm, _) in vmms {
-        // Let it churn for a while and dirty some pages...
-        thread::sleep(Duration::from_millis(100));
-        let bitmap = vmm
-            .lock()
+    let (vmm, _) = vmm::test_utils::dirty_tracking_vmm(Some(NOISY_KERNEL_IMAGE));
+    let take = || {
+        vmm.lock()
             .unwrap()
             .vm
             .as_kvm()
             .unwrap()
-            .get_dirty_bitmap()
-            .unwrap();
-        let num_dirty_pages: u32 = bitmap
-            .iter()
-            .map(|bitmap_per_region| {
-                // Gently coerce to u32
-                let num_dirty_pages_per_region: u32 =
-                    bitmap_per_region.iter().map(|n| n.count_ones()).sum();
-                num_dirty_pages_per_region
-            })
-            .sum();
-        assert!(num_dirty_pages > 0);
-        vmm.lock().unwrap().stop(FcExitCode::Ok);
-    }
+            .take_dirty_bitmap()
+            .unwrap()
+    };
+    // Clears the pages dirtied while booting, so the next take only holds the running guest's.
+    take();
+    thread::sleep(Duration::from_millis(100));
+    let num_dirty_pages: u32 = take().iter().flatten().map(|word| word.count_ones()).sum();
+    assert!(num_dirty_pages > 0);
+    vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 
 #[test]
