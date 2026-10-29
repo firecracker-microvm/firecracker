@@ -3,6 +3,8 @@
 
 #![allow(
     clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::ptr_as_ptr,
     clippy::tests_outside_test_module,
     clippy::undocumented_unsafe_blocks
 )]
