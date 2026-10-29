@@ -8,24 +8,24 @@ use std::sync::{Arc, Mutex};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use serde::{Deserialize, Serialize};
 
-use super::persist::MmdsState;
+use super::persist::{DeviceStates, MmdsState, VirtioDeviceState};
 use crate::EventManager;
 use crate::device_manager::DevicePersistError;
 use crate::devices::pci::PciSegment;
 use crate::devices::pci::root_port::{PciRootPortRestoreError, PciRootPortState};
 use crate::devices::virtio::balloon::Balloon;
-use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
+use crate::devices::virtio::balloon::persist::BalloonConstructorArgs;
 use crate::devices::virtio::block::device::Block;
-use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
+use crate::devices::virtio::block::persist::BlockConstructorArgs;
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceType};
 use crate::devices::virtio::mem::VirtioMem;
-use crate::devices::virtio::mem::persist::{VirtioMemConstructorArgs, VirtioMemState};
+use crate::devices::virtio::mem::persist::VirtioMemConstructorArgs;
 use crate::devices::virtio::net::Net;
-use crate::devices::virtio::net::persist::{NetConstructorArgs, NetState};
+use crate::devices::virtio::net::persist::NetConstructorArgs;
 use crate::devices::virtio::pmem::device::Pmem;
-use crate::devices::virtio::pmem::persist::{PmemConstructorArgs, PmemState};
+use crate::devices::virtio::pmem::persist::PmemConstructorArgs;
 use crate::devices::virtio::rng::Entropy;
-use crate::devices::virtio::rng::persist::{EntropyConstructorArgs, EntropyState};
+use crate::devices::virtio::rng::persist::EntropyConstructorArgs;
 use crate::devices::virtio::transport::pci::device::{
     CAPABILITY_BAR_SIZE, VirtioPciDevice, VirtioPciDeviceError, VirtioPciDeviceState,
 };
@@ -377,36 +377,10 @@ impl PciDevices {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VirtioDeviceState<T> {
-    /// Device identifier
-    pub device_id: String,
-    /// Device SBDF
-    pub sbdf: PciSBDF,
-    /// Device state
-    pub device_state: T,
-    /// Transport state
-    pub transport_state: VirtioPciDeviceState,
-}
-
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct PciDevicesState {
-    /// Block device states.
-    pub block_devices: Vec<VirtioDeviceState<BlockState>>,
-    /// Net device states.
-    pub net_devices: Vec<VirtioDeviceState<NetState>>,
-    /// Vsock device state.
-    pub vsock_device: Option<VirtioDeviceState<VsockState>>,
-    /// Balloon device state.
-    pub balloon_device: Option<VirtioDeviceState<BalloonState>>,
-    /// Mmds state.
-    pub mmds: Option<MmdsState>,
-    /// Entropy device state.
-    pub entropy_device: Option<VirtioDeviceState<EntropyState>>,
-    /// Pmem device states.
-    pub pmem_devices: Vec<VirtioDeviceState<PmemState>>,
-    /// Memory device state.
-    pub memory_device: Option<VirtioDeviceState<VirtioMemState>>,
+    /// Virtio device states.
+    pub virtio_devices: DeviceStates<VirtioPciDeviceState>,
     /// PCIe root port states.
     #[serde(default)]
     pub root_ports: Vec<PciRootPortState>,
@@ -438,7 +412,7 @@ impl<'a> Persist<'a> for PciDevices {
     type Error = DevicePersistError;
 
     fn save(&self) -> Self::State {
-        let mut state = PciDevicesState::default();
+        let mut state = DeviceStates::default();
 
         for pci_dev in self.virtio_devices.values() {
             let locked_pci_dev = pci_dev.lock().expect("Poisoned lock");
@@ -449,8 +423,6 @@ impl<'a> Persist<'a> for PciDevices {
             let mut locked_virtio_dev = virtio_dev.lock().expect("Poisoned lock");
             locked_virtio_dev.prepare_save();
             let transport_state = locked_pci_dev.state();
-
-            let sbdf = transport_state.sbdf;
 
             match locked_virtio_dev.device_type() {
                 VirtioDeviceType::Balloon => {
@@ -463,7 +435,6 @@ impl<'a> Persist<'a> for PciDevices {
 
                     state.balloon_device = Some(VirtioDeviceState {
                         device_id: balloon_device.id().to_string(),
-                        sbdf,
                         device_state,
                         transport_state,
                     });
@@ -482,7 +453,6 @@ impl<'a> Persist<'a> for PciDevices {
                         let device_state = block_dev.save();
                         state.block_devices.push(VirtioDeviceState {
                             device_id: block_dev.id().to_string(),
-                            sbdf,
                             device_state,
                             transport_state,
                         });
@@ -504,7 +474,6 @@ impl<'a> Persist<'a> for PciDevices {
 
                     state.net_devices.push(VirtioDeviceState {
                         device_id: net_dev.id().to_string(),
-                        sbdf,
                         device_state,
                         transport_state,
                     })
@@ -525,7 +494,6 @@ impl<'a> Persist<'a> for PciDevices {
 
                     state.vsock_device = Some(VirtioDeviceState {
                         device_id: vsock_dev.id().to_string(),
-                        sbdf,
                         device_state: vsock_state,
                         transport_state,
                     });
@@ -539,7 +507,6 @@ impl<'a> Persist<'a> for PciDevices {
 
                     state.entropy_device = Some(VirtioDeviceState {
                         device_id: rng_dev.id().to_string(),
-                        sbdf,
                         device_state,
                         transport_state,
                     })
@@ -552,7 +519,6 @@ impl<'a> Persist<'a> for PciDevices {
                     let device_state = pmem_dev.save();
                     state.pmem_devices.push(VirtioDeviceState {
                         device_id: pmem_dev.config.id.clone(),
-                        sbdf,
                         device_state,
                         transport_state,
                     });
@@ -566,7 +532,6 @@ impl<'a> Persist<'a> for PciDevices {
 
                     state.memory_device = Some(VirtioDeviceState {
                         device_id: mem_dev.id().to_string(),
-                        sbdf,
                         device_state,
                         transport_state,
                     })
@@ -574,22 +539,26 @@ impl<'a> Persist<'a> for PciDevices {
             }
         }
 
-        state.root_ports = self
+        let root_ports = self
             .pci_segment
             .root_ports
             .iter()
             .map(|port| port.lock().expect("Poisoned lock").state())
             .collect();
 
-        state
+        PciDevicesState {
+            virtio_devices: state,
+            root_ports,
+        }
     }
 
     fn restore(
         constructor_args: Self::ConstructorArgs,
-        state: &Self::State,
+        pci_state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let mem = constructor_args.mem;
-        let root_ports = state.root_ports.len();
+        let state = &pci_state.virtio_devices;
+        let root_ports = pci_state.root_ports.len();
         let hotplug_ports = u8::try_from(root_ports)
             .ok()
             .filter(|ports| *ports <= MAX_PCIE_HOTPLUG_PORTS)
@@ -601,7 +570,7 @@ impl<'a> Persist<'a> for PciDevices {
         // onto that port's secondary bus, which has to exist by then.
         pci_devices
             .pci_segment
-            .restore_root_ports(constructor_args.vm, &state.root_ports)?;
+            .restore_root_ports(constructor_args.vm, &pci_state.root_ports)?;
 
         if let Some(balloon_state) = &state.balloon_device {
             let device = Arc::new(Mutex::new(Balloon::restore(
@@ -791,7 +760,7 @@ impl<'a> Persist<'a> for PciDevices {
         // and enable all unmasked vectors (one kvm_irqfd call per vector).
         // Ordering: routing must be set before IRQFDs to avoid kernel panics on
         // older AMD/SVM hosts (see kernel commit a80ced6ea514).
-        if !pci_devices.virtio_devices.is_empty() || !state.root_ports.is_empty() {
+        if !pci_devices.virtio_devices.is_empty() || !pci_state.root_ports.is_empty() {
             constructor_args
                 .vm
                 .set_gsi_routes()
@@ -1058,7 +1027,10 @@ mod tests {
                 .version(),
             MmdsVersion::V2
         );
-        assert_eq!(pci_state.mmds.as_ref().unwrap().version, MmdsVersion::V2);
+        assert_eq!(
+            pci_state.virtio_devices.mmds.as_ref().unwrap().version,
+            MmdsVersion::V2
+        );
         assert_eq!(
             expected_vm_resources,
             serde_json::to_string_pretty(&VmmConfig::from(&*vm_resources)).unwrap()
