@@ -88,6 +88,8 @@ pub mod dumbo;
 pub mod gdb;
 /// Logger
 pub mod logger;
+/// Handshake with a memory backend.
+pub mod mem_backend;
 /// microVM Metadata Service MMDS
 pub mod mmds;
 /// PCI specific emulation code.
