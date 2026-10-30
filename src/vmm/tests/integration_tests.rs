@@ -349,9 +349,9 @@ fn verify_create_snapshot(
         }
         VirtioDevicesState::Pci(state) => {
             assert!(pci_enabled);
-            assert_eq!(state.block_devices.len(), 0);
-            assert_eq!(state.net_devices.len(), 0);
-            assert!(state.vsock_device.is_none());
+            assert_eq!(state.virtio_devices.block_devices.len(), 0);
+            assert_eq!(state.virtio_devices.net_devices.len(), 0);
+            assert!(state.virtio_devices.vsock_device.is_none());
         }
     }
     assert_eq!(restored_microvm_state.vcpu_states.len(), 1);

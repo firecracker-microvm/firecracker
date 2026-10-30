@@ -92,16 +92,21 @@ impl From<&SerialState> for vm_superio::serial::SerialState {
     }
 }
 
-/// Holds the state of a MMIO VirtIO device
+/// A virtio device as saved in a snapshot, with the state of the transport it is attached through.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VirtioDeviceState<T> {
+pub struct VirtioDeviceState<T, Tr> {
     /// Device identifier.
     pub device_id: String,
     /// Device state.
     pub device_state: T,
-    /// Mmio transport state.
+    /// Transport state.
+    pub transport_state: Tr,
+}
+
+/// Saved state of an MMIO transport: its registers and the device's place on the MMIO bus.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MMIODeviceState {
     pub transport_state: MmioTransportState,
-    /// VmmResources.
     pub device_info: MMIODeviceInfo,
 }
 
@@ -111,25 +116,40 @@ pub struct MmdsState {
     pub imds_compat: bool,
 }
 
-/// Holds the states of the virtio devices connected over the MMIO transport.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct DeviceStates {
+/// Saved states of the virtio devices attached over one transport.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceStates<Tr> {
     /// Block device states.
-    pub block_devices: Vec<VirtioDeviceState<BlockState>>,
+    pub block_devices: Vec<VirtioDeviceState<BlockState, Tr>>,
     /// Net device states.
-    pub net_devices: Vec<VirtioDeviceState<NetState>>,
+    pub net_devices: Vec<VirtioDeviceState<NetState, Tr>>,
     /// Vsock device state.
-    pub vsock_device: Option<VirtioDeviceState<VsockState>>,
+    pub vsock_device: Option<VirtioDeviceState<VsockState, Tr>>,
     /// Balloon device state.
-    pub balloon_device: Option<VirtioDeviceState<BalloonState>>,
+    pub balloon_device: Option<VirtioDeviceState<BalloonState, Tr>>,
     /// Mmds version.
     pub mmds: Option<MmdsState>,
     /// Entropy device state.
-    pub entropy_device: Option<VirtioDeviceState<EntropyState>>,
+    pub entropy_device: Option<VirtioDeviceState<EntropyState, Tr>>,
     /// Pmem device states.
-    pub pmem_devices: Vec<VirtioDeviceState<PmemState>>,
+    pub pmem_devices: Vec<VirtioDeviceState<PmemState, Tr>>,
     /// Memory device state.
-    pub memory_device: Option<VirtioDeviceState<VirtioMemState>>,
+    pub memory_device: Option<VirtioDeviceState<VirtioMemState, Tr>>,
+}
+
+impl<Tr> Default for DeviceStates<Tr> {
+    fn default() -> Self {
+        Self {
+            block_devices: Vec::new(),
+            net_devices: Vec::new(),
+            vsock_device: None,
+            balloon_device: None,
+            mmds: None,
+            entropy_device: None,
+            pmem_devices: Vec::new(),
+            memory_device: None,
+        }
+    }
 }
 
 pub struct MMIODevManagerConstructorArgs<'a> {
@@ -294,7 +314,7 @@ impl<'a> Persist<'a> for MMIOPlatformDevices {
 }
 
 impl<'a> Persist<'a> for MMIOVirtioDevices {
-    type State = DeviceStates;
+    type State = DeviceStates<MMIODeviceState>;
     type ConstructorArgs = MMIODevManagerConstructorArgs<'a>;
     type Error = DevicePersistError;
 
@@ -310,6 +330,10 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
             locked_device.prepare_save();
             let transport_state = mmio_transport_locked.save();
             let device_info = device.resources;
+            let transport_state = MMIODeviceState {
+                transport_state,
+                device_info,
+            };
             let device_id = devid.clone();
 
             match locked_device.device_type() {
@@ -323,7 +347,6 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                         device_id,
                         device_state,
                         transport_state,
-                        device_info,
                     });
                 }
                 // Both virtio-block and vhost-user-block share same device type.
@@ -338,7 +361,6 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                         device_id,
                         device_state,
                         transport_state,
-                        device_info,
                     });
                 }
                 VirtioDeviceType::Net => {
@@ -356,7 +378,6 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                         device_id,
                         device_state,
                         transport_state,
-                        device_info,
                     });
                 }
                 VirtioDeviceType::Vsock => {
@@ -377,7 +398,6 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                         device_id,
                         device_state,
                         transport_state,
-                        device_info,
                     });
                 }
                 VirtioDeviceType::Rng => {
@@ -391,7 +411,6 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                         device_id,
                         device_state,
                         transport_state,
-                        device_info,
                     });
                 }
                 VirtioDeviceType::Pmem => {
@@ -401,7 +420,6 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                         device_id,
                         device_state,
                         transport_state,
-                        device_info,
                     })
                 }
                 VirtioDeviceType::Mem => {
@@ -415,7 +433,6 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                         device_id,
                         device_state,
                         transport_state,
-                        device_info,
                     });
                 }
             };
@@ -437,8 +454,7 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                                   activated: bool,
                                   is_vhost_user: bool,
                                   id: &String,
-                                  state: &MmioTransportState,
-                                  device_info: &MMIODeviceInfo,
+                                  state: &MMIODeviceState,
                                   event_manager: &mut EventManager|
          -> Result<(), Self::Error> {
             let interrupt = Arc::new(IrqTrigger::new());
@@ -449,19 +465,19 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                 is_vhost_user,
             };
             let mmio_transport = Arc::new(Mutex::new(
-                MmioTransport::restore(restore_args, state)
+                MmioTransport::restore(restore_args, &state.transport_state)
                     .map_err(|()| DevicePersistError::MmioTransport)?,
             ));
 
             vm.resource_allocator()
                 .gsi_legacy_allocator
-                .allocate_id_at(device_info.gsi.ok_or(MmioError::InvalidIrqConfig)?)?;
+                .allocate_id_at(state.device_info.gsi.ok_or(MmioError::InvalidIrqConfig)?)?;
 
             dev_manager.register_mmio_virtio(
                 vm,
                 id.clone(),
                 MMIODevice {
-                    resources: *device_info,
+                    resources: state.device_info,
                     inner: mmio_transport,
                     sub_id: None,
                 },
@@ -495,7 +511,6 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                 false,
                 &balloon_state.device_id,
                 &balloon_state.transport_state,
-                &balloon_state.device_info,
                 constructor_args.event_manager,
             )?;
         }
@@ -522,7 +537,6 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                 false,
                 &block_state.device_id,
                 &block_state.transport_state,
-                &block_state.device_info,
                 constructor_args.event_manager,
             )?;
         }
@@ -561,7 +575,6 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                 false,
                 &net_state.device_id,
                 &net_state.transport_state,
-                &net_state.device_info,
                 constructor_args.event_manager,
             )?;
         }
@@ -590,7 +603,6 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                 false,
                 &vsock_state.device_id,
                 &vsock_state.transport_state,
-                &vsock_state.device_info,
                 constructor_args.event_manager,
             )?;
         }
@@ -614,7 +626,6 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                 false,
                 &entropy_state.device_id,
                 &entropy_state.transport_state,
-                &entropy_state.device_info,
                 constructor_args.event_manager,
             )?;
         }
@@ -640,7 +651,6 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                 false,
                 &pmem_state.device_id,
                 &pmem_state.transport_state,
-                &pmem_state.device_info,
                 constructor_args.event_manager,
             )?;
         }
@@ -663,7 +673,6 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                 false,
                 &memory_state.device_id,
                 &memory_state.transport_state,
-                &memory_state.device_info,
                 constructor_args.event_manager,
             )?;
         }
@@ -701,15 +710,21 @@ mod tests {
     #[cfg(target_arch = "aarch64")]
     use crate::{EventManager, Kvm};
 
-    impl<T> PartialEq for VirtioDeviceState<T> {
-        fn eq(&self, other: &VirtioDeviceState<T>) -> bool {
+    impl<T, Tr: PartialEq> PartialEq for VirtioDeviceState<T, Tr> {
+        fn eq(&self, other: &Self) -> bool {
             // Actual device state equality is checked by the device's tests.
+            self.transport_state == other.transport_state
+        }
+    }
+
+    impl PartialEq for MMIODeviceState {
+        fn eq(&self, other: &Self) -> bool {
             self.transport_state == other.transport_state && self.device_info == other.device_info
         }
     }
 
-    impl PartialEq for DeviceStates {
-        fn eq(&self, other: &DeviceStates) -> bool {
+    impl<Tr: PartialEq> PartialEq for DeviceStates<Tr> {
+        fn eq(&self, other: &Self) -> bool {
             self.balloon_device == other.balloon_device
                 && self.block_devices == other.block_devices
                 && self.net_devices == other.net_devices

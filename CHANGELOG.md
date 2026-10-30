@@ -77,6 +77,9 @@ and this project adheres to
   largest frame needs, instead of every buffer the guest has made available.
   This lowers the cost of receiving each frame and improves receive throughput
   for small packets.
+- [#6354](https://github.com/firecracker-microvm/firecracker/pull/6354): Unified
+  the saved virtio device state across the MMIO and PCI transports and dropped
+  the redundant PCI SBDF from the saved state.
 
 ### Deprecated
 
