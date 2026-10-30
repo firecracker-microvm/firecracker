@@ -997,6 +997,25 @@ class Microvm:
         if self.iface:
             self.wait_for_ssh_up()
 
+    def spawn_mem_backend(self, handler_name: str = "on_demand") -> dict:
+        """Start an example UFFD handler as a memory backend for a boot.
+
+        Returns the `mem_backend` object to pass to `PUT /machine-config`. The
+        handler receives only the guest memory memfd during boot (there are no
+        page faults to serve) and holds on to it.
+        """
+        assert self.uffd_handler is None
+        self.uffd_handler = spawn_pf_handler(
+            self,
+            uffd_handler(handler_name, binary_dir=self.fc_binary_path.parent),
+            None,
+            backend_type="SharedMemfd",
+        )
+        return {
+            "backend_type": "SharedMemfd",
+            "backend_path": str(self.uffd_handler.socket_path),
+        }
+
     def pause(self):
         """Pauses the microVM"""
         self.api.vm.patch(state="Paused")
@@ -1071,16 +1090,27 @@ class Microvm:
         *,
         huge_pages: Optional[HugePagesConfig] = None,
         uffd_handler_name: str = None,
+        mem_backend: bool = False,
     ):
-        """Restore a snapshot"""
+        """Restore a snapshot.
+
+        With `uffd_handler_name`, guest memory is populated by that example
+        handler through UFFD. With `mem_backend` as well, the restore uses
+        `backend_type: SharedMemfd`: the handler additionally receives the
+        guest memory memfd.
+        """
 
         jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
 
+        backend_type = "SharedMemfd" if mem_backend else "Uffd"
+        if mem_backend:
+            assert uffd_handler_name, "a memory backend needs a handler"
         if uffd_handler_name:
             self.uffd_handler = spawn_pf_handler(
                 self,
                 uffd_handler(uffd_handler_name, binary_dir=self.fc_binary_path.parent),
                 jailed_snapshot,
+                backend_type=backend_type,
             )
 
         jailed_mem = Path("/") / jailed_snapshot.mem.name
@@ -1098,10 +1128,10 @@ class Microvm:
         for iface in jailed_snapshot.net_ifaces:
             self.add_net_iface(iface, api=False)
 
-        mem_backend = {"backend_type": "File", "backend_path": str(jailed_mem)}
+        mem_backend_config = {"backend_type": "File", "backend_path": str(jailed_mem)}
         if self.uffd_handler is not None:
-            mem_backend = {
-                "backend_type": "Uffd",
+            mem_backend_config = {
+                "backend_type": backend_type,
                 "backend_path": str(self.uffd_handler.socket_path),
             }
 
@@ -1146,7 +1176,7 @@ class Microvm:
             optional_kwargs["huge_pages"] = huge_pages
 
         self.api.snapshot_load.put(
-            mem_backend=mem_backend,
+            mem_backend=mem_backend_config,
             snapshot_path=str(jailed_vmstate),
             enable_diff_snapshots=jailed_snapshot.snapshot_type.needs_dirty_page_tracking,
             resume_vm=resume,
@@ -1358,7 +1388,11 @@ class MicroVMFactory:
         return vm
 
     def build_from_snapshot(
-        self, snapshot: Snapshot, uffd_handler_name=None, clock_realtime=False
+        self,
+        snapshot: Snapshot,
+        uffd_handler_name=None,
+        clock_realtime=False,
+        mem_backend=False,
     ):
         """Build a microvm from a snapshot"""
         vm = self.build()
@@ -1368,6 +1402,7 @@ class MicroVMFactory:
             resume=True,
             uffd_handler_name=uffd_handler_name,
             clock_realtime=clock_realtime,
+            mem_backend=mem_backend,
         )
         return vm
 

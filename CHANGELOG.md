@@ -41,6 +41,16 @@ and this project adheres to
   exceed the vCPU count. Custom seccomp filters must include the new
   `blk_worker` thread category. See
   [block documentation](docs/block.md#threaded-mode-and-multiqueue).
+- [#6362](https://github.com/firecracker-microvm/firecracker/pull/6362): Added
+  the `SharedMemfd` memory backend (developer preview): guest memory is backed
+  by a single memfd, laid out like a memory snapshot file, which is handed to an
+  external process over a Unix domain socket with the same handshake message a
+  UFFD page fault handler receives. `SharedMemfd` is accepted as `backend_type`
+  in `PUT /snapshot/load`, where the handshake carries the userfaultfd and then
+  the memfd, and in a new `mem_backend` field of `PUT /machine-config` and the
+  configuration file, where guest memory is shared at boot and the handshake
+  carries the memfd alone. See
+  [docs/snapshotting/shared-memfd.md](docs/snapshotting/shared-memfd.md).
 
 ### Changed
 

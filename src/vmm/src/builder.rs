@@ -5,6 +5,7 @@
 
 use std::fmt::Debug;
 use std::io;
+use std::os::unix::io::AsRawFd;
 #[cfg(feature = "gdb")]
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -14,7 +15,7 @@ use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 use vm_allocator::AllocPolicy;
-use vm_memory::GuestAddress;
+use vm_memory::{GuestAddress, GuestMemoryBackend};
 
 #[cfg(target_arch = "aarch64")]
 use crate::Vcpu;
@@ -43,6 +44,7 @@ use crate::initrd::{InitrdConfig, InitrdError};
 use crate::logger::debug;
 #[cfg(target_arch = "aarch64")]
 use crate::logger::warn;
+use crate::mem_backend::Handshake;
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
@@ -100,6 +102,8 @@ pub enum StartMicrovmError {
     Kvm(#[from] KvmError),
     /// Cannot load command line string: {0}
     LoadCommandline(linux_loader::loader::Error),
+    /// Cannot hand guest memory to the memory backend: {0}
+    MemBackend(crate::mem_backend::HandshakeError),
     /// Cannot start microvm without kernel configuration.
     MissingKernelConfig,
     /// Cannot start microvm without guest mem_size config.
@@ -201,6 +205,22 @@ pub fn build_microvm_for_boot(
     } else {
         None
     };
+
+    // Hand guest memory to the memory backend, if one is configured. All regions are mapped and
+    // registered with KVM at this point, and nothing has been written to guest memory yet. The
+    // handshake is the one a page fault handler gets, with the memfd as its only fd: there is
+    // nothing to populate on a fresh boot.
+    if let Some(mem_backend) = &vm_resources.machine_config.mem_backend {
+        let backing = memfd_backing
+            .as_ref()
+            .expect("memory is memfd-backed when a memory backend is configured");
+        Handshake::new(
+            vm.guest_memory().iter().map(|region| &region.inner),
+            vm_resources.machine_config.huge_pages,
+        )
+        .send(&mem_backend.backend_path, &[backing.file.as_raw_fd()])
+        .map_err(StartMicrovmError::MemBackend)?;
+    }
 
     let kvm_vm = Arc::new(vm);
     let vm = Vm::Kvm(kvm_vm.clone());

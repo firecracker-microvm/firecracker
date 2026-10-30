@@ -1609,9 +1609,23 @@ definitions:
           hot-plugged device, so this is the maximum number of devices that
           can be hot-plugged into the VM. Requires PCI to be enabled with the
           --enable-pci command line flag.
+      mem_backend:
+        $ref: "#/definitions/MemoryBackend"
+        description: >-
+          Memory backend to share guest memory with at boot. Only
+          `SharedMemfd` is accepted here. When set, guest memory is backed by a
+          single memfd, which is sent to the process listening on
+          `backend_path` during `InstanceStart`, after guest memory is set up
+          and before any vCPU runs. Failing to connect fails the boot. A `PUT`
+          without the field removes a previously set backend.
 
   MemoryBackend:
     type: object
+    description: >-
+      How guest memory is populated on restore (`File`, `Uffd`) and/or shared
+      with an external process (`SharedMemfd`). `File` and `Uffd` are only
+      valid in `PUT /snapshot/load`; `SharedMemfd` is valid there and in
+      `PUT /machine-config`.
     required:
       - backend_type
       - backend_path
@@ -1621,6 +1635,7 @@ definitions:
         enum:
           - File
           - Uffd
+          - SharedMemfd
       backend_path:
         type: string
         description: Based on 'backend_type' it is either
@@ -1628,6 +1643,8 @@ definitions:
           2) Path to the UDS where a process is listening for a UFFD initialization
           control payload and open file descriptor that it can use to serve this
           process's guest memory page faults
+          3) Path to the UDS where a process is listening for the same control
+          payload, accompanied by the guest memory memfd (and the UFFD on restore)
 
   Metrics:
     type: object

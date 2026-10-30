@@ -15,16 +15,34 @@ SOCKET_PATH = "/firecracker-uffd.sock"
 
 
 class UffdHandler:
-    """Describe the UFFD page fault handler process."""
+    """Describe the UFFD page fault handler process.
+
+    The handler serves page faults from a snapshot on restore (`Uffd`,
+    `SharedMemfd`), or just holds the guest memory memfd when started as a
+    memory backend for a boot (`machine-config.mem_backend`).
+    """
 
     def __init__(
-        self, name, socket_path, snapshot: "Snapshot", chroot_path, log_file_name
+        self,
+        name,
+        socket_path,
+        snapshot: "Snapshot",
+        chroot_path,
+        log_file_name,
+        backend_type: str = "Uffd",
     ):
-        """Instantiate the handler process with arguments."""
+        """Instantiate the handler process with arguments.
+
+        `backend_type` is the one the handler is attached to Firecracker with
+        (`Uffd` or `SharedMemfd`); it tells the handler which fds to expect.
+        `snapshot` may be `None` when the handler is started as a memory backend
+        for a boot.
+        """
         self._proc = None
         self._handler_name = name
         self.socket_path = socket_path
         self.snapshot = snapshot
+        self.backend_type = backend_type
         self._chroot = chroot_path
         self._log_file = log_file_name
 
@@ -37,11 +55,9 @@ class UffdHandler:
 
             chroot_log_file = Path("/") / self._log_file
             with open(chroot_log_file, "w", encoding="utf-8") as logfile:
-                args = [
-                    f"/{self._handler_name}",
-                    self.socket_path,
-                    self.snapshot.mem.name,
-                ]
+                args = [f"/{self._handler_name}", self.backend_type, self.socket_path]
+                if self.snapshot is not None:
+                    args.append(self.snapshot.mem.name)
                 self._proc = subprocess.Popen(
                     args, stdout=logfile, stderr=subprocess.STDOUT
                 )
@@ -109,15 +125,25 @@ class UffdHandler:
             self.kill()
 
 
-def spawn_pf_handler(vm, handler_path, jailed_snapshot):
-    """Spawn page fault handler process."""
+def spawn_pf_handler(vm, handler_path, jailed_snapshot, backend_type="Uffd"):
+    """Spawn page fault handler process.
+
+    `jailed_snapshot` is the snapshot to populate page faults from, or `None`
+    for a memory backend started for a boot. `backend_type` is the one the
+    handler is attached to Firecracker with.
+    """
     # Copy snapshot memory file into chroot of microVM.
     # Copy the valid page fault binary into chroot of microVM.
     jailed_handler = vm.create_jailed_resource(handler_path)
     handler_name = os.path.basename(jailed_handler)
 
     uffd_handler = UffdHandler(
-        handler_name, SOCKET_PATH, jailed_snapshot, vm.chroot(), "uffd.log"
+        handler_name,
+        SOCKET_PATH,
+        jailed_snapshot,
+        vm.chroot(),
+        "uffd.log",
+        backend_type=backend_type,
     )
     uffd_handler.spawn(vm.jailer.uid, vm.jailer.gid)
 

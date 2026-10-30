@@ -25,13 +25,18 @@ pub enum SnapshotType {
 /// resuming from a snapshot:
 /// 1) A file that contains the guest memory to be loaded,
 /// 2) An UDS where a custom page-fault handler process is listening for the UFFD set up by
-///    Firecracker to handle its guest memory page faults.
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+///    Firecracker to handle its guest memory page faults,
+/// 3) Like 2), but guest memory is backed by a memfd which is also handed to the process.
+///    This one is also valid at boot (`machine-config.mem_backend`), without the UFFD.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum MemBackendType {
     /// Guest memory contents will be loaded from a file.
     File,
     /// Guest memory will be served through UFFD by a separate process.
     Uffd,
+    /// Guest memory is backed by a memfd shared with a separate process. On restore, that
+    /// process also serves page faults through UFFD.
+    SharedMemfd,
 }
 
 /// Stores the configuration that will be used for creating a snapshot.
@@ -165,7 +170,7 @@ pub struct LoadSnapshotConfig {
 }
 
 /// Stores the configuration used for managing snapshot memory.
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MemBackendConfig {
     /// Path to the backend used to handle the guest memory.

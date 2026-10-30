@@ -58,6 +58,8 @@ pub enum MemoryError {
     MemfdSetLen(std::io::Error),
     /// Total sum of memory regions exceeds largest possible file offset
     OffsetTooLarge,
+    /// Memory region at {0:#x} starts below the end of the previous one at {1:#x}
+    RegionsOutOfOrder(u64, u64),
     /// Memory region has zero size
     ZeroSize,
     /// Memory region has zero slots
@@ -1072,12 +1074,9 @@ impl MemfdBacking {
     }
 
     /// Maps `regions` `MAP_SHARED` from the memfd, one after the other, right after the regions
-    /// allocated so far. Fails if they do not fit in what is left of the memfd.
-    ///
-    /// # Panics
-    ///
-    /// If `regions` are not in increasing guest address order, or if any of them starts below the
-    /// end of a previously allocated region.
+    /// allocated so far. Fails if they do not fit in what is left of the memfd, if they are not in
+    /// increasing guest address order, or if any of them starts below the end of a previously
+    /// allocated region.
     pub fn allocate(
         &mut self,
         regions: &[(GuestAddress, usize)],
@@ -1086,13 +1085,9 @@ impl MemfdBacking {
     ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
         let mut next_guest_addr = self.next_guest_addr;
         for &(start, size) in regions {
-            assert!(
-                start >= next_guest_addr,
-                "memfd-backed region at {:#x} allocated after a region ending at {:#x}:\
-                 regions should be allocated in increasing order.",
-                start.0,
-                next_guest_addr.0
-            );
+            if start < next_guest_addr {
+                return Err(MemoryError::RegionsOutOfOrder(start.0, next_guest_addr.0));
+            }
             next_guest_addr = start
                 .checked_add(size as u64)
                 .ok_or(MemoryError::OffsetTooLarge)?;
@@ -1528,7 +1523,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "regions should be allocated in increasing order")]
     fn test_memfd_backing_guest_address_order_across_calls() {
         let page_size = host_page_size();
         let mut backing = MemfdBacking::new(2 * page_size as u64, HugePageConfig::None).unwrap();
@@ -1541,28 +1535,33 @@ mod tests {
             )
             .unwrap();
         // Starts below the end of the previous region.
-        let _ = backing.allocate(
-            &[(GuestAddress(0x1000), page_size)],
-            false,
-            HugePageConfig::None,
-        );
+        assert!(matches!(
+            backing.allocate(
+                &[(GuestAddress(0x1000), page_size)],
+                false,
+                HugePageConfig::None,
+            ),
+            Err(MemoryError::RegionsOutOfOrder(0x1000, 0x3000))
+        ));
     }
 
     #[test]
-    #[should_panic(expected = "regions should be allocated in increasing order")]
     fn test_memfd_backing_guest_address_order_single_call() {
         let page_size = host_page_size();
         let mut backing = MemfdBacking::new(2 * page_size as u64, HugePageConfig::None).unwrap();
 
         // Out of order within a single call.
-        let _ = backing.allocate(
-            &[
-                (GuestAddress(0x2000), page_size),
-                (GuestAddress(0x1000), page_size),
-            ],
-            false,
-            HugePageConfig::None,
-        );
+        assert!(matches!(
+            backing.allocate(
+                &[
+                    (GuestAddress(0x2000), page_size),
+                    (GuestAddress(0x1000), page_size),
+                ],
+                false,
+                HugePageConfig::None,
+            ),
+            Err(MemoryError::RegionsOutOfOrder(0x1000, 0x3000))
+        ));
     }
 
     #[test]

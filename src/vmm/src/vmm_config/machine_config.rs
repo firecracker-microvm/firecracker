@@ -7,6 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
 use crate::pci::bus::MAX_PCI_BUSES;
+use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
 
 /// The default memory size of the VM, in MiB.
 pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
@@ -40,6 +41,8 @@ pub enum MachineConfigError {
     InvalidPcieHotplugPorts,
     /// PCIe hot-plug ports require `--enable-pci`.
     PcieHotplugPortsRequirePci,
+    /// Only the `SharedMemfd` backend type is valid for `mem_backend` in the machine configuration.
+    InvalidMemBackend,
 }
 
 /// Describes the possible (huge)page configurations for a microVM's memory.
@@ -142,6 +145,11 @@ pub struct MachineConfig {
     /// Number of PCIe root ports to create.
     #[serde(default)]
     pub pcie_hotplug_ports: u8,
+    /// Memory backend to share guest memory with at boot. Only `SharedMemfd` is accepted here:
+    /// guest memory is then backed by a single memfd, handed to the process listening on
+    /// `backend_path` before the microVM starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mem_backend: Option<MemBackendConfig>,
     /// GDB socket address.
     #[cfg(feature = "gdb")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -185,6 +193,7 @@ impl Default for MachineConfig {
             track_dirty_pages: false,
             huge_pages: HugePageConfig::None,
             pcie_hotplug_ports: 0,
+            mem_backend: None,
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         }
@@ -221,6 +230,10 @@ pub struct MachineConfigUpdate {
     /// Number of PCIe root ports to create.
     #[serde(default)]
     pub pcie_hotplug_ports: Option<u8>,
+    /// Memory backend to share guest memory with at boot. `None` leaves the current value;
+    /// `Some(None)`, which a `PUT` without the field converts to, removes the backend.
+    #[serde(default)]
+    pub mem_backend: Option<Option<MemBackendConfig>>,
     /// GDB socket address.
     #[cfg(feature = "gdb")]
     #[serde(default)]
@@ -246,6 +259,7 @@ impl From<MachineConfig> for MachineConfigUpdate {
             track_dirty_pages: Some(cfg.track_dirty_pages),
             huge_pages: Some(cfg.huge_pages),
             pcie_hotplug_ports: Some(cfg.pcie_hotplug_ports),
+            mem_backend: Some(cfg.mem_backend),
             #[cfg(feature = "gdb")]
             gdb_socket_path: cfg.gdb_socket_path,
         }
@@ -311,6 +325,16 @@ impl MachineConfig {
             Some(other) => Some(CpuTemplateType::Static(other)),
         };
 
+        let mem_backend = match &update.mem_backend {
+            None => self.mem_backend.clone(),
+            Some(mem_backend) => mem_backend.clone(),
+        };
+        if let Some(backend) = &mem_backend
+            && backend.backend_type != MemBackendType::SharedMemfd
+        {
+            return Err(MachineConfigError::InvalidMemBackend);
+        }
+
         Ok(MachineConfig {
             vcpu_count,
             mem_size_mib,
@@ -319,6 +343,7 @@ impl MachineConfig {
             track_dirty_pages: update.track_dirty_pages.unwrap_or(self.track_dirty_pages),
             huge_pages: page_config,
             pcie_hotplug_ports,
+            mem_backend,
             #[cfg(feature = "gdb")]
             gdb_socket_path: update.gdb_socket_path.clone(),
         })
@@ -346,9 +371,13 @@ impl MachineConfig {
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU16;
+    use std::path::PathBuf;
 
     use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
-    use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError};
+    use crate::vmm_config::machine_config::{
+        MachineConfig, MachineConfigError, MachineConfigUpdate,
+    };
+    use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
 
     // Ensure the special (de)serialization logic for the cpu_template field works:
     // only static cpu templates can be specified via the machine-config endpoint, but
@@ -417,6 +446,60 @@ mod tests {
                 5,
                 4
             ))
+        );
+    }
+
+    #[test]
+    fn test_mem_backend() {
+        let backend = |backend_type| MemBackendConfig {
+            backend_path: PathBuf::from("/backend.sock"),
+            backend_type,
+        };
+
+        // Only `SharedMemfd` makes sense at boot: `File` and `Uffd` describe how memory is
+        // populated on restore.
+        let base = MachineConfig::default();
+        for backend_type in [MemBackendType::File, MemBackendType::Uffd] {
+            let update = MachineConfigUpdate {
+                mem_backend: Some(Some(backend(backend_type))),
+                ..Default::default()
+            };
+            assert_eq!(
+                base.update(&update).unwrap_err(),
+                MachineConfigError::InvalidMemBackend
+            );
+        }
+
+        let update = MachineConfigUpdate {
+            mem_backend: Some(Some(backend(MemBackendType::SharedMemfd))),
+            ..Default::default()
+        };
+        let with_backend = base.update(&update).unwrap();
+        assert_eq!(
+            with_backend.mem_backend,
+            Some(backend(MemBackendType::SharedMemfd))
+        );
+
+        // An update that does not mention the backend leaves it in place; a `PUT` without it (a
+        // full `MachineConfig`, converted) removes it.
+        let update = serde_json::from_str::<MachineConfigUpdate>(r#"{"vcpu_count": 2}"#).unwrap();
+        assert_eq!(update.mem_backend, None);
+        let updated = with_backend.update(&update).unwrap();
+        assert_eq!(updated.mem_backend, with_backend.mem_backend);
+        let put = MachineConfigUpdate::from(MachineConfig::default());
+        assert_eq!(put.mem_backend, Some(None));
+        assert_eq!(with_backend.update(&put).unwrap().mem_backend, None);
+
+        // The field round-trips through JSON (configuration file, `GET /machine-config`) and is
+        // left out when unset.
+        let serialized = serde_json::to_string(&with_backend).unwrap();
+        assert!(serialized.contains("\"backend_type\":\"SharedMemfd\""));
+        let deserialized = serde_json::from_str::<MachineConfig>(&serialized).unwrap();
+        assert_eq!(deserialized.mem_backend, with_backend.mem_backend);
+        assert!(
+            !serde_json::to_string(&MachineConfig::default())
+                .unwrap()
+                .contains("mem_backend")
         );
     }
 }

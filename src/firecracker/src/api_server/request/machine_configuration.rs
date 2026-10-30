@@ -125,6 +125,7 @@ mod tests {
                 track_dirty_pages: Some(false),
                 huge_pages: Some(expected),
                 pcie_hotplug_ports: Some(0),
+                mem_backend: Some(None),
                 #[cfg(feature = "gdb")]
                 gdb_socket_path: None,
             };
@@ -147,6 +148,7 @@ mod tests {
             track_dirty_pages: Some(false),
             huge_pages: Some(HugePageConfig::None),
             pcie_hotplug_ports: Some(0),
+            mem_backend: Some(None),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         };
@@ -169,6 +171,7 @@ mod tests {
             track_dirty_pages: Some(true),
             huge_pages: Some(HugePageConfig::None),
             pcie_hotplug_ports: Some(0),
+            mem_backend: Some(None),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         };
@@ -195,6 +198,7 @@ mod tests {
                 track_dirty_pages: Some(true),
                 huge_pages: Some(HugePageConfig::None),
                 pcie_hotplug_ports: Some(0),
+                mem_backend: Some(None),
                 #[cfg(feature = "gdb")]
                 gdb_socket_path: None,
             };
@@ -223,6 +227,7 @@ mod tests {
             track_dirty_pages: Some(true),
             huge_pages: Some(HugePageConfig::None),
             pcie_hotplug_ports: Some(0),
+            mem_backend: Some(None),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         };

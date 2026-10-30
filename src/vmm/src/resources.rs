@@ -494,12 +494,15 @@ impl VmResources {
     ///
     /// Page faults are more expensive for shared memory mappings, including memfd. For this
     /// reason, guest memory is only backed by a memfd when something outside of Firecracker
-    /// has to see it, which today means a vhost-user-blk device.
+    /// has to see it: a vhost-user-blk device, or a memory backend configured in
+    /// `machine-config`.
     fn memfd_required(&self) -> bool {
-        self.block
-            .devices
-            .iter()
-            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user())
+        self.machine_config.mem_backend.is_some()
+            || self
+                .block
+                .devices
+                .iter()
+                .any(|b| b.lock().expect("Poisoned lock").is_vhost_user())
     }
 
     /// Total size in bytes of guest memory: the given DRAM regions plus the virtio-mem
@@ -634,6 +637,7 @@ mod tests {
         HugePageConfig, MAX_PCIE_HOTPLUG_PORTS, MachineConfig, MachineConfigError,
     };
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
+    use crate::vmm_config::snapshot::MemBackendType;
     use crate::vmm_config::vsock::tests::default_config;
 
     fn default_net_cfg() -> NetworkInterfaceConfig {
@@ -993,6 +997,69 @@ mod tests {
             "{:?}",
             error
         );
+
+        // A memory backend in the machine configuration: `SharedMemfd` is kept, anything
+        // else is rejected.
+        for (backend_type, expected) in [
+            ("SharedMemfd", Ok(())),
+            ("Uffd", Err(MachineConfigError::InvalidMemBackend)),
+            ("File", Err(MachineConfigError::InvalidMemBackend)),
+        ] {
+            json = format!(
+                r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ],
+                    "machine-config": {{
+                        "vcpu_count": 2,
+                        "mem_size_mib": 1024,
+                        "mem_backend": {{
+                            "backend_type": "{}",
+                            "backend_path": "/backend.sock"
+                        }}
+                    }}
+            }}"#,
+                kernel_file.as_path().to_str().unwrap(),
+                rootfs_file.as_path().to_str().unwrap(),
+                backend_type,
+            );
+            let result = VmResources::from_json(
+                json.as_str(),
+                &default_instance_info,
+                HTTP_MAX_PAYLOAD_SIZE,
+                None,
+                false,
+            );
+            match expected {
+                Ok(()) => {
+                    let resources = result.unwrap();
+                    let mem_backend = resources.machine_config.mem_backend.as_ref().unwrap();
+                    assert_eq!(mem_backend.backend_type, MemBackendType::SharedMemfd);
+                    assert_eq!(mem_backend.backend_path, PathBuf::from("/backend.sock"));
+                    assert!(resources.memfd_required());
+                }
+                Err(expected) => {
+                    let error = result.unwrap_err();
+                    assert!(
+                        matches!(
+                            &error,
+                            ResourcesError::MachineConfig(err) if *err == expected
+                        ),
+                        "{:?}",
+                        error
+                    );
+                }
+            }
+        }
 
         // Invalid path for logger pipe.
         json = format!(
@@ -1601,6 +1668,7 @@ mod tests {
             track_dirty_pages: Some(false),
             huge_pages: Some(HugePageConfig::None),
             pcie_hotplug_ports: Some(0),
+            mem_backend: Some(None),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         };
