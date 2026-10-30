@@ -41,6 +41,11 @@ and this project adheres to
   exceed the vCPU count. Custom seccomp filters must include the new
   `blk_worker` thread category. See
   [block documentation](docs/block.md#threaded-mode-and-multiqueue).
+- [#6363](https://github.com/firecracker-microvm/firecracker/pull/6363): Added
+  the `mmds.rst_enqueued` metric, which counts the RSTs the MMDS TCP stack
+  queues for segments it cannot match to a connection and for connections it
+  evicts. Guests having their MMDS connections refused can now be observed from
+  the host.
 
 ### Changed
 
@@ -154,6 +159,19 @@ and this project adheres to
   signal interrupted the wait for its in-flight requests, which left the device
   unusable for the rest of the microVM's lifetime. The reset now waits until
   every in-flight request has completed.
+
+- [#6363](https://github.com/firecracker-microvm/firecracker/pull/6363): Fixed
+  the MMDS TCP stack refusing a SYN that requests ECN (carrying ECE and CWR). It
+  now answers with a plain SYN-ACK, so the client continues without ECN. Clients
+  that wait for their SYN retransmission timeout instead of resending a plain
+  SYN at once no longer take about 3 seconds to open every MMDS connection.
+
+- [#6363](https://github.com/firecracker-microvm/firecracker/pull/6363): Fixed
+  the MMDS TCP stack sending a RST whose acknowledgement number did not count
+  the SYN or FIN flag of the refused segment. Clients discarded such a RST, so a
+  refused SYN was retransmitted instead of failing at once. As a result, a SYN
+  that reuses the port of a connection the stack still holds now makes the
+  client's connect fail.
 
 ## [1.17.0]
 
