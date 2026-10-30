@@ -8,7 +8,12 @@ import time
 
 import pytest
 
-from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_rootfs_mode
+from framework.artifacts import (
+    ACPI_GUEST_KERNELS,
+    pin_dirty_tracking,
+    pin_guest_kernel,
+    pin_rootfs_mode,
+)
 from framework.kvm import BASE_BOOT_ARGS
 from framework.utils_hugepages import HugePagesConfig
 
@@ -109,6 +114,7 @@ def launch_vm_with_boot_timer(
     pci_enabled,
     boot_from_pmem,
     huge_pages=HugePagesConfig.NONE,
+    track_dirty_pages=False,
 ):
     """Launches a microVM with guest-timer and returns the reported metrics for it"""
     vm = microvm_factory.build(
@@ -123,6 +129,7 @@ def launch_vm_with_boot_timer(
             boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init",
             enable_entropy_device=True,
             huge_pages=huge_pages,
+            track_dirty_pages=track_dirty_pages,
         )
     else:
         vm.basic_config(
@@ -132,6 +139,7 @@ def launch_vm_with_boot_timer(
             boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init rootflags=dax",
             enable_entropy_device=True,
             huge_pages=huge_pages,
+            track_dirty_pages=track_dirty_pages,
         )
         vm.add_pmem("pmem", rootfs, True, True)
 
@@ -159,8 +167,9 @@ def test_boot_timer(microvm_factory, guest_kernel, rootfs, pci_enabled):
 )
 @pin_rootfs_mode("rw")
 @pytest.mark.parametrize("boot_from_pmem", [True, False], ids=["PmemBoot", "BlockBoot"])
-@pytest.mark.parametrize(
-    "huge_pages", [HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT], indirect=True
+@pin_dirty_tracking(
+    "huge_pages",
+    {HugePagesConfig.NONE: [False], HugePagesConfig.TRANSPARENT: [False, True]},
 )
 @pytest.mark.nonci
 def test_boottime(
@@ -172,6 +181,7 @@ def test_boottime(
     boot_from_pmem,
     pci_enabled,
     huge_pages,
+    track_dirty_pages,
     metrics,
 ):
     """Test boot time with different guest configurations"""
@@ -186,6 +196,7 @@ def test_boottime(
             pci_enabled,
             boot_from_pmem,
             huge_pages,
+            track_dirty_pages,
         )
 
         if i == 0:
