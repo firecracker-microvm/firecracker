@@ -33,7 +33,7 @@ use super::request::vsock::parse_put_vsock;
 use crate::api_server::request::hotplug::memory::{
     parse_get_memory_hotplug, parse_patch_memory_hotplug, parse_put_memory_hotplug,
 };
-use crate::api_server::request::hotplug::parse_unplug_device;
+use crate::api_server::request::hotplug::{parse_unplug_device, parse_unplug_passthrough_device};
 use crate::api_server::request::serial::parse_put_serial;
 
 #[derive(Debug)]
@@ -140,6 +140,9 @@ impl TryFrom<&Request> for ParsedRequest {
             }
             (Method::Delete, "network-interfaces", body) => {
                 parse_unplug_device(VirtioDeviceType::Net, path_tokens.next(), body)
+            }
+            (Method::Delete, "device-passthrough", body) => {
+                parse_unplug_passthrough_device(path_tokens.next(), body)
             }
             (method, unknown_uri, _) => Err(RequestError::InvalidPathMethod(
                 unknown_uri.to_string(),

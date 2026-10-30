@@ -99,6 +99,15 @@ if run_all_tests(changed_files):
         ),
     )
 
+    pipeline.build_group(
+        "vfio",
+        pipeline.devtool_test(
+            devtool_opts="--vfio-nvme-device /dev/sdf --first-vfio-nvme-device -c 1-10",
+            pytest_opts="-m vfio integration_tests/functional/",
+        ),
+        **DEFAULTS_PERF,
+    )
+
     # Tests marked `serial` need the host to themselves (timing assertions,
     # CPU pinning); the rest run in parallel on the regular agents, in a group
     # of their own so the two overlap. They need a hugetlbfs pool, which
