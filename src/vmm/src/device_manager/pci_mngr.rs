@@ -366,15 +366,16 @@ impl PciDevices {
         let pci_device_bdf = self.next_sbdf(placement)?;
         debug!("VFIO: Allocating BDF: {pci_device_bdf:?} for device");
 
-        let device = if let Some(container) = &self.vfio_container {
-            VfioDevice::new(container, vm, config, pci_device_bdf)?
-        } else {
-            let container = vfio_create_kvm_vfio_device_and_vfio_container(vm.as_ref())?;
-            let device = VfioDevice::new(&container, vm, config, pci_device_bdf)?;
-            vfio_dma_map_guest_memory(&container, vm.guest_memory())?;
-            self.vfio_container = Some(container);
-            device
-        };
+        if self.vfio_container.is_none() {
+            self.vfio_container =
+                Some(vfio_create_kvm_vfio_device_and_vfio_container(vm.as_ref())?);
+        }
+        let container = self.vfio_container.as_ref().unwrap();
+
+        let device = VfioDevice::new(container, vm, config, pci_device_bdf)?;
+        if self.vfio_devices.is_empty() {
+            vfio_dma_map_guest_memory(container, vm.guest_memory())?;
+        }
 
         // Obtain this to avoid needing to lock device mutex below
         let emulated_areas = device.emulated_areas.clone();
