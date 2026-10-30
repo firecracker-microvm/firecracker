@@ -29,7 +29,14 @@ from pathlib import Path
 from typing import Optional
 
 import psutil
-from tenacity import Retrying, retry, stop_after_attempt, stop_after_delay, wait_fixed
+from tenacity import (
+    Retrying,
+    retry,
+    retry_if_exception_message,
+    stop_after_attempt,
+    stop_after_delay,
+    wait_fixed,
+)
 
 import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
@@ -920,16 +927,25 @@ class Microvm:
         )
 
         socket_path = backend.spawn(self.jailer.uid, self.jailer.gid)
-
-        self.api.drive.put(
-            drive_id=drive_id,
-            socket=socket_path,
-            partuuid=partuuid,
-            is_root_device=is_root_device,
-            cache_type=cache_type,
-        )
-
+        # Registered before the PUT, so that a failed PUT still kills the backend.
         self.disks_vhost_user[drive_id] = backend
+
+        # The socket file appears when the backend binds it, just before it listens, and a
+        # connection in between is refused: retry until the backend listens.
+        for attempt in Retrying(
+            retry=retry_if_exception_message(match=".*Connection refused.*"),
+            wait=wait_fixed(0.1),
+            stop=stop_after_delay(5),
+            reraise=True,
+        ):
+            with attempt:
+                self.api.drive.put(
+                    drive_id=drive_id,
+                    socket=socket_path,
+                    partuuid=partuuid,
+                    is_root_device=is_root_device,
+                    cache_type=cache_type,
+                )
 
     def patch_drive(self, drive_id, file=None):
         """Modify/patch an existing block device."""
