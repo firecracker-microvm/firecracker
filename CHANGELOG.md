@@ -28,6 +28,10 @@ and this project adheres to
 - [#6237](https://github.com/firecracker-microvm/firecracker/pull/6237): Added
   balloon and virtio-mem memory reclamation for shared memfd-backed guest
   memory, such as memory shared with vhost-user devices.
+- [#6264](https://github.com/firecracker-microvm/firecracker/pull/6264): Added
+  the `vmm.main_thread_cpu_us` metric, reporting the CPU time the main thread
+  has used, in microseconds. The main thread runs the event loop and emulates
+  the devices that don't have their own worker threads.
 - [#6123](https://github.com/firecracker-microvm/firecracker/pull/6123),
   [#6128](https://github.com/firecracker-microvm/firecracker/pull/6128),
   [#6131](https://github.com/firecracker-microvm/firecracker/pull/6131),
