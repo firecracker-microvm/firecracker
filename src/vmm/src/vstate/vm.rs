@@ -6,8 +6,8 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::HashMap;
-use std::fs::OpenOptions;
-use std::io::Write;
+use std::fs::{File, OpenOptions};
+use std::io::{Seek, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Barrier, Mutex, MutexGuard};
@@ -21,7 +21,7 @@ use kvm_bindings::{
 use kvm_ioctls::VmFd;
 use serde::{Deserialize, Serialize};
 use userfaultfd::Uffd;
-use vm_memory::GuestMemoryBackend;
+use vm_memory::{GuestMemoryBackend, WriteVolatile};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::terminal::Terminal;
@@ -572,35 +572,31 @@ impl KvmVm {
             .expect("Poisoned lock")
     }
 
-    /// Resets the KVM dirty bitmap for each of the guest's memory regions.
-    pub fn reset_dirty_bitmap(&self) {
-        self.guest_memory()
-            .iter()
-            .flat_map(|region| region.plugged_slots())
-            .for_each(|mem_slot| {
-                let _ = self.fd().get_dirty_log(mem_slot.slot, mem_slot.slice.len());
-            });
-    }
-
-    /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
-    pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, VmError> {
-        self.guest_memory()
-            .iter()
-            .flat_map(|region| region.plugged_slots())
-            .map(|mem_slot| {
-                let bitmap = match mem_slot.slice.bitmap() {
-                    Some(_) => self
-                        .fd()
-                        .get_dirty_log(mem_slot.slot, mem_slot.slice.len())
-                        .map_err(VmError::GetDirtyLog)?,
-                    None => mincore_bitmap(
-                        mem_slot.slice.ptr_guard_mut().as_ptr(),
-                        mem_slot.slice.len(),
-                    )?,
-                };
-                Ok((mem_slot.slot, bitmap))
-            })
-            .collect()
+    /// Takes the pages dirtied since the last take, one bitmap per region, clearing Firecracker's
+    /// bitmap and KVM's log.
+    ///
+    /// If reading KVM's log fails, the pages taken so far are marked dirty again. Without dirty
+    /// tracking, regions report their resident pages instead.
+    pub fn take_dirty_bitmap(&self) -> Result<DirtyBitmap, VmError> {
+        let guest_memory = self.guest_memory();
+        let mut dirty_bitmap = guest_memory.take_dirty();
+        let merged = guest_memory.merge_slot_logs(&mut dirty_bitmap, |mem_slot| {
+            match mem_slot.slice.bitmap() {
+                Some(_) => self
+                    .fd()
+                    .get_dirty_log(mem_slot.slot, mem_slot.slice.len())
+                    .map_err(VmError::GetDirtyLog),
+                None => mincore_bitmap(
+                    mem_slot.slice.ptr_guard_mut().as_ptr(),
+                    mem_slot.slice.len(),
+                ),
+            }
+        });
+        if let Err(err) = merged {
+            guest_memory.store_dirty_bitmap(&dirty_bitmap);
+            return Err(err);
+        }
+        Ok(dirty_bitmap)
     }
 
     /// Takes a snapshot of the virtual machine running inside the given [`Vmm`] and saves it to
@@ -654,16 +650,47 @@ impl KvmVm {
         file.set_len(expected_size)
             .map_err(|e| MemoryBackingFile("set_length", e))?;
 
+        self.snapshot_memory(&mut file, snapshot_type, sync_snapshot_files)
+    }
+
+    /// Writes guest memory to `file` as a snapshot of `snapshot_type`, taking the dirty pages it
+    /// covers. If writing fails, the pages taken are marked dirty again.
+    fn snapshot_memory<F: MemoryFile>(
+        &self,
+        file: &mut F,
+        snapshot_type: SnapshotType,
+        sync_snapshot_files: bool,
+    ) -> Result<(), CreateSnapshotError> {
+        let tracks_dirty_pages = self
+            .guest_memory()
+            .iter()
+            .any(|region| (**region).bitmap().is_some());
+        let dirty_bitmap = match snapshot_type {
+            SnapshotType::Diff => self.take_dirty_bitmap()?,
+            SnapshotType::Full if tracks_dirty_pages => self.take_dirty_bitmap()?,
+            SnapshotType::Full => DirtyBitmap::new(),
+        };
+        let result = self.write_memory(file, snapshot_type, &dirty_bitmap, sync_snapshot_files);
+        if result.is_err() {
+            self.guest_memory().store_dirty_bitmap(&dirty_bitmap);
+        }
+        result
+    }
+
+    /// Writes guest memory to `file`, all of it or the pages in `dirty_bitmap`, then flushes it
+    /// and, if asked, syncs it.
+    fn write_memory<F: MemoryFile>(
+        &self,
+        file: &mut F,
+        snapshot_type: SnapshotType,
+        dirty_bitmap: &DirtyBitmap,
+        sync_snapshot_files: bool,
+    ) -> Result<(), CreateSnapshotError> {
+        use self::CreateSnapshotError::MemoryBackingFile;
+
         match snapshot_type {
-            SnapshotType::Diff => {
-                let dirty_bitmap = self.get_dirty_bitmap()?;
-                self.guest_memory().dump_dirty(&mut file, &dirty_bitmap)?;
-            }
-            SnapshotType::Full => {
-                self.guest_memory().dump(&mut file)?;
-                self.reset_dirty_bitmap();
-                self.guest_memory().reset_dirty();
-            }
+            SnapshotType::Diff => self.guest_memory().dump_dirty(file, dirty_bitmap)?,
+            SnapshotType::Full => self.guest_memory().dump(file)?,
         };
 
         file.flush()
@@ -776,6 +803,18 @@ impl KvmVm {
     }
 }
 
+/// A file a memory snapshot is written to. Separate from `File` so tests can inject I/O failures
+/// and guest memory writes during the copy.
+trait MemoryFile: WriteVolatile + Seek + Write {
+    fn sync_all(&self) -> std::io::Result<()>;
+}
+
+impl MemoryFile for File {
+    fn sync_all(&self) -> std::io::Result<()> {
+        File::sync_all(self)
+    }
+}
+
 /// Use `mincore(2)` to overapproximate the dirty bitmap for the given memslot. To be used
 /// if a diff snapshot is requested, but dirty page tracking wasn't enabled.
 fn mincore_bitmap(addr: *mut u8, len: usize) -> Result<Vec<u64>, VmError> {
@@ -833,6 +872,206 @@ pub(crate) mod tests {
     pub(crate) fn setup_vm() -> KvmVm {
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
         KvmVm::new(kvm).expect("Cannot create new vm")
+    }
+
+    /// What a `TestMemoryFile` does besides writing to its file.
+    enum TestMemoryFileState<'a> {
+        /// Fails the named step: "write", "flush" or "sync".
+        Fails(&'static str),
+        /// After each write of guest memory to the file, writes `value` to guest memory at `addr`.
+        Races {
+            memory: &'a GuestMemoryMmap,
+            addr: GuestAddress,
+            value: u8,
+        },
+    }
+
+    /// A memory file that fails a step, or races guest memory writes with the copy.
+    struct TestMemoryFile<'a> {
+        file: File,
+        state: TestMemoryFileState<'a>,
+    }
+
+    impl TestMemoryFile<'_> {
+        fn check(&self, step: &str) -> std::io::Result<()> {
+            match self.state {
+                TestMemoryFileState::Fails(fails) if fails == step => {
+                    Err(std::io::Error::other(format!("{step} failed")))
+                }
+                _ => Ok(()),
+            }
+        }
+    }
+
+    impl WriteVolatile for TestMemoryFile<'_> {
+        fn write_volatile<B: vm_memory::bitmap::BitmapSlice>(
+            &mut self,
+            buf: &vm_memory::VolatileSlice<B>,
+        ) -> Result<usize, vm_memory::VolatileMemoryError> {
+            use crate::vstate::memory::Bytes;
+
+            self.check("write")
+                .map_err(vm_memory::VolatileMemoryError::IOError)?;
+            let written = self.file.write_volatile(buf)?;
+            if let TestMemoryFileState::Races {
+                memory,
+                addr,
+                value,
+            } = self.state
+            {
+                memory.write_obj(value, addr).unwrap();
+            }
+            Ok(written)
+        }
+    }
+
+    impl Seek for TestMemoryFile<'_> {
+        fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+            self.file.seek(pos)
+        }
+    }
+
+    impl Write for TestMemoryFile<'_> {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.file.write(buf)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.check("flush")?;
+            self.file.flush()
+        }
+    }
+
+    impl MemoryFile for TestMemoryFile<'_> {
+        fn sync_all(&self) -> std::io::Result<()> {
+            self.check("sync")?;
+            self.file.sync_all()
+        }
+    }
+
+    #[test]
+    fn test_failed_memory_snapshot_keeps_dirty_pages() {
+        use vmm_sys_util::tempfile::TempFile;
+
+        use crate::vstate::memory::{Bitmap, Bytes};
+
+        let page_size = host_page_size();
+        let mut vm = setup_vm();
+        let regions = anonymous(
+            &[(GuestAddress(0), 4 * page_size)],
+            true,
+            HugePageConfig::None,
+        );
+        vm.register_dram_memory_regions(regions.unwrap()).unwrap();
+        vm.guest_memory()
+            .write(&[1], GuestAddress(page_size as u64))
+            .unwrap();
+        let is_dirty = || {
+            vm.guest_memory()
+                .iter()
+                .any(|region| region.bitmap().dirty_at(page_size))
+        };
+
+        for snapshot_type in [SnapshotType::Diff, SnapshotType::Full] {
+            for fails in ["write", "flush", "sync"] {
+                let mut file = TestMemoryFile {
+                    file: TempFile::new().unwrap().into_file(),
+                    state: TestMemoryFileState::Fails(fails),
+                };
+                vm.snapshot_memory(&mut file, snapshot_type, true)
+                    .unwrap_err();
+                assert!(is_dirty(), "{snapshot_type:?}: {fails} failed");
+            }
+        }
+
+        let mut file = TempFile::new().unwrap().into_file();
+        vm.snapshot_memory(&mut file, SnapshotType::Diff, true)
+            .unwrap();
+        assert!(!is_dirty());
+    }
+
+    #[test]
+    fn test_write_during_memory_snapshot_stays_dirty() {
+        use std::os::unix::fs::FileExt;
+
+        use vmm_sys_util::tempfile::TempFile;
+
+        use crate::vstate::memory::{Bitmap, Bytes};
+
+        let page_size = host_page_size();
+        let mut vm = setup_vm();
+        let regions = anonymous(
+            &[(GuestAddress(0), 4 * page_size)],
+            true,
+            HugePageConfig::None,
+        );
+        vm.register_dram_memory_regions(regions.unwrap()).unwrap();
+        let addr = GuestAddress(page_size as u64);
+        let mut file = TempFile::new().unwrap().into_file();
+
+        for snapshot_type in [SnapshotType::Diff, SnapshotType::Full] {
+            vm.guest_memory().write_obj(1u8, addr).unwrap();
+            let mut racing_file = TestMemoryFile {
+                file,
+                state: TestMemoryFileState::Races {
+                    memory: vm.guest_memory(),
+                    addr,
+                    value: 2,
+                },
+            };
+            vm.snapshot_memory(&mut racing_file, snapshot_type, false)
+                .unwrap();
+            file = racing_file.file;
+            let is_dirty = vm
+                .guest_memory()
+                .iter()
+                .any(|region| region.bitmap().dirty_at(page_size));
+            assert!(is_dirty, "{snapshot_type:?}");
+
+            file.rewind().unwrap();
+            vm.snapshot_memory(&mut file, SnapshotType::Diff, false)
+                .unwrap();
+            let mut byte = [0];
+            file.read_exact_at(&mut byte, page_size as u64).unwrap();
+            assert_eq!(byte, [2], "{snapshot_type:?}");
+            file.rewind().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_failed_dirty_log_read_keeps_firecracker_marks() {
+        use crate::vstate::memory::{Bitmap, Bytes};
+
+        let page_size = host_page_size();
+        let mut vm = setup_vm();
+        let dram = anonymous(
+            &[(GuestAddress(0), 4 * page_size)],
+            true,
+            HugePageConfig::None,
+        );
+        vm.register_dram_memory_regions(dram.unwrap()).unwrap();
+        let hotplug = anonymous(
+            &[(GuestAddress(mib_to_bytes(1) as u64), 4 * page_size)],
+            true,
+            HugePageConfig::None,
+        );
+        vm.register_hotpluggable_memory_region(
+            hotplug.unwrap().into_iter().next().unwrap(),
+            4 * page_size,
+        )
+        .unwrap();
+        vm.guest_memory()
+            .write(&[1], GuestAddress(page_size as u64))
+            .unwrap();
+
+        // Marking the hotplug slot plugged without adding it to KVM makes reading its dirty log
+        // fail, after the DRAM slot's log was read.
+        let hotplug = vm.guest_memory().iter().nth(1).unwrap();
+        hotplug.plugged.lock().unwrap().set(0, true);
+        vm.take_dirty_bitmap().unwrap_err();
+
+        let dram = vm.guest_memory().iter().next().unwrap();
+        assert!(dram.bitmap().dirty_at(page_size));
     }
 
     // Auxiliary function being used throughout the tests.
