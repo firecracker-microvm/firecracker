@@ -88,6 +88,12 @@ and this project adheres to
 
 ### Fixed
 
+- [#6263](https://github.com/firecracker-microvm/firecracker/pull/6263): Fixed
+  the `min_us` and `max_us` fields of latency aggregate metrics, such as
+  `vcpu.exit_mmio_write_agg` and `block_<drive_id>.read_agg`. A 0us minimum was
+  overwritten by the next sample, and samples recorded at the same time from
+  different threads could be lost.
+
 - [#6302](https://github.com/firecracker-microvm/firecracker/issues/6302): Fixed
   AMX tile state being lost after a snapshot restore. The IA32_XFD and
   IA32_XFD_ERR MSRs are now saved in snapshots. Without them a restored guest
