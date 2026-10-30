@@ -217,7 +217,7 @@ fn parse_mss_option<T: NetworkBytes + Debug>(
 }
 
 fn is_valid_syn<T: NetworkBytes + Debug>(segment: &TcpSegment<T>) -> bool {
-    segment.flags_after_ns() == TcpFlags::SYN && segment.payload_len() == 0
+    segment.has_only_syn_flag() && segment.payload_len() == 0
 }
 
 impl Connection {
@@ -1293,6 +1293,14 @@ pub(crate) mod tests {
 
         // While the connection is in this state, we send another SYN, with a different ISN.
         syn.set_sequence_number(t.remote_isn.wrapping_add(1));
+
+        // The RST acknowledges the new SYN, which occupies one sequence number.
+        let expected_ack = t.remote_isn.wrapping_add(2);
+        let mut c_reset = c.clone();
+        t.receive_segment(&mut c_reset, &syn).unwrap();
+        let rst = t.write_next_segment(&mut c_reset, None).unwrap().unwrap();
+        check_acks(&rst, expected_ack, TcpFlags::RST);
+
         t.should_reset_after(
             &mut c,
             &syn,
@@ -1767,5 +1775,67 @@ pub(crate) mod tests {
         // At this point, the connection should be done, because we both sent and received a FIN,
         // and we don't wait for our FIN to be ACKed.
         assert!(c.is_done());
+    }
+
+    #[test]
+    fn test_ecn_setup_syn() {
+        let mut buf1 = [0u8; 100];
+        let mut buf2 = [0u8; 1500];
+        let data_buf = [2u8; 100];
+        let ecn_setup = TcpFlags::SYN | TcpFlags::ECE | TcpFlags::CWR;
+
+        let mut t = ConnectionTester::new();
+        let mut syn = t.write_syn(buf1.as_mut());
+        let mut data = t.write_data(buf2.as_mut(), data_buf.as_ref());
+
+        // ECE and CWR do not make an otherwise invalid SYN valid.
+        for flags in [ecn_setup | TcpFlags::ACK, ecn_setup | TcpFlags::FIN] {
+            syn.set_flags_after_ns(flags);
+            assert_eq!(
+                t.passive_open(&syn).unwrap_err(),
+                PassiveOpenError::InvalidSyn
+            );
+        }
+        data.set_flags_after_ns(ecn_setup);
+        assert_eq!(
+            t.passive_open(&data).unwrap_err(),
+            PassiveOpenError::InvalidSyn
+        );
+
+        // A SYN with only one of the two flags is a non-ECN-setup SYN (RFC 3168, section 6.1.1),
+        // and opens a connection the same way.
+        for flags in [TcpFlags::SYN | TcpFlags::ECE, TcpFlags::SYN | TcpFlags::CWR] {
+            syn.set_flags_after_ns(flags);
+            let mut c = t.passive_open(&syn).unwrap();
+            t.check_synack_is_next(&mut c);
+        }
+
+        syn.set_flags_after_ns(ecn_setup);
+        let mut c = t.passive_open(&syn).unwrap();
+        check_syn_received(&c);
+
+        // A retransmission before the SYNACK is sent, with or without the ECN flags, is the same
+        // SYN.
+        assert_eq!(
+            t.receive_segment(&mut c, &syn).unwrap(),
+            (None, RecvStatusFlags::empty())
+        );
+        syn.set_flags_after_ns(TcpFlags::SYN);
+        assert_eq!(
+            t.receive_segment(&mut c, &syn).unwrap(),
+            (None, RecvStatusFlags::empty())
+        );
+
+        // The SYNACK carries no ECE, which tells the peer the connection does not use ECN.
+        t.check_synack_is_next(&mut c);
+
+        // A retransmission after the SYNACK asks for the SYNACK again.
+        syn.set_flags_after_ns(ecn_setup);
+        assert_eq!(
+            t.receive_segment(&mut c, &syn).unwrap(),
+            (None, RecvStatusFlags::empty())
+        );
+        check_syn_received(&c);
+        t.check_synack_is_next(&mut c);
     }
 }
