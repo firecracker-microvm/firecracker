@@ -510,6 +510,18 @@ fn create_gpio_keys_node(fdt: &mut FdtWriter) -> Result<(), FdtError> {
     Ok(())
 }
 
+fn create_pvpanic_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<(), FdtError> {
+    // Driver requirements:
+    // https://www.kernel.org/doc/Documentation/devicetree/bindings/misc/pvpanic-mmio.txt
+    // The device is write-triggered and has no interrupt.
+    let pvpanic = fdt.begin_node(&format!("pvpanic@{:x}", dev_info.addr))?;
+    fdt.property_string("compatible", "qemu,pvpanic-mmio")?;
+    fdt.property_array_u64("reg", &[dev_info.addr, dev_info.len])?;
+    fdt.end_node(pvpanic)?;
+
+    Ok(())
+}
+
 fn create_devices_node(
     fdt: &mut FdtWriter,
     device_manager: &DeviceManager,
@@ -528,6 +540,10 @@ fn create_devices_node(
     {
         create_gpio_pl061_node(fdt, gpio_pl061_info)?;
         create_gpio_keys_node(fdt)?;
+    }
+
+    if let Some(pvpanic_info) = device_manager.mmio_platform_devices.pvpanic_device_info() {
+        create_pvpanic_node(fdt, pvpanic_info)?;
     }
 
     if let Some(mmio_virtio_devices) = device_manager.mmio_virtio_devices() {
@@ -650,6 +666,7 @@ mod tests {
         device_manager
             .attach_legacy_devices_aarch64(&vm, &mut event_manager, &mut cmdline, None, None)
             .unwrap();
+        device_manager.attach_pvpanic_device(&vm).unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
         mmio_devices_mut(&mut device_manager)
             .register_virtio_test_device(
@@ -685,7 +702,8 @@ mod tests {
             "uart@40002000",
             "pl061@40003000",
             "gpio-keys",
-            "virtio_mmio@40004000",
+            "pvpanic@40004000",
+            "virtio_mmio@40005000",
             "vmgenid",
             "ptp@2149572608",
         ];

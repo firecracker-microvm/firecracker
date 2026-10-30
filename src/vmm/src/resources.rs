@@ -132,6 +132,8 @@ pub struct VmResources {
     pub mmds_size_limit: usize,
     /// Whether or not to load boot timer device.
     pub boot_timer: bool,
+    /// Whether or not to enable the pvpanic MMIO device.
+    pub pvpanic: bool,
     /// Whether or not to use PCIe transport for VirtIO devices.
     pub pci_enabled: bool,
     /// Where serial console output should be written to
@@ -714,6 +716,7 @@ mod tests {
             net_builder: default_net_builder(),
             mmds: None,
             boot_timer: false,
+            pvpanic: false,
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
             entropy: Default::default(),
             pmem: Default::default(),

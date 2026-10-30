@@ -111,9 +111,11 @@ pub const PCI_MMCONFIG_START: u64 = IOAPIC_ADDR as u64 - PCI_MMCONFIG_SIZE;
 
 /// Memory region start for boot device.
 pub const BOOT_DEVICE_MEM_START: u64 = MMIO32_MEM_START;
+/// Memory region start for the pvpanic device.
+pub const PVPANIC_MEM_START: u64 = BOOT_DEVICE_MEM_START + MMIO_LEN;
 
 /// Beginning of memory region for device MMIO 32-bit accesses
-pub const MEM_32BIT_DEVICES_START: u64 = BOOT_DEVICE_MEM_START + MMIO_LEN;
+pub const MEM_32BIT_DEVICES_START: u64 = PVPANIC_MEM_START + MMIO_LEN;
 /// Size of memory region for device MMIO 32-bit accesses
 pub const MEM_32BIT_DEVICES_SIZE: u64 = PCI_MMCONFIG_START - MEM_32BIT_DEVICES_START;
 

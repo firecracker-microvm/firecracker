@@ -231,6 +231,12 @@ pub fn build_microvm_for_boot(
         device_manager.attach_boot_timer_device(&kvm_vm, request_ts)?;
     }
 
+    let pvpanic_evt = if vm_resources.pvpanic {
+        Some(device_manager.attach_pvpanic_device(&kvm_vm)?)
+    } else {
+        None
+    };
+
     if let Some(balloon) = vm_resources.balloon.get() {
         attach_balloon_device(
             &mut device_manager,
@@ -335,6 +341,7 @@ pub fn build_microvm_for_boot(
         shutdown_exit_code: None,
         vm,
         device_manager,
+        pvpanic_evt,
     };
     let vmm = Arc::new(Mutex::new(vmm));
 
@@ -423,6 +430,8 @@ pub enum BuildMicrovmFromSnapshotError {
     RestoreVcpus(#[from] VcpuError),
     /// Failed to restore devices: {0}
     RestoreDevices(#[from] DeviceManagerPersistError),
+    /// Failed to clone the pvpanic device eventfd: {0}
+    PvPanicEventFd(std::io::Error),
     /// clock_realtime is not supported on aarch64.
     UnsupportedClockRealtime,
 }
@@ -560,6 +569,10 @@ pub fn build_microvm_from_snapshot(
     let mut device_manager =
         DeviceManager::restore(device_ctor_args, &microvm_state.device_states)?;
 
+    let pvpanic_evt = device_manager
+        .pvpanic_evt()
+        .map_err(BuildMicrovmFromSnapshotError::PvPanicEventFd)?;
+
     let vmm = Vmm {
         instance_info: instance_info.clone(),
         machine_config: vm_resources.machine_config.clone(),
@@ -567,6 +580,7 @@ pub fn build_microvm_from_snapshot(
         shutdown_exit_code: None,
         vm,
         device_manager,
+        pvpanic_evt,
     };
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
@@ -831,6 +845,7 @@ pub(crate) mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
+    use crate::arch::PVPANIC_MEM_START;
     use crate::device_manager::tests::{default_device_manager, default_device_manager_with_pci};
     use crate::devices::virtio::block::CacheType;
     use crate::devices::virtio::device::VirtioDeviceType;
@@ -838,6 +853,8 @@ pub(crate) mod tests {
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::mmds::data_store::{Mmds, MmdsVersion};
     use crate::mmds::ns::MmdsNetworkStack;
+    use crate::seccomp::get_empty_filters;
+    use crate::test_utils::mock_resources::{MockBootSourceConfig, MockVmResources};
     use crate::utils::mib_to_bytes;
     use crate::vmm_config::balloon::{BALLOON_DEV_ID, BalloonBuilder, BalloonDeviceConfig};
     use crate::vmm_config::boot_source::BootSourceConfig;
@@ -955,6 +972,7 @@ pub(crate) mod tests {
             shutdown_exit_code: None,
             vm: Vm::Kvm(Arc::new(vm)),
             device_manager: default_device_manager(),
+            pvpanic_evt: None,
         }
     }
 
@@ -977,6 +995,7 @@ pub(crate) mod tests {
             shutdown_exit_code: None,
             vm: Vm::Kvm(vm),
             device_manager,
+            pvpanic_evt: None,
         }
     }
 
@@ -1209,6 +1228,42 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_build_microvm_with_pvpanic() {
+        const PVPANIC_PANICKED: u8 = 1 << 0;
+
+        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+        let seccomp_filters = get_empty_filters();
+        let boot_source_config: BootSourceConfig =
+            MockBootSourceConfig::new().with_default_boot_args().into();
+        let mut vm_resources: VmResources = MockVmResources::new()
+            .with_boot_source(boot_source_config)
+            .into();
+        vm_resources.pvpanic = true;
+
+        let vmm = build_microvm_for_boot(
+            &InstanceInfo::default(),
+            &vm_resources,
+            &mut event_manager,
+            &seccomp_filters,
+        )
+        .unwrap();
+        let vmm = vmm.lock().unwrap();
+        let pvpanic_evt = vmm
+            .pvpanic_evt
+            .as_ref()
+            .expect("pvpanic eventfd must be attached to the VMM");
+
+        vmm.vm
+            .as_kvm()
+            .unwrap()
+            .common
+            .mmio_bus
+            .write(PVPANIC_MEM_START, &[PVPANIC_PANICKED])
+            .unwrap();
+        assert_eq!(pvpanic_evt.read().unwrap(), 1);
+    }
+
+    #[test]
     fn test_attach_net_devices() {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let mut vmm = default_vmm();
@@ -1353,8 +1408,8 @@ pub(crate) mod tests {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             assert!(cmdline_contains(
                 &cmdline,
-                "virtio_mmio.device=4K@0xc0001000:5 virtio_mmio.device=4K@0xc0002000:6 \
-                 virtio_mmio.device=4K@0xc0003000:7"
+                "virtio_mmio.device=4K@0xc0002000:5 virtio_mmio.device=4K@0xc0003000:6 \
+                 virtio_mmio.device=4K@0xc0004000:7"
             ));
         }
 
@@ -1481,7 +1536,7 @@ pub(crate) mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
             &cmdline,
-            "virtio_mmio.device=4K@0xc0001000:5"
+            "virtio_mmio.device=4K@0xc0002000:5"
         ));
     }
 
@@ -1498,7 +1553,7 @@ pub(crate) mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
             &cmdline,
-            "virtio_mmio.device=4K@0xc0001000:5"
+            "virtio_mmio.device=4K@0xc0002000:5"
         ));
     }
 
@@ -1517,7 +1572,7 @@ pub(crate) mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
             &cmdline,
-            "virtio_mmio.device=4K@0xc0001000:5"
+            "virtio_mmio.device=4K@0xc0002000:5"
         ));
     }
 
@@ -1556,7 +1611,7 @@ pub(crate) mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
             &cmdline,
-            "virtio_mmio.device=4K@0xc0001000:5"
+            "virtio_mmio.device=4K@0xc0002000:5"
         ));
     }
 }

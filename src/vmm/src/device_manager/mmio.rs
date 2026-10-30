@@ -19,11 +19,13 @@ use vm_allocator::AllocPolicy;
 
 use crate::EventManager;
 use crate::arch::BOOT_DEVICE_MEM_START;
+use crate::arch::PVPANIC_MEM_START;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::{GPIO_PL061_MEM_START, RTC_MEM_START, SERIAL_MEM_START};
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::{PL061Device, RTCDevice, SerialDevice};
 use crate::devices::pseudo::BootTimer;
+use crate::devices::pseudo::PvPanic;
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceType};
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
 #[cfg(target_arch = "x86_64")]
@@ -102,6 +104,35 @@ fn add_virtio_aml(
                     ),
                     &aml::Interrupt::new(true, true, false, false, gsi),
                 ]),
+            )?,
+        ],
+    )
+    .append_aml_bytes(dsdt_data)
+}
+
+#[cfg(target_arch = "x86_64")]
+fn add_pvpanic_aml(dsdt_data: &mut Vec<u8>, addr: u64, len: u64) -> Result<(), aml::AmlError> {
+    debug!(
+        "acpi: Building AML for pvpanic device _SB_.PVPN. memory range: {:#010x}:{}",
+        addr, len
+    );
+    aml::Device::new(
+        "_SB_.PVPN".try_into()?,
+        vec![
+            &aml::Name::new("_HID".try_into()?, &"QEMU0001")?,
+            &aml::Method::new(
+                "_STA".try_into()?,
+                0,
+                false,
+                vec![&aml::Return::new(&0x0fu8)],
+            ),
+            &aml::Name::new(
+                "_CRS".try_into()?,
+                &aml::ResourceTemplate::new(vec![&aml::Memory32Fixed::new(
+                    true,
+                    u32::try_from(addr).map_err(|_| aml::AmlError::AddressRange)?,
+                    u32::try_from(len).map_err(|_| aml::AmlError::AddressRange)?,
+                )]),
             )?,
         ],
     )
@@ -353,6 +384,8 @@ impl MMIOVirtioDevices {
 pub struct MMIOPlatformDevices {
     /// Boot timer device
     pub(crate) boot_timer: Option<MMIODevice<BootTimer>>,
+    /// pvpanic device
+    pub(crate) pvpanic: Option<MMIODevice<PvPanic>>,
     #[cfg(target_arch = "aarch64")]
     /// Real-Time clock on Aarch64 platforms
     pub(crate) rtc: Option<MMIODevice<RTCDevice>>,
@@ -395,6 +428,36 @@ impl MMIOPlatformDevices {
             device.resources.len,
         )?;
         self.boot_timer = Some(device);
+
+        Ok(())
+    }
+
+    /// Register a pvpanic device using `device_info_opt` or the default MMIO slot.
+    pub fn register_mmio_pvpanic(
+        &mut self,
+        mmio_bus: &Bus,
+        pvpanic: Arc<Mutex<PvPanic>>,
+        device_info_opt: Option<MMIODeviceInfo>,
+    ) -> Result<(), MmioError> {
+        // Use the saved slot on restore and the fixed default slot on boot.
+        let device_info = device_info_opt.unwrap_or(MMIODeviceInfo {
+            addr: PVPANIC_MEM_START,
+            len: MMIO_LEN,
+            gsi: None,
+        });
+
+        let device = MMIODevice {
+            resources: device_info,
+            inner: pvpanic,
+            sub_id: None,
+        };
+
+        mmio_bus.insert(
+            device.inner.clone(),
+            device.resources.addr,
+            device.resources.len,
+        )?;
+        self.pvpanic = Some(device);
 
         Ok(())
     }
@@ -562,13 +625,27 @@ impl MMIOPlatformDevices {
     pub fn gpio_pl061_device_info(&self) -> Option<&MMIODeviceInfo> {
         self.gpio_pl061.as_ref().map(|device| &device.resources)
     }
+
+    /// Returns the MMIO resource info for the pvpanic device, if present.
+    pub fn pvpanic_device_info(&self) -> Option<&MMIODeviceInfo> {
+        self.pvpanic.as_ref().map(|device| &device.resources)
+    }
+
+    /// Build the ACPI AML for the pvpanic device (x86_64 only).
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) fn append_aml_bytes(&self, dsdt_data: &mut Vec<u8>) -> Result<(), aml::AmlError> {
+        if let Some(device) = self.pvpanic.as_ref() {
+            add_pvpanic_aml(dsdt_data, device.resources.addr, device.resources.len)?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
 
     use std::ops::Deref;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     use event_manager::{EventOps, Events, MutEventSubscriber};
     use vmm_sys_util::eventfd::EventFd;
@@ -951,5 +1028,30 @@ pub(crate) mod tests {
             ),
             "Invalid MMIO IRQ configuration.".to_string()
         );
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_pvpanic_aml_and_device_info() {
+        let mut platform_devices = MMIOPlatformDevices::new();
+        let mmio_bus = Bus::new();
+        let pvpanic = Arc::new(Mutex::new(PvPanic::new(
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+        )));
+
+        platform_devices
+            .register_mmio_pvpanic(&mmio_bus, pvpanic, None)
+            .unwrap();
+
+        let device_info = platform_devices
+            .pvpanic_device_info()
+            .expect("a registered pvpanic device must be discoverable");
+        assert_eq!(device_info.addr, PVPANIC_MEM_START);
+        assert_eq!(device_info.len, MMIO_LEN);
+        assert!(device_info.gsi.is_none());
+
+        let mut aml = Vec::new();
+        platform_devices.append_aml_bytes(&mut aml).unwrap();
+        assert!(!aml.is_empty());
     }
 }
