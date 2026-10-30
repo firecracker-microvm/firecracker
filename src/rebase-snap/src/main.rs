@@ -1,6 +1,8 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![warn(clippy::as_conversions)]
+
 use std::env;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
@@ -100,7 +102,7 @@ fn rebase(base_file: &mut File, diff_file: &mut File) -> Result<(), FileError> {
                 libc::sendfile64(
                     base_file.as_raw_fd(),
                     diff_file.as_raw_fd(),
-                    (&mut cursor as *mut u64).cast::<i64>(),
+                    (&raw mut cursor).cast::<i64>(),
                     usize::try_from(block_end.saturating_sub(cursor)).unwrap(),
                 )
             };
@@ -259,7 +261,7 @@ mod tests {
 
         // 2. Diff file that has only holes
         diff_file
-            .set_len(initial_base_file_content.len() as u64)
+            .set_len(initial_base_file_content.len().try_into().unwrap())
             .unwrap();
         rebase(&mut base_file, &mut diff_file).unwrap();
         check_file_content(&mut base_file, initial_base_file_content.as_bytes());

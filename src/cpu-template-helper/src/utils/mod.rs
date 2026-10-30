@@ -56,7 +56,7 @@ impl<V: Numeric> DiffString<V> for V {
             "* CPU template     : 0b{template:0width$b}\n\
              * CPU configuration: 0b{config:0width$b}\n\
              * Diff             :   {diff}",
-            width = V::BITS as usize,
+            width = usize::try_from(V::BITS).expect("integer bit width fits in usize"),
         )
     }
 }

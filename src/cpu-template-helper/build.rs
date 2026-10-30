@@ -1,6 +1,8 @@
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![warn(clippy::as_conversions)]
+
 use std::io::Write;
 
 const MOCK_KERNEL_PATH: &str = "src/utils/mock_kernel/kernel.bin";
@@ -51,7 +53,7 @@ fn main() {
         // SAFETY: This is safe as long as `header` is valid as `KernelHeader`.
         let header_bytes = unsafe {
             std::slice::from_raw_parts(
-                (&header as *const KernelHeader).cast::<u8>(),
+                std::ptr::from_ref(&header).cast::<u8>(),
                 std::mem::size_of::<KernelHeader>(),
             )
         };
