@@ -11,6 +11,20 @@ Experimental gnu builds are not supported.
 
 ## Jailer Usage
 
+Use `jailer --version` to print its version:
+
+```bash
+$ jailer --version
+Jailer v1.18.0-dev
+```
+
+Use `jailer --features` to display the enabled build features, for example:
+
+```bash
+$ jailer --features
+Enabled features: ["log-instrument", "tracing"]
+```
+
 The jailer is invoked in this manner:
 
 ```bash

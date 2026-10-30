@@ -45,6 +45,10 @@ and this project adheres to
   enabled build features and exits, in the same way as `--version`, which is
   unchanged. See the [getting started](docs/getting-started.md) documentation
   page for details.
+- Added a `--features` option to `jailer`. It prints the sorted list of enabled
+  build features and exits, without requiring the arguments needed to create a
+  jail. `--version` is unchanged. See the [jailer](docs/jailer.md) documentation
+  page for details.
 
 ### Changed
 
