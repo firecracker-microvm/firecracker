@@ -6,8 +6,12 @@ import ipaddress
 import os
 import random
 import re
+import select
 import signal
 import string
+import subprocess
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -214,6 +218,68 @@ class SSHConnection:
     def check_output(self, cmd_string, timeout=100, *, debug=False):
         """Same as `run`, but raises an exception on non-zero return code of remote command"""
         return self.run(cmd_string, timeout, check=True, debug=debug)
+
+    @contextmanager
+    def probe_channel(self, timeout=10):
+        """Hold a single ssh session open for cheap repeated yes/no probes.
+
+        Yields a callable returning the truth of a remote command. Remote
+        output is discarded, so prefer a shell builtin such as
+        `[ -e /some/path ]` to avoid spawning a guest process per probe.
+        """
+        # One request per line in, one OK/NO per request out. Remote output is
+        # dropped so a chatty command cannot desynchronise the reply stream.
+        loop = (
+            "while IFS= read -r __probe; do "
+            'if eval "$__probe" >/dev/null 2>&1; then echo OK; else echo NO; fi; '
+            "done"
+        )
+        cmd = ["ssh", *self.options, self.user_host, loop]
+        if self.netns is not None:
+            cmd = ["ip", "netns", "exec", self.netns] + cmd
+
+        # Unbuffered binary pipes. A text wrapper may read ahead, which would
+        # leave select() on the fd disagreeing with what Python has already
+        # buffered.
+        # pylint: disable=consider-using-with
+        proc = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0
+        )
+        fd = proc.stdout.fileno()
+
+        def read_reply():
+            deadline = time.time() + timeout
+            line = b""
+            while True:
+                left = deadline - time.time()
+                if left <= 0 or not select.select([fd], [], [], left)[0]:
+                    raise TimeoutError(f"No probe reply within {timeout}s")
+                char = os.read(fd, 1)
+                if not char:
+                    raise ChildProcessError("Probe channel closed by the guest")
+                if char != b"\n":
+                    line += char
+                elif line in (b"OK", b"NO"):
+                    return line == b"OK"
+                else:
+                    # Anything else is noise, e.g. an ssh warning. Drop it.
+                    line = b""
+
+        def probe(cmd_string):
+            proc.stdin.write(cmd_string.encode() + b"\n")
+            return read_reply()
+
+        try:
+            # Fail here rather than inside a caller's timing loop.
+            assert probe(":"), "Probe channel did not come up"
+            yield probe
+        finally:
+            try:
+                proc.stdin.close()
+                proc.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                proc.kill()
+                proc.wait()
 
     def _exec(self, cmd, timeout=100, check=False):
         """Private function that handles the ssh client invocation."""
