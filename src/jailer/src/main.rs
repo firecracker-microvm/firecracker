@@ -20,6 +20,7 @@ mod env;
 mod resource_limits;
 
 const JAILER_VERSION: &str = env!("CARGO_PKG_VERSION");
+const FEATURES_ARG: &str = "features";
 
 #[derive(Debug, thiserror::Error)]
 pub enum JailerError {
@@ -160,6 +161,11 @@ pub enum JailerError {
 /// populate it with the expected arguments and their characteristics.
 pub fn build_arg_parser() -> ArgParser<'static> {
     ArgParser::new()
+        .arg(
+            Argument::new(FEATURES_ARG)
+                .takes_value(false)
+                .help("Print the enabled build features (warning: format may change)."),
+        )
         .arg(
             Argument::new("id")
                 .required(true)
@@ -338,6 +344,11 @@ fn main_exec() -> Result<(), JailerError> {
         println!("Jailer v{}\n", JAILER_VERSION);
         println!("{}\n", arg_parser.formatted_help());
         println!("Any arguments after the -- separator will be supplied to the jailed binary.\n");
+        return Ok(());
+    }
+
+    if arguments.flag_present(FEATURES_ARG) {
+        println!("Enabled features: {}\n", env!("JAILER_ENABLED_FEATURES"));
         return Ok(());
     }
 
