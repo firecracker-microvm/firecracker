@@ -17,7 +17,7 @@ pub struct BootTimer {
 }
 
 impl BusDevice for BootTimer {
-    fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write(&mut self, _tag: u8, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
         // Only handle byte length instructions at a zero offset.
         if data.len() != 1 || offset != 0 {
             return None;
@@ -40,7 +40,7 @@ impl BusDevice for BootTimer {
         None
     }
 
-    fn read(&mut self, _base: u64, _offset: u64, _data: &mut [u8]) {}
+    fn read(&mut self, _tag: u8, _offset: u64, _data: &mut [u8]) {}
 }
 
 impl BootTimer {

@@ -230,7 +230,7 @@ impl MmioTransport {
 }
 
 impl BusDevice for MmioTransport {
-    fn read(&mut self, base: u64, offset: u64, data: &mut [u8]) {
+    fn read(&mut self, _tag: u8, offset: u64, data: &mut [u8]) {
         match offset {
             0x00..=0xff if data.len() == 4 => {
                 let v = match offset {
@@ -284,15 +284,12 @@ impl BusDevice for MmioTransport {
             }
             0x100..=0xfff => self.locked_device().read_config(offset - 0x100, data),
             _ => {
-                warn!(
-                    "invalid virtio mmio read: {base:#x}:{offset:#x}:{:#x}",
-                    data.len()
-                );
+                warn!("invalid virtio mmio read: {offset:#x}:{:#x}", data.len());
             }
         };
     }
 
-    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write(&mut self, _tag: u8, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
         fn hi(v: &mut GuestAddress, x: u32) {
             *v = (*v & 0xffff_ffff) | (u64::from(x) << 32)
         }
@@ -354,10 +351,7 @@ impl BusDevice for MmioTransport {
                 }
             }
             _ => {
-                warn!(
-                    "invalid virtio mmio write: {base:#x}:{offset:#x}:{:#x}",
-                    data.len()
-                );
+                warn!("invalid virtio mmio write: {offset:#x}:{:#x}", data.len());
             }
         }
         None

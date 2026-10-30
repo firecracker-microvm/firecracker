@@ -123,13 +123,13 @@ impl RTCDevice {
 
 #[cfg(target_arch = "aarch64")]
 impl crate::vstate::bus::BusDevice for RTCDevice {
-    fn read(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
+    fn read(&mut self, _tag: u8, offset: u64, data: &mut [u8]) {
         self.bus_read(offset, data)
     }
 
     fn write(
         &mut self,
-        _base: u64,
+        _tag: u8,
         offset: u64,
         data: &[u8],
     ) -> Option<std::sync::Arc<std::sync::Barrier>> {
