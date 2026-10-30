@@ -4,6 +4,7 @@
 
 import os
 import tempfile
+from pathlib import Path
 
 from framework import utils
 
@@ -60,5 +61,59 @@ class FilesystemFile:
         if self.path:
             try:
                 os.remove(self.path)
+            except OSError:
+                pass
+
+
+class VmdkFile:
+    """Create a ``monolithicFlat`` VMDK from an offline descriptor fixture."""
+
+    def __init__(self, path=None, size=16, *, pattern):
+        """Create a 16 or 2048 MiB VMDK with a patterned extent."""
+        if not pattern:
+            raise ValueError("VMDK pattern must not be empty")
+        if path is None:
+            path = os.path.join(tempfile.mkdtemp(prefix="vmdk"), "disk.vmdk")
+        self.path = path
+        self.size = size
+
+        # Fixtures generated with qemu-img 8.2.2 (Ubuntu 1:8.2.2+ds-0ubuntu1.17):
+        # qemu-img create -f vmdk -o subformat=monolithicFlat 16m.vmdk 16M
+        # qemu-img create -f vmdk -o subformat=monolithicFlat 2048m.vmdk 2048M
+        # CID is random; the flat extent is headerless raw data.
+        fixture_dir = Path(__file__).resolve().parents[1] / "data" / "vmdk"
+        descriptor = (fixture_dir / f"{size}m.vmdk").read_text(encoding="utf-8")
+        with open(self.descriptor_path, "w", encoding="utf-8") as output:
+            output.write(
+                descriptor.replace(
+                    f'"{size}m-flat.vmdk"', f'"{os.path.basename(self.extent_path)}"'
+                )
+            )
+
+        chunk = pattern * max(1, (64 * 1024) // len(pattern))
+        remaining = size * 1024 * 1024
+        with open(self.extent_path, "wb") as extent:
+            while remaining:
+                count = min(remaining, len(chunk))
+                extent.write(chunk[:count])
+                remaining -= count
+
+    @property
+    def descriptor_path(self):
+        """Path of the VMDK descriptor file (passed to Firecracker)."""
+        return self.path
+
+    @property
+    def extent_path(self):
+        """Path of the flat extent file backing the descriptor."""
+        return os.path.splitext(self.path)[0] + "-flat.vmdk"
+
+    def __del__(self):
+        """Remove the descriptor and the flat extent."""
+        if not getattr(self, "path", None):
+            return
+        for pth in (self.path, self.extent_path):
+            try:
+                os.remove(pth)
             except OSError:
                 pass

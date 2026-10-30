@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use super::RateLimiterConfig;
 use crate::VmmError;
 use crate::devices::virtio::block::device::Block;
+pub use crate::devices::virtio::block::virtio::device::DiskImageFormat;
 pub use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::devices::virtio::block::virtio::device::VirtioBlkTopology;
 use crate::devices::virtio::block::{BlockError, CacheType};
@@ -69,6 +70,9 @@ pub struct BlockDeviceConfig {
     // pub file_engine_type: FileEngineType,
     #[serde(rename = "io_engine")]
     pub file_engine_type: Option<FileEngineType>,
+    /// The disk image format of the backing file.
+    #[serde(rename = "image_format", skip_serializing_if = "Option::is_none")]
+    pub image_format: Option<DiskImageFormat>,
     /// Logical block size.
     pub blk_size: Option<u32>,
     /// Block topology settings
@@ -235,6 +239,7 @@ mod tests {
                 path_on_host: self.path_on_host.clone(),
                 rate_limiter: self.rate_limiter,
                 file_engine_type: self.file_engine_type,
+                image_format: self.image_format,
                 blk_size: self.blk_size,
                 topology: self.topology,
 
@@ -281,6 +286,7 @@ mod tests {
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -319,6 +325,7 @@ mod tests {
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -355,6 +362,7 @@ mod tests {
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -388,6 +396,7 @@ mod tests {
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -408,6 +417,7 @@ mod tests {
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -439,6 +449,7 @@ mod tests {
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -459,6 +470,7 @@ mod tests {
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -479,6 +491,7 @@ mod tests {
             path_on_host: Some(dummy_path_3),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -524,6 +537,7 @@ mod tests {
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -544,6 +558,7 @@ mod tests {
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -564,6 +579,7 @@ mod tests {
             path_on_host: Some(dummy_path_3),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -610,6 +626,7 @@ mod tests {
             path_on_host: Some(dummy_path_1.clone()),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -630,6 +647,7 @@ mod tests {
             path_on_host: Some(dummy_path_2.clone()),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -706,6 +724,7 @@ mod tests {
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -726,6 +745,7 @@ mod tests {
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -756,6 +776,7 @@ mod tests {
             path_on_host: Some(dummy_file.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
+            image_format: None,
             blk_size: Some(512),
             topology: Some(VirtioBlkTopology {
                 physical_block_exp: 0,
@@ -795,6 +816,7 @@ mod tests {
             path_on_host: Some(backing_file.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 

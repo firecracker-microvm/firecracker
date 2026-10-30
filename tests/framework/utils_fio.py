@@ -55,6 +55,7 @@ def build_cmd(
     runtime: int | None = DEFAULT_RUNTIME_SEC,
     warmup_time: int | None = DEFAULT_WARMUP_SEC,
     write_logs: bool = True,
+    readonly: bool = False,
 ) -> str:
     """Build fio cmd"""
 
@@ -97,6 +98,9 @@ def build_cmd(
         # Latency measurements only make sence for psync engine
         if io_engine == Engine.PSYNC:
             cmd = cmd.with_arg(f"--write_lat_log={mode}")
+
+    if readonly:
+        cmd = cmd.with_arg("--readonly")
 
     return cmd.build()
 
