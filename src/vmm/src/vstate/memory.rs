@@ -60,6 +60,8 @@ pub enum MemoryError {
     OffsetTooLarge,
     /// Memory region has zero size
     ZeroSize,
+    /// Guest memory size of {0} bytes exceeds the architectural maximum of {1} bytes
+    GuestMemoryTooLarge(usize, usize),
     /// Memory region has zero slots
     ZeroSlots,
     /// Memory region of {region_size} bytes is not evenly divisible into {slot_count} slots
@@ -1142,15 +1144,15 @@ pub fn mark_dirty_host(mem: &GuestMemoryMmap, ptr: *const u8, len: usize) {
     if len == 0 {
         return;
     }
-    for region in mem.iter() {
-        let offset = (ptr as usize).wrapping_sub(region.as_ptr() as usize);
-        if offset < region.size() {
-            assert!(offset + len <= region.size(), "range crosses a region end");
-            region.bitmap().mark_dirty(offset, len);
-            return;
-        }
-    }
-    unreachable!("host address {ptr:p} is not guest memory");
+    let (region, offset) = mem
+        .iter()
+        .find_map(|region| {
+            let offset = (ptr as usize).checked_sub(region.as_ptr() as usize)?;
+            (offset < region.size()).then_some((region, offset))
+        })
+        .unwrap_or_else(|| panic!("host address {ptr:p} is not guest memory"));
+    assert!(len <= region.size() - offset, "range crosses a region end");
+    region.bitmap().mark_dirty(offset, len);
 }
 
 /// Defines the interface for snapshotting memory.

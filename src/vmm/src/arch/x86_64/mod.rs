@@ -45,11 +45,11 @@ use crate::logger::debug;
 use crate::utils::{u64_to_usize, usize_to_u64};
 use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{
-    Address, GuestAddress, GuestMemoryMmap, GuestMemoryRegion, GuestRegionType,
+    Address, GuestAddress, GuestMemoryMmap, GuestMemoryRegion, GuestRegionType, MemoryError,
 };
 use crate::vstate::vcpu::KvmVcpuConfigureError;
 use crate::vstate::vm::KvmVm;
-use crate::{Vcpu, align_down, logger};
+use crate::{Vcpu, align_down};
 use kvm::Kvm;
 use layout::{
     CMDLINE_START, MMIO32_MEM_SIZE, MMIO32_MEM_START, MMIO64_MEM_SIZE, MMIO64_MEM_START,
@@ -109,28 +109,23 @@ pub enum ConfigurationError {
     Acpi(#[from] crate::acpi::AcpiError),
 }
 
+/// Largest guest memory size that fits in the address space alongside the MMIO gaps.
+pub const MAX_GUEST_MEM_SIZE: usize =
+    usize::MAX - u64_to_usize(MMIO32_MEM_SIZE) - u64_to_usize(MMIO64_MEM_SIZE);
+
 /// Returns a Vec of the valid memory addresses.
 /// These should be used to configure the GuestMemoryMmap structure for the platform.
 /// For x86_64 all addresses are valid from the start of the kernel except an 1GB
 /// carve out at the end of 32bit address space and a second 256GB one at the 256GB limit.
-pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
+pub fn arch_memory_regions(size: usize) -> Result<Vec<(GuestAddress, usize)>, MemoryError> {
     // If we get here with size == 0 something has seriously gone wrong. Firecracker should never
     // try to allocate guest memory of size 0
     assert!(size > 0, "Attempt to allocate guest memory of length 0");
 
-    let dram_size = std::cmp::min(
-        usize::MAX - u64_to_usize(MMIO32_MEM_SIZE) - u64_to_usize(MMIO64_MEM_SIZE),
-        size,
-    );
-
-    if dram_size != size {
-        logger::warn!(
-            "Requested memory size {} exceeds architectural maximum (1022GiB). Size has been \
-             truncated to {}",
-            size,
-            dram_size
-        );
+    if size > MAX_GUEST_MEM_SIZE {
+        return Err(MemoryError::GuestMemoryTooLarge(size, MAX_GUEST_MEM_SIZE));
     }
+    let dram_size = size;
 
     let mut regions = vec![];
 
@@ -155,7 +150,7 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
         ));
     }
 
-    regions
+    Ok(regions)
 }
 
 /// Returns the memory address where the kernel could be loaded.
@@ -568,12 +563,10 @@ pub fn load_kernel(
 #[cfg(kani)]
 mod verification {
 
-    use crate::arch::arch_memory_regions;
     use crate::arch::x86_64::layout::{
-        FIRST_ADDR_PAST_32BITS, FIRST_ADDR_PAST_64BITS_MMIO, MMIO32_MEM_SIZE, MMIO32_MEM_START,
-        MMIO64_MEM_SIZE, MMIO64_MEM_START,
+        FIRST_ADDR_PAST_32BITS, FIRST_ADDR_PAST_64BITS_MMIO, MMIO32_MEM_START, MMIO64_MEM_START,
     };
-    use crate::utils::u64_to_usize;
+    use crate::arch::{MAX_GUEST_MEM_SIZE, arch_memory_regions};
 
     #[kani::proof]
     #[kani::unwind(4)]
@@ -581,8 +574,9 @@ mod verification {
         let len: u64 = kani::any::<u64>();
 
         kani::assume(len > 0);
+        kani::assume(len as usize <= MAX_GUEST_MEM_SIZE);
 
-        let regions = arch_memory_regions(len as usize);
+        let regions = arch_memory_regions(len as usize).unwrap();
 
         // There are two MMIO gaps, so we can get either 1, 2 or 3 regions
         assert!(regions.len() <= 3);
@@ -593,13 +587,7 @@ mod verification {
 
         // The total length of all regions is what we requested
         let actual_size = regions.iter().map(|&(_, len)| len).sum::<usize>();
-        assert!(actual_size <= len as usize);
-        if actual_size < u64_to_usize(len) {
-            assert_eq!(
-                actual_size,
-                usize::MAX - u64_to_usize(MMIO32_MEM_SIZE) - u64_to_usize(MMIO64_MEM_SIZE)
-            );
-        }
+        assert_eq!(actual_size, len as usize);
 
         // No region overlaps the MMIO gap
         assert!(
@@ -645,17 +633,25 @@ mod tests {
 
     #[test]
     fn regions_lt_4gb() {
-        let regions = arch_memory_regions(1usize << 29);
+        let regions = arch_memory_regions(1usize << 29).unwrap();
         assert_eq!(1, regions.len());
         assert_eq!(GuestAddress(0), regions[0].0);
         assert_eq!(1usize << 29, regions[0].1);
     }
 
     #[test]
+    fn regions_gt_max() {
+        assert!(matches!(
+            arch_memory_regions(MAX_GUEST_MEM_SIZE + 1),
+            Err(MemoryError::GuestMemoryTooLarge(..))
+        ));
+    }
+
+    #[test]
     fn regions_gt_4gb() {
         const MEMORY_SIZE: usize = (1 << 32) + 0x8000;
 
-        let regions = arch_memory_regions(MEMORY_SIZE);
+        let regions = arch_memory_regions(MEMORY_SIZE).unwrap();
         assert_eq!(2, regions.len());
         assert_eq!(GuestAddress(0), regions[0].0);
         assert_eq!(GuestAddress(1u64 << 32), regions[1].0);

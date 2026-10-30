@@ -317,7 +317,9 @@ impl ProcessTimeReporter {
     /// Obtain process start time in microseconds.
     pub fn report_start_time(&self) {
         if let Some(start_time) = self.start_time_us {
-            let delta_us = get_time_us(ClockType::Monotonic) - start_time;
+            // `start_time` comes from a `--start-time-us` CLI argument supplied by the launcher,
+            // not this clock, so saturate rather than panic if it is ever in the future.
+            let delta_us = get_time_us(ClockType::Monotonic).saturating_sub(start_time);
             METRICS.api_server.process_startup_time_us.store(delta_us);
         }
     }
@@ -325,8 +327,10 @@ impl ProcessTimeReporter {
     /// Obtain process CPU start time in microseconds.
     pub fn report_cpu_start_time(&self) {
         if let Some(cpu_start_time) = self.start_time_cpu_us {
-            let delta_us = get_time_us(ClockType::ProcessCpu) - cpu_start_time
-                + self.parent_cpu_time_us.unwrap_or_default();
+            // Same launcher-supplied CLI input as `report_start_time`, so saturate.
+            let delta_us = get_time_us(ClockType::ProcessCpu)
+                .saturating_sub(cpu_start_time)
+                .saturating_add(self.parent_cpu_time_us.unwrap_or_default());
             METRICS
                 .api_server
                 .process_startup_time_cpu_us
