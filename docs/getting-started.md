@@ -194,6 +194,24 @@ sudo ./firecracker_src/tools/devtool build
 sudo cp ./firecracker_src/build/cargo_target/${ARCH}-unknown-linux-musl/debug/firecracker firecracker
 ```
 
+### Display Firecracker version
+
+Use `firecracker --version` to print its version:
+
+```bash
+$ firecracker --version
+Firecracker v1.18.0-dev
+```
+
+### Display Firecracker features
+
+Use `firecracker --features` to display the enabled build features:
+
+```bash
+$ firecracker --features
+Enabled features: ["gdb", "log-instrument", "tracing"]
+```
+
 ### Starting Firecracker
 
 Running firecracker will require two terminals, the first one running the

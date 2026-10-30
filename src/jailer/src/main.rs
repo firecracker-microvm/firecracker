@@ -159,6 +159,11 @@ pub enum JailerError {
 pub fn build_arg_parser() -> ArgParser<'static> {
     ArgParser::new()
         .arg(
+            Argument::new("features")
+                .takes_value(false)
+                .help("Print the enabled build features."),
+        )
+        .arg(
             Argument::new("id")
                 .required(true)
                 .takes_value(true)
@@ -336,6 +341,11 @@ fn main_exec() -> Result<(), JailerError> {
         println!("Jailer v{}\n", JAILER_VERSION);
         println!("{}\n", arg_parser.formatted_help());
         println!("Any arguments after the -- separator will be supplied to the jailed binary.\n");
+        return Ok(());
+    }
+
+    if arguments.flag_present("features") {
+        println!("Enabled features: {}\n", env!("JAILER_ENABLED_FEATURES"));
         return Ok(());
     }
 

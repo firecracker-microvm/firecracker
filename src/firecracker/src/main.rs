@@ -3,8 +3,8 @@
 
 #[cfg(all(feature = "fuzzing", not(debug_assertions)))]
 compile_error!(
-    "The `fuzzing` feature must not be used in release builds. \
-     Build with the dev profile instead: `cargo build --features fuzzing`"
+    "The `fuzzing` feature must not be used in release builds. Build with the dev profile \
+     instead: `cargo build --features fuzzing`"
 );
 
 mod api_server;
@@ -163,6 +163,11 @@ fn main_exec() -> Result<(), MainError> {
                     .help("Path to unix domain socket used by the API."),
             )
             .arg(
+                Argument::new("features")
+                    .takes_value(false)
+                    .help("Print the enabled build features."),
+            )
+            .arg(
                 Argument::new("id")
                     .takes_value(true)
                     .default_value(vmm::logger::DEFAULT_INSTANCE_ID)
@@ -286,6 +291,14 @@ fn main_exec() -> Result<(), MainError> {
     if arguments.flag_present("help") {
         println!("Firecracker v{}\n", FIRECRACKER_VERSION);
         println!("{}", arg_parser.formatted_help());
+        return Ok(());
+    }
+
+    if arguments.flag_present("features") {
+        println!(
+            "Enabled features: {}\n",
+            env!("FIRECRACKER_ENABLED_FEATURES")
+        );
         return Ok(());
     }
 
