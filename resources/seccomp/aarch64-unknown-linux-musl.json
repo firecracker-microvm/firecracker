@@ -30,6 +30,10 @@
                 "syscall": "read"
             },
             {
+                "syscall": "pread64",
+                "comment": "Used to read huge pages of guest memory restored from a hugetlbfs snapshot memory file that are not mapped yet, without allocating them, when creating a full snapshot"
+            },
+            {
                 "syscall": "write"
             },
             {
@@ -48,7 +52,7 @@
             },
             {
                 "syscall": "fallocate",
-                "comment": "Used by the VirtIO block device to punch holes for discard on regular backing files",
+                "comment": "Used by the VirtIO block device to punch holes for discard on regular backing files, and to leave zero pages of hugetlbfs snapshot memory files as holes",
                 "args": [
                     {
                         "index": 1,
@@ -56,6 +60,19 @@
                         "op": "eq",
                         "val": 3,
                         "comment": "FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE"
+                    }
+                ]
+            },
+            {
+                "syscall": "fallocate",
+                "comment": "Used to allocate the huge pages of a hugetlbfs snapshot memory file before writing them",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "FALLOC_FL_KEEP_SIZE"
                     }
                 ]
             },
@@ -97,6 +114,10 @@
             {
                 "syscall": "fstat",
                 "comment": "Used for drive patching & rescanning, for reading the local timezone from /etc/localtime"
+            },
+            {
+                "syscall": "fstatfs",
+                "comment": "Used to detect hugetlbfs snapshot memory files"
             },
             {
                 "syscall": "ftruncate",
@@ -271,6 +292,26 @@
             },
             {
                 "syscall": "mmap",
+                "comment": "Used by discard_range for the VirtIO balloon on a microVM restored from a hugetlbfs snapshot memory file",
+                "args": [
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1409564722,
+                        "comment": "libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE | libc::MAP_NORESERVE | libc::MAP_HUGETLB | libc::MAP_HUGE_2MB"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": {"masked_eq": 4},
+                        "val": 0,
+                        "comment": "Ensure PROT_EXEC is not set"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
                 "comment": "Used for reading the timezone in LocalTime::now()",
                 "args": [
                     {
@@ -351,7 +392,7 @@
             },
             {
                 "syscall": "mmap",
-                "comment": "Used by pmem device for aligned anonymous mapping",
+                "comment": "Used by pmem device and hugetlbfs snapshot memory file writes for aligned anonymous mapping",
                 "args": [
                     {
                         "index": 3,
@@ -371,7 +412,7 @@
             },
             {
                 "syscall": "mmap",
-                "comment": "Used by pmem device to overlay file mapping on anonymous region",
+                "comment": "Used by pmem device and hugetlbfs snapshot memory file writes to overlay file mapping on anonymous region",
                 "args": [
                     {
                         "index": 3,

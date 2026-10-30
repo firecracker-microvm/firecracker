@@ -241,6 +241,11 @@ After executing the command above, the base would be a resumable snapshot memory
 file describing the state of the memory at the moment of creation of the layer.
 More layers which were created later can be merged on top of this base.
 
+A layer cannot be a memory file on hugetlbfs, including the diff snapshot of a
+booted VM. Firecracker instead merges a `Diff` snapshot directly into an
+existing hugetlbfs memory file of the same size, as described in the
+[huge pages documentation](../hugepages.md#huge-pages-and-snapshotting).
+
 This process needs to be repeated for each layer until the one describing the
 desired memory state is merged on top of the base, which is constantly updated
 with information from previously merged layers. Please note that users should
@@ -458,10 +463,10 @@ The meaning of `backend_path` depends on the `backend_type` chosen:
 The `huge_pages` field selects the host page configuration for the restored
 microVM. It accepts `Snapshot`, `None`, `Transparent`, and `2M`. `Snapshot`
 reuses the value stored in the snapshot and is the default when the field is
-omitted; `None` uses the host's default memory-mapping behavior. Explicit `2M`
-hugetlbfs pages require the `Uffd` backend, so combining `2M` with `File`
-returns an error. With `Uffd`, the effectiveness of transparent huge pages may
-be limited.
+omitted; `None` uses the host's default memory-mapping behavior. With the `File`
+backend, `2M` requires the memory file to reside on a hugetlbfs mount configured
+for 2 MiB pages, and a hugetlbfs memory file requires `2M`. With `Uffd`, the
+effectiveness of transparent huge pages may be limited.
 
 When relying on the OS to handle page faults, the command below is also
 accepted. Note that `mem_file_path` field is currently under the deprecation

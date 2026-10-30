@@ -41,12 +41,18 @@ and this project adheres to
   exceed the vCPU count. Custom seccomp filters must include the new
   `blk_worker` thread category. See
   [block documentation](docs/block.md#threaded-mode-and-multiqueue).
+- [#6099](https://github.com/firecracker-microvm/firecracker/issues/6099): Added
+  support for creating snapshot memory files on 2 MiB hugetlbfs mounts and
+  restoring them directly with the `File` memory backend.
 
 ### Changed
 
 - [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228): Device
   hotplug now requires `pcie_hotplug_ports` to be set in the machine
   configuration, and only devices behind a PCIe root port can be hot-unplugged.
+- [#6099](https://github.com/firecracker-microvm/firecracker/issues/6099):
+  `PUT /snapshot/create` now opens the memory file for reading as well as
+  writing, so an existing memory file must be readable by Firecracker.
 - [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
   PL061 GPIO controller backing the new aarch64 power button is always attached
   and uses one extra GSI, which reduces the GSIs left for VirtIO devices. With
