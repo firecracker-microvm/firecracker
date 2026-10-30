@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::arch::x86_64::msr::MsrError;
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
+use crate::vstate::address_allocator::AllocatorError;
 use crate::vstate::bus::Bus;
 use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
@@ -52,7 +53,7 @@ pub enum KvmVmError {
     /// Failed during KVM_SET_TSS_ADDRESS: {0}
     SetTssAddress(kvm_ioctls::Error),
     /// Failed to restore resource allocator: {0}
-    ResourceAllocator(#[from] vm_allocator::Error),
+    ResourceAllocator(#[from] AllocatorError),
 }
 
 /// Structure representing the current architecture's understand of what a "virtual machine" is.

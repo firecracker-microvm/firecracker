@@ -61,6 +61,7 @@ use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfaceError};
 use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
+use crate::vstate::address_allocator::AllocatorError;
 use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::{KvmVm, Vm};
@@ -87,7 +88,7 @@ pub enum DeviceManagerCreateError {
     /// PCI device manager error: {0}
     PciDeviceManager(#[from] PciManagerError),
     /// Resource allocator error: {0}
-    ResourceAllocator(#[from] vm_allocator::Error),
+    ResourceAllocator(#[from] AllocatorError),
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -755,7 +756,7 @@ pub enum DevicePersistError {
     /// Could not activate device: {0}
     DeviceActivation(#[from] ActivateError),
     /// Resource allocator error: {0}
-    ResourceAllocator(#[from] vm_allocator::Error),
+    ResourceAllocator(#[from] AllocatorError),
 }
 
 /// Errors for (de)serialization of the device manager.

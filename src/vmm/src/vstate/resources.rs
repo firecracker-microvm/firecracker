@@ -3,17 +3,16 @@
 
 use bitvec::vec::BitVec;
 use serde::{Deserialize, Serialize};
-use vm_allocator::AddressAllocator;
-pub use vm_allocator::AllocPolicy;
 
 use crate::arch;
 use crate::snapshot::Persist;
+use crate::vstate::address_allocator::{AddressAllocator, AllocatorError};
 
 /// Helper function to allocate many ids from an id allocator
 fn allocate_many_ids(
     id_allocator: &mut IdAllocator,
     count: u32,
-) -> Result<Vec<u32>, vm_allocator::Error> {
+) -> Result<Vec<u32>, AllocatorError> {
     let mut ids = Vec::with_capacity(count as usize);
 
     for _ in 0..count {
@@ -73,20 +72,16 @@ impl ResourceAllocator {
             mmio32_memory: AddressAllocator::new(
                 arch::MEM_32BIT_DEVICES_START,
                 arch::MEM_32BIT_DEVICES_SIZE,
-            )
-            .unwrap(),
+            ),
             mmio64_memory: AddressAllocator::new(
                 arch::MEM_64BIT_DEVICES_START,
                 arch::MEM_64BIT_DEVICES_SIZE,
-            )
-            .unwrap(),
+            ),
             past_mmio64_memory: AddressAllocator::new(
                 arch::FIRST_ADDR_PAST_64BITS_MMIO,
                 arch::PAST_64BITS_MMIO_SIZE,
-            )
-            .unwrap(),
-            system_memory: AddressAllocator::new(arch::SYSTEM_MEM_START, arch::SYSTEM_MEM_SIZE)
-                .unwrap(),
+            ),
+            system_memory: AddressAllocator::new(arch::SYSTEM_MEM_START, arch::SYSTEM_MEM_SIZE),
         }
     }
 
@@ -95,7 +90,7 @@ impl ResourceAllocator {
     /// # Arguments
     ///
     /// * `gsi_count` - The number of legacy GSIs to allocate
-    pub fn allocate_gsi_legacy(&mut self, gsi_count: u32) -> Result<Vec<u32>, vm_allocator::Error> {
+    pub fn allocate_gsi_legacy(&mut self, gsi_count: u32) -> Result<Vec<u32>, AllocatorError> {
         allocate_many_ids(&mut self.gsi_legacy_allocator, gsi_count)
     }
 
@@ -104,7 +99,7 @@ impl ResourceAllocator {
     /// # Arguments
     ///
     /// * `gsi_count` - The number of GSIs to allocate
-    pub fn allocate_gsi_msi(&mut self, gsi_count: u32) -> Result<Vec<u32>, vm_allocator::Error> {
+    pub fn allocate_gsi_msi(&mut self, gsi_count: u32) -> Result<Vec<u32>, AllocatorError> {
         allocate_many_ids(&mut self.gsi_msi_allocator, gsi_count)
     }
 }
@@ -134,14 +129,14 @@ impl Default for ResourceAllocatorState {
 impl<'a> Persist<'a> for ResourceAllocator {
     type State = ResourceAllocatorState;
     type ConstructorArgs = ();
-    type Error = vm_allocator::Error;
+    type Error = AllocatorError;
 
     fn save(&self) -> Self::State {
         ResourceAllocatorState {
-            mmio32_memory: self.mmio32_memory.clone(),
-            mmio64_memory: self.mmio64_memory.clone(),
-            past_mmio64_memory: self.past_mmio64_memory.clone(),
-            system_memory: self.system_memory.clone(),
+            mmio32_memory: self.mmio32_memory,
+            mmio64_memory: self.mmio64_memory,
+            past_mmio64_memory: self.past_mmio64_memory,
+            system_memory: self.system_memory,
         }
     }
 
@@ -152,10 +147,10 @@ impl<'a> Persist<'a> for ResourceAllocator {
         Ok(ResourceAllocator {
             gsi_legacy_allocator: IdAllocator::new(arch::GSI_LEGACY_START, arch::GSI_LEGACY_END)?,
             gsi_msi_allocator: IdAllocator::new(arch::GSI_MSI_START, arch::GSI_MSI_END)?,
-            mmio32_memory: state.mmio32_memory.clone(),
-            mmio64_memory: state.mmio64_memory.clone(),
-            past_mmio64_memory: state.past_mmio64_memory.clone(),
-            system_memory: state.system_memory.clone(),
+            mmio32_memory: state.mmio32_memory,
+            mmio64_memory: state.mmio64_memory,
+            past_mmio64_memory: state.past_mmio64_memory,
+            system_memory: state.system_memory,
         })
     }
 }
@@ -172,16 +167,16 @@ pub struct IdAllocator {
 
 impl IdAllocator {
     /// Create a new IdAllocator with IDs in [`range_base`, `range_end`].
-    pub fn new(range_base: u32, range_end: u32) -> Result<Self, vm_allocator::Error> {
+    pub fn new(range_base: u32, range_end: u32) -> Result<Self, AllocatorError> {
         if range_end < range_base {
-            return Err(vm_allocator::Error::InvalidRange(
+            return Err(AllocatorError::InvalidRange(
                 range_base.into(),
                 range_end.into(),
             ));
         }
 
         let num_ids = u64::from(range_end) - u64::from(range_base) + 1;
-        let num_ids = usize::try_from(num_ids).map_err(|_| vm_allocator::Error::Overflow)?;
+        let num_ids = usize::try_from(num_ids).map_err(|_| AllocatorError::Overflow)?;
         let mut allocated = BitVec::with_capacity(num_ids);
         allocated.resize(num_ids, false);
 
@@ -192,36 +187,36 @@ impl IdAllocator {
     }
 
     /// Map `id` to its corresponding index in the bitmap.
-    fn index_for(&self, id: u32) -> Result<usize, vm_allocator::Error> {
+    fn index_for(&self, id: u32) -> Result<usize, AllocatorError> {
         let offset = id
             .checked_sub(self.range_base)
-            .ok_or(vm_allocator::Error::OutOfRange(id))?;
+            .ok_or(AllocatorError::OutOfRange(id))?;
         let index = offset as usize;
         self.allocated
             .get(index)
             .map(|_| index)
-            .ok_or(vm_allocator::Error::OutOfRange(id))
+            .ok_or(AllocatorError::OutOfRange(id))
     }
 
     // Given `index` into the bitmap, return the `id` in that position
-    // Returns `vm_allocator::Error::Overflow` if the index would map to an overflowed id.
-    fn id_for_index(&self, index: usize) -> Result<u32, vm_allocator::Error> {
-        let offset = u32::try_from(index).map_err(|_| vm_allocator::Error::Overflow)?;
+    // Returns `AllocatorError::Overflow` if the index would map to an overflowed id.
+    fn id_for_index(&self, index: usize) -> Result<u32, AllocatorError> {
+        let offset = u32::try_from(index).map_err(|_| AllocatorError::Overflow)?;
         self.range_base
             .checked_add(offset)
-            .ok_or(vm_allocator::Error::Overflow)
+            .ok_or(AllocatorError::Overflow)
     }
 
     /// Allocate an ID from the managed range.Returns the first available id
     /// from the managed range, or `ResourceNotAvailable` if every id has been
     /// handed out.
-    pub fn allocate_id(&mut self) -> Result<u32, vm_allocator::Error> {
+    pub fn allocate_id(&mut self) -> Result<u32, AllocatorError> {
         if let Some(index) = self.allocated.first_zero() {
             self.allocated.set(index, true);
             let id = self.id_for_index(index)?;
             Ok(id)
         } else {
-            Err(vm_allocator::Error::ResourceNotAvailable)
+            Err(AllocatorError::ResourceNotAvailable)
         }
     }
 
@@ -229,13 +224,13 @@ impl IdAllocator {
     ///
     /// Returns `id` on success, `OutOfRange` if `id` is outside the managed
     /// range, or `ResourceNotAvailable` if `id` has already been allocated.
-    pub fn allocate_id_at(&mut self, id: u32) -> Result<u32, vm_allocator::Error> {
+    pub fn allocate_id_at(&mut self, id: u32) -> Result<u32, AllocatorError> {
         let index = self.index_for(id)?;
         if !self.allocated[index] {
             self.allocated.set(index, true);
             Ok(id)
         } else {
-            Err(vm_allocator::Error::ResourceNotAvailable)
+            Err(AllocatorError::ResourceNotAvailable)
         }
     }
 
@@ -250,13 +245,13 @@ impl IdAllocator {
     }
 
     /// Frees an id from the managed range.
-    pub fn free_id(&mut self, id: u32) -> Result<u32, vm_allocator::Error> {
+    pub fn free_id(&mut self, id: u32) -> Result<u32, AllocatorError> {
         let index = self.index_for(id)?;
         if self.allocated[index] {
             self.allocated.set(index, false);
             Ok(id)
         } else {
-            Err(vm_allocator::Error::NeverAllocated(id))
+            Err(AllocatorError::NeverAllocated(id))
         }
     }
 }
@@ -264,9 +259,10 @@ impl IdAllocator {
 #[cfg(test)]
 mod tests {
     mod resource_allocator {
-        use super::super::{AllocPolicy, ResourceAllocator};
+        use super::super::ResourceAllocator;
         use crate::arch::{self, GSI_LEGACY_NUM, GSI_MSI_NUM};
         use crate::snapshot::Persist;
+        use crate::vstate::address_allocator::{AllocPolicy, AllocatorError};
 
         #[test]
         fn test_allocate_irq() {
@@ -276,7 +272,7 @@ mod tests {
             // We cannot allocate more GSIs than available
             assert_eq!(
                 allocator.allocate_gsi_legacy(GSI_LEGACY_NUM + 1),
-                Err(vm_allocator::Error::ResourceNotAvailable)
+                Err(AllocatorError::ResourceNotAvailable)
             );
             // But allocating all of them at once should work
             assert_eq!(
@@ -286,7 +282,7 @@ mod tests {
             // And now we ran out of GSIs
             assert_eq!(
                 allocator.allocate_gsi_legacy(1),
-                Err(vm_allocator::Error::ResourceNotAvailable)
+                Err(AllocatorError::ResourceNotAvailable)
             );
             // But we should be able to ask for 0 GSIs
             assert_eq!(allocator.allocate_gsi_legacy(0), Ok(vec![]));
@@ -300,7 +296,7 @@ mod tests {
             // We can't allocate MAX_IRQS any more
             assert_eq!(
                 allocator.allocate_gsi_legacy(GSI_LEGACY_NUM),
-                Err(vm_allocator::Error::ResourceNotAvailable)
+                Err(AllocatorError::ResourceNotAvailable)
             );
             // We can allocate another one and it should be the second available
             assert_eq!(
@@ -321,7 +317,7 @@ mod tests {
             // We cannot allocate more GSIs than available
             assert_eq!(
                 allocator.allocate_gsi_msi(GSI_MSI_NUM + 1),
-                Err(vm_allocator::Error::ResourceNotAvailable)
+                Err(AllocatorError::ResourceNotAvailable)
             );
             // But allocating all of them at once should work
             assert_eq!(
@@ -331,7 +327,7 @@ mod tests {
             // And now we ran out of GSIs
             assert_eq!(
                 allocator.allocate_gsi_msi(1),
-                Err(vm_allocator::Error::ResourceNotAvailable)
+                Err(AllocatorError::ResourceNotAvailable)
             );
             // But we should be able to ask for 0 GSIs
             assert_eq!(allocator.allocate_gsi_msi(0), Ok(vec![]));
@@ -342,7 +338,7 @@ mod tests {
             // We can't allocate MAX_IRQS any more
             assert_eq!(
                 allocator.allocate_gsi_msi(GSI_MSI_NUM),
-                Err(vm_allocator::Error::ResourceNotAvailable)
+                Err(AllocatorError::ResourceNotAvailable)
             );
             // We can allocate another one and it should be the second available
             assert_eq!(
@@ -377,7 +373,7 @@ mod tests {
             // Memory allocators are still serialized directly.
             restored
                 .mmio32_memory
-                .allocate(1024, 1024, AllocPolicy::ExactMatch(mmio_range.start()))
+                .allocate(1024, 1024, AllocPolicy::ExactMatch(mmio_range))
                 .unwrap_err();
         }
     }
@@ -385,12 +381,15 @@ mod tests {
     mod id_allocator {
 
         use super::super::IdAllocator;
-        use vm_allocator::Error;
+        use crate::vstate::address_allocator::AllocatorError;
 
         #[test]
         fn test_slot_id_allocation() {
             let faulty_allocator = IdAllocator::new(23, 5);
-            assert_eq!(faulty_allocator.unwrap_err(), Error::InvalidRange(23, 5));
+            assert_eq!(
+                faulty_allocator.unwrap_err(),
+                AllocatorError::InvalidRange(23, 5)
+            );
             let mut legacy_irq_allocator = IdAllocator::new(5, 23).unwrap();
             assert_eq!(legacy_irq_allocator.range_base, 5);
             assert_eq!(legacy_irq_allocator.allocated.len(), 19);
@@ -406,7 +405,7 @@ mod tests {
 
             assert_eq!(
                 legacy_irq_allocator.allocate_id().unwrap_err(),
-                Error::ResourceNotAvailable
+                AllocatorError::ResourceNotAvailable
             );
         }
 
@@ -416,7 +415,7 @@ mod tests {
             assert_eq!(allocator.allocate_id().unwrap(), u32::MAX - 1);
             assert_eq!(allocator.allocate_id().unwrap(), u32::MAX);
             let res = allocator.allocate_id();
-            assert_eq!(res.unwrap_err(), Error::ResourceNotAvailable);
+            assert_eq!(res.unwrap_err(), AllocatorError::ResourceNotAvailable);
         }
 
         #[test]
@@ -424,7 +423,7 @@ mod tests {
             let mut legacy_irq_allocator = IdAllocator::new(5, 23).unwrap();
             assert_eq!(
                 legacy_irq_allocator.free_id(3).unwrap_err(),
-                Error::OutOfRange(3)
+                AllocatorError::OutOfRange(3)
             );
 
             for _ in 1..10 {
@@ -436,7 +435,7 @@ mod tests {
             assert!(!legacy_irq_allocator.is_allocated(irq));
             assert_eq!(
                 legacy_irq_allocator.free_id(10).unwrap_err(),
-                Error::NeverAllocated(10)
+                AllocatorError::NeverAllocated(10)
             );
             let irq = 9;
             legacy_irq_allocator.free_id(irq).unwrap();
@@ -448,7 +447,7 @@ mod tests {
             assert!(!legacy_irq_allocator.is_allocated(10));
             assert_eq!(
                 legacy_irq_allocator.free_id(21).unwrap_err(),
-                Error::NeverAllocated(21)
+                AllocatorError::NeverAllocated(21)
             );
         }
 
@@ -456,14 +455,20 @@ mod tests {
         fn test_free_id_never_allocated_boundary() {
             let mut allocator = IdAllocator::new(5, 23).unwrap();
 
-            assert_eq!(allocator.free_id(5).unwrap_err(), Error::NeverAllocated(5));
+            assert_eq!(
+                allocator.free_id(5).unwrap_err(),
+                AllocatorError::NeverAllocated(5)
+            );
 
             for _ in 0..3 {
                 allocator.allocate_id().unwrap();
             }
             assert!(allocator.is_allocated(7));
             assert!(!allocator.is_allocated(8));
-            assert_eq!(allocator.free_id(8).unwrap_err(), Error::NeverAllocated(8));
+            assert_eq!(
+                allocator.free_id(8).unwrap_err(),
+                AllocatorError::NeverAllocated(8)
+            );
         }
 
         #[test]
@@ -530,22 +535,22 @@ mod tests {
             assert!(allocator.is_allocated(7));
             assert_eq!(
                 allocator.allocate_id_at(7).unwrap_err(),
-                Error::ResourceNotAvailable
+                AllocatorError::ResourceNotAvailable
             );
             assert_eq!(
                 allocator.allocate_id_at(4).unwrap_err(),
-                Error::OutOfRange(4)
+                AllocatorError::OutOfRange(4)
             );
             assert_eq!(
                 allocator.allocate_id_at(9).unwrap_err(),
-                Error::OutOfRange(9)
+                AllocatorError::OutOfRange(9)
             );
             assert_eq!(allocator.allocate_id().unwrap(), 5);
             assert_eq!(allocator.allocate_id().unwrap(), 6);
             assert_eq!(allocator.allocate_id().unwrap(), 8);
             assert_eq!(
                 allocator.allocate_id().unwrap_err(),
-                Error::ResourceNotAvailable
+                AllocatorError::ResourceNotAvailable
             );
         }
 

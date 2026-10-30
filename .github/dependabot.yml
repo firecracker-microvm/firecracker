@@ -16,7 +16,6 @@ updates:
           - "vm-memory"
           - "vhost"
           - "linux-loader"
-          - "vm-allocator"
           - "event-manager"
           - "vm-superio"
       firecracker:
@@ -29,7 +28,6 @@ updates:
           - "vm-memory"
           - "vhost"
           - "linux-loader"
-          - "vm-allocator"
           - "event-manager"
           - "vm-superio"
   - package-ecosystem: "rust-toolchain"

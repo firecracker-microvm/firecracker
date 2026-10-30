@@ -11,13 +11,14 @@ use crate::logger::{IncMetric, METRICS, error};
 use crate::pci::PciSBDF;
 use crate::pci::msix::MsixTableEntry;
 use crate::snapshot::Persist;
+use crate::vstate::address_allocator::AllocatorError;
 use crate::vstate::vm::KvmVm;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// Errors related with Firecracker interrupts
 pub enum InterruptError {
     /// Error allocating resources: {0}
-    Allocator(#[from] vm_allocator::Error),
+    Allocator(#[from] AllocatorError),
     /// IO error: {0}
     Io(#[from] std::io::Error),
     /// FamStruct error: {0}
