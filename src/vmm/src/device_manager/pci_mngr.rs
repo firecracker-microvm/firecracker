@@ -370,15 +370,21 @@ impl PciDevices {
         let pci_device_bdf = self.next_sbdf(placement)?;
         debug!("VFIO: Allocating BDF: {pci_device_bdf:?} for device");
 
-        let device = if let Some(container) = &self.vfio_container {
-            VfioDevice::new(container, vm, config, pci_device_bdf)?
-        } else {
-            let container = vfio_create_kvm_vfio_device_and_vfio_container(vm.as_ref())?;
-            let device = VfioDevice::new(&container, vm, config, pci_device_bdf)?;
-            vfio_dma_map_guest_memory(&container, vm.guest_memory())?;
-            self.vfio_container = Some(container);
-            device
-        };
+        // KVM allows a single KVM VFIO device per VM and older host kernels destroy it only
+        // together with the VM, so the container is never dropped once created
+        if self.vfio_container.is_none() {
+            self.vfio_container =
+                Some(vfio_create_kvm_vfio_device_and_vfio_container(vm.as_ref())?);
+        }
+        let container = self.vfio_container.as_ref().unwrap();
+
+        let device = VfioDevice::new(container, vm, config, pci_device_bdf)?;
+        // The kernel drops the DMA mappings once the last group leaves the container, and a
+        // container without groups cannot map anything, so map the guest memory after the first
+        // device joins it
+        if self.vfio_devices.is_empty() {
+            vfio_dma_map_guest_memory(container, vm.guest_memory())?;
+        }
 
         // Obtain this to avoid needing to lock device mutex below
         let emulated_areas = device.emulated_areas.clone();
@@ -493,16 +499,9 @@ impl PciDevices {
             vm.common.mmio_bus.remove(area.gpa, area.size).unwrap();
         }
 
-        // Ensure no other references to the device remain, so it is freed before the container
+        // Ensure no other references to the device remain, so it is freed when this function
+        // returns
         assert_eq!(Arc::strong_count(&device), 1);
-        drop(device);
-
-        // Without devices the container has no groups, so the kernel already released its DMA
-        // mappings of the guest memory
-        if self.vfio_devices.is_empty() {
-            let container = self.vfio_container.take().unwrap();
-            assert_eq!(Arc::strong_count(&container), 1);
-        }
     }
 
     fn restore_pci_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
