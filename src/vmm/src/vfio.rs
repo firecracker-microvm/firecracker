@@ -1384,9 +1384,9 @@ fn vfio_deinit_device(device: &VfioDevice) {
     }
 }
 
-/// Establish DMA mapping of the DRAM regions of the guest memory with the VFIO container
-/// This should be only called once after the `VfioContainer` is created.
-/// If this function returns an error, the container should be destroyed.
+/// Establish DMA mapping of the DRAM regions of the guest memory with the VFIO container.
+/// Must be called when the first VFIO group is attached to the container. The kernel drops the
+/// mappings when the last group is detached, including on errors.
 pub fn vfio_dma_map_guest_memory(
     container: &VfioContainer,
     guest_memory: &GuestMemoryMmap,
