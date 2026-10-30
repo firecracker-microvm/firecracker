@@ -834,6 +834,7 @@ pub(crate) mod tests {
     use crate::device_manager::tests::{default_device_manager, default_device_manager_with_pci};
     use crate::devices::virtio::block::CacheType;
     use crate::devices::virtio::device::VirtioDeviceType;
+    use crate::devices::virtio::pmem::device::PmemError;
     use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::mmds::data_store::{Mmds, MmdsVersion};
@@ -1443,6 +1444,52 @@ pub(crate) mod tests {
                 .get_virtio_device(VirtioDeviceType::Pmem, id.as_str())
                 .is_some()
         );
+    }
+
+    #[test]
+    fn test_update_pmem_backing_file() {
+        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+
+        let id = String::from("pmem");
+        let configs = vec![PmemConfig {
+            id: id.clone(),
+            path_on_host: "".into(),
+            root_device: false,
+            read_only: true,
+            ..Default::default()
+        }];
+        let mut vmm = default_vmm();
+        let mut cmdline = default_kernel_cmdline();
+        let _files = insert_pmem_devices(&mut vmm, &mut cmdline, &mut event_manager, configs);
+
+        let new_file = TempFile::new().unwrap();
+        new_file.as_file().set_len(0x20_0000).unwrap();
+        let new_path = new_file.as_path().to_str().unwrap().to_string();
+
+        assert!(matches!(
+            vmm.update_pmem_backing_file(&id, new_path.clone())
+                .unwrap_err(),
+            VmmError::PmemBackingFileUpdateNotPaused,
+        ));
+
+        vmm.instance_info.state = VmState::Paused;
+        assert!(matches!(
+            vmm.update_pmem_backing_file("unknown", new_path.clone())
+                .unwrap_err(),
+            VmmError::FindDeviceError(_),
+        ));
+        vmm.update_pmem_backing_file(&id, new_path.clone()).unwrap();
+        let path_on_host = vmm
+            .device_manager
+            .with_virtio_device(&id, |pmem: &mut Pmem| pmem.config.path_on_host.clone())
+            .unwrap();
+        assert_eq!(path_on_host, new_path);
+
+        new_file.as_file().set_len(0x40_0000).unwrap();
+        assert!(matches!(
+            vmm.update_pmem_backing_file(&id, new_path).unwrap_err(),
+            VmmError::Pmem(PmemError::BackingFileSizeMismatch(_, _)),
+        ));
     }
 
     #[test]

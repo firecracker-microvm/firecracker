@@ -141,7 +141,7 @@ use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceT
 use crate::devices::virtio::mem::device::VirtioMem;
 use crate::devices::virtio::mem::{VIRTIO_MEM_DEV_ID, VirtioMemError, VirtioMemStatus};
 use crate::devices::virtio::net::Net;
-use crate::devices::virtio::pmem::device::Pmem;
+use crate::devices::virtio::pmem::device::{Pmem, PmemError};
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{METRICS, MetricsError, log_dev_preview_warning};
@@ -270,6 +270,10 @@ pub enum VmmError {
     Block(#[from] BlockError),
     /// Balloon: {0}
     Balloon(#[from] BalloonError),
+    /// Pmem: {0}
+    Pmem(#[from] PmemError),
+    /// The backing file of a pmem device can only be replaced while the microVM is paused
+    PmemBackingFileUpdateNotPaused,
     /// Operation not supported on this VM type
     NotSupported,
     /// Failed to create memory hotplug device: {0}
@@ -617,6 +621,23 @@ impl Vmm {
     pub fn update_vhost_user_block_config(&mut self, drive_id: &str) -> Result<(), VmmError> {
         self.device_manager
             .with_virtio_device(drive_id, |block: &mut Block| block.update_config())??;
+        Ok(())
+    }
+
+    /// Replaces the backing file of the pmem device with `pmem_id` id with the file at
+    /// `path_on_host`, which must have the same size. The microVM must be paused.
+    pub fn update_pmem_backing_file(
+        &mut self,
+        pmem_id: &str,
+        path_on_host: String,
+    ) -> Result<(), VmmError> {
+        if self.instance_info.state != VmState::Paused {
+            return Err(VmmError::PmemBackingFileUpdateNotPaused);
+        }
+        self.device_manager
+            .with_virtio_device(pmem_id, |pmem: &mut Pmem| {
+                pmem.update_backing_file(path_on_host)
+            })??;
         Ok(())
     }
 

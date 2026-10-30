@@ -404,10 +404,12 @@ paths:
           schema:
             $ref: "#/definitions/Error"
     patch:
-      summary: Updates the rate limiter of a pmem device. Post-boot only.
+      summary: Updates the rate limiter or the backing file of a pmem device. Post-boot only.
       description:
         Updates the rate limiter applied to the pmem device with the ID specified
-        by the id path parameter.
+        by the id path parameter, or replaces its backing file with another file
+        of the same size. The backing file can only be replaced while the microVM
+        is paused.
       operationId: patchGuestPmemByID
       parameters:
         - name: id
@@ -417,7 +419,7 @@ paths:
           type: string
         - name: body
           in: body
-          description: Pmem rate limiter properties
+          description: Pmem rate limiter and backing file properties
           required: true
           schema:
             $ref: "#/definitions/PartialPmem"
@@ -1759,7 +1761,7 @@ definitions:
     type: object
     description:
       Defines a partial pmem device structure, used to update the rate limiter
-      for that device, after microvm start.
+      or the backing file of that device, after microvm start.
     required:
       - id
     properties:
@@ -1767,6 +1769,12 @@ definitions:
         type: string
       rate_limiter:
         $ref: "#/definitions/RateLimiter"
+      path_on_host:
+        type: string
+        description:
+          Host level path of a new backing file, of the same size as the current
+          one, to map in place of the current one. Only allowed while the microVM
+          is paused.
 
   RateLimiter:
     type: object
