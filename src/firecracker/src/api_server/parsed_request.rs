@@ -85,9 +85,14 @@ impl TryFrom<&Request> for ParsedRequest {
             (Method::Get, "", None) => parse_get_instance_info(),
             (Method::Get, "balloon", None) => parse_get_balloon(path_tokens),
             (Method::Get, "version", None) => parse_get_version(),
-            (Method::Get, "vm", None) if path_tokens.next() == Some("config") => {
-                Ok(ParsedRequest::new_sync(VmmAction::GetFullVmConfig))
-            }
+            (Method::Get, "vm", None) => match path_tokens.next() {
+                Some("config") => Ok(ParsedRequest::new_sync(VmmAction::GetFullVmConfig)),
+                Some("kvm-stats") => Ok(ParsedRequest::new_sync(VmmAction::GetKvmStats)),
+                _ => Err(RequestError::InvalidPathMethod(
+                    path.to_string(),
+                    Method::Get,
+                )),
+            },
             (Method::Get, "machine-config", None) => parse_get_machine_config(),
             (Method::Get, "mmds", None) => parse_get_mmds(),
             (Method::Get, "hotplug", None) if path_tokens.next() == Some("memory") => {
@@ -210,6 +215,7 @@ impl ParsedRequest {
                     &serde_json::json!({ "firecracker_version": version.as_str() }),
                 ),
                 VmmData::FullVmConfig(config) => Self::success_response_with_data(config),
+                VmmData::KvmStats(stats) => Self::success_response_with_data(stats),
             },
             Err(vmm_action_error) => {
                 let mut response = match vmm_action_error {
@@ -365,6 +371,7 @@ pub mod tests {
     use vmm::vmm_config::balloon::{BalloonDeviceConfig, BalloonStats};
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::machine_config::MachineConfig;
+    use vmm::vstate::kvm_stats::KvmStats;
 
     use super::*;
 
@@ -615,6 +622,9 @@ pub mod tests {
                 VmmData::FullVmConfig(cfg) => {
                     http_response(&serde_json::to_string(cfg).unwrap(), 200)
                 }
+                VmmData::KvmStats(stats) => {
+                    http_response(&serde_json::to_string(stats).unwrap(), 200)
+                }
                 VmmData::MachineConfiguration(cfg) => {
                     http_response(&serde_json::to_string(cfg).unwrap(), 200)
                 }
@@ -645,6 +655,10 @@ pub mod tests {
         }));
         verify_ok_response_with(VmmData::Empty);
         verify_ok_response_with(VmmData::FullVmConfig(VmmConfig::default()));
+        verify_ok_response_with(VmmData::KvmStats(KvmStats {
+            vm: Default::default(),
+            vcpus: vec![],
+        }));
         verify_ok_response_with(VmmData::MachineConfiguration(MachineConfig::default()));
         verify_ok_response_with(VmmData::MmdsValue(serde_json::from_str("{}").unwrap()));
         verify_ok_response_with(VmmData::InstanceInformation(InstanceInfo::default()));
@@ -695,6 +709,31 @@ pub mod tests {
         connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
         ParsedRequest::try_from(&req).unwrap();
+    }
+
+    #[test]
+    fn test_try_from_get_vm() {
+        for (path, action) in [
+            ("/vm/config", Some(VmmAction::GetFullVmConfig)),
+            ("/vm/kvm-stats", Some(VmmAction::GetKvmStats)),
+            ("/vm", None),
+            ("/vm/unknown", None),
+        ] {
+            let (mut sender, receiver) = UnixStream::pair().unwrap();
+            let mut connection = HttpConnection::new(receiver);
+            sender
+                .write_all(http_request("GET", path, None).as_bytes())
+                .unwrap();
+            connection.try_read().unwrap();
+            let req = connection.pop_parsed_request().unwrap();
+            match action {
+                Some(action) => assert_eq!(
+                    vmm_action_from_request(ParsedRequest::try_from(&req).unwrap()),
+                    action
+                ),
+                None => assert!(ParsedRequest::try_from(&req).is_err(), "{path}"),
+            }
+        }
     }
 
     #[test]
