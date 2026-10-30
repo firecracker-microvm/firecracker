@@ -1435,6 +1435,63 @@ mod tests {
     }
 
     #[test]
+    fn test_local_half_close() {
+        let peer_port = 1025;
+        let mut ctx = MuxerTestContext::new("local_half_close");
+        let (mut stream, local_port) = ctx.local_connect(peer_port);
+        // The host shuts down only the write half of its stream. The muxer should pass that on
+        // as a half-close: a VSOCK_OP_SHUTDOWN with only the no-more-send indication set.
+        stream.shutdown(std::net::Shutdown::Write).unwrap();
+        ctx.notify_muxer();
+        assert!(ctx.muxer.has_pending_rx());
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_SHUTDOWN);
+        assert_ne!(ctx.rx_pkt.hdr.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_SEND, 0);
+        assert_eq!(ctx.rx_pkt.hdr.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_RCV, 0);
+
+        // The guest can still send, and the host reads what it sends.
+        let data = [1, 2, 3, 4];
+        ctx.init_data_tx_pkt(local_port, peer_port, &data);
+        ctx.send();
+        let mut buf = [0u8; 4];
+        stream.read_exact(&mut buf).unwrap();
+        assert_eq!(buf, data);
+
+        // Once the guest stops sending too, the host reads EOF.
+        ctx.init_tx_pkt(local_port, peer_port, uapi::VSOCK_OP_SHUTDOWN)
+            .hdr
+            .set_flags(uapi::VSOCK_FLAGS_SHUTDOWN_SEND);
+        ctx.send();
+        assert_eq!(stream.read(&mut buf).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_local_close_after_half_close() {
+        let peer_port = 1025;
+        let mut ctx = MuxerTestContext::new("local_close_after_half_close");
+        let (stream, local_port) = ctx.local_connect(peer_port);
+        stream.shutdown(std::net::Shutdown::Write).unwrap();
+        ctx.notify_muxer();
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_SHUTDOWN);
+        assert_eq!(ctx.rx_pkt.hdr.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_RCV, 0);
+        assert!(!ctx.muxer.has_pending_rx());
+
+        // The host then closes its stream for good. Nothing waits to be flushed to it, but the
+        // muxer still learns of the close, and terminates the connection.
+        drop(stream);
+        ctx.notify_muxer();
+        assert!(ctx.muxer.has_pending_rx());
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
+        assert_eq!(ctx.rx_pkt.hdr.src_port(), local_port);
+        assert!(!ctx.muxer.conn_map.contains_key(&ConnMapKey {
+            local_port,
+            peer_port
+        }));
+    }
+
+    #[test]
     fn test_peer_connection_null_path() {
         let listener = LocalListener::new(get_file("peer_connection_null_path"));
         let path = format!("{}\0suffix", listener.path.display());
@@ -1492,6 +1549,31 @@ mod tests {
         assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RESPONSE);
         assert_eq!(ctx.rx_pkt.hdr.src_port(), LOCAL_PORT);
         assert_eq!(ctx.rx_pkt.hdr.dst_port(), PEER_PORT);
+    }
+
+    #[test]
+    fn test_peer_half_close() {
+        let peer_port = 1025;
+        let mut ctx = MuxerTestContext::new("peer_half_close");
+        let (mut stream, local_port) = ctx.local_connect(peer_port);
+
+        // The guest shuts down only its sending side. The host reads EOF.
+        ctx.init_tx_pkt(local_port, peer_port, uapi::VSOCK_OP_SHUTDOWN)
+            .hdr
+            .set_flags(uapi::VSOCK_FLAGS_SHUTDOWN_SEND);
+        ctx.send();
+        let mut buf = [0u8; 4];
+        assert_eq!(stream.read(&mut buf).unwrap(), 0);
+
+        // The host can still send, and the guest receives what it sends.
+        let data = [5, 6, 7, 8];
+        stream.write_all(&data).unwrap();
+        ctx.notify_muxer();
+        assert!(ctx.muxer.has_pending_rx());
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RW);
+        let buf = test_utils::read_packet_data(&ctx.tx_pkt, 4);
+        assert_eq!(&buf, &data);
     }
 
     #[test]

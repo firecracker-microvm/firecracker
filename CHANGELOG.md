@@ -88,6 +88,23 @@ and this project adheres to
 
 ### Fixed
 
+- [#6349](https://github.com/firecracker-microvm/firecracker/pull/6349): Fixed
+  vsock dropping a guest's half-close. A guest that shut down only the sending
+  side of a connection (`VSOCK_FLAGS_SHUTDOWN_SEND`) left the host-side Unix
+  socket open for writing, so the host peer never read EOF and waited for data
+  that would not come. Firecracker now shuts down the write half of the host
+  socket once the data the guest sent before has been flushed. The host peer can
+  still send data to the guest.
+
+- [#6349](https://github.com/firecracker-microvm/firecracker/pull/6349): Fixed
+  vsock turning a host half-close into a full close. When the host shut down
+  only the write side of its Unix socket, Firecracker told the guest that the
+  host would neither send nor receive, the guest kernel reset the connection,
+  and data the guest still had to send was lost. Firecracker now tells the guest
+  only that the host will send no more data, and keeps forwarding what the guest
+  sends until it shuts down too. A host socket closed for good, which epoll
+  reports as a hang-up, still ends both directions.
+
 - [#6302](https://github.com/firecracker-microvm/firecracker/issues/6302): Fixed
   AMX tile state being lost after a snapshot restore. The IA32_XFD and
   IA32_XFD_ERR MSRs are now saved in snapshots. Without them a restored guest
