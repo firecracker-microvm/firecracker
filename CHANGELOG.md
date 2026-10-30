@@ -110,6 +110,13 @@ and this project adheres to
   used for host-side ports of host-initiated connections. Guest connection
   requests to ports in this range are now refused.
 
+- [#6331](https://github.com/firecracker-microvm/firecracker/pull/6331): Fixed
+  MMDS TCP retransmissions. Since responses larger than one segment were
+  supported, every retransmission of response data failed, counting
+  `mmds.tx_errors`; the guest's connection then stalled until it acknowledged
+  everything, or was reset if a segment had been lost. Responses are now resent
+  from the oldest unacknowledged byte.
+
 - [#6208](https://github.com/firecracker-microvm/firecracker/pull/6208): Fixed
   the vsock device stalling the VMM thread when the guest connects to a
   host-side Unix socket whose accept backlog is full. Such connection requests
