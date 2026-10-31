@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for ensuring correctness of CPU and cache topology in the guest."""
 
+import math
 import platform
 import subprocess
+from pathlib import Path
 
 import pytest
 from packaging import version
@@ -15,6 +17,23 @@ from framework.utils import get_kernel_version
 
 TOPOLOGY_STR = {1: "0", 2: "0,1", 16: "0-15"}
 PLATFORM = platform.machine()
+
+
+def _aarch64_l2_count(cpu_count, threads_per_core):
+    """Number of L2 caches Firecracker exposes: each one is shared by as many
+    vCPUs as CPUs share the host's L2, rounded up to whole guest cores."""
+    cache_dir = Path("/sys/devices/system/cpu/cpu0/cache")
+    l2_dir = next(
+        index
+        for index in cache_dir.glob("index*")
+        if (index / "level").read_text().strip() == "2"
+    )
+    host_cpus = 0
+    for cpu_range in (l2_dir / "shared_cpu_list").read_text().strip().split(","):
+        first, _, last = cpu_range.partition("-")
+        host_cpus += int(last or first) - int(first) + 1
+    vcpus_per_l2 = math.ceil(host_cpus / threads_per_core) * threads_per_core
+    return math.ceil(cpu_count / vcpus_per_l2)
 
 
 def _check_cpu_topology(
@@ -61,14 +80,14 @@ def _check_cpu_topology(
         }
     elif expected_threads_per_core > 1:
         # On aarch64 the L1 caches are attributes of the cpu node in the FDT, so
-        # Linux always reports them as private to a vCPU, while L2 is shared by
-        # the thread siblings of a core. hwloc orders objects by containment, so
+        # Linux always reports them as private to a vCPU, while L2 is shared by at
+        # least the thread siblings of a core. hwloc orders objects by containment, so
         # Core sits between L2 and the per-vCPU L1 caches.
         expected_hwloc_output = {
             "depth 0": "1 Machine (type #0)",
             "depth 1": "1 Package (type #1)",
             "depth 2": "1 L3Cache (type #6)",
-            "depth 3": f"{int(expected_cpu_count / expected_threads_per_core)} L2Cache (type #5)",
+            "depth 3": f"{_aarch64_l2_count(expected_cpu_count, expected_threads_per_core)} L2Cache (type #5)",
             "depth 4": f"{int(expected_cpu_count / expected_threads_per_core)} Core (type #2)",
             "depth 5": f"{expected_cpu_count} L1dCache (type #4)",
             "depth 6": f"{expected_cpu_count} L1iCache (type #9)",
@@ -79,7 +98,7 @@ def _check_cpu_topology(
             "depth 0": "1 Machine (type #0)",
             "depth 1": "1 Package (type #1)",
             "depth 2": "1 L3Cache (type #6)",
-            "depth 3": f"{expected_cpu_count} L2Cache (type #5)",
+            "depth 3": f"{_aarch64_l2_count(expected_cpu_count, expected_threads_per_core)} L2Cache (type #5)",
             "depth 4": f"{expected_cpu_count} L1dCache (type #4)",
             "depth 5": f"{expected_cpu_count} L1iCache (type #9)",
             "depth 6": f"{expected_cpu_count} Core (type #2)",
