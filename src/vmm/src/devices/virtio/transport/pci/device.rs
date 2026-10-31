@@ -225,7 +225,7 @@ const MSIX_PBA_SIZE: u32 = 0x800;
 pub const CAPABILITY_BAR_SIZE: u64 = 0x80000;
 
 /// The default PCI bridge window size that Linux uses
-const BRIDGE_WINDOW_SIZE: u64 = 0x10_0000;
+pub const BRIDGE_WINDOW_SIZE: u64 = 0x10_0000;
 
 /// PCI configuration register index of the Command/Status DWORD.
 const COMMAND_REG: u16 = 1;
@@ -352,10 +352,11 @@ impl VirtioPciDevice {
     }
 
     /// Allocate the guest address for the virtio-pci capability BAR.
-    /// When `hint` is Some() the BAR goes to that address if the range
-    /// is large enough and available.
+    /// When `hint` is Some(), the `alignment` parameter is ignored and the BAR
+    /// goes to the hint address if the range is large enough and available.
     fn allocate_bar_address(
         allocator: &mut AddressAllocator,
+        alignment: u64,
         hint: Option<RangeInclusive>,
     ) -> Result<u64, VirtioPciDeviceError> {
         if let Some(hint) = hint
@@ -368,19 +369,16 @@ impl VirtioPciDevice {
         {
             Ok(range.start())
         } else {
-            let range = allocator.allocate(
-                CAPABILITY_BAR_SIZE,
-                BRIDGE_WINDOW_SIZE,
-                AllocPolicy::FirstMatch,
-            )?;
+            let range =
+                allocator.allocate(CAPABILITY_BAR_SIZE, alignment, AllocPolicy::FirstMatch)?;
 
             Ok(range.start())
         }
     }
 
     /// Allocate the PCI BAR for the VirtIO device and its associated capabilities.
-    /// When `hint` is Some() the BAR goes to that address if the range is large
-    /// enough and available.
+    /// When `hint` is Some(), the `alignment` parameter is ignored and the BAR goes
+    /// to the hint address if the range is large enough and available.
     ///
     /// This must happen only during the creation of a brand new VM. When a VM is restored from a
     /// known state, the BARs are already created with the right content, therefore we don't need
@@ -388,11 +386,12 @@ impl VirtioPciDevice {
     pub fn allocate_bars(
         &mut self,
         allocator: &mut AddressAllocator,
+        alignment: u64,
         hint: Option<RangeInclusive>,
     ) -> Result<(), VirtioPciDeviceError> {
         // Allocate the virtio-pci capability BAR.
         // See http://docs.oasis-open.org/virtio/virtio/v1.0/cs04/virtio-v1.0-cs04.html#x1-740004
-        self.bar_address = Self::allocate_bar_address(allocator, hint)?;
+        self.bar_address = Self::allocate_bar_address(allocator, alignment, hint)?;
         self.bars.set_bar_64(
             VIRTIO_BAR_INDEX,
             self.bar_address,
@@ -1296,7 +1295,7 @@ mod tests {
     /// The address the single virtio-pci BAR of a freshly booted VM ends up
     /// at: the first CAPABILITY_BAR_SIZE-aligned address of the 32-bit MMIO
     /// window.
-    const FIRST_BAR_BASE: u64 = MEM_32BIT_DEVICES_START.next_multiple_of(BRIDGE_WINDOW_SIZE);
+    const FIRST_BAR_BASE: u64 = MEM_32BIT_DEVICES_START.next_multiple_of(CAPABILITY_BAR_SIZE);
 
     fn create_vmm_with_virtio_pci_device() -> Vmm {
         let mut vmm = default_vmm_with_pci();
@@ -1429,7 +1428,7 @@ mod tests {
 
         let mut allocator = AddressAllocator::new(FIRST_BAR_BASE, CAPABILITY_BAR_SIZE - 1).unwrap();
         assert!(matches!(
-            locked_virtio_pci_device.allocate_bars(&mut allocator, None),
+            locked_virtio_pci_device.allocate_bars(&mut allocator, CAPABILITY_BAR_SIZE, None),
             Err(VirtioPciDeviceError::BarAllocation(_))
         ));
 
@@ -1501,20 +1500,23 @@ mod tests {
 
         // With no hint we take the bottom of the pool.
         assert_eq!(
-            VirtioPciDevice::allocate_bar_address(&mut allocator, None).unwrap(),
+            VirtioPciDevice::allocate_bar_address(&mut allocator, CAPABILITY_BAR_SIZE, None)
+                .unwrap(),
             0xc000_0000
         );
 
         // A hint is honoured, so the BAR lands at its base.
         assert_eq!(
-            VirtioPciDevice::allocate_bar_address(&mut allocator, hint).unwrap(),
+            VirtioPciDevice::allocate_bar_address(&mut allocator, BRIDGE_WINDOW_SIZE, hint)
+                .unwrap(),
             0xc020_0000
         );
 
         // That base is now taken, so a second device hinting at the same range
         // falls back to the pool rather than failing.
         assert_ne!(
-            VirtioPciDevice::allocate_bar_address(&mut allocator, hint).unwrap(),
+            VirtioPciDevice::allocate_bar_address(&mut allocator, BRIDGE_WINDOW_SIZE, hint)
+                .unwrap(),
             0xc020_0000
         );
 
@@ -1522,10 +1524,40 @@ mod tests {
         assert_ne!(
             VirtioPciDevice::allocate_bar_address(
                 &mut allocator,
-                Some(RangeInclusive::new(0xc100_0000, 0xc100_ffff).unwrap())
+                BRIDGE_WINDOW_SIZE,
+                Some(RangeInclusive::new(0xc100_0000, 0xc100_ffff).unwrap()),
             )
             .unwrap(),
             0xc100_0000
+        );
+    }
+
+    #[test]
+    fn test_bar_address_alignment() {
+        const POOL_BASE: u64 = 0xc000_0000;
+
+        let mut allocator = AddressAllocator::new(POOL_BASE, 0x1000_0000).unwrap();
+
+        // BARs allocated on their own alignment pack tightly
+        for i in 0..4 {
+            assert_eq!(
+                VirtioPciDevice::allocate_bar_address(&mut allocator, CAPABILITY_BAR_SIZE, None)
+                    .unwrap(),
+                POOL_BASE + i * CAPABILITY_BAR_SIZE
+            );
+        }
+
+        // A bridge-window-aligned BAR skips the half-used megabyte the packed
+        // ones leave behind
+        assert_eq!(
+            VirtioPciDevice::allocate_bar_address(&mut allocator, BRIDGE_WINDOW_SIZE, None)
+                .unwrap(),
+            POOL_BASE + 2 * BRIDGE_WINDOW_SIZE
+        );
+        assert_eq!(
+            VirtioPciDevice::allocate_bar_address(&mut allocator, BRIDGE_WINDOW_SIZE, None)
+                .unwrap(),
+            POOL_BASE + 3 * BRIDGE_WINDOW_SIZE
         );
     }
 
