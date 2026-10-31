@@ -31,9 +31,6 @@ pub enum MachineConfigError {
     InvalidVmState,
     /// Invalid queue count {1} for device {0}; cannot exceed the configured vCPU count {2}.
     InvalidQueueCount(String, u16, u8),
-    /// Enabling simultaneous multithreading is not supported on aarch64.
-    #[cfg(target_arch = "aarch64")]
-    SmtNotSupported,
     /// Could not determine host kernel version when checking hugetlbfs compatibility
     KernelVersion,
     /// The number of PCIe hot-plug ports must be at most {MAX_PCIE_HOTPLUG_PORTS:}.
@@ -277,11 +274,6 @@ impl MachineConfig {
         let vcpu_count = update.vcpu_count.unwrap_or(self.vcpu_count);
 
         let smt = update.smt.unwrap_or(self.smt);
-
-        #[cfg(target_arch = "aarch64")]
-        if smt {
-            return Err(MachineConfigError::SmtNotSupported);
-        }
 
         if vcpu_count == 0 || vcpu_count > MAX_SUPPORTED_VCPUS {
             return Err(MachineConfigError::InvalidVcpuCount);

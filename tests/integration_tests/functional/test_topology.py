@@ -2,19 +2,38 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for ensuring correctness of CPU and cache topology in the guest."""
 
+import math
 import platform
 import subprocess
+from pathlib import Path
 
 import pytest
 from packaging import version
 
 import framework.utils_cpuid as utils
-from framework.artifacts import pin_pci
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_pci
 from framework.properties import global_props
 from framework.utils import get_kernel_version
 
 TOPOLOGY_STR = {1: "0", 2: "0,1", 16: "0-15"}
 PLATFORM = platform.machine()
+
+
+def _aarch64_l2_count(cpu_count, threads_per_core):
+    """Number of L2 caches Firecracker exposes: each one is shared by as many
+    vCPUs as CPUs share the host's L2, rounded up to whole guest cores."""
+    cache_dir = Path("/sys/devices/system/cpu/cpu0/cache")
+    l2_dir = next(
+        index
+        for index in cache_dir.glob("index*")
+        if (index / "level").read_text().strip() == "2"
+    )
+    host_cpus = 0
+    for cpu_range in (l2_dir / "shared_cpu_list").read_text().strip().split(","):
+        first, _, last = cpu_range.partition("-")
+        host_cpus += int(last or first) - int(first) + 1
+    vcpus_per_l2 = math.ceil(host_cpus / threads_per_core) * threads_per_core
+    return math.ceil(cpu_count / vcpus_per_l2)
 
 
 def _check_cpu_topology(
@@ -36,7 +55,7 @@ def _check_cpu_topology(
         expected_lscpu_output = {
             "CPU(s)": str(expected_cpu_count),
             "On-line CPU(s) list": expected_cpus_list,
-            "Thread(s) per core": "1",
+            "Thread(s) per core": str(expected_threads_per_core),
             "Core(s) per cluster": str(
                 int(expected_cpu_count / expected_threads_per_core)
             ),
@@ -59,12 +78,27 @@ def _check_cpu_topology(
             "depth 6": f"{int(expected_cpu_count / expected_threads_per_core)} Core (type #2)",
             "depth 7": f"{expected_cpu_count} PU (type #3)",
         }
+    elif expected_threads_per_core > 1:
+        # On aarch64 the L1 caches are attributes of the cpu node in the FDT, so
+        # Linux always reports them as private to a vCPU, while L2 is shared by at
+        # least the thread siblings of a core. hwloc orders objects by containment, so
+        # Core sits between L2 and the per-vCPU L1 caches.
+        expected_hwloc_output = {
+            "depth 0": "1 Machine (type #0)",
+            "depth 1": "1 Package (type #1)",
+            "depth 2": "1 L3Cache (type #6)",
+            "depth 3": f"{_aarch64_l2_count(expected_cpu_count, expected_threads_per_core)} L2Cache (type #5)",
+            "depth 4": f"{int(expected_cpu_count / expected_threads_per_core)} Core (type #2)",
+            "depth 5": f"{expected_cpu_count} L1dCache (type #4)",
+            "depth 6": f"{expected_cpu_count} L1iCache (type #9)",
+            "depth 7": f"{expected_cpu_count} PU (type #3)",
+        }
     else:
         expected_hwloc_output = {
             "depth 0": "1 Machine (type #0)",
             "depth 1": "1 Package (type #1)",
             "depth 2": "1 L3Cache (type #6)",
-            "depth 3": f"{expected_cpu_count} L2Cache (type #5)",
+            "depth 3": f"{_aarch64_l2_count(expected_cpu_count, expected_threads_per_core)} L2Cache (type #5)",
             "depth 4": f"{expected_cpu_count} L1dCache (type #4)",
             "depth 5": f"{expected_cpu_count} L1iCache (type #9)",
             "depth 6": f"{expected_cpu_count} Core (type #2)",
@@ -193,6 +227,37 @@ def _check_cache_topology_arm(test_microvm, no_cpus, kernel_version_tpl):
         assert guest_slice == host_slice
 
 
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pytest.mark.parametrize("num_vcpus", [2, 4])
+def test_aarch64_smt_threads_per_core(uvm, num_vcpus):
+    """
+    Check the guest-visible SMT topology without asserting cache hierarchy details.
+    """
+    if PLATFORM != "aarch64":
+        pytest.skip("This test verifies aarch64 SMT topology.")
+
+    vm = uvm
+    vm.spawn()
+    vm.basic_config(vcpu_count=num_vcpus, smt=True)
+    vm.add_net_iface()
+    vm.start()
+
+    utils.check_guest_cpuid_output(
+        vm,
+        "lscpu",
+        None,
+        ":",
+        {
+            "CPU(s)": str(num_vcpus),
+            "On-line CPU(s) list": "0,1" if num_vcpus == 2 else "0-3",
+            "Thread(s) per core": "2",
+            "Core(s) per cluster": str(num_vcpus // 2),
+            "Cluster(s)": "1",
+            "NUMA node(s)": "1",
+        },
+    )
+
+
 @pytest.mark.parametrize("num_vcpus", [1, 2, 16])
 @pytest.mark.parametrize("htt", [True, False], ids=["HTT_ON", "HTT_OFF"])
 # The transport plays no part in what is asserted: guest CPU state.
@@ -201,9 +266,6 @@ def test_cpu_topology(uvm, num_vcpus, htt):
     """
     Check the CPU topology for a microvm with the specified config.
     """
-    if htt and PLATFORM == "aarch64":
-        pytest.skip("SMT is configurable only on x86.")
-
     # TODO:Remove (or adapt) this once we unify the way we expose the CPU cache hierarchy on
     # Aarch64 systems.
     if version.parse(get_kernel_version()) >= version.parse("6.14"):
@@ -237,8 +299,6 @@ def test_cache_topology(uvm, num_vcpus, htt):
     """
     Check the cache topology for a microvm with the specified config.
     """
-    if htt and PLATFORM == "aarch64":
-        pytest.skip("SMT is configurable only on x86.")
     vm = uvm
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, smt=htt)
