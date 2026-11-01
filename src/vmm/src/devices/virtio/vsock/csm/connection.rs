@@ -145,12 +145,22 @@ pub struct VsockConnection<S: VsockConnectionBackend> {
     /// Whether the write half of `self.stream` has been shut down, after the peer promised to
     /// send no more data and the TX buffer drained.
     stream_write_shut: bool,
-    /// Whether `self.stream` reached EOF while the peer could still send, and the peer was told
-    /// that the host will send no more data (`VSOCK_FLAGS_SHUTDOWN_SEND`).
-    stream_eof: bool,
-    /// Whether epoll reported a hang-up on `self.stream`: the host end was closed for good, not
-    /// only shut down for writing, so it will receive no more data either.
-    stream_hup: bool,
+    /// How far `self.stream` has ended.
+    stream_end: StreamEnd,
+}
+
+/// How far the host-side stream of a connection has ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StreamEnd {
+    /// The stream may still send data.
+    Open,
+    /// Epoll reported a hang-up: the stream is shut down in both directions, because the host
+    /// closed it or because both ends shut down writing. Data it sent before may still wait to
+    /// be read.
+    HungUp,
+    /// The stream reached EOF without a hang-up, as after a half-close: it will send no more
+    /// data, but may still receive. The peer was told so (`VSOCK_FLAGS_SHUTDOWN_SEND`).
+    HalfClosed,
 }
 
 impl<S> VsockChannel for VsockConnection<S>
@@ -237,13 +247,10 @@ where
             // Read data from the stream straight to the RX buffer, for maximum throughput.
             match pkt.read_at_offset_from(mem, &mut self.stream, 0, max_len) {
                 Ok(read_cnt) => {
-                    if read_cnt == 0
-                        && (self.stream_hup || matches!(self.state, ConnState::PeerClosed(_, true)))
-                    {
-                        // A 0-length read means the host stream will send no more data. The host
-                        // end was closed for good, or the peer has stopped sending too, so we'll
-                        // ask the peer to shut down the connection: neither end will send any
-                        // more data.
+                    if read_cnt == 0 && self.stream_end == StreamEnd::HungUp {
+                        // A 0-length read after a hang-up means the host stream will neither send
+                        // nor receive any more data. In that case, we'll ask our peer to shut
+                        // down the connection.
                         self.state = ConnState::LocalClosed;
                         self.expiry = Some(
                             Instant::now() + Duration::from_millis(defs::CONN_SHUTDOWN_TIMEOUT_MS),
@@ -255,11 +262,13 @@ where
                     } else if read_cnt == 0 {
                         // The host stream will send no more data, as after a half-close, but
                         // the peer may still send. Tell the peer that we will send no more data,
-                        // and keep forwarding what it sends, until it stops sending too.
-                        self.stream_eof = true;
+                        // and keep forwarding what it sends, until it stops sending too. If it
+                        // already has, `advance_shutdown()` ends the connection.
+                        self.stream_end = StreamEnd::HalfClosed;
                         pkt.hdr
                             .set_op(uapi::VSOCK_OP_SHUTDOWN)
                             .set_flag(uapi::VSOCK_FLAGS_SHUTDOWN_SEND);
+                        self.advance_shutdown();
                     } else {
                         // On a successful data read, we fill in the packet with the RW op, and
                         // length of the read data.
@@ -366,24 +375,15 @@ where
                 self.state = ConnState::Established;
             }
 
-            // The peer wants to shut down an established connection.  If they have nothing
-            // more to send nor receive, and we don't have to wait to drain our TX buffer, we
-            // can schedule an RST packet (to terminate the connection on the next recv call).
-            // Otherwise, we'll arm the kill timer.
+            // The peer wants to shut down an established connection. Once neither end will send
+            // any more data, and we don't have to wait to drain our TX buffer, we can schedule an
+            // RST packet (to terminate the connection on the next recv call). Otherwise, we'll
+            // arm the kill timer. `advance_shutdown()` decides.
             ConnState::Established if pkt.hdr.op() == uapi::VSOCK_OP_SHUTDOWN => {
                 let recv_off = pkt.hdr.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_RCV != 0;
                 let send_off = pkt.hdr.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_SEND != 0;
                 self.state = ConnState::PeerClosed(recv_off, send_off);
-                if self.is_done() {
-                    if self.tx_buf.is_empty() {
-                        self.pending_rx.insert(PendingRx::Rst);
-                    } else {
-                        self.expiry = Some(
-                            Instant::now() + Duration::from_millis(defs::CONN_SHUTDOWN_TIMEOUT_MS),
-                        );
-                    }
-                }
-                self.shutdown_stream_write_if_drained();
+                self.advance_shutdown();
             }
 
             // The peer wants to update a shutdown request, with more receive/send indications.
@@ -395,10 +395,7 @@ where
                     recv_off || (pkt.hdr.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_RCV != 0),
                     send_off || (pkt.hdr.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_SEND != 0),
                 );
-                if self.is_done() && self.tx_buf.is_empty() {
-                    self.pending_rx.insert(PendingRx::Rst);
-                }
-                self.shutdown_stream_write_if_drained();
+                self.advance_shutdown();
             }
 
             // A credit update from our peer is valid only in a state which allows data
@@ -468,7 +465,7 @@ where
             ConnState::Killed | ConnState::LocalClosed | ConnState::PeerClosed(true, _) => (),
             // The host stream is at EOF: it has nothing more to read, and polling it for IN would
             // busy-spin the event thread.
-            _ if self.stream_eof => (),
+            _ if self.stream_end == StreamEnd::HalfClosed => (),
             _ if self.need_credit_update_from_peer() => (),
             // An `Rw` indication means the host stream is readable and its data is waiting to
             // be delivered to the guest by `recv_pkt`, which needs a guest RX buffer. While
@@ -481,7 +478,7 @@ where
         // After a host half-close, stay registered so that a later close for good is reported
         // as a hang-up, which terminates the connection. Epoll reports a hang-up whatever the
         // interest set, so this wakes the event thread once, not repeatedly.
-        if self.stream_eof && !self.stream_hup && self.state != ConnState::Killed {
+        if self.stream_end == StreamEnd::HalfClosed && self.state != ConnState::Killed {
             evset.insert(EventSet::HANG_UP);
         }
         evset
@@ -490,14 +487,14 @@ where
     /// Notify the connection about an event (or set of events) that it was interested in.
     fn notify(&mut self, evset: EventSet) {
         if evset.contains(EventSet::HANG_UP) {
-            // The host end was closed for good. If the peer was told only that the host will
-            // send no more data, it may still be sending: nothing will receive it, so terminate
-            // the connection.
-            self.stream_hup = true;
-            if self.stream_eof && self.state != ConnState::Killed {
+            // The host stream will receive no more data. If the peer was told only that the host
+            // will send no more data, it may still be sending: nothing will receive it, so
+            // terminate the connection.
+            if self.stream_end == StreamEnd::HalfClosed {
                 self.kill();
                 return;
             }
+            self.stream_end = StreamEnd::HungUp;
         }
 
         if evset.contains(EventSet::IN) {
@@ -538,14 +535,10 @@ where
             METRICS.tx_bytes_count.add(flushed as u64);
 
             // If the peer will send no more data, the host stream can learn so once the TX
-            // buffer has drained.
-            self.shutdown_stream_write_if_drained();
-
-            // If this connection was shutting down, but is waiting to drain the TX buffer
-            // before forceful termination, the wait might be over.
-            if self.is_done() && self.tx_buf.is_empty() {
-                self.pending_rx.insert(PendingRx::Rst);
-            } else if self.peer_needs_credit_update() {
+            // buffer has drained. If this connection was shutting down, but is waiting to drain
+            // the TX buffer before forceful termination, the wait might be over.
+            self.advance_shutdown();
+            if !self.pending_rx.contains(PendingRx::Rst) && self.peer_needs_credit_update() {
                 // If we've freed up some more buffer space, we may need to let the peer know it
                 // can safely send more data our way.
                 self.pending_rx.insert(PendingRx::CreditUpdate);
@@ -583,8 +576,7 @@ where
             pending_rx: PendingRxSet::from(PendingRx::Response),
             expiry: None,
             stream_write_shut: false,
-            stream_eof: false,
-            stream_hup: false,
+            stream_end: StreamEnd::Open,
         }
     }
 
@@ -612,8 +604,7 @@ where
             pending_rx: PendingRxSet::from(PendingRx::Request),
             expiry: None,
             stream_write_shut: false,
-            stream_eof: false,
-            stream_hup: false,
+            stream_end: StreamEnd::Open,
         }
     }
 
@@ -645,30 +636,45 @@ where
     /// has drained.
     fn is_done(&self) -> bool {
         match self.state {
-            ConnState::PeerClosed(recv_off, true) => recv_off || self.stream_eof,
+            ConnState::PeerClosed(recv_off, true) => {
+                recv_off || self.stream_end == StreamEnd::HalfClosed
+            }
             _ => false,
         }
     }
 
-    /// Pass the peer's half-close on to the host stream: once the peer has promised to send no
-    /// more data (`VSOCK_FLAGS_SHUTDOWN_SEND`) and the TX buffer has drained, shut down the
-    /// write half of the host stream. The host peer then reads EOF, as it would from a TCP
-    /// half-close, and can keep sending data to the guest.
-    fn shutdown_stream_write_if_drained(&mut self) {
-        if self.stream_write_shut
-            || !matches!(self.state, ConnState::PeerClosed(_, true))
-            || !self.tx_buf.is_empty()
-        {
+    /// Move the connection's shutdown along from its current state, whichever event led to it.
+    ///
+    /// Once the peer has promised to send no more data (`VSOCK_FLAGS_SHUTDOWN_SEND`) and the TX
+    /// buffer has drained, shut down the write half of the host stream. The host peer then reads
+    /// EOF, as it would from a TCP half-close, and can keep sending data to the guest. Once
+    /// neither end will send any more data, schedule an RST packet when the TX buffer has
+    /// drained, and arm the kill timer while it drains.
+    fn advance_shutdown(&mut self) {
+        if !matches!(self.state, ConnState::PeerClosed(_, true)) {
             return;
         }
-        self.stream_write_shut = true;
-        if let Err(err) = self.stream.shutdown_write() {
-            warn!(
-                "vsock: error shutting down the write half of the local stream (lp={}, pp={}): \
-                 {:?}",
-                self.local_port, self.peer_port, err
-            );
-            self.kill();
+        if !self.tx_buf.is_empty() {
+            if self.is_done() && self.expiry.is_none() {
+                self.expiry =
+                    Some(Instant::now() + Duration::from_millis(defs::CONN_SHUTDOWN_TIMEOUT_MS));
+            }
+            return;
+        }
+        if !self.stream_write_shut {
+            self.stream_write_shut = true;
+            if let Err(err) = self.stream.shutdown_write() {
+                warn!(
+                    "vsock: error shutting down the write half of the local stream (lp={}, \
+                     pp={}): {:?}",
+                    self.local_port, self.peer_port, err
+                );
+                self.kill();
+                return;
+            }
+        }
+        if self.is_done() {
+            self.pending_rx.insert(PendingRx::Rst);
         }
     }
 
@@ -1355,15 +1361,31 @@ mod tests {
 
     #[test]
     fn test_local_close_after_peer_send_shutdown() {
-        // When the host-side stream reaches EOF after the guest stopped sending, neither end will
-        // send any more data, so the shutdown packet carries both indications and the kill timer
-        // is armed.
+        // When the host-side stream reaches EOF without a hang-up after the guest stopped
+        // sending, the host may still receive, so the shutdown packet carries the no-more-send
+        // indication only. Neither end will send any more data, so the connection is then
+        // terminated.
         let mut ctx = CsmTestContext::new_established();
         let tx_pkt = ctx.init_tx_pkt(uapi::VSOCK_OP_SHUTDOWN, 0);
         tx_pkt.hdr.set_flags(uapi::VSOCK_FLAGS_SHUTDOWN_SEND);
         ctx.send();
         ctx.conn.stream.read_state = StreamState::Closed;
         ctx.notify_epollin();
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_SHUTDOWN);
+        assert_ne!(ctx.rx_pkt.hdr.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_SEND, 0);
+        assert_eq!(ctx.rx_pkt.hdr.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_RCV, 0);
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
+
+        // With a hang-up, the host stream will receive no more data either, so the shutdown
+        // packet carries both indications and the kill timer is armed.
+        let mut ctx = CsmTestContext::new_established();
+        let tx_pkt = ctx.init_tx_pkt(uapi::VSOCK_OP_SHUTDOWN, 0);
+        tx_pkt.hdr.set_flags(uapi::VSOCK_FLAGS_SHUTDOWN_SEND);
+        ctx.send();
+        ctx.conn.stream.read_state = StreamState::Closed;
+        ctx.conn.notify(EventSet::IN | EventSet::HANG_UP);
         ctx.recv();
         assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_SHUTDOWN);
         assert_ne!(ctx.rx_pkt.hdr.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_SEND, 0);
@@ -1521,6 +1543,66 @@ mod tests {
             ctx.recv();
             assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
         }
+    }
+
+    #[test]
+    fn test_local_half_close_after_peer_send_shutdown_flushes_tx_buf() {
+        // When the host-side stream reaches EOF after the guest stopped sending, while data is
+        // still buffered for the host, the guest is told only that the host will send no more
+        // data. The buffer is flushed before the write half of the host stream is shut down and
+        // the connection is terminated, and the kill timer is armed meanwhile.
+        let mut ctx = CsmTestContext::new_established();
+        let mut stream = TestStream::new();
+        stream.write_state = StreamState::WouldBlock;
+        ctx.set_stream(stream);
+        let data = &[1, 2, 3, 4];
+        ctx.init_data_tx_pkt(data);
+        ctx.send();
+        let tx_pkt = ctx.init_tx_pkt(uapi::VSOCK_OP_SHUTDOWN, 0);
+        tx_pkt.hdr.set_flags(uapi::VSOCK_FLAGS_SHUTDOWN_SEND);
+        ctx.send();
+
+        ctx.conn.stream.read_state = StreamState::Closed;
+        ctx.notify_epollin();
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_SHUTDOWN);
+        assert_ne!(ctx.rx_pkt.hdr.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_SEND, 0);
+        assert_eq!(ctx.rx_pkt.hdr.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_RCV, 0);
+        assert_eq!(ctx.conn.state, ConnState::PeerClosed(false, true));
+        assert_eq!(ctx.conn.tx_buf.len(), data.len());
+        assert!(!ctx.conn.stream.write_shut);
+        assert!(!ctx.conn.has_pending_rx());
+        assert!(ctx.conn.will_expire());
+
+        ctx.conn.stream.write_state = StreamState::Ready;
+        ctx.notify_epollout();
+        assert_eq!(ctx.conn.stream.write_buf, data);
+        assert!(ctx.conn.stream.write_shut);
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
+    }
+
+    #[test]
+    fn test_peer_shutdown_update_arms_kill_timer() {
+        // When a later shutdown packet means neither end will send any more data, while data is
+        // still buffered for the host, the kill timer is armed.
+        let mut ctx = CsmTestContext::new_established();
+        let mut stream = TestStream::new();
+        stream.write_state = StreamState::WouldBlock;
+        ctx.set_stream(stream);
+        let tx_pkt = ctx.init_tx_pkt(uapi::VSOCK_OP_SHUTDOWN, 0);
+        tx_pkt.hdr.set_flags(uapi::VSOCK_FLAGS_SHUTDOWN_RCV);
+        ctx.send();
+        ctx.init_data_tx_pkt(&[1, 2, 3, 4]);
+        ctx.send();
+        assert!(!ctx.conn.will_expire());
+
+        let tx_pkt = ctx.init_tx_pkt(uapi::VSOCK_OP_SHUTDOWN, 0);
+        tx_pkt.hdr.set_flags(uapi::VSOCK_FLAGS_SHUTDOWN_SEND);
+        ctx.send();
+        assert_eq!(ctx.conn.state, ConnState::PeerClosed(true, true));
+        assert!(!ctx.conn.has_pending_rx());
+        assert!(ctx.conn.will_expire());
     }
 
     #[test]

@@ -1779,6 +1779,32 @@ mod tests {
     }
 
     #[test]
+    fn test_peer_half_close_then_local_half_close() {
+        let peer_port = 1025;
+        let mut ctx = MuxerTestContext::new("peer_half_close_then_local_half_close");
+        let (mut stream, local_port) = ctx.local_connect(peer_port);
+
+        // The guest shuts down only its sending side, and the host reads EOF.
+        ctx.init_tx_pkt(local_port, peer_port, uapi::VSOCK_OP_SHUTDOWN)
+            .hdr
+            .set_flags(uapi::VSOCK_FLAGS_SHUTDOWN_SEND);
+        ctx.send();
+        let mut buf = [0u8; 4];
+        assert_eq!(stream.read(&mut buf).unwrap(), 0);
+
+        // The host then shuts down its write half too. The muxer's end of the stream is now shut
+        // down in both directions, so epoll reports a hang-up, and the guest is told that
+        // neither end will send any more data.
+        stream.shutdown(std::net::Shutdown::Write).unwrap();
+        ctx.notify_muxer();
+        assert!(ctx.muxer.has_pending_rx());
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_SHUTDOWN);
+        assert_ne!(ctx.rx_pkt.hdr.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_SEND, 0);
+        assert_ne!(ctx.rx_pkt.hdr.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_RCV, 0);
+    }
+
+    #[test]
     fn test_regression_handshake() {
         // Address one of the issues found while fixing the following issue:
         // https://github.com/firecracker-microvm/firecracker/issues/1751

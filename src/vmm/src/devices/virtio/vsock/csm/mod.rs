@@ -43,8 +43,8 @@ pub enum ConnState {
     PeerInit,
     /// The connection handshake has been performed successfully, and data can now be exchanged.
     Established,
-    /// The host (AF_UNIX) stream reached EOF after the guest had stopped sending, so neither
-    /// end will send any more data.
+    /// The host (AF_UNIX) stream reached EOF after epoll reported a hang-up on it: the host
+    /// closed it, or both ends shut down writing. Neither end will send any more data.
     LocalClosed,
     /// A VSOCK_OP_SHUTDOWN packet was received from the guest. The tuple represents the guest R/W
     /// indication: (will_not_recv_anymore_data, will_not_send_anymore_data).
