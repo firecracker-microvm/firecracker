@@ -424,11 +424,10 @@ def start_fast_page_fault_helper(ssh_connection, timeout_s=10) -> str:
     """
     # The helper truncates its output file when it finishes; remove any
     # leftover from a previous run (e.g. inside a restored snapshot).
-    ssh_connection.check_output(
+    _, pid, _ = ssh_connection.check_output(
         f"rm -f {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH}; "
-        f"nohup {FAST_PAGE_FAULT_HELPER_BIN} >/dev/null 2>&1 </dev/null &"
+        f"nohup {FAST_PAGE_FAULT_HELPER_BIN} >/dev/null 2>&1 </dev/null & echo $!"
     )
-    _, pid, _ = ssh_connection.check_output("pidof fast_page_fault_helper")
     pid = pid.strip()
     wait_for_fast_page_fault_helper_ready(ssh_connection, pid, timeout_s)
     return pid
