@@ -4,6 +4,7 @@
 //! Defines state and support structures for persisting Vsock devices and backends.
 
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +12,7 @@ use super::*;
 use crate::devices::virtio::device::{DeviceState, VirtioDeviceType};
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::devices::virtio::vsock::metrics::{METRICS, VsockDeviceMetrics};
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -113,7 +115,14 @@ where
                 FIRECRACKER_MAX_QUEUE_SIZE,
             )
             .map_err(VsockError::VirtioState)?;
-        let mut vsock = Self::with_queues(state.cid, constructor_args.backend, queues)?;
+        // If we are here then the muxer must have been initiated, so it has already published
+        // the device's metrics instance. Share it with the restored vsock struct.
+        let metrics = METRICS
+            .read()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| Arc::new(VsockDeviceMetrics::default()));
+        let mut vsock = Self::with_queues(state.cid, constructor_args.backend, queues, metrics)?;
 
         vsock.acked_features = state.virtio_state.acked_features;
         vsock.avail_features = state.virtio_state.avail_features;
