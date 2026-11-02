@@ -73,7 +73,9 @@ class ArtifactStagingTests(unittest.TestCase):
         (self.artifacts / "test.debug").unlink(missing_ok=True)
         (self.artifacts / "test.debug.gz").write_bytes(gzip.compress(b"debug"))
         self.run_command(
-            "bash", str(REPO / "tools/setup-ci-artifacts.sh"), str(self.artifacts)
+            "bash",
+            str(REPO / "tools/setup-ci-artifacts.sh"),
+            str(self.artifacts),
         )
 
     def check_image_keys(self):
@@ -100,7 +102,73 @@ class ArtifactStagingTests(unittest.TestCase):
         self.assertEqual(ext4_key, key)
 
     def test_fresh_staging_injects_matching_keys(self):
-        """Check initial SSH-key injection in both image formats; return None."""
+        """Check SSH-key injection in both image formats; return None."""
 
         self.stage()
         self.check_image_keys()
+
+    def test_replaced_rootfs_is_rekeyed(self):
+        """Rekey a downloaded image and refresh its ext4 copy; return None."""
+
+        self.stage()
+        (self.source / "marker").write_text("replacement rootfs\n")
+        self.image.unlink()
+        self.create_image()
+        self.stage()
+        self.check_image_keys()
+        marker = self.run_command(
+            "debugfs",
+            "-R",
+            "cat /marker",
+            str(self.image.with_suffix(".ext4")),
+        ).stdout
+        self.assertEqual(marker, "replacement rootfs\n")
+
+    def test_existing_image_key_is_preserved(self):
+        """Use the image key when the shared key differs; return None."""
+
+        self.stage()
+        original_key = self.image.with_suffix(".id_rsa").read_bytes()
+        (self.artifacts / "id_rsa").unlink()
+        (self.artifacts / "id_rsa.pub").unlink()
+        shutil.copyfile(str(self.image) + ".orig", self.image)
+        self.stage()
+        self.assertTrue(
+            self.image.with_suffix(".id_rsa").read_bytes() == original_key,
+            "The per-image SSH key changed",
+        )
+        self.check_image_keys()
+
+    def test_repeated_staging_without_debuginfo(self):
+        """Allow staging twice without compressed debug files; return None."""
+
+        self.stage()
+        for _ in range(2):
+            self.run_command(
+                "bash",
+                str(REPO / "tools/setup-ci-artifacts.sh"),
+                str(self.artifacts),
+            )
+            self.check_image_keys()
+
+    def test_invalid_image_key_preserves_rootfs(self):
+        """Preserve the rootfs when its key is invalid; return None."""
+
+        original_image = self.image.read_bytes()
+        self.image.with_suffix(".id_rsa").write_text("invalid test key\n")
+        self.image.with_suffix(".id_rsa").chmod(0o600)
+        result = subprocess.run(
+            [
+                "bash",
+                str(REPO / "tools/setup-ci-artifacts.sh"),
+                str(self.artifacts),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Load key", result.stderr)
+        self.assertTrue(self.image.read_bytes() == original_image)
+        self.assertFalse(self.image.with_suffix(".ext4").exists())
