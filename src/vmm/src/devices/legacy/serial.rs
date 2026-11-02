@@ -31,15 +31,16 @@ use crate::vstate::bus::BusDevice;
 pub struct SerialDeviceMetrics {
     /// Errors triggered while using the UART device.
     pub error_count: SharedIncMetric,
-    /// Number of flush operations.
+    /// Number of times guest output was written to the host output, one batch at a time.
     pub flush_count: SharedIncMetric,
     /// Number of read calls that did not trigger a read.
     pub missed_read_count: SharedIncMetric,
-    /// Number of write calls that did not trigger a write.
+    /// Number of invalid register writes, plus bytes of guest output the host output did not
+    /// take.
     pub missed_write_count: SharedIncMetric,
     /// Number of succeeded read calls.
     pub read_count: SharedIncMetric,
-    /// Number of succeeded write calls.
+    /// Number of bytes the guest transmitted that were accepted for the host output.
     pub write_count: SharedIncMetric,
     /// Total bytes dropped by the serial output rate limiter.
     pub rate_limiter_dropped_bytes: SharedIncMetric,
@@ -134,11 +135,18 @@ pub enum SerialOutInner {
 }
 
 /// Output sink for the serial device, with optional rate limiting.
+///
+/// Bytes the guest transmits are collected and written to the host output in one go through
+/// [`SerialOut::write_pending`], which the device calls once it has handled a guest access or a
+/// run of coalesced writes, rather than one system call per byte.
 #[derive(Debug)]
 pub struct SerialOut {
     inner: SerialOutInner,
     /// Optional rate limiter for serial output bandwidth.
     rate_limiter: Option<TokenBucket>,
+    /// Bytes the guest transmitted that `write_pending` has not written to `inner` yet. At most a
+    /// run of coalesced writes accumulates between two calls, which KVM's ring size bounds.
+    pending: Vec<u8>,
 }
 
 impl SerialOut {
@@ -147,8 +155,45 @@ impl SerialOut {
         Self {
             inner,
             rate_limiter,
+            pending: Vec::new(),
         }
     }
+
+    /// Writes the bytes collected since the last call to the host output, in one batch.
+    ///
+    /// Bytes the output does not take, for instance because it is a full non-blocking pipe, are
+    /// dropped and counted as missed writes.
+    pub fn write_pending(&mut self) -> std::io::Result<()> {
+        if self.pending.is_empty() {
+            return Ok(());
+        }
+        METRICS.flush_count.inc();
+        let (written, result) = match &mut self.inner {
+            // Hold the lock across the batch so that log lines cannot land in the middle of it.
+            SerialOutInner::Stdout(stdout) => write_out(&mut stdout.lock(), &self.pending),
+            SerialOutInner::File(file) => write_out(file, &self.pending),
+            SerialOutInner::Sink => (self.pending.len(), Ok(())),
+        };
+        METRICS
+            .missed_write_count
+            .add(usize_to_u64(self.pending.len() - written));
+        self.pending.clear();
+        result
+    }
+}
+
+/// Writes as much of `buf` to `out` as it takes, then flushes it. Returns how many bytes it took.
+fn write_out(out: &mut impl Write, buf: &[u8]) -> (usize, std::io::Result<()>) {
+    let mut written = 0;
+    while written < buf.len() {
+        match out.write(&buf[written..]) {
+            Ok(0) => return (written, Err(std::io::ErrorKind::WriteZero.into())),
+            Ok(count) => written += count,
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => (),
+            Err(err) => return (written, Err(err)),
+        }
+    }
+    (written, out.flush())
 }
 
 impl std::io::Write for SerialOut {
@@ -170,18 +215,14 @@ impl std::io::Write for SerialOut {
             }
         }
 
-        match &mut self.inner {
-            SerialOutInner::Stdout(stdout) => stdout.write(buf),
-            SerialOutInner::File(file) => file.write(buf),
-            SerialOutInner::Sink => Ok(buf.len()),
-        }
+        self.pending.extend_from_slice(buf);
+        Ok(buf.len())
     }
+
+    /// Does nothing. vm-superio flushes after every byte; the collected output is written out
+    /// through [`SerialOut::write_pending`] instead.
     fn flush(&mut self) -> std::io::Result<()> {
-        match &mut self.inner {
-            SerialOutInner::Sink => Ok(()),
-            SerialOutInner::Stdout(stdout) => stdout.flush(),
-            SerialOutInner::File(file) => file.flush(),
-        }
+        Ok(())
     }
 }
 
@@ -408,6 +449,30 @@ fn is_fifo(fd: RawFd) -> bool {
     (stat.st_mode & libc::S_IFIFO) != 0
 }
 
+impl<I: Read + AsRawFd + Send> SerialWrapper<EventFdTrigger, SerialEventsWrapper, I> {
+    /// Hands a guest write to a UART register to the UART. Whatever it makes the UART transmit is
+    /// collected in its output.
+    fn write_register(&mut self, offset: u64, data: &[u8]) {
+        if let (Ok(offset), 1) = (u8::try_from(offset), data.len()) {
+            if let Err(err) = self.serial.write(offset, data[0]) {
+                // Counter incremented for any handle_write() error.
+                error!("Failed the write to serial: {:?}", err);
+                METRICS.error_count.inc();
+            }
+        } else {
+            METRICS.missed_write_count.inc();
+        }
+    }
+
+    /// Writes out what the guest transmitted.
+    fn write_pending_output(&mut self) {
+        if let Err(err) = self.serial.writer_mut().write_pending() {
+            error!("Failed the write to serial: {:?}", err);
+            METRICS.error_count.inc();
+        }
+    }
+}
+
 impl<I> BusDevice for SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>
 where
     I: Read + AsRawFd + Send,
@@ -421,16 +486,17 @@ where
     }
 
     fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
-        if let (Ok(offset), 1) = (u8::try_from(offset), data.len()) {
-            if let Err(err) = self.serial.write(offset, data[0]) {
-                // Counter incremented for any handle_write() error.
-                error!("Failed the write to serial: {:?}", err);
-                METRICS.error_count.inc();
-            }
-        } else {
-            METRICS.missed_write_count.inc();
-        }
+        self.write_register(offset, data);
+        self.write_pending_output();
         None
+    }
+
+    fn write_coalesced(&mut self, _base: u64, offset: u64, data: &[u8]) {
+        self.write_register(offset, data);
+    }
+
+    fn coalesced_writes_done(&mut self) {
+        self.write_pending_output();
     }
 }
 
@@ -545,6 +611,7 @@ mod tests {
         let data = b"hello";
         let result = serial_out.write(data).unwrap();
         assert_eq!(result, data.len());
+        serial_out.write_pending().unwrap();
 
         use std::io::Seek;
         let mut file = file;
@@ -572,6 +639,7 @@ mod tests {
         assert_eq!(result, 1024);
         let dropped_delta = METRICS.rate_limiter_dropped_bytes.count() - dropped_before;
         assert!(dropped_delta >= 1024);
+        serial_out.write_pending().unwrap();
 
         use std::io::Seek;
         let mut file = file;
@@ -588,5 +656,72 @@ mod tests {
         let result = serial_out.write(b"anything").unwrap();
         assert_eq!(result, 8);
         assert_eq!(METRICS.rate_limiter_dropped_bytes.count(), dropped_before);
+    }
+
+    fn file_contents(file: &mut File) -> Vec<u8> {
+        use std::io::Seek;
+        file.seek(std::io::SeekFrom::Start(0)).unwrap();
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents).unwrap();
+        contents
+    }
+
+    #[test]
+    fn test_serial_output_is_written_once_per_access() {
+        let mut file = vmm_sys_util::tempfile::TempFile::new().unwrap().into_file();
+        let out = SerialOut::new(SerialOutInner::File(file.try_clone().unwrap()), None);
+        let mut serial = SerialDevice::new(None, out, None).unwrap();
+
+        // Transmitted bytes delivered as a run of coalesced writes reach the output together, once
+        // the run is complete.
+        serial.write_coalesced(0, 0, b"h");
+        serial.write_coalesced(0, 0, b"i");
+        assert_eq!(file_contents(&mut file), b"");
+        let flushes = METRICS.flush_count.count();
+        serial.coalesced_writes_done();
+        assert_eq!(file_contents(&mut file), b"hi");
+        assert!(METRICS.flush_count.count() > flushes);
+
+        // A write the guest exited for reaches the output before the access completes.
+        serial.write(0, 0, b"!");
+        assert_eq!(file_contents(&mut file), b"hi!");
+
+        // Accesses that transmit nothing write nothing.
+        serial.write(0, 7, &[0x5a]);
+        serial.coalesced_writes_done();
+        assert_eq!(file_contents(&mut file), b"hi!");
+    }
+
+    #[test]
+    fn test_serial_output_dropped_by_a_full_pipe_is_counted() {
+        let mut fds: [libc::c_int; 2] = [0; 2];
+        assert_eq!(
+            unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_NONBLOCK | libc::O_CLOEXEC) },
+            0
+        );
+        // SAFETY: Both ends are fresh descriptors owned by nothing else.
+        let (mut reader, mut writer) = unsafe {
+            use std::os::fd::FromRawFd;
+            (File::from_raw_fd(fds[0]), File::from_raw_fd(fds[1]))
+        };
+        // Writes of up to a page are all or nothing, so finish filling the pipe byte by byte.
+        while writer.write(&[0; 4096]).is_ok() {}
+        while writer.write(&[0]).is_ok() {}
+
+        let mut out = SerialOut::new(SerialOutInner::File(writer), None);
+        let missed = METRICS.missed_write_count.count();
+        out.write_all(b"abc").unwrap();
+        let err = out.write_pending().unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::WouldBlock);
+        assert!(METRICS.missed_write_count.count() - missed >= 3);
+
+        // Dropped bytes are gone, and output carries on once the pipe has room again.
+        let mut buf = vec![0; 1 << 20];
+        while reader.read(&mut buf).is_ok() {}
+        out.write_all(b"de").unwrap();
+        out.write_pending().unwrap();
+        let mut tail = [0; 8];
+        assert_eq!(reader.read(&mut tail).unwrap(), 2);
+        assert_eq!(&tail[..2], b"de");
     }
 }

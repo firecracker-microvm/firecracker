@@ -3,6 +3,9 @@
 
 /// Module with the implementation of a Bus that can hold devices.
 pub mod bus;
+/// Consumer of the ring KVM buffers coalesced MMIO and port I/O writes in.
+#[cfg(target_arch = "x86_64")]
+pub mod coalesced_io;
 /// VM interrupts implementation.
 pub mod interrupts;
 /// Module with Kvm implementation.

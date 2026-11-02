@@ -62,6 +62,8 @@ use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfaceError};
 use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
 use crate::vstate::bus::BusError;
+#[cfg(target_arch = "x86_64")]
+use crate::vstate::coalesced_io::CoalescedIoDrainTimer;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::{KvmVm, Vm};
 
@@ -234,6 +236,14 @@ impl DeviceManager {
             i8042,
         };
         legacy_devices.register_devices(vm)?;
+        // Writes to coalesced ranges that no vCPU exit follows still reach the devices.
+        if let Some(ring) = &vm.coalesced_io {
+            event_manager.add_subscriber(Arc::new(Mutex::new(CoalescedIoDrainTimer::new(
+                ring.clone(),
+                vm.pio_bus.clone(),
+                vm.common.mmio_bus.clone(),
+            ))));
+        }
         Ok(legacy_devices)
     }
 

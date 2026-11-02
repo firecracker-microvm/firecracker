@@ -10,8 +10,10 @@ use std::sync::{Arc, Mutex};
 
 use acpi_tables::aml::AmlError;
 use acpi_tables::{Aml, aml};
+use kvm_ioctls::IoEventAddress;
 
 use crate::devices::legacy::{I8042Device, SerialDevice};
+use crate::logger::warn;
 use crate::vstate::bus::BusError;
 use crate::vstate::vm::KvmVm;
 
@@ -81,7 +83,31 @@ impl PortIODeviceManager {
         )
         .map_err(|e| LegacyDeviceError::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
 
+        Self::coalesce_serial_transmit(vm);
+
         Ok(())
+    }
+
+    /// Lets KVM buffer guest writes to the serial transmit register instead of exiting to
+    /// Firecracker for every byte the guest sends. The vCPUs replay the buffered writes before
+    /// they handle the next exit, which UART drivers soon cause: they poll the line status before
+    /// the next byte, or read the interrupt identification register in the interrupt handler that
+    /// sends them. Returns whether writes are coalesced.
+    fn coalesce_serial_transmit(vm: &KvmVm) -> bool {
+        // Without the ring nothing would replay the buffered writes.
+        if vm.coalesced_io.is_none() {
+            return false;
+        }
+        match vm
+            .fd()
+            .register_coalesced_mmio(IoEventAddress::Pio(Self::SERIAL_PORT_ADDRESS), 1)
+        {
+            Ok(()) => true,
+            Err(err) => {
+                warn!("Could not coalesce writes to the serial transmit register: {err}");
+                false
+            }
+        }
     }
 
     pub(crate) fn append_aml_bytes(bytes: &mut Vec<u8>) -> Result<(), AmlError> {
@@ -173,5 +199,14 @@ mod tests {
             )),
         };
         ldm.register_devices(&vm).unwrap();
+        // Without vCPUs there is no ring to replay coalesced writes from.
+        assert!(!PortIODeviceManager::coalesce_serial_transmit(&vm));
+    }
+
+    #[test]
+    fn test_serial_transmit_is_coalesced() {
+        let mut vm = setup_vm_with_memory(0x1000);
+        let _vcpus = vm.create_vcpus(1).unwrap();
+        assert!(PortIODeviceManager::coalesce_serial_transmit(&vm));
     }
 }

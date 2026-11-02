@@ -405,7 +405,19 @@ impl Vcpu {
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
     pub fn run_emulation(&mut self) -> Result<VcpuEmulation, VcpuError> {
-        match self.kvm_vcpu.fd.run() {
+        let emulation_result = self.kvm_vcpu.fd.run();
+        // Writes that KVM buffered instead of exiting came before whatever made this vCPU exit,
+        // so devices have to see them first.
+        #[cfg(target_arch = "x86_64")]
+        if let Some(ring) = &self.kvm_vcpu.peripherals.coalesced_io {
+            let peripherals = &self.kvm_vcpu.peripherals;
+            ring.replay(
+                peripherals.pio_bus.as_deref(),
+                peripherals.mmio_bus.as_deref(),
+            );
+            ring.vcpu_exited();
+        }
+        match emulation_result {
             Err(ref err) if err.errno() == libc::EINTR => {
                 self.kvm_vcpu.fd.set_kvm_immediate_exit(0);
                 // Notify that this KVM_RUN was interrupted.
@@ -828,6 +840,147 @@ pub(crate) mod tests {
             Ok(VcpuExit::MmioWrite(addr, &[0, 0, 0, 0])),
         );
         assert_eq!(res.unwrap(), VcpuEmulation::Handled);
+    }
+
+    /// Records, in order, the accesses it receives.
+    #[cfg(target_arch = "x86_64")]
+    #[derive(Default)]
+    struct AccessRecorder(Vec<String>);
+
+    #[cfg(target_arch = "x86_64")]
+    impl BusDevice for AccessRecorder {
+        fn read(&mut self, _base: u64, offset: u64, _data: &mut [u8]) {
+            self.0.push(format!("read {offset:#x}"));
+        }
+
+        fn write_coalesced(&mut self, _base: u64, offset: u64, data: &[u8]) {
+            self.0.push(format!("coalesced write {offset:#x} {data:?}"));
+        }
+
+        fn coalesced_writes_done(&mut self) {
+            self.0.push("done".to_string());
+        }
+    }
+
+    /// Sets up a vCPU that runs `code` in real mode, with an [`AccessRecorder`] on ports 0x3f8 to
+    /// 0x3ff of the returned port I/O bus and writes to port 0x3f8 coalesced.
+    #[cfg(target_arch = "x86_64")]
+    fn setup_coalesced_port_vcpu(
+        code: &[u8],
+    ) -> (KvmVm, Vcpu, Arc<Mutex<AccessRecorder>>, Arc<Bus>) {
+        use kvm_bindings::kvm_regs;
+        use kvm_ioctls::IoEventAddress;
+        use vm_memory::Bytes;
+
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
+        let device = Arc::new(Mutex::new(AccessRecorder::default()));
+        let pio_bus = Arc::new(Bus::new());
+        pio_bus.insert(device.clone(), 0x3f8, 0x8).unwrap();
+        vcpu.kvm_vcpu.set_pio_bus(pio_bus.clone());
+        vm.fd()
+            .register_coalesced_mmio(IoEventAddress::Pio(0x3f8), 1)
+            .unwrap();
+
+        vm.guest_memory()
+            .write_slice(code, GuestAddress(0x1000))
+            .unwrap();
+        let mut sregs = vcpu.kvm_vcpu.fd.get_sregs().unwrap();
+        sregs.cs.base = 0;
+        sregs.cs.selector = 0;
+        vcpu.kvm_vcpu.fd.set_sregs(&sregs).unwrap();
+        vcpu.kvm_vcpu
+            .fd
+            .set_regs(&kvm_regs {
+                rip: 0x1000,
+                rflags: 2,
+                ..Default::default()
+            })
+            .unwrap();
+        (vm, vcpu, device, pio_bus)
+    }
+
+    /// Runs guest code that writes twice to a coalesced port and then reads another port, which
+    /// exits. The device must see the buffered writes, as one run, before the read.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_coalesced_writes_are_replayed_before_the_exit() {
+        let code = [
+            0xba, 0xf8, 0x03, // mov dx, 0x3f8
+            0xb0, b'h', // mov al, 'h'
+            0xee, // out dx, al
+            0xb0, b'i', // mov al, 'i'
+            0xee, // out dx, al
+            0xba, 0xfd, 0x03, // mov dx, 0x3fd
+            0xec, // in al, dx
+            0xf4, // hlt
+        ];
+        let (_vm, mut vcpu, device, _) = setup_coalesced_port_vcpu(&code);
+
+        assert_eq!(vcpu.run_emulation().unwrap(), VcpuEmulation::Handled);
+        assert_eq!(
+            device.lock().unwrap().0,
+            [
+                "coalesced write 0x0 [104]",
+                "coalesced write 0x0 [105]",
+                "done",
+                "read 0x5"
+            ]
+        );
+    }
+
+    /// Runs guest code that reads a port and then writes twice to a coalesced port. The vCPU
+    /// handles the read but not the exit after the writes, as if it had stayed in the guest, so
+    /// only the drain timer can deliver them. It has to, and then stop a period later.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_coalesced_writes_are_drained_without_an_exit() {
+        use event_manager::SubscriberOps;
+
+        use crate::EventManager;
+        use crate::vstate::coalesced_io::CoalescedIoDrainTimer;
+
+        let code = [
+            0xba, 0xfd, 0x03, // mov dx, 0x3fd
+            0xec, // in al, dx
+            0xba, 0xf8, 0x03, // mov dx, 0x3f8
+            0xb0, b'h', // mov al, 'h'
+            0xee, // out dx, al
+            0xb0, b'i', // mov al, 'i'
+            0xee, // out dx, al
+            0xba, 0xfd, 0x03, // mov dx, 0x3fd
+            0xec, // in al, dx
+            0xf4, // hlt
+        ];
+        let (_vm, mut vcpu, device, pio_bus) = setup_coalesced_port_vcpu(&code);
+        let ring = vcpu.kvm_vcpu.peripherals.coalesced_io.clone().unwrap();
+        let mut event_manager = EventManager::new().unwrap();
+        event_manager.add_subscriber(Arc::new(Mutex::new(CoalescedIoDrainTimer::new(
+            ring,
+            pio_bus,
+            Arc::new(Bus::new()),
+        ))));
+
+        assert_eq!(vcpu.run_emulation().unwrap(), VcpuEmulation::Handled);
+        assert!(matches!(
+            vcpu.kvm_vcpu.fd.run(),
+            Ok(VcpuExit::IoIn(0x3fd, _))
+        ));
+        assert_eq!(device.lock().unwrap().0, ["read 0x5"]);
+
+        // The timer fires a period after the handled exit and replays the writes.
+        assert_eq!(event_manager.run_with_timeout(1000).unwrap(), 1);
+        assert_eq!(
+            device.lock().unwrap().0,
+            [
+                "read 0x5",
+                "coalesced write 0x0 [104]",
+                "coalesced write 0x0 [105]",
+                "done"
+            ]
+        );
+        // That exit fell in the period that just ended, so the timer fires once more, then stops.
+        assert_eq!(event_manager.run_with_timeout(1000).unwrap(), 1);
+        assert_eq!(event_manager.run_with_timeout(200).unwrap(), 0);
     }
 
     impl PartialEq for VcpuResponse {

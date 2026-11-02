@@ -41,7 +41,9 @@ disabled at boot.
 
 If Firecracker's `stdout` buffer is non-blocking and full (assuming it has a
 bounded size), any subsequent writes will fail, resulting in data loss, until
-the buffer is freed.
+the buffer is freed. Guest output is written in batches, so each failed write
+drops the batch it was part of; the `uart.missed_write_count` metric counts the
+dropped bytes.
 
 ### Log files
 
