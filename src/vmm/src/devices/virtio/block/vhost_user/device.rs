@@ -265,7 +265,7 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
         }
     }
 
-    pub fn config_update(&mut self) -> Result<(), VhostUserBlockError> {
+    pub fn update_config(&mut self) -> Result<(), VhostUserBlockError> {
         let start_time = get_time_us(ClockType::Monotonic);
         let interrupt = self
             .device_state
@@ -738,7 +738,7 @@ mod tests {
             interrupt: default_interrupt(),
         });
         vhost_block.config_space = vec![];
-        vhost_block.config_update().unwrap();
+        vhost_block.update_config().unwrap();
         assert_eq!(vhost_block.config_space, vec![0x69, 0x69, 0x69]);
         assert_eq!(
             vhost_block.interrupt_status().load(Ordering::SeqCst),
