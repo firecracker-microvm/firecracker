@@ -128,9 +128,15 @@ function get_tag {
 }
 
 function build_al_kernel {
-    local KERNEL_CFG=$1
+    # First argument is an optional suffix; remaining arguments are configs.
+    local page_size_suffix="${1:-}"
+    local KERNEL_CFG="${2:-}"
+
+    shift
     # Extract the kernel version from the config file provided as parameter.
-    local KERNEL_VERSION=$(echo $KERNEL_CFG | grep -Po "microvm-kernel-ci-$ARCH-\K(\d+\.\d+)")
+    local KERNEL_VERSION
+    KERNEL_VERSION=$(echo "$KERNEL_CFG" |
+        grep -Po "microvm-kernel-ci-$ARCH-\K(\d+\.\d+)")
 
     # Each kernel version builds in its own worktree, so that versions can
     # build concurrently.
@@ -173,15 +179,21 @@ function build_al_kernel {
     # as needed. Later values override earlier ones.
     awk 1 "$@" >.config
     make olddefconfig
+    if [ "$page_size_suffix" = "-64k" ]
+    then
+        grep -qx 'CONFIG_ARM64_64K_PAGES=y' .config || \
+            die "Kernel configuration did not enable 64 KiB pages"
+    fi
     make -j $(nproc) $target
     LATEST_VERSION=$(cat include/config/kernel.release)
-    flavour=$(basename $KERNEL_CFG .config |grep -Po "\d+\.\d+\K(-.*)" || true)
+    flavour=$(basename "$KERNEL_CFG" .config |
+        grep -Po "\d+\.\d+\K(-.*)" || true)
     # Strip off everything after the last number - sometimes AL kernels have some stuff there.
     # e.g. vmlinux-4.14.348-openela -> vmlinux-4.14.348
     normalized_version=$(echo "$LATEST_VERSION" | sed -E "s/(.*[[:digit:]]).*/\1/g")
-    OUTPUT_FILE=$OUTPUT_DIR/vmlinux-$normalized_version$flavour
-    cp -v $binary_path $OUTPUT_FILE
-    cp -v .config $OUTPUT_FILE.config
+    OUTPUT_FILE=$OUTPUT_DIR/vmlinux-$normalized_version$flavour$page_size_suffix
+    cp -v "$binary_path" "$OUTPUT_FILE"
+    cp -v .config "$OUTPUT_FILE.config"
     if [ -n "$bzimage_path" ]; then
         cp -v $bzimage_path $OUTPUT_DIR/bzImage-$normalized_version$flavour
     fi
@@ -219,41 +231,75 @@ function prepare_and_build_rootfs {
 
 # Split the debug info out of kernel image $1, built in kernel tree $2.
 function vmlinux_split_debuginfo {
-    VMLINUX="$1"
-    DEBUGINFO="$VMLINUX.debug"
-    VMLINUX_ORIG="$VMLINUX"
-    if [ $ARCH = "aarch64" ]; then
-        # in aarch64, the debug info is in vmlinux
-        VMLINUX_ORIG=$2/vmlinux
+    local VMLINUX="${1:-}"
+    local WORKTREE="${2:-}"
+
+    local DEBUGINFO="$VMLINUX.debug"
+    local VMLINUX_ORIG="$VMLINUX"
+
+    [ -n "$VMLINUX" ] || die "Missing kernel image for debug-info extraction"
+
+    if [ "$ARCH" = "aarch64" ]
+    then
+        # ARM64 "Image" has no debug info; extract it from ELF "vmlinux".
+        [ -n "$WORKTREE" ] || die "Missing kernel worktree for debug info"
+        VMLINUX_ORIG="$WORKTREE/vmlinux"
     fi
-    objcopy --only-keep-debug $VMLINUX_ORIG $DEBUGINFO
-    objcopy --preserve-dates --strip-debug --add-gnu-debuglink=$DEBUGINFO $VMLINUX
-    # gdb does not support compressed files, but compress them because they are huge
-    gzip -v $DEBUGINFO
+
+    objcopy --only-keep-debug "$VMLINUX_ORIG" "$DEBUGINFO"
+
+    if [ "$ARCH" != "aarch64" ]
+    then
+        # Rewriting the ARM64 PE image would destroy its Linux boot header.
+        objcopy --preserve-dates --strip-debug \
+            --add-gnu-debuglink="$DEBUGINFO" "$VMLINUX"
+    fi
+
+    # GDB needs an uncompressed file; compress it for storage.
+    gzip -v "$DEBUGINFO"
 }
 
 # Build the CI and debug flavours of kernel version $1 (5.10, 6.1 or 6.18).
 # $2 selects which flavours, see `kernels [version]` in the help.
 function build_al_kernel_flavours {
-    local VERSION=$1
-    local SELECTED=$2
+    local VERSION="${1:-}"
+    local SELECTED="${2:-}"
+
     local KERNEL_CFG=$PWD/guest_configs/microvm-kernel-ci-$ARCH-$VERSION.config
     local CI_CONFIG=$PWD/guest_configs/ci.config
     local NVME_CONFIG=$PWD/guest_configs/nvme.config
     local EFI_CONFIG=$PWD/guest_configs/efi.config
     local FTRACE_CONFIG=$PWD/guest_configs/ftrace.config
     local DEBUG_CONFIG=$PWD/guest_configs/debug.config
+    local PAGE_SIZE_CONFIG=$PWD/guest_configs/64k-aarch64.config
 
-    if [[ "$SELECTED" == @(all|$VERSION) ]]; then
-        build_al_kernel $KERNEL_CFG $CI_CONFIG $NVME_CONFIG $EFI_CONFIG
+    if [ "$SELECTED" = "all" ] || [ "$SELECTED" = "$VERSION" ]
+    then
+        build_al_kernel "" "$KERNEL_CFG" \
+            "$CI_CONFIG" "$NVME_CONFIG" "$EFI_CONFIG"
+        OUTPUT_DIR=$OUTPUT_DIR/debug build_al_kernel "" "$KERNEL_CFG" \
+            "$CI_CONFIG" "$NVME_CONFIG" "$EFI_CONFIG" \
+            "$FTRACE_CONFIG" "$DEBUG_CONFIG"
+        # "build_al_kernel" leaves the built kernel path in "OUTPUT_FILE".
+        vmlinux_split_debuginfo "$OUTPUT_FILE" "linux-$VERSION"
     fi
-    if [[ $ARCH == "x86_64" && $VERSION == "5.10" && "$SELECTED" == @(all|5.10-no-acpi) ]]; then
-        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config $CI_CONFIG $NVME_CONFIG
+
+    if [ "$ARCH" = "x86_64" ] && [ "$VERSION" = "5.10" ] &&
+        { [ "$SELECTED" = "all" ] || [ "$SELECTED" = "5.10-no-acpi" ]; }
+    then
+        build_al_kernel "" "${KERNEL_CFG%.config}-no-acpi.config" \
+            "$CI_CONFIG" "$NVME_CONFIG"
     fi
-    if [[ "$SELECTED" == @(all|$VERSION) ]]; then
-        OUTPUT_DIR=$OUTPUT_DIR/debug build_al_kernel $KERNEL_CFG $CI_CONFIG $NVME_CONFIG $EFI_CONFIG $FTRACE_CONFIG $DEBUG_CONFIG
-        # build_al_kernel leaves the path of the kernel it built in OUTPUT_FILE.
-        vmlinux_split_debuginfo $OUTPUT_FILE linux-$VERSION
+
+    if [ "$ARCH" = "aarch64" ] && [ "$VERSION" != "5.10" ] &&
+        { [ "$SELECTED" = "all" ] || [ "$SELECTED" = "$VERSION-64k" ]; }
+    then
+        build_al_kernel "-64k" "$KERNEL_CFG" "$CI_CONFIG" \
+            "$NVME_CONFIG" "$EFI_CONFIG" "$PAGE_SIZE_CONFIG"
+        OUTPUT_DIR=$OUTPUT_DIR/debug build_al_kernel "-64k" "$KERNEL_CFG" \
+            "$CI_CONFIG" "$NVME_CONFIG" "$EFI_CONFIG" "$FTRACE_CONFIG" \
+            "$DEBUG_CONFIG" "$PAGE_SIZE_CONFIG"
+        vmlinux_split_debuginfo "$OUTPUT_FILE" "linux-$VERSION"
     fi
 }
 
@@ -264,9 +310,15 @@ function build_al_kernels {
         die "Too many arguments in '$(basename $0) kernels' command. Please use \`$0 help\` for help."
     else
         KERNEL_VERSION=$1
-        if [[ "$KERNEL_VERSION" != @(5.10|5.10-no-acpi|6.1|6.18) ]]; then
+        if [[ "$KERNEL_VERSION" != @(5.10|5.10-no-acpi|6.1|6.1-64k|6.18|6.18-64k) ]]; then
             die "Unsupported kernel version: '$KERNEL_VERSION'. Please use \`$0 help\` for help."
         fi
+    fi
+
+    if [ "${KERNEL_VERSION%-64k}" != "$KERNEL_VERSION" ] &&
+        [ "$ARCH" != "aarch64" ]
+    then
+        die "The 64 KiB guest kernel requires an aarch64 build host"
     fi
 
     clone_amazon_linux_repo
@@ -300,9 +352,7 @@ Available commands:
 
     all (default)
         Build CI rootfs and default guest kernels using configurations from
-        resources/guest_configs.
-        This will patch the guest configurations with all the patches under
-        resources/guest_configs/patches.
+        resources/guest_configs, including 6.1-64k and 6.18-64k on aarch64.
         This is the default command, if no command is chosen.
 
     rootfs
@@ -312,11 +362,28 @@ Available commands:
         Builds our the currently supported CI kernels.
 
         version: Optionally choose a kernel version to build. Supported
-                 versions are: 5.10, 5.10-no-acpi, 6.1 or 6.18.
+                 versions are: 5.10, 5.10-no-acpi, 6.1, 6.1-64k, 6.18
+                 or 6.18-64k. The 64 KiB variants require an aarch64 host.
 
     help
         Displays the help message and exits.
+
+Notes:
+
+- The 64 KiB variant is an additional kernel for explicitly selected tests.
+
+Examples:
+
+- Build the normal and debug 64 KiB kernels on aarch64:
+
+  \$ ./tools/devtool build_ci_artifacts kernels 6.1-64k
+  \$ ./tools/devtool build_ci_artifacts kernels 6.18-64k
 EOF
+}
+
+usage()
+{
+    print_help
 }
 
 function main {
@@ -328,8 +395,8 @@ function main {
                 local MODE=$1
                 shift
                 ;;
-            help)
-                print_help
+            -h|--help|help)
+                usage
                 exit 0
                 ;;
             *)
