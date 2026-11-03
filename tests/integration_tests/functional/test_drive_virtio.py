@@ -612,6 +612,10 @@ def test_multiqueue(uvm, microvm_factory, io_engine):
     vm.ssh.check_output("echo multiqueue > /tmp/test")
     vm.ssh.check_output("umount /tmp")
 
+    # Enclaves cannot be snapshotted.
+    if vm.backend.is_enclave:
+        return
+
     snapshot = vm.snapshot_full()
     restored = microvm_factory.build_from_snapshot(snapshot)
 
