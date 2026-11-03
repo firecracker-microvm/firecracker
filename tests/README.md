@@ -399,6 +399,9 @@ of Firecracker processes. There are two layers:
   - `rootfs` — the rootfs disk path, composed from `guest_kernel` +
     `rootfs_mode` (Ubuntu 24.04 for 5.10, Amazon Linux 2023 otherwise).
   - `pci_enabled` — auto-parametrized over `True`/`False`.
+  - `track_dirty_pages` — `False` by default. `pin_dirty_tracking` runs a test
+    with dirty page tracking off and on, or pairs chosen values of other
+    parameters with the tracking settings they run under.
   - `vm_backend` — auto-parametrized over `"kvm"`.
   - `cpu_template` — `None` by default.
   - `huge_pages` — `HugePagesConfig.NONE` by default. See note below.
@@ -477,7 +480,7 @@ it.
 
 ### Markers
 
-Firecracker uses two special
+Firecracker uses special
 [pytest markers](https://pytest.org/en/7.4.x/example/markers.html) to determine
 which tests are run in which context:
 
@@ -485,6 +488,11 @@ which tests are run in which context:
   in separate pipelines according to various cron schedules.
 - Tests marked as `no_block_pr` are run in the "optional" PR CI pipeline. This
   pipeline is not required to pass for merging a PR.
+- Tests marked as `serial` must not run concurrently with other tests. The PR CI
+  pipeline runs them on their own and the other performance tests in parallel.
+- Performance test cases marked as `dirty_tracking_on`, the runs with dirty page
+  tracking on that `pin_dirty_tracking` adds, run in the `dirty-tracking` groups
+  of the performance pipeline instead of their test's usual group.
 
 All tests without markers are run for every pull request, and are required to
 pass for the PR to be merged.

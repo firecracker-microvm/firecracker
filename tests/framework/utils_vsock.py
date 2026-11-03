@@ -108,13 +108,15 @@ def make_blob(dst_dir, size=BLOB_SIZE):
 def boot_vsock_vm(
     vm,
     *,
-    vcpu_count=None,
-    mem_size_mib=None,
     log_level=None,
     emit_metrics=False,
     pin_threads=False,
+    **config_kwargs,
 ):
-    """Spawn, configure and start a microVM with a vsock device attached."""
+    """Spawn, configure and start a microVM with a vsock device attached.
+
+    Extra keyword arguments are forwarded to `Microvm.basic_config`.
+    """
     spawn_kwargs = {}
     if log_level is not None:
         spawn_kwargs["log_level"] = log_level
@@ -122,11 +124,6 @@ def boot_vsock_vm(
         spawn_kwargs["emit_metrics"] = True
     vm.spawn(**spawn_kwargs)
 
-    config_kwargs = {}
-    if vcpu_count is not None:
-        config_kwargs["vcpu_count"] = vcpu_count
-    if mem_size_mib is not None:
-        config_kwargs["mem_size_mib"] = mem_size_mib
     vm.basic_config(**config_kwargs)
 
     vm.add_net_iface()
