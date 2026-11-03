@@ -12,6 +12,7 @@ use event_manager::SubscriberOps;
 
 use crate::device_manager::nitro_enclave::NeDevices;
 use crate::device_manager::{AttachDeviceError, DeviceManager, VirtioDevices};
+use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::logger::{debug, info};
 use crate::nitro_enclave::cpu_accounting::AccountingThreads;
@@ -84,6 +85,13 @@ pub enum EnclaveBuilderError {
         id: String,
         /// Underlying attach failure.
         source: AttachDeviceError,
+    },
+    /// Failed to spawn the worker threads of enclave block device {id}: {source}
+    SpawnBlockWorker {
+        /// Drive id of the failing block device.
+        id: String,
+        /// Underlying spawn failure.
+        source: BlockError,
     },
     /// Failed to attach enclave net device {id}: {source}
     AttachNet {
@@ -407,6 +415,7 @@ pub fn build_and_boot_enclave(
     // Device attachment must happen before the VM is started.
     let mut device_manager = DeviceManager {
         virtio_devices: VirtioDevices::Enclave(NeDevices::default()),
+        blk_worker_filter: seccomp_filters.get("blk_worker").cloned(),
         ..Default::default()
     };
     attach_enclave_devices(
@@ -515,6 +524,15 @@ fn attach_enclave_devices(
     for block in &vm_resources.block.devices {
         let id = block.lock().expect("Poisoned lock").id().to_string();
         info!("Attaching enclave block device id={id}");
+        // Multi-queue block runs on worker threads, as on the KVM path.
+        block
+            .lock()
+            .expect("Poisoned lock")
+            .spawn_worker(device_manager.blk_worker_filter.clone())
+            .map_err(|source| EnclaveBuilderError::SpawnBlockWorker {
+                id: id.clone(),
+                source,
+            })?;
         device_manager
             .attach_ne_virtio_device(block.clone(), enclave_vm, event_manager)
             .map_err(|source| EnclaveBuilderError::AttachBlock { id, source })?;
