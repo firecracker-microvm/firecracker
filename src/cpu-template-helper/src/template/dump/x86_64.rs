@@ -1,14 +1,13 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::BTreeMap;
-
+use kvm_bindings::Msrs;
 use vmm::MSR_RANGE;
 use vmm::arch::x86_64::generated::msr_index::*;
 use vmm::arch::x86_64::msr::MsrRange;
 use vmm::cpu_config::templates::{CpuConfiguration, CustomCpuTemplate, RegisterValueFilter};
 use vmm::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
-use vmm::cpu_config::x86_64::cpuid::{Cpuid, VENDOR_ID_AMD};
+use vmm::cpu_config::x86_64::cpuid::{Cpuid, KvmCpuidFlags, VENDOR_ID_AMD};
 use vmm::cpu_config::x86_64::custom_cpu_template::{
     CpuidLeafModifier, CpuidRegister, CpuidRegisterModifier, RegisterModifier,
 };
@@ -25,29 +24,33 @@ pub fn config_to_template(cpu_config: &CpuConfiguration) -> CustomCpuTemplate {
 }
 
 fn cpuid_to_modifiers(cpuid: &Cpuid) -> Vec<CpuidLeafModifier> {
-    cpuid
+    let mut result: Vec<_> = cpuid
         .inner()
+        .as_slice()
         .iter()
-        .map(|(key, entry)| {
+        .map(|entry| {
             cpuid_leaf_modifier!(
-                key.leaf,
-                key.subleaf,
-                entry.flags,
+                entry.function,
+                entry.index,
+                KvmCpuidFlags(entry.flags),
                 vec![
-                    cpuid_reg_modifier!(CpuidRegister::Eax, entry.result.eax),
-                    cpuid_reg_modifier!(CpuidRegister::Ebx, entry.result.ebx),
-                    cpuid_reg_modifier!(CpuidRegister::Ecx, entry.result.ecx),
-                    cpuid_reg_modifier!(CpuidRegister::Edx, entry.result.edx),
+                    cpuid_reg_modifier!(CpuidRegister::Eax, entry.eax),
+                    cpuid_reg_modifier!(CpuidRegister::Ebx, entry.ebx),
+                    cpuid_reg_modifier!(CpuidRegister::Ecx, entry.ecx),
+                    cpuid_reg_modifier!(CpuidRegister::Edx, entry.edx),
                 ]
             )
         })
-        .collect()
+        .collect();
+    result.sort_by_key(|m| (m.leaf, m.subleaf));
+    result
 }
 
-fn msrs_to_modifier(msrs: &BTreeMap<u32, u64>) -> Vec<RegisterModifier> {
+fn msrs_to_modifier(msrs: &Msrs) -> Vec<RegisterModifier> {
     let mut msrs: Vec<RegisterModifier> = msrs
+        .as_slice()
         .iter()
-        .map(|(index, value)| msr_modifier!(*index, *value))
+        .map(|entry| msr_modifier!(entry.index, entry.data))
         .collect();
 
     msrs.retain(|modifier| !should_exclude_msr(modifier.addr));
@@ -119,47 +122,37 @@ fn should_exclude_msr_amd(index: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
-    use vmm::cpu_config::x86_64::cpuid::{
-        CpuidEntry, CpuidKey, CpuidRegisters, IntelCpuid, KvmCpuidFlags,
-    };
+    use kvm_bindings::kvm_msr_entry;
+    use vmm::cpu_config::x86_64::cpuid::IntelCpuid;
 
     use super::*;
 
     fn build_sample_cpuid() -> Cpuid {
-        Cpuid::Intel(IntelCpuid(BTreeMap::from([
-            (
-                CpuidKey {
-                    leaf: 0x0,
-                    subleaf: 0x0,
+        Cpuid::Intel(IntelCpuid(
+            kvm_bindings::CpuId::from_entries(&[
+                kvm_bindings::kvm_cpuid_entry2 {
+                    function: 0x0,
+                    index: 0x0,
+                    flags: KvmCpuidFlags::EMPTY.0,
+                    eax: 0xffff_ffff,
+                    ebx: 0x0000_ffff,
+                    ecx: 0xffff_0000,
+                    edx: 0x0000_0000,
+                    ..Default::default()
                 },
-                CpuidEntry {
-                    flags: KvmCpuidFlags::EMPTY,
-                    result: CpuidRegisters {
-                        eax: 0xffff_ffff,
-                        ebx: 0x0000_ffff,
-                        ecx: 0xffff_0000,
-                        edx: 0x0000_0000,
-                    },
+                kvm_bindings::kvm_cpuid_entry2 {
+                    function: 0x1,
+                    index: 0x1,
+                    flags: KvmCpuidFlags::SIGNIFICANT_INDEX.0,
+                    eax: 0xaaaa_aaaa,
+                    ebx: 0xaaaa_5555,
+                    ecx: 0x5555_aaaa,
+                    edx: 0x5555_5555,
+                    ..Default::default()
                 },
-            ),
-            (
-                CpuidKey {
-                    leaf: 0x1,
-                    subleaf: 0x1,
-                },
-                CpuidEntry {
-                    flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
-                    result: CpuidRegisters {
-                        eax: 0xaaaa_aaaa,
-                        ebx: 0xaaaa_5555,
-                        ecx: 0x5555_aaaa,
-                        edx: 0x5555_5555,
-                    },
-                },
-            ),
-        ])))
+            ])
+            .unwrap(),
+        ))
     }
 
     fn build_expected_cpuid_modifiers() -> Vec<CpuidLeafModifier> {
@@ -189,24 +182,29 @@ mod tests {
         ]
     }
 
-    fn build_sample_msrs() -> BTreeMap<u32, u64> {
-        let mut map = BTreeMap::from([
+    fn build_sample_msrs() -> Msrs {
+        let entry = |index, data| kvm_msr_entry {
+            index,
+            data,
+            ..Default::default()
+        };
+        let mut entries = vec![
             // should be sorted in the result.
-            (0x1, 0xffff_ffff_ffff_ffff),
-            (0x5, 0xffff_ffff_0000_0000),
-            (0x3, 0x0000_0000_ffff_ffff),
-            (0x2, 0x0000_0000_0000_0000),
-        ]);
+            entry(0x1, 0xffff_ffff_ffff_ffff),
+            entry(0x5, 0xffff_ffff_0000_0000),
+            entry(0x3, 0x0000_0000_ffff_ffff),
+            entry(0x2, 0x0000_0000_0000_0000),
+        ];
         // should be excluded from the result.
         MSR_EXCLUSION_LIST
             .iter()
             .chain(MSR_EXCLUSION_LIST_AMD.iter())
             .for_each(|range| {
                 (range.base..(range.base + range.nmsrs)).for_each(|id| {
-                    map.insert(id, 0);
+                    entries.push(entry(id, 0));
                 })
             });
-        map
+        Msrs::from_entries(&entries).unwrap()
     }
 
     fn build_expected_msr_modifiers() -> Vec<RegisterModifier> {
