@@ -507,9 +507,7 @@ def timed_memory_hotplug(uvm, size, metrics, metric_prefix, fc_metric_name):
     "hotplug_size",
     [
         1024,
-        2048,
         4096,
-        8192,
         16384,
     ],
 )

@@ -24,11 +24,13 @@ jobs:
 
       # Load the dev container from the cache that cache_devctr.yml keeps on
       # main, so the checks below do not pull it from the registry. On a
-      # miss, devtool pulls the image itself, with retries.
+      # miss, devtool pulls the image itself, with retries, which fails when
+      # the runner's anonymous pull budget is exhausted.
       - name: "Resolve dev container image"
         id: image
         run: |
           image=$(./tools/devtool -y devctr_image)
+          echo "image=$image" >> "$GITHUB_OUTPUT"
           echo "key=fcuvm-${RUNNER_OS}-${RUNNER_ARCH}-${image##*:}" >> "$GITHUB_OUTPUT"
 
       - name: "Restore cached dev container"
@@ -44,6 +46,12 @@ jobs:
         run: |
           zstd -d -c "$RUNNER_TEMP/fcuvm.tar.zst" | docker load
           rm -f "$RUNNER_TEMP/fcuvm.tar.zst"
+
+      - name: "Report cache miss"
+        if: steps.restore.outputs.cache-hit != 'true'
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: echo "::warning::$IMAGE is not in the workflow cache; run the 'Cache dev container' workflow on main. Pulling from the registry instead."
 
       - name: "Check build"
         run: ./tools/devtool -y checkbuild --all

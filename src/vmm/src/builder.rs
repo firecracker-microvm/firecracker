@@ -29,6 +29,7 @@ use crate::device_manager::{
     DeviceRestoreArgs,
 };
 use crate::devices::virtio::balloon::Balloon;
+use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::mem::{VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB, VirtioMem};
@@ -109,6 +110,8 @@ pub enum StartMicrovmError {
     NetDeviceNotConfigured,
     /// Cannot open the block device backing file: {0}
     OpenBlockDevice(io::Error),
+    /// Failed to spawn the block worker thread: {0}
+    SpawnBlockWorker(BlockError),
     /// Cannot restore microvm state: {0}
     RestoreMicrovmState(MicrovmStateError),
     /// Cannot set vm resources: {0}
@@ -210,6 +213,7 @@ pub fn build_microvm_for_boot(
         vm_resources.serial_rate_limiter(),
         vm_resources.pci_enabled,
         vm_resources.machine_config.pcie_hotplug_ports,
+        seccomp_filters.get("blk_worker").cloned(),
     )?;
 
     let guest_memory = kvm_vm.guest_memory();
@@ -550,6 +554,7 @@ pub fn build_microvm_from_snapshot(
         vm_resources,
         instance_id: &instance_info.id,
         vcpus_exit_evt: kvm_vm.vcpus_exit_evt(),
+        blk_worker_filter: seccomp_filters.get("blk_worker").cloned(),
     };
     #[allow(unused_mut)]
     let mut device_manager =
@@ -720,6 +725,13 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
             }
             (locked.id().to_string(), locked.is_vhost_user())
         };
+
+        block
+            .lock()
+            .expect("Poisoned lock")
+            .spawn_worker(device_manager.blk_worker_filter.clone())
+            .map_err(StartMicrovmError::SpawnBlockWorker)?;
+
         // The device mutex mustn't be locked here otherwise it will deadlock.
         device_manager.attach_boot_virtio_device(
             vm,
@@ -997,6 +1009,7 @@ pub(crate) mod tests {
 
                 is_read_only: Some(custom_block_cfg.is_read_only),
                 discard: None,
+                num_queues: None,
                 path_on_host: Some(
                     block_files
                         .last()

@@ -15,21 +15,16 @@ impl VirtioBlock {
     const PROCESS_ASYNC_COMPLETION: u32 = 3;
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
+        let resources = self.resources();
+        assert_eq!(resources.len(), 1, "inline block must have one queue");
         if let Err(err) = ops.add(Events::with_data(
-            &self.queue_evts[0],
+            &resources[0].queue_evt,
             Self::PROCESS_QUEUE,
             EventSet::IN,
         )) {
             error!("Failed to register queue event: {}", err);
         }
-        if let Err(err) = ops.add(Events::with_data(
-            &self.rate_limiter,
-            Self::PROCESS_RATE_LIMITER,
-            EventSet::IN,
-        )) {
-            error!("Failed to register ratelimiter event: {}", err);
-        }
-        if let FileEngine::Async(ref engine) = self.disk.file_engine
+        if let FileEngine::Async(engine) = &resources[0].disk.file_engine
             && let Err(err) = ops.add(Events::with_data(
                 engine.completion_evt(),
                 Self::PROCESS_ASYNC_COMPLETION,
@@ -37,6 +32,16 @@ impl VirtioBlock {
             ))
         {
             error!("Failed to register IO engine completion event: {}", err);
+        }
+    }
+
+    fn register_rate_limiter_event(&self, ops: &mut EventOps) {
+        if let Err(err) = ops.add(Events::with_data(
+            &*self.lock_rate_limiter(),
+            Self::PROCESS_RATE_LIMITER,
+            EventSet::IN,
+        )) {
+            error!("Failed to register rate limiter event: {}", err);
         }
     }
 
@@ -54,7 +59,12 @@ impl VirtioBlock {
         if let Err(err) = self.activate_evt.read() {
             error!("Failed to consume block activate event: {:?}", err);
         }
-        self.register_runtime_events(ops);
+
+        self.register_rate_limiter_event(ops);
+        if !self.is_threaded_active() {
+            self.register_runtime_events(ops);
+        }
+
         if let Err(err) = ops.remove(Events::with_data(
             &self.activate_evt,
             Self::PROCESS_ACTIVATE,
@@ -101,10 +111,12 @@ impl MutEventSubscriber for VirtioBlock {
                 }
                 Self::PROCESS_QUEUE => self.drain_queue_events(),
                 Self::PROCESS_RATE_LIMITER => {
-                    let _ = self.rate_limiter.event_handler();
+                    let _ = self.lock_rate_limiter().event_handler();
                 }
                 Self::PROCESS_ASYNC_COMPLETION => {
-                    if let FileEngine::Async(ref engine) = self.disk.file_engine {
+                    let resources = self.resources();
+                    assert_eq!(resources.len(), 1, "inline block must have one queue");
+                    if let FileEngine::Async(engine) = &resources[0].disk.file_engine {
                         let _ = engine.completion_evt().read();
                     }
                 }
@@ -119,7 +131,10 @@ impl MutEventSubscriber for VirtioBlock {
         //  - on device activation (is-activated already true at this point),
         //  - on device restore from snapshot.
         if self.is_activated() {
-            self.register_runtime_events(ops);
+            self.register_rate_limiter_event(ops);
+            if !self.is_threaded_active() {
+                self.register_runtime_events(ops);
+            }
         } else {
             self.register_activate_event(ops);
         }
@@ -169,7 +184,13 @@ mod tests {
             mem.write_obj::<u64>(123_456_789, data_addr).unwrap();
 
             // Trigger the queue event.
-            block.lock().unwrap().queue_evts[0].write(1).unwrap();
+            block
+                .lock()
+                .unwrap()
+                .queue_event(0)
+                .unwrap()
+                .write(1)
+                .unwrap();
         }
 
         // EventManager should report no events since block has only registered

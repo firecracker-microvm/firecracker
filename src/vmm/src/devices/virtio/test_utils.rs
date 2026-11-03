@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::align_up;
+use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::devices::virtio::transport::mmio::IrqTrigger;
@@ -35,6 +36,39 @@ pub fn default_mem() -> GuestMemoryMmap {
 /// Creates a default ['IrqTrigger'] interrupt for a VirtIO device.
 pub fn default_interrupt() -> Arc<dyn VirtioInterrupt> {
     Arc::new(IrqTrigger::new())
+}
+
+/// Exercises the per-queue accessors the transports use on an inactive device: every queue has
+/// a config and an event, out-of-range indices return `None`, config writes stick, and
+/// `reset_queues` restores the defaults.
+pub fn check_queue_accessors(device: &mut dyn VirtioDevice) {
+    let num_queues = device.num_queues();
+    assert!(num_queues > 0);
+
+    for index in 0..num_queues {
+        assert!(device.queue_event(index).is_some());
+        let config = device.queue_config_mut(index).unwrap();
+        assert!(!config.ready);
+        assert_eq!(config.size, config.max_size);
+        config.size = config.max_size / 2;
+        config.desc_table_address = GuestAddress(0x1000);
+        let max_size = config.max_size;
+        assert_eq!(device.queue_config(index).unwrap().size, max_size / 2);
+    }
+    assert!(device.queue_config(num_queues).is_none());
+    assert!(device.queue_config_mut(num_queues).is_none());
+    assert!(device.queue_event(num_queues).is_none());
+
+    // No queue is resolved, so there is nothing to commit.
+    device.commit_dirty();
+
+    device.reset_queues();
+    for index in 0..num_queues {
+        let config = device.queue_config(index).unwrap();
+        assert_eq!(config.size, config.max_size);
+        assert_eq!(config.desc_table_address, GuestAddress(0));
+        assert!(!config.ready);
+    }
 }
 
 #[derive(Debug)]
@@ -295,11 +329,11 @@ impl<'a> VirtQueue<'a> {
     pub fn create_queue(&self) -> Queue {
         let mut q = Queue::new(self.size());
 
-        q.size = self.size();
-        q.ready = true;
-        q.desc_table_address = self.dtable_start();
-        q.avail_ring_address = self.avail_start();
-        q.used_ring_address = self.used_start();
+        q.config.size = self.size();
+        q.config.ready = true;
+        q.config.desc_table_address = self.dtable_start();
+        q.config.avail_ring_address = self.avail_start();
+        q.config.used_ring_address = self.used_start();
 
         q.initialize(self.memory()).unwrap();
 
@@ -346,7 +380,7 @@ pub(crate) mod test {
         /// Replace the queues used by the device
         fn set_queues(&mut self, queues: Vec<Queue>);
         /// Number of queues this device supports
-        fn num_queues(&self) -> usize;
+        fn num_queues_supported(&self) -> usize;
     }
 
     /// A helper type to allow testing VirtIO devices
@@ -402,7 +436,7 @@ pub(crate) mod test {
         pub fn new(mem: &'a GuestMemoryMmap, mut device: T) -> VirtioTestHelper<'a, T> {
             let mut event_manager = EventManager::new().unwrap();
 
-            let virtqueues = Self::create_virtqueues(mem, device.num_queues());
+            let virtqueues = Self::create_virtqueues(mem, device.num_queues_supported());
             let queues = virtqueues.iter().map(|vq| vq.create_queue()).collect();
             device.set_queues(queues);
             let device = Arc::new(Mutex::new(device));
@@ -459,7 +493,7 @@ pub(crate) mod test {
         pub fn add_scatter_gather(&mut self, queue: usize, desc_list: &[(u16, u64, u32, u16)]) {
             let device = self.device.lock().unwrap();
 
-            let event_fd = &device.queue_events()[queue];
+            let event_fd = device.queue_event(queue).unwrap();
             let vq = &self.virtqueues[queue];
 
             // Create the descriptor chain
@@ -511,7 +545,7 @@ pub(crate) mod test {
         ) {
             let device = self.device.lock().unwrap();
 
-            let event_fd = &device.queue_events()[queue];
+            let event_fd = device.queue_event(queue).unwrap();
             let vq = &self.virtqueues[queue];
 
             // Create the descriptor chain

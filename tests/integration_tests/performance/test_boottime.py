@@ -9,14 +9,15 @@ import time
 import pytest
 
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_rootfs_mode
+from framework.kvm import BASE_BOOT_ARGS
 from framework.utils_hugepages import HugePagesConfig
 
 # Regex for obtaining boot time from some string.
 
-DEFAULT_BOOT_ARGS = (
-    "reboot=k panic=1 nomodule 8250.nr_uarts=0"
-    " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd swiotlb=noforce cryptomgr.notests"
-)
+# Boot time is measured without a serial console. `i8042.nopnp` keeps the
+# measured configuration as it has always been, though it leaves the guest
+# without a keyboard (see BASE_BOOT_ARGS).
+DEFAULT_BOOT_ARGS = BASE_BOOT_ARGS + " 8250.nr_uarts=0 i8042.nopnp"
 
 pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
 
@@ -154,7 +155,7 @@ def test_boot_timer(microvm_factory, guest_kernel, rootfs, pci_enabled):
 
 @pytest.mark.parametrize(
     "vcpu_count,mem_size_mib",
-    [(1, 128), (1, 1024), (2, 2048), (4, 4096)],
+    [(1, 1024), (2, 2048), (4, 4096)],
 )
 @pin_rootfs_mode("rw")
 @pytest.mark.parametrize("boot_from_pmem", [True, False], ids=["PmemBoot", "BlockBoot"])

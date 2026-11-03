@@ -14,6 +14,7 @@ In order to test the vsock device connection state machine, these tests will:
 """
 
 import os.path
+import signal
 import socket
 import subprocess
 import threading
@@ -368,7 +369,10 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
             "STDOUT",
         ]
         host_socat = subprocess.Popen(
-            host_socat_commmand, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            host_socat_commmand,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
         )
 
         try:
@@ -383,13 +387,20 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
 
             # Create a socat process in the guest which will connect to the host socat
             guest_socat_commmand = (
-                f"tmux new -d 'socat - vsock-connect:2:{ECHO_SERVER_PORT}'"
+                "rm -f /tmp/socat.log; tmux new -d 'socat -d -d - "
+                f"vsock-connect:2:{ECHO_SERVER_PORT} 2>/tmp/socat.log'"
             )
             new_vm.ssh.run(guest_socat_commmand)
 
-            # socat should be running in the guest now
-            code, _, _ = new_vm.ssh.run("pidof socat")
-            assert code == 0
+            # socat should be connected to the host socat now
+            for attempt in Retrying(
+                wait=wait_fixed(0.1), stop=stop_after_delay(5.0), reraise=True
+            ):
+                with attempt:
+                    code, _, _ = new_vm.ssh.run(
+                        "grep -q 'starting data transfer loop' /tmp/socat.log"
+                    )
+                    assert code == 0
 
             # Create snapshot.
             snapshot = new_vm.snapshot_full()
@@ -404,12 +415,13 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
                     code, _, _ = new_vm.ssh.run("pidof socat")
                     assert code == 1
         finally:
-            # Kill host socat as it is not useful anymore. Done in `finally`
-            # so that an assertion failure earlier in the iteration does not
-            # leak a `socat` process into the next iteration (or the next
-            # test).
-            host_socat.kill()
-            host_socat.communicate()
+            # Kill host socat as it is not useful anymore, together with the
+            # child it forked for the guest connection, which would otherwise
+            # keep `communicate()` waiting. Done in `finally` so that an
+            # assertion failure earlier in the iteration does not leak a
+            # `socat` process into the next iteration (or the next test).
+            os.killpg(host_socat.pid, signal.SIGKILL)
+            host_socat.communicate(timeout=10)
 
             # Terminate VM.
             new_vm.kill()

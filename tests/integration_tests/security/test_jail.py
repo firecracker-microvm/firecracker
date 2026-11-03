@@ -17,6 +17,7 @@ import urllib3
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.defs import FC_BINARY_NAME
 from framework.jailer import JailerContext
+from framework.kvm import default_boot_args
 
 # These are the permissions that all files/dirs inside the jailer have.
 REG_PERMS = (
@@ -254,11 +255,7 @@ def test_jailer_bind_mount_propagation(uvm):
         # Drive the API directly: basic_config() would hardlink over our
         # bind-mount points and mask what we are testing.
         test_microvm.api.machine_config.put(vcpu_count=2, mem_size_mib=256)
-        test_microvm.boot_args = (
-            "reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0 cryptomgr.notests"
-        )
-        if not test_microvm.pci_enabled:
-            test_microvm.boot_args += " pci=off"
+        test_microvm.boot_args = default_boot_args(test_microvm.pci_enabled)
         test_microvm.api.boot.put(
             kernel_image_path=f"/{kernel_jail_name}",
             boot_args=test_microvm.boot_args,

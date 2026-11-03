@@ -91,6 +91,56 @@ The `io_engine` field selects the host-side IO backend:
 
 See [block-io-engine.md](api_requests/block-io-engine.md) for more information.
 
+### Threaded Mode and Multiqueue
+
+By default, Firecracker processes block requests on the VMM thread and exposes
+one queue for each drive. Set `num_queues` to process requests on dedicated host
+worker threads instead: Firecracker exposes that number of queues to the guest
+and creates one worker thread for each of them. Worker threads support both the
+`Sync` and `Async` IO engines. This moves block processing off the VMM thread,
+and a value greater than `1` enables virtio-blk multiqueue so requests from
+separate queues are processed in parallel.
+
+> [!NOTE]
+>
+> Setting `num_queues` to `1` is not the same as omitting it. In both cases the
+> guest sees a single queue, but with `num_queues` set to `1` the queue is
+> processed on a dedicated worker thread, while omitting it keeps the queue on
+> the shared VMM thread.
+
+The queue count cannot exceed the configured vCPU count. Firecracker also
+rejects a machine configuration update that would reduce the vCPU count below an
+existing drive's queue count.
+
+Firecracker creates a worker thread for each configured queue, including queues
+that the guest does not use. All queues share the drive's rate limiter, so its
+limits apply to the total traffic for the drive.
+
+Each worker thread is named `fc_q<index>_<drive_id>`, for example `fc_q0_data`.
+Linux limits thread names to 15 bytes, so longer names are truncated in tools
+that read the kernel thread name (`top`, `ps`, `perf`, ...). The queue index
+comes first so truncation applies to the end of the `drive_id`. Drives whose
+`drive_id` share a long prefix might still collide. Firecracker logs keep the
+full name. To keep names distinct across drives, use a `drive_id` of at most 9
+bytes when using up to 10 queues, and at most 8 bytes for more than 10 queues.
+
+The following configuration creates a drive with 4 queues and 4 worker threads:
+
+```json
+{
+    "drive_id": "data",
+    "path_on_host": "./data.ext4",
+    "is_root_device": false,
+    "is_read_only": false,
+    "num_queues": 4
+}
+```
+
+The microVM must have at least 4 vCPUs before Firecracker accepts this drive. If
+a custom seccomp filter is used, it must include the `blk_worker` thread
+category described in the
+[seccompiler documentation](seccompiler.md#json-file-format).
+
 ### Read-only Devices
 
 Setting `is_read_only` to `true` causes Firecracker to open the backing file
