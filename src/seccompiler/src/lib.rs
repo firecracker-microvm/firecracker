@@ -605,6 +605,21 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_unique_thread_names() {
+        const FILTER: &str = r#"{"default_action":"trap","filter_action":"allow","filter":[]}"#;
+        let policy = |other| format!(r#"{{"Vmm":{FILTER},"{other}":{FILTER}}}"#);
+        for duplicate in ["Vmm", "vMM"] {
+            assert!(matches!(
+                compile(&policy(duplicate), "x86_64", false),
+                Err(CompilationError::JsonDeserialize(err))
+                    if err.to_string().contains(&format!("duplicate thread name: {duplicate}"))
+            ));
+        }
+        let filters = compile(&policy("Api"), "x86_64", false).unwrap();
+        assert!(filters.keys().map(String::as_str).eq(["Api", "Vmm"]));
+    }
+
+    #[test]
     fn test_instruction_wire_format() {
         #[derive(serde::Serialize)]
         struct WirePart {

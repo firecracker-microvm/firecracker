@@ -77,8 +77,9 @@ This means that Firecracker has a JSON file for each supported target (currently
 determined by the arch-libc combinations). You can view them in
 `resources/seccomp`.
 
-At the top level, the file requires an object that maps thread categories (vmm,
-api and vcpu) to seccomp filters:
+At the top level, the file maps thread categories (`vmm`, `api` and `vcpu`) to
+seccomp filters. Thread names must be unique ignoring case: `Vmm` and `vmm`
+cannot both appear in the same policy.
 
 ```
 {

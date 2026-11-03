@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::fmt;
 use std::io::Read;
 
-use utils::seccomp::bpf::BpfPart as SerializedPart;
+use serde::de::{Deserialize, Deserializer, MapAccess, Visitor};
 pub use utils::seccomp::bpf::{BPF_MAX_LEN, SockFilter as BpfInstruction};
+use utils::seccomp::bpf::{BPF_RET_A, BPF_RET_K, BpfPart as SerializedPart};
 pub use utils::seccomp::{SeccompFeatures, UnknownSeccompFeature};
 
 // This byte limit is passed to `bitcode` to guard against a potential memory
@@ -13,6 +16,10 @@ pub use utils::seccomp::{SeccompFeatures, UnknownSeccompFeature};
 // This limit can be safely determined since the maximum length of a BPF
 // filter is 4096 instructions and Firecracker has a finite number of threads.
 const DESERIALIZATION_BYTES_LIMIT: usize = 100_000;
+
+// Field masks used by the kernel's BPF_CLASS and BPF_OP macros.
+const BPF_CLASS_MASK: u32 = 0x07;
+const BPF_OP_MASK: u32 = 0xf0;
 
 /// Program made up of a sequence of BPF instructions.
 pub type BpfProgram = Vec<BpfInstruction>;
@@ -38,22 +45,196 @@ struct FilterPart {
 /// holds the rules that are always needed and falls through instead of returning the default
 /// action, the feature-gated fragments follow, and an epilogue returns the default action.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SeccompFilter(Vec<FilterPart>);
+pub struct SeccompFilter(FilterLayout);
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+enum FilterLayout {
+    #[default]
+    Disabled,
+    Complete(BpfProgram),
+    Composed {
+        base: BpfProgram,
+        fragments: Vec<FilterPart>,
+        epilogue: BpfInstruction,
+    },
+}
 
 impl SeccompFilter {
     /// Assemble the program for a microVM with `enabled` features: the parts without features
     /// and the ones with at least one enabled feature, in order.
     pub fn compose(&self, enabled: SeccompFeatures) -> BpfProgram {
-        self.0
-            .iter()
-            .filter(|part| part.features.is_empty() || part.features.intersects(enabled))
-            .flat_map(|part| part.code.iter().copied())
-            .collect()
+        match &self.0 {
+            FilterLayout::Disabled => Vec::new(),
+            FilterLayout::Complete(program) => program.clone(),
+            FilterLayout::Composed {
+                base,
+                fragments,
+                epilogue,
+            } => {
+                let mut program = base.clone();
+                for fragment in fragments.iter().filter(|f| f.features.intersects(enabled)) {
+                    program.extend_from_slice(&fragment.code);
+                }
+                program.push(*epilogue);
+                program
+            }
+        }
     }
+
+    /// Check that the filter has the layout seccompiler gives it, so that every composition of
+    /// its parts is a well-formed program in which each part either returns or falls through to
+    /// the next one.
+    ///
+    /// An empty filter installs nothing, and a single part must be a complete program. Several
+    /// parts must be an untagged base, tagged fragments and an untagged `ret K` epilogue. The
+    /// base and the fragments must not return the epilogue's action nor `A`, and may only jump
+    /// within themselves or to the start of the next part. Only jumps and returns are checked.
+    fn from_parts(parts: Vec<FilterPart>) -> Result<Self, FilterLayoutError> {
+        let len: usize = parts.iter().map(|part| part.code.len()).sum();
+        if len > BPF_MAX_LEN {
+            return Err(FilterLayoutError::TooLong(len));
+        }
+        if let Some(index) = parts.iter().position(|part| part.code.is_empty()) {
+            return Err(FilterLayoutError::EmptyPart(index));
+        }
+        let mut parts = parts.into_iter();
+        let Some(base) = parts.next() else {
+            return Ok(Self::default());
+        };
+        if !base.features.is_empty() {
+            return Err(FilterLayoutError::TaggedBase);
+        }
+        let Some(epilogue) = parts.next_back() else {
+            let last = base.code.len() - 1;
+            if u32::from(base.code[last].code) & BPF_CLASS_MASK != libc::BPF_RET {
+                return Err(FilterLayoutError::NoFinalReturn);
+            }
+            check_jumps(0, &base.code, last)?;
+            return Ok(Self(FilterLayout::Complete(base.code)));
+        };
+
+        if !epilogue.features.is_empty() {
+            return Err(FilterLayoutError::TaggedEpilogue);
+        }
+        let epilogue = match epilogue.code.as_slice() {
+            &[instruction] if instruction.code == BPF_RET_K => instruction,
+            _ => return Err(FilterLayoutError::InvalidEpilogue),
+        };
+        check_body(0, &base.code, epilogue.k)?;
+        let fragments: Vec<_> = parts.collect();
+        for (i, part) in fragments.iter().enumerate() {
+            let index = i + 1;
+            if part.features.is_empty() {
+                return Err(FilterLayoutError::UntaggedFragment(index));
+            }
+            check_body(index, &part.code, epilogue.k)?;
+        }
+        Ok(Self(FilterLayout::Composed {
+            base: base.code,
+            fragments,
+            epilogue,
+        }))
+    }
+}
+
+/// Ways in which a compiled filter does not have the layout seccompiler gives it.
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
+pub enum FilterLayoutError {
+    /// The program with every part included has {0} instructions, more than the maximum of {BPF_MAX_LEN:}
+    TooLong(usize),
+    /// Part {0} contains no instructions
+    EmptyPart(usize),
+    /// The first part is tagged with features, it must always be installed
+    TaggedBase,
+    /// The last part is tagged with features, it must always be installed
+    TaggedEpilogue,
+    /// Part {0} is not tagged with features, only the first and last parts can be untagged
+    UntaggedFragment(usize),
+    /// The last part is not a single `ret` instruction returning the default action of the filter
+    InvalidEpilogue,
+    /// The program does not end with a `ret` instruction
+    NoFinalReturn,
+    /// Instruction {1} of part {0} jumps past the end of its part
+    JumpOutOfPart(usize, usize),
+    /// Instruction {1} of part {0} returns the default action instead of falling through to the next part
+    DefaultReturn(usize, usize),
+    /// Instruction {1} of part {0} returns the accumulator, only a single-part filter may do so
+    ReturnAccumulator(usize, usize),
+}
+
+/// Nonmatching rules must fall through to the next part instead of returning the default action.
+fn check_body(
+    index: usize,
+    program: BpfProgramRef,
+    default_action: u32,
+) -> Result<(), FilterLayoutError> {
+    for (pc, i) in program.iter().enumerate() {
+        match i.code {
+            BPF_RET_K if i.k == default_action => {
+                return Err(FilterLayoutError::DefaultReturn(index, pc));
+            }
+            BPF_RET_A => return Err(FilterLayoutError::ReturnAccumulator(index, pc)),
+            _ => (),
+        }
+    }
+    check_jumps(index, program, program.len())
+}
+
+/// Check that no jump of part `index`, whose instructions are `program`, goes past `max_target`.
+fn check_jumps(
+    index: usize,
+    program: BpfProgramRef,
+    max_target: usize,
+) -> Result<(), FilterLayoutError> {
+    for (pc, instruction) in program.iter().enumerate() {
+        let code = u32::from(instruction.code);
+        if code & BPF_CLASS_MASK != libc::BPF_JMP {
+            continue;
+        }
+        let offset = if code & BPF_OP_MASK == libc::BPF_JA {
+            u64::from(instruction.k)
+        } else {
+            u64::from(instruction.jt.max(instruction.jf))
+        };
+        // Counted in u64, since a `ja` can jump up to u32::MAX instructions ahead.
+        let target = u64::try_from(pc + 1).map_or(u64::MAX, |next| next.saturating_add(offset));
+        if u64::try_from(max_target).is_ok_and(|max| target > max) {
+            return Err(FilterLayoutError::JumpOutOfPart(index, pc));
+        }
+    }
+    Ok(())
 }
 
 /// Type that associates a thread category to its seccomp filter.
 pub type BpfThreadMap = HashMap<String, SeccompFilter>;
+
+// Read map entries without collecting them into a HashMap first: that would discard
+// repeated keys before the decoder can check the normalized names.
+struct SerializedFilters(Vec<(String, Vec<SerializedPart>)>);
+
+impl<'de> Deserialize<'de> for SerializedFilters {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct EntriesVisitor;
+
+        impl<'de> Visitor<'de> for EntriesVisitor {
+            type Value = SerializedFilters;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a map of thread names to seccomp filter parts")
+            }
+
+            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
+                let mut entries = Vec::new();
+                while let Some(entry) = map.next_entry()? {
+                    entries.push(entry);
+                }
+                Ok(SerializedFilters(entries))
+            }
+        }
+
+        deserializer.deserialize_map(EntriesVisitor)
+    }
+}
 
 /// Binary filter deserialization errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -66,8 +247,12 @@ pub enum DeserializationError {
     Bitcode(#[from] bitcode::Error),
     /// Filter in the format of an older seccompiler-bin, recompile it with the one of this release
     OlderFormat,
+    /// Duplicate seccomp filter for the {0} thread
+    DuplicateThread(String),
     /// Filter part tagged with an unknown feature: {0}
     UnknownFeature(#[from] UnknownSeccompFeature),
+    /// Invalid seccomp filter for the {0} thread: {1}
+    Layout(String, FilterLayoutError),
 }
 
 /// Retrieve empty seccomp filters.
@@ -95,8 +280,8 @@ pub fn deserialize_binary<R: Read>(reader: R) -> Result<BpfThreadMap, Deserializ
         ));
     }
 
-    let result: HashMap<String, Vec<SerializedPart>> = match bitcode::deserialize(&buf) {
-        Ok(result) => result,
+    let SerializedFilters(entries) = match bitcode::deserialize(&buf) {
+        Ok(filters) => filters,
         // Earlier releases wrote a single complete program per thread.
         Err(_) if bitcode::deserialize::<HashMap<String, BpfProgram>>(&buf).is_ok() => {
             return Err(DeserializationError::OlderFormat);
@@ -116,13 +301,21 @@ pub fn deserialize_binary<R: Read>(reader: R) -> Result<BpfThreadMap, Deserializ
             code: part.code,
         })
     };
-    result
-        .into_iter()
-        .map(|(k, parts)| {
-            let parts = parts.into_iter().map(part).collect::<Result<_, _>>()?;
-            Ok((k.to_lowercase(), SeccompFilter(parts)))
-        })
-        .collect()
+    let mut filters = BpfThreadMap::with_capacity(entries.len());
+    for (name, parts) in entries {
+        match filters.entry(name.to_lowercase()) {
+            Entry::Occupied(entry) => {
+                return Err(DeserializationError::DuplicateThread(entry.key().clone()));
+            }
+            Entry::Vacant(entry) => {
+                let parts = parts.into_iter().map(part).collect::<Result<_, _>>()?;
+                let filter = SeccompFilter::from_parts(parts)
+                    .map_err(|err| DeserializationError::Layout(entry.key().clone(), err))?;
+                entry.insert(filter);
+            }
+        }
+    }
+    Ok(filters)
 }
 
 /// Filter installation errors.
@@ -204,13 +397,43 @@ mod tests {
 
     /// Serialize `filters` the way seccompiler writes a compiled filter file.
     fn encode(filters: Vec<(&str, Vec<SerializedPart>)>) -> Vec<u8> {
-        let filters: HashMap<_, _> = filters.into_iter().collect();
-        bitcode::serialize(&filters).unwrap()
+        struct Entries<'a>(Vec<(&'a str, Vec<SerializedPart>)>);
+
+        impl serde::Serialize for Entries<'_> {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.collect_map(self.0.iter().map(|(name, parts)| (name, parts)))
+            }
+        }
+
+        bitcode::serialize(&Entries(filters)).unwrap()
     }
 
     fn serialized(features: &[&str], code: BpfProgram) -> SerializedPart {
         let features = features.iter().map(|name| name.to_string()).collect();
         SerializedPart { features, code }
+    }
+
+    const SECCOMP_RET_TRAP: u32 = 0x0003_0000;
+    const SECCOMP_RET_ALLOW: u32 = 0x7fff_0000;
+
+    fn insn(code: u16, jt: u8, jf: u8, k: u32) -> BpfInstruction {
+        BpfInstruction { code, jt, jf, k }
+    }
+
+    /// Allow syscall `nr`, and fall through to whatever follows for the others.
+    fn allow(nr: u32) -> BpfProgram {
+        vec![
+            // ld [0]: the syscall number.
+            insn(0x20, 0, 0, 0),
+            // jeq #nr, 0, 1
+            insn(0x15, 0, 1, nr),
+            insn(BPF_RET_K, 0, 0, SECCOMP_RET_ALLOW),
+        ]
+    }
+
+    /// Return the default action of the test filters.
+    fn trap() -> BpfProgram {
+        vec![insn(BPF_RET_K, 0, 0, SECCOMP_RET_TRAP)]
     }
 
     #[test]
@@ -233,34 +456,43 @@ mod tests {
             (
                 "VcpU",
                 vec![
-                    serialized(&[], program(&[0; 2])),
-                    serialized(&["net", "hotplug"], program(&[1; 3])),
-                    serialized(&[], program(&[2])),
+                    serialized(&[], allow(1)),
+                    serialized(&["net", "hotplug"], allow(2)),
+                    serialized(&[], trap()),
                 ],
             ),
-            ("vmm", vec![]),
+            ("API", vec![serialized(&[], [allow(3), trap()].concat())]),
+            ("MaIn", vec![]),
         ]);
         let part = |features, code| FilterPart { features, code };
         let expected = BpfThreadMap::from([
             (
                 "vcpu".to_string(),
-                SeccompFilter(vec![
-                    part(SeccompFeatures::empty(), program(&[0; 2])),
-                    part(
+                SeccompFilter(FilterLayout::Composed {
+                    base: allow(1),
+                    fragments: vec![part(
                         SeccompFeatures::NET | SeccompFeatures::HOTPLUG,
-                        program(&[1; 3]),
-                    ),
-                    part(SeccompFeatures::empty(), program(&[2])),
-                ]),
+                        allow(2),
+                    )],
+                    epilogue: trap()[0],
+                }),
             ),
-            ("vmm".to_string(), SeccompFilter::default()),
+            (
+                "api".to_string(),
+                SeccompFilter(FilterLayout::Complete([allow(3), trap()].concat())),
+            ),
+            ("main".to_string(), SeccompFilter::default()),
         ]);
         assert_eq!(deserialize_binary(&bytes[..]).unwrap(), expected);
 
         // Parts tagged with a feature this Firecracker does not know are rejected.
         let bytes = encode(vec![(
             "vmm",
-            vec![serialized(&["warp-drive"], program(&[1]))],
+            vec![
+                serialized(&[], allow(1)),
+                serialized(&["warp-drive"], allow(2)),
+                serialized(&[], trap()),
+            ],
         )]);
         assert!(matches!(
             deserialize_binary(&bytes[..]).unwrap_err(),
@@ -274,6 +506,172 @@ mod tests {
             deserialize_binary(&large_data[..]).unwrap_err(),
             DeserializationError::SizeLimitExceeded(..)
         ));
+    }
+
+    #[test]
+    fn test_deserialize_binary_duplicate_threads() {
+        for other in ["main", "MaIn"] {
+            let bytes = encode(vec![("main", vec![]), (other, vec![])]);
+            assert!(matches!(
+                deserialize_binary(&bytes[..]),
+                Err(DeserializationError::DuplicateThread(thread)) if thread == "main"
+            ));
+        }
+    }
+
+    #[test]
+    fn test_deserialize_binary_layout() {
+        // A fragment that would fall through into the epilogue without returning its rules'
+        // action is rejected when the file is loaded, naming the thread.
+        let bytes = encode(vec![
+            ("vmm", vec![serialized(&[], [allow(1), trap()].concat())]),
+            (
+                "VCPU",
+                vec![
+                    serialized(&[], allow(1)),
+                    serialized(&["net"], trap()),
+                    serialized(&[], trap()),
+                ],
+            ),
+        ]);
+        let err = deserialize_binary(&bytes[..]).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Invalid seccomp filter for the vcpu thread: Instruction 0 of part 1 returns the \
+             default action instead of falling through to the next part"
+        );
+        assert!(matches!(
+            err,
+            DeserializationError::Layout(thread, FilterLayoutError::DefaultReturn(1, 0))
+                if thread == "vcpu"
+        ));
+    }
+
+    #[test]
+    fn test_validate() {
+        use FilterLayoutError::*;
+
+        let base = |code| FilterPart {
+            features: SeccompFeatures::empty(),
+            code,
+        };
+        let tagged = |code| FilterPart {
+            features: SeccompFeatures::NET | SeccompFeatures::BLOCK,
+            code,
+        };
+        let ja = |k| insn(0x05, 0, 0, k);
+        let ret_a = insn(BPF_RET_A, 0, 0, 0);
+
+        let valid = [
+            // No filter.
+            vec![],
+            // A complete program.
+            vec![base([allow(1), trap()].concat())],
+            vec![base(trap())],
+            // A base, fragments falling through, and the epilogue.
+            vec![
+                base(allow(1)),
+                tagged(allow(2)),
+                tagged([allow(3), vec![ja(0)], allow(4)].concat()),
+                base(trap()),
+            ],
+            // Jumps landing right after their part, in the next one.
+            vec![
+                base(vec![ja(0)]),
+                tagged(vec![insn(0x15, 1, 0, 1), ja(0)]),
+                base(trap()),
+            ],
+            // A complete program can return the accumulator.
+            vec![base(vec![ja(0), ret_a])],
+            // A base and the epilogue.
+            vec![base(allow(1)), base(trap())],
+            // Returns of another action than the epilogue's.
+            vec![
+                base(vec![insn(BPF_RET_K, 0, 0, SECCOMP_RET_ALLOW)]),
+                base(trap()),
+            ],
+        ];
+        for parts in valid {
+            SeccompFilter::from_parts(parts).unwrap();
+        }
+
+        let too_long = vec![insn(BPF_RET_K, 0, 0, SECCOMP_RET_TRAP); BPF_MAX_LEN];
+        let invalid = [
+            (
+                vec![base(too_long.clone()), base(trap())],
+                TooLong(BPF_MAX_LEN + 1),
+            ),
+            (
+                vec![base([too_long, trap()].concat())],
+                TooLong(BPF_MAX_LEN + 1),
+            ),
+            (vec![base(vec![])], EmptyPart(0)),
+            (
+                vec![base(allow(1)), tagged(vec![]), base(trap())],
+                EmptyPart(1),
+            ),
+            (vec![base(allow(1)), base(vec![])], EmptyPart(1)),
+            (vec![tagged([allow(1), trap()].concat())], TaggedBase),
+            (vec![tagged(allow(1)), base(trap())], TaggedBase),
+            (vec![base(allow(1)), tagged(trap())], TaggedEpilogue),
+            (
+                vec![base(allow(1)), base(allow(2)), base(trap())],
+                UntaggedFragment(1),
+            ),
+            (
+                vec![
+                    base(allow(1)),
+                    tagged(allow(2)),
+                    base(allow(3)),
+                    base(trap()),
+                ],
+                UntaggedFragment(2),
+            ),
+            (
+                vec![base(allow(1)), base([trap(), trap()].concat())],
+                InvalidEpilogue,
+            ),
+            (vec![base(allow(1)), base(vec![ret_a])], InvalidEpilogue),
+            (vec![base(allow(1)), base(vec![ja(0)])], InvalidEpilogue),
+            (vec![base(allow(1))], JumpOutOfPart(0, 1)),
+            (vec![base(vec![insn(0x20, 0, 0, 0)])], NoFinalReturn),
+            (vec![base([trap(), vec![ja(0)]].concat())], NoFinalReturn),
+            (
+                vec![base(vec![ja(1), insn(0x15, 0, 2, 1), ret_a, ret_a])],
+                JumpOutOfPart(0, 1),
+            ),
+            (
+                vec![base(allow(1)), tagged(vec![ja(1)]), base(trap())],
+                JumpOutOfPart(1, 0),
+            ),
+            (
+                vec![base(allow(1)), tagged(vec![ja(u32::MAX)]), base(trap())],
+                JumpOutOfPart(1, 0),
+            ),
+            (
+                vec![base(vec![insn(0x15, 2, 0, 1), ja(0)]), base(trap())],
+                JumpOutOfPart(0, 0),
+            ),
+            (
+                vec![
+                    base(allow(1)),
+                    tagged([allow(2), trap()].concat()),
+                    base(trap()),
+                ],
+                DefaultReturn(1, 3),
+            ),
+            (
+                vec![base([trap(), allow(1)].concat()), base(trap())],
+                DefaultReturn(0, 0),
+            ),
+            (
+                vec![base([allow(1), vec![ret_a]].concat()), base(trap())],
+                ReturnAccumulator(0, 3),
+            ),
+        ];
+        for (parts, expected) in invalid {
+            assert_eq!(SeccompFilter::from_parts(parts).unwrap_err(), expected);
+        }
     }
 
     #[test]
@@ -301,15 +699,17 @@ mod tests {
                 .is_empty()
         );
 
-        let filter = SeccompFilter(vec![
-            part(SeccompFeatures::empty(), program(&[1, 2])),
-            part(SeccompFeatures::NET, program(&[10, 11])),
-            part(
-                SeccompFeatures::PMEM | SeccompFeatures::MEMORY_HOTPLUG,
-                program(&[20]),
-            ),
-            part(SeccompFeatures::empty(), program(&[3])),
-        ]);
+        let filter = SeccompFilter(FilterLayout::Composed {
+            base: program(&[1, 2]),
+            fragments: vec![
+                part(SeccompFeatures::NET, program(&[10, 11])),
+                part(
+                    SeccompFeatures::PMEM | SeccompFeatures::MEMORY_HOTPLUG,
+                    program(&[20]),
+                ),
+            ],
+            epilogue: BpfInstruction::stmt(0, 3),
+        });
         for (enabled, expected) in [
             (SeccompFeatures::empty(), vec![1, 2, 3]),
             (SeccompFeatures::NET, vec![1, 2, 10, 11, 3]),

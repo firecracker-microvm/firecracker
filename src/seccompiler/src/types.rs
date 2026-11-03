@@ -1,8 +1,9 @@
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::ffi::CString;
+use std::fmt;
 use std::str::FromStr;
 
 use serde::*;
@@ -209,9 +210,37 @@ pub struct Filter {
     pub filter: Vec<SyscallRule>,
 }
 
-/// Deserializable object that represents the Json filter file.
-#[derive(Debug, Deserialize)]
+/// A JSON policy keyed by thread names, which must be unique ignoring case.
+#[derive(Debug)]
 pub struct BpfJson(pub BTreeMap<String, Filter>);
+
+impl<'de> Deserialize<'de> for BpfJson {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct FiltersVisitor;
+
+        impl<'de> de::Visitor<'de> for FiltersVisitor {
+            type Value = BpfJson;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a map of thread names to seccomp filters")
+            }
+
+            fn visit_map<M: de::MapAccess<'de>>(self, mut map: M) -> Result<BpfJson, M::Error> {
+                let mut filters = BTreeMap::new();
+                let mut names = HashSet::new();
+                while let Some(name) = map.next_key::<String>()? {
+                    if !names.insert(name.to_lowercase()) {
+                        return Err(de::Error::custom(format!("duplicate thread name: {name}")));
+                    }
+                    filters.insert(name, map.next_value()?);
+                }
+                Ok(BpfJson(filters))
+            }
+        }
+
+        deserializer.deserialize_map(FiltersVisitor)
+    }
+}
 
 /// A compiled filter before conversion to the on-disk sequence of parts.
 pub(crate) enum BpfFilter {
