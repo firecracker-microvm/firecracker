@@ -51,6 +51,7 @@ jailer, the same TAP networking. The differences:
 | [Memory hotplug (virtio-mem)](../memory-hotplug.md)                     |     yes      |     rejected     |        rejected        |
 | [Balloon device](../ballooning.md)                                      |     yes      |     rejected     |        rejected        |
 | [vhost-user block](../api_requests/block-vhost-user.md)                 |     yes      |     rejected     |        rejected        |
+| [device_passthrough](../device_passthrough.md)                          |     yes      |     rejected     |        rejected        |
 | [Huge pages](../hugepages.md)                                           |     yes      |     rejected     |        rejected        |
 | [CPU templates](../cpu_templates/cpu-templates.md)                      |     yes      |     rejected     |        rejected        |
 | Guest SMT configuration (`smt`)                                         |     yes      |     rejected     |        rejected        |
