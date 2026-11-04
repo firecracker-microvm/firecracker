@@ -8,8 +8,7 @@ use std::net::Ipv4Addr;
 use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-
-use utils::time::timestamp_cycles;
+use std::time::Instant;
 
 use crate::dumbo::pdu::Incomplete;
 use crate::dumbo::pdu::arp::{
@@ -229,7 +228,7 @@ impl MmdsNetworkStack {
         } else {
             let call_write = match self.tcp_handler.next_segment_status() {
                 NextSegmentStatus::Available => true,
-                NextSegmentStatus::Timeout(value) => timestamp_cycles() >= value,
+                NextSegmentStatus::Timeout(value) => Instant::now() >= value,
                 NextSegmentStatus::Nothing => false,
             };
 
