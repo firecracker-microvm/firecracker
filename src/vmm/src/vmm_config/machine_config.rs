@@ -37,6 +37,8 @@ pub enum MachineConfigError {
     InvalidPcieHotplugPorts,
     /// PCIe hot-plug ports require `--enable-pci`.
     PcieHotplugPortsRequirePci,
+    /// Hot-plugging drives that use the Async io engine requires `--enable-pci`.
+    HotplugAsyncDrivesRequirePci,
 }
 
 /// Describes the possible (huge)page configurations for a microVM's memory.
@@ -139,6 +141,9 @@ pub struct MachineConfig {
     /// Number of PCIe root ports to create.
     #[serde(default)]
     pub pcie_hotplug_ports: u8,
+    /// Allows hot-plugging drives that use the Async io engine.
+    #[serde(default)]
+    pub hotplug_async_drives: bool,
     /// GDB socket address.
     #[cfg(feature = "gdb")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -182,6 +187,7 @@ impl Default for MachineConfig {
             track_dirty_pages: false,
             huge_pages: HugePageConfig::None,
             pcie_hotplug_ports: 0,
+            hotplug_async_drives: false,
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         }
@@ -218,6 +224,9 @@ pub struct MachineConfigUpdate {
     /// Number of PCIe root ports to create.
     #[serde(default)]
     pub pcie_hotplug_ports: Option<u8>,
+    /// Allows hot-plugging drives that use the Async io engine.
+    #[serde(default)]
+    pub hotplug_async_drives: Option<bool>,
     /// GDB socket address.
     #[cfg(feature = "gdb")]
     #[serde(default)]
@@ -243,6 +252,7 @@ impl From<MachineConfig> for MachineConfigUpdate {
             track_dirty_pages: Some(cfg.track_dirty_pages),
             huge_pages: Some(cfg.huge_pages),
             pcie_hotplug_ports: Some(cfg.pcie_hotplug_ports),
+            hotplug_async_drives: Some(cfg.hotplug_async_drives),
             #[cfg(feature = "gdb")]
             gdb_socket_path: cfg.gdb_socket_path,
         }
@@ -316,6 +326,9 @@ impl MachineConfig {
             track_dirty_pages: update.track_dirty_pages.unwrap_or(self.track_dirty_pages),
             huge_pages: page_config,
             pcie_hotplug_ports,
+            hotplug_async_drives: update
+                .hotplug_async_drives
+                .unwrap_or(self.hotplug_async_drives),
             #[cfg(feature = "gdb")]
             gdb_socket_path: update.gdb_socket_path.clone(),
         })

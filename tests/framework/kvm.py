@@ -50,6 +50,7 @@ def kvm_basic_config(
     cpu_template=None,
     enable_entropy_device=False,
     pcie_hotplug_ports: int = None,
+    hotplug_async_drives: bool = None,
 ):
     """Shortcut for quickly configuring a microVM.
 
@@ -74,6 +75,7 @@ def kvm_basic_config(
         track_dirty_pages=track_dirty_pages,
         huge_pages=huge_pages,
         pcie_hotplug_ports=pcie_hotplug_ports,
+        hotplug_async_drives=hotplug_async_drives,
     )
     vm.huge_pages = huge_pages
     vm.vcpus_count = vcpu_count

@@ -887,7 +887,8 @@ mod tests {
     "smt": false,
     "track_dirty_pages": false,
     "huge_pages": "None",
-    "pcie_hotplug_ports": 0
+    "pcie_hotplug_ports": 0,
+    "hotplug_async_drives": false
   }},
   "metrics": null,
   "mmds-config": {{

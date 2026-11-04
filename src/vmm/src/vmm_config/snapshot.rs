@@ -124,6 +124,9 @@ pub struct LoadSnapshotParams {
     pub clock_realtime: bool,
     /// Selects the huge-page configuration to use for the restored microVM.
     pub huge_pages: SnapshotLoadHugePageConfig,
+    /// When set to true, drives using the Async io engine can be hot-plugged into the restored
+    /// microVM, even if the snapshotted microVM did not allow it.
+    pub hotplug_async_drives: bool,
 }
 
 /// Stores the configuration for loading a snapshot that is provided by the user.
@@ -162,6 +165,9 @@ pub struct LoadSnapshotConfig {
     /// Selects the huge-page configuration to use for the restored microVM.
     #[serde(default)]
     pub huge_pages: SnapshotLoadHugePageConfig,
+    /// Whether drives using the Async io engine can be hot-plugged into the restored microVM.
+    #[serde(default)]
+    pub hotplug_async_drives: bool,
 }
 
 /// Stores the configuration used for managing snapshot memory.

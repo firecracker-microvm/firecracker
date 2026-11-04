@@ -61,6 +61,8 @@ pub struct VmInfo {
     pub huge_pages: HugePageConfig,
     /// Number of PCIe hot-plug ports
     pub pcie_hotplug_ports: u8,
+    /// Whether drives using the Async io engine can be hot-plugged
+    pub hotplug_async_drives: bool,
 }
 
 impl From<&VmResources> for VmInfo {
@@ -72,6 +74,7 @@ impl From<&VmResources> for VmInfo {
             boot_source: value.boot_source.config.clone(),
             huge_pages: value.machine_config.huge_pages,
             pcie_hotplug_ports: value.machine_config.pcie_hotplug_ports,
+            hotplug_async_drives: value.machine_config.hotplug_async_drives,
         }
     }
 }
@@ -86,6 +89,7 @@ impl From<&Vmm> for VmInfo {
             boot_source: value.boot_source_config.clone(),
             huge_pages: machine_config.huge_pages,
             pcie_hotplug_ports: machine_config.pcie_hotplug_ports,
+            hotplug_async_drives: machine_config.hotplug_async_drives,
         }
     }
 }
@@ -462,6 +466,9 @@ pub fn restore_from_snapshot(
             track_dirty_pages: Some(track_dirty_pages),
             huge_pages: Some(params.huge_pages.resolve(microvm_state.vm_info.huge_pages)),
             pcie_hotplug_ports: Some(microvm_state.vm_info.pcie_hotplug_ports),
+            hotplug_async_drives: Some(
+                microvm_state.vm_info.hotplug_async_drives || params.hotplug_async_drives,
+            ),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         })

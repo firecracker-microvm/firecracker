@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 from framework import utils
-from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_pci
 
 ARCH = platform.machine()
 
@@ -245,7 +245,7 @@ def _check_filter_log_line(uvm, thread, features):
 def _derived_features(uvm):
     """The features derived from the configuration `basic_config` sets up."""
     if uvm.pci_enabled:
-        return "api,pci,hotplug,block,async-io,net,pmem"
+        return "api,pci,hotplug,block,net,pmem"
     return "api,block"
 
 
@@ -256,7 +256,7 @@ def test_seccomp_features_derived(uvm):
 
     A microVM with just a root drive gets the API and block rules. With the
     PCI transport, devices can be hot-plugged, so every hot-pluggable device
-    type is kept as well.
+    type is kept as well, except for the io_uring rules of Async drives.
     """
     uvm.spawn()
     uvm.basic_config()
@@ -269,6 +269,21 @@ def test_seccomp_features_derived(uvm):
     # The API thread's filter is installed before the configuration is known.
     _check_filter_log_line(uvm, "api", "api")
     utils.assert_seccomp_level(uvm.firecracker_pid, "2")
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_seccomp_features_hotplug_async_drives(uvm):
+    """
+    Test that allowing Async drives to be hot-plugged keeps the io_uring rules.
+    """
+    uvm.spawn()
+    uvm.basic_config(hotplug_async_drives=True)
+    uvm.start()
+    expected = "api,pci,hotplug,block,async-io,net,pmem"
+    uvm.check_log_message(_seccomp_features_log_line(expected))
+    for thread in ["vmm", "vcpu"]:
+        _check_filter_log_line(uvm, thread, expected)
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)

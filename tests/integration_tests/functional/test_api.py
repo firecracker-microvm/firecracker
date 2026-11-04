@@ -1437,6 +1437,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
         "track_dirty_pages": False,
         "huge_pages": "None",
         "pcie_hotplug_ports": 0,
+        "hotplug_async_drives": False,
     }
 
     if cpu_vendor == utils_cpuid.CpuVendor.ARM:
@@ -1591,6 +1592,7 @@ def test_get_full_config(uvm):
         "track_dirty_pages": False,
         "huge_pages": "None",
         "pcie_hotplug_ports": 0,
+        "hotplug_async_drives": False,
     }
     expected_cfg["cpu-config"] = None
     expected_cfg["boot-source"] = {

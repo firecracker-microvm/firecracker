@@ -1050,6 +1050,7 @@ class Microvm:
         *,
         huge_pages: Optional[HugePagesConfig] = None,
         uffd_handler_name: str = None,
+        hotplug_async_drives: bool = False,
     ):
         """Restore a snapshot"""
 
@@ -1123,6 +1124,9 @@ class Microvm:
 
         if huge_pages is not None:
             optional_kwargs["huge_pages"] = huge_pages
+
+        if hotplug_async_drives:
+            optional_kwargs["hotplug_async_drives"] = hotplug_async_drives
 
         self.api.snapshot_load.put(
             mem_backend=mem_backend,

@@ -220,6 +220,8 @@ pub enum VmmActionError {
     CannotUnplugRootDevice,
     /// PCI is not enabled
     PciNotEnabled,
+    /// Hot-plugging drives that use the Async io engine requires `hotplug_async_drives`
+    AsyncDriveHotplugNotEnabled,
     /// PCI manager error: {0}
     PciManager(#[from] PciManagerError),
 }
@@ -1343,6 +1345,7 @@ mod tests {
                 vsock_override: None,
                 clock_realtime: false,
                 huge_pages: SnapshotLoadHugePageConfig::Snapshot,
+                hotplug_async_drives: false,
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetEntropyDevice(

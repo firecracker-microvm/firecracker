@@ -26,12 +26,19 @@ and this project adheres to
   `memory-hotplug`). Firecracker now installs only the rules of the features a
   microVM uses, derived from its configuration when the filters are installed;
   when devices can be hot-plugged (PCI transport with the API), the rules of all
-  hot-pluggable device types are kept. The device and API specific rules of the
+  hot-pluggable device types are kept, apart from `async-io` (see
+  `hotplug_async_drives` below). The device and API specific rules of the
   default filters are tagged. The new optional `--seccomp-features` parameter
   enables the rules of additional features (`all` or a comma-separated list) on
   top of the derived ones. If a microVM is killed by seccomp after upgrading,
   `--seccomp-features all` restores the untrimmed filters. See
   [docs/seccomp.md](docs/seccomp.md#feature-tagged-rules).
+- [#TBD](https://github.com/firecracker-microvm/firecracker/pull/TBD): Added the
+  `hotplug_async_drives` machine-config option, also accepted when loading a
+  snapshot. It allows hot-plugging drives that use the `Async` io engine, which
+  is otherwise rejected because the seccomp filters of a PCI microVM do not
+  allow `io_uring` by default any more. The option is saved in snapshots. See
+  [docs/device-hotplug.md](docs/device-hotplug.md#hotplugging-drives-that-use-the-async-io-engine).
 
 ### Changed
 

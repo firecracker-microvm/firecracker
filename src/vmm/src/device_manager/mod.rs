@@ -808,9 +808,10 @@ pub(crate) mod tests {
     use crate::devices::acpi::vmclock::VmClock;
     use crate::devices::acpi::vmgenid::VmGenId;
     use crate::devices::virtio::block::CacheType;
+    use crate::devices::virtio::block::virtio::VirtioBlockError;
     use crate::rpc_interface::VmmActionError;
     use crate::vmm_config::HotplugDeviceConfig;
-    use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
+    use crate::vmm_config::drive::{BlockDeviceConfig, DriveError, FileEngineType};
     use crate::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceError};
     use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
     use crate::vstate::resources::ResourceAllocator;
@@ -1011,6 +1012,46 @@ pub(crate) mod tests {
                 .virtio_devices
                 .contains_key(&device_id)
         );
+    }
+
+    #[test]
+    fn test_hotplug_async_block() {
+        let mut evt_manager = EventManager::new().unwrap();
+        let mut vmm = default_vmm_with_pci();
+        let f = TempFile::new().unwrap();
+        let device_id = (VirtioDeviceType::Block, "block0".to_string());
+        let async_drive = || {
+            let mut cfg = make_hotplug_block_cfg("block0", &f, false);
+            cfg.file_engine_type = Some(FileEngineType::Async);
+            HotplugDeviceConfig::Block(cfg)
+        };
+
+        // The seccomp filters leave out the io_uring rules.
+        vmm.async_io_blocked = true;
+        assert!(matches!(
+            vmm.hotplug_device(async_drive(), &mut evt_manager),
+            Err(VmmActionError::AsyncDriveHotplugNotEnabled)
+        ));
+        assert!(
+            !pci_devices(&vmm.device_manager)
+                .virtio_devices
+                .contains_key(&device_id)
+        );
+
+        // They have them, or there are no filters at all.
+        vmm.async_io_blocked = false;
+        match vmm.hotplug_device(async_drive(), &mut evt_manager) {
+            Ok(()) => assert!(
+                pci_devices(&vmm.device_manager)
+                    .virtio_devices
+                    .contains_key(&device_id)
+            ),
+            // Hosts without io_uring support cannot create the async engine.
+            Err(VmmActionError::DriveConfig(DriveError::CreateBlockDevice(
+                BlockError::VirtioBackend(VirtioBlockError::FileEngine(_)),
+            ))) => {}
+            Err(err) => panic!("unexpected error: {err}"),
+        }
     }
 
     #[test]

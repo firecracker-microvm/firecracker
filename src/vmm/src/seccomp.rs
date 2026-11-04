@@ -39,6 +39,14 @@ pub type BpfProgramRef<'a> = &'a [BpfInstruction];
 pub struct SeccompFilter(Vec<FilterPart>);
 
 impl SeccompFilter {
+    /// Whether the program composed for `enabled` features leaves out rules that also enabling
+    /// `features` would add.
+    pub fn leaves_out(&self, features: SeccompFeatures, enabled: SeccompFeatures) -> bool {
+        self.0
+            .iter()
+            .any(|part| part.features.intersects(features) && !part.features.intersects(enabled))
+    }
+
     /// Assemble the program for a microVM with `enabled` features: the parts without features
     /// and the ones with at least one enabled feature, in order.
     pub fn compose(&self, enabled: SeccompFeatures) -> BpfProgram {
@@ -687,6 +695,34 @@ mod tests {
         ] {
             assert_eq!(filter.compose(enabled), program(&expected), "{enabled}");
         }
+    }
+
+    #[test]
+    fn test_leaves_out() {
+        let part = |features, code| FilterPart { features, code };
+        assert!(
+            !SeccompFilter::default().leaves_out(SeccompFeatures::all(), SeccompFeatures::empty())
+        );
+
+        let filter = SeccompFilter::from_parts(vec![
+            part(SeccompFeatures::empty(), allow(1)),
+            part(SeccompFeatures::BLOCK | SeccompFeatures::ASYNC_IO, allow(2)),
+            part(SeccompFeatures::ASYNC_IO, allow(3)),
+            part(SeccompFeatures::empty(), trap()),
+        ])
+        .unwrap();
+        // Untagged rules are always in.
+        assert!(!filter.leaves_out(SeccompFeatures::NET, SeccompFeatures::empty()));
+        assert!(filter.leaves_out(SeccompFeatures::BLOCK, SeccompFeatures::empty()));
+        assert!(!filter.leaves_out(SeccompFeatures::BLOCK, SeccompFeatures::BLOCK));
+        // The part tagged with both is in, but the one tagged `async-io` only is not.
+        assert!(filter.leaves_out(SeccompFeatures::ASYNC_IO, SeccompFeatures::BLOCK));
+        assert!(!filter.leaves_out(SeccompFeatures::ASYNC_IO, SeccompFeatures::ASYNC_IO));
+
+        // A filter that does not tag its rules leaves nothing out.
+        let filter =
+            SeccompFilter::from_parts(vec![part(SeccompFeatures::empty(), trap())]).unwrap();
+        assert!(!filter.leaves_out(SeccompFeatures::all(), SeccompFeatures::empty()));
     }
 
     #[test]
