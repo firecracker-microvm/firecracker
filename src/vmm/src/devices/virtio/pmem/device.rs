@@ -625,7 +625,7 @@ mod tests {
 
     #[test]
     fn test_from_config() {
-        let kvm = Kvm::new(vec![]).unwrap();
+        let kvm = Kvm::new(vec![], false, false).unwrap();
         let vm = Arc::new(KvmVm::new(kvm, false).unwrap());
 
         let config = PmemConfig {
@@ -667,7 +667,7 @@ mod tests {
 
     #[test]
     fn test_process_chain() {
-        let kvm = Kvm::new(vec![]).unwrap();
+        let kvm = Kvm::new(vec![], false, false).unwrap();
         let vm = Arc::new(KvmVm::new(kvm, false).unwrap());
 
         let dummy_file = TempFile::new().unwrap();

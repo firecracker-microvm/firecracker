@@ -739,7 +739,7 @@ mod tests {
     #[test]
     fn test_platform_devices_persistence() {
         let mem_raw = arch_mem_raw(crate::arch::FDT_MAX_SIZE + 0x1000);
-        let kvm = Kvm::new(vec![]).unwrap();
+        let kvm = Kvm::new(vec![], false, false).unwrap();
         let mut vm = KvmVm::new(kvm, false).unwrap();
         vm.register_dram_memory_regions(mem_raw).unwrap();
         vm.setup_irqchip(1).unwrap();
@@ -772,7 +772,7 @@ mod tests {
         assert!(state.rtc.is_some());
         assert!(state.gpio_pl061.is_some());
 
-        let restore_kvm = Kvm::new(vec![]).unwrap();
+        let restore_kvm = Kvm::new(vec![], false, false).unwrap();
         let mut restore_vm = KvmVm::new(restore_kvm, false).unwrap();
         restore_vm
             .register_dram_memory_regions(arch_mem_raw(crate::arch::FDT_MAX_SIZE + 0x1000))
