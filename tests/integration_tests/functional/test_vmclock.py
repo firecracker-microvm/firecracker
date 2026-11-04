@@ -3,6 +3,7 @@
 """Test VMclock device emulation"""
 
 import pytest
+from tenacity import Retrying, stop_after_delay, wait_fixed
 
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
 from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
@@ -40,15 +41,19 @@ def parse_vmclock(vm, use_mmap=False):
 def parse_vmclock_from_poll(vm, expected_notifications):
     """Parse the output of the 'vmclock -p' command in the guest"""
 
-    _, stdout, _ = vm.ssh.check_output("cat /tmp/vmclock.out")
-    fields = stdout.strip().split("\n")
+    # The poller prints asynchronously: the fields once at start and again
+    # after each notification. Wait for the expected notification and its
+    # fields to be there.
+    for attempt in Retrying(
+        wait=wait_fixed(0.1), stop=stop_after_delay(5), reraise=True
+    ):
+        with attempt:
+            _, stdout, _ = vm.ssh.check_output("cat /tmp/vmclock.out")
+            fields = stdout.strip().split("\n")
+            nr_notifications = fields.count("Got VMClock notification")
+            assert nr_notifications == expected_notifications
+            assert fields[-1].startswith("VMCLOCK_VM_GENERATION_COUNTER")
 
-    nr_notifications = 0
-    for line in fields:
-        if line == "Got VMClock notification":
-            nr_notifications += 1
-
-    assert nr_notifications == expected_notifications
     return dict(item.split(": ") for item in fields if item.startswith("VMCLOCK"))
 
 
