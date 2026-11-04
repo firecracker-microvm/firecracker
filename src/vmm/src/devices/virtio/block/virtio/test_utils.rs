@@ -24,7 +24,7 @@ use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE
 use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
 #[cfg(test)]
 use crate::devices::virtio::transport::VirtioInterruptType;
-use crate::rate_limiter::RateLimiter;
+use crate::rate_limiter::{RateLimiter, SharedRateLimiter};
 use crate::vmm_config::{RateLimiterConfig, TokenBucketConfig};
 use crate::vstate::memory::{Bytes, GuestAddress};
 
@@ -95,7 +95,7 @@ pub fn set_queue(blk: &mut VirtioBlock, idx: usize, q: Queue) {
 }
 
 pub fn set_rate_limiter(blk: &mut VirtioBlock, rl: RateLimiter) {
-    *blk.lock_rate_limiter() = rl;
+    blk.rate_limiter = SharedRateLimiter::new(rl);
 }
 
 #[cfg(test)]

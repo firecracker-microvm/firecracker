@@ -1,7 +1,6 @@
 // Copyright 2026 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -20,7 +19,7 @@ use crate::devices::virtio::persist::QueueState;
 use crate::devices::virtio::queue::InvalidAvailIdx;
 use crate::devices::virtio::transport::VirtioInterruptType;
 use crate::logger::{IncMetric, error, warn};
-use crate::rate_limiter::RateLimiter;
+use crate::rate_limiter::SharedRateLimiter;
 use crate::seccomp::{BpfProgram, apply_filter};
 use crate::snapshot::Persist;
 
@@ -29,8 +28,7 @@ use crate::snapshot::Persist;
 pub(crate) struct BlockWorker {
     pub(crate) resources: BlockResources,
     pub(crate) active_state: ActiveState,
-    pub(crate) rate_limiter: Arc<Mutex<RateLimiter>>,
-    pub(crate) is_blocked: Arc<AtomicBool>,
+    pub(crate) rate_limiter: SharedRateLimiter,
     pub(crate) discard_supported: bool,
     pub(crate) metrics: Arc<BlockDeviceMetrics>,
 }
@@ -115,7 +113,7 @@ impl BlockWorker {
         if let Err(err) = self.resources.queue_evt.read() {
             error!("Failed to get queue event: {:?}", err);
             self.metrics.event_fails.inc();
-        } else if self.is_blocked.load(Ordering::Relaxed) {
+        } else if self.rate_limiter.is_blocked() {
             self.metrics.rate_limiter_throttled_events.inc();
         } else if self.resources.is_io_engine_throttled {
             self.metrics.io_engine_throttled_events.inc();
@@ -139,12 +137,9 @@ impl BlockWorker {
             let processing_result =
                 match Request::parse(&head, &self.active_state.mem, self.resources.disk.nsectors) {
                     Ok(request) => {
-                        let is_rate_limited = {
-                            let mut rate_limiter = rate_limiter
-                                .lock()
-                                .expect("Poisoned block rate limiter lock");
-                            request.rate_limit(&mut rate_limiter)
-                        };
+                        let is_rate_limited = rate_limiter
+                            .lock_if_limited()
+                            .is_some_and(|mut rate_limiter| request.rate_limit(&mut rate_limiter));
                         if is_rate_limited {
                             // Stop processing the queue and return this descriptor chain to the
                             // avail ring, for later processing.
@@ -769,7 +764,6 @@ mod tests {
                 interrupt: default_interrupt(),
             },
             rate_limiter: block.rate_limiter.clone(),
-            is_blocked: block.lock_rate_limiter().clone_blocked_flag(),
             discard_supported: false,
             metrics: block.metrics.clone(),
         };
@@ -818,7 +812,6 @@ mod tests {
                 interrupt: default_interrupt(),
             },
             rate_limiter: block.rate_limiter.clone(),
-            is_blocked: block.lock_rate_limiter().clone_blocked_flag(),
             discard_supported: false,
             metrics: block.metrics.clone(),
         };

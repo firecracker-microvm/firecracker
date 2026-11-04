@@ -15,7 +15,7 @@ use std::os::fd::AsRawFd;
 use std::os::linux::fs::MetadataExt;
 use std::os::unix::fs::FileTypeExt;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use vm_memory::ByteValued;
@@ -41,7 +41,7 @@ use crate::devices::virtio::queue::{InvalidAvailIdx, Queue, QueueConfig};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::impl_device_type;
 use crate::logger::{IncMetric, error, warn};
-use crate::rate_limiter::{BucketUpdate, RateLimiter};
+use crate::rate_limiter::{BucketUpdate, RateLimiter, SharedRateLimiter};
 use crate::seccomp::BpfProgram;
 use crate::vmm_config::RateLimiterConfig;
 use crate::vmm_config::drive::BlockDeviceConfig;
@@ -391,7 +391,7 @@ pub struct VirtioBlock {
     pub activate_evt: EventFd,
 
     pub(crate) config: VirtioBlockConfig,
-    pub(crate) rate_limiter: Arc<Mutex<RateLimiter>>,
+    pub(crate) rate_limiter: SharedRateLimiter,
     pub(crate) state: BlockRuntimeState,
     pub metrics: Arc<BlockDeviceMetrics>,
 }
@@ -537,7 +537,7 @@ impl VirtioBlock {
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
 
             config,
-            rate_limiter: Arc::new(Mutex::new(rate_limiter)),
+            rate_limiter: SharedRateLimiter::new(rate_limiter),
             state: BlockRuntimeState::Configuring(resources, Vec::new()),
             metrics,
         })
@@ -575,12 +575,6 @@ impl VirtioBlock {
         &self.resources()[0].disk
     }
 
-    pub(crate) fn lock_rate_limiter(&self) -> MutexGuard<'_, RateLimiter> {
-        self.rate_limiter
-            .lock()
-            .expect("Poisoned block rate limiter lock")
-    }
-
     pub(crate) fn is_threaded_active(&self) -> bool {
         matches!(self.state, BlockRuntimeState::Threaded(_))
     }
@@ -606,7 +600,7 @@ impl VirtioBlock {
 
     pub(crate) fn process_rate_limiter_event(&mut self) {
         self.metrics.rate_limiter_event_count.inc();
-        if self.lock_rate_limiter().event_handler().is_err() {
+        if self.rate_limiter.lock().event_handler().is_err() {
             return;
         }
 
@@ -678,10 +672,7 @@ impl VirtioBlock {
 
     /// Updates the parameters for the rate limiter
     pub fn update_rate_limiter(&mut self, bytes: BucketUpdate, ops: BucketUpdate) {
-        let mut rate_limiter = self
-            .rate_limiter
-            .lock()
-            .expect("Poisoned block rate limiter lock");
+        let mut rate_limiter = self.rate_limiter.lock();
         rate_limiter.update_buckets(bytes, ops);
         self.config.rate_limiter = RateLimiterConfig::from(&*rate_limiter).into_option();
     }
@@ -873,9 +864,6 @@ impl VirtioDevice for VirtioBlock {
             return Err(ActivateError::EventFd);
         }
 
-        // rate limiter updates modify buckets in place, preserving the shared flag
-        let is_blocked = self.lock_rate_limiter().clone_blocked_flag();
-
         let BlockRuntimeState::Configuring(mut resources, worker_handles) =
             std::mem::replace(&mut self.state, BlockRuntimeState::Placeholder)
         else {
@@ -887,7 +875,6 @@ impl VirtioDevice for VirtioBlock {
             self.state = BlockRuntimeState::Inline(BlockWorker {
                 resources: resources.pop().unwrap(),
                 rate_limiter: self.rate_limiter.clone(),
-                is_blocked,
                 discard_supported: self.acked_features & (1u64 << VIRTIO_BLK_F_DISCARD) != 0,
                 active_state: ActiveState { mem, interrupt },
                 metrics: self.metrics.clone(),
@@ -903,7 +890,6 @@ impl VirtioDevice for VirtioBlock {
                 handle.start(BlockWorker {
                     resources,
                     rate_limiter: self.rate_limiter.clone(),
-                    is_blocked: is_blocked.clone(),
                     discard_supported: self.acked_features & (1u64 << VIRTIO_BLK_F_DISCARD) != 0,
                     active_state: ActiveState {
                         mem: mem.clone(),
@@ -2234,7 +2220,7 @@ mod tests {
                 );
 
                 // Assert that limiter is blocked.
-                assert!(block.lock_rate_limiter().is_blocked());
+                assert!(block.rate_limiter.lock().is_blocked());
                 // Make sure the data is still queued for processing.
                 assert_eq!(vq.used.idx.get(), 0);
             }
@@ -2250,7 +2236,7 @@ mod tests {
                     block.process_rate_limiter_event()
                 );
                 // Validate the rate_limiter is no longer blocked.
-                assert!(!block.lock_rate_limiter().is_blocked());
+                assert!(!block.rate_limiter.lock().is_blocked());
                 // Complete async IO ops if needed
                 simulate_async_completion_event(&mut block, true);
 
@@ -2303,7 +2289,7 @@ mod tests {
                 );
 
                 // Assert that limiter is blocked.
-                assert!(block.lock_rate_limiter().is_blocked());
+                assert!(block.rate_limiter.lock().is_blocked());
                 // Make sure the data is still queued for processing.
                 assert_eq!(vq.used.idx.get(), 0);
             }
@@ -2318,7 +2304,7 @@ mod tests {
                 );
 
                 // Assert that limiter is blocked.
-                assert!(block.lock_rate_limiter().is_blocked());
+                assert!(block.rate_limiter.lock().is_blocked());
                 // Make sure the data is still queued for processing.
                 assert_eq!(vq.used.idx.get(), 0);
             }
@@ -2334,7 +2320,7 @@ mod tests {
                     block.process_rate_limiter_event()
                 );
                 // Validate the rate_limiter is no longer blocked.
-                assert!(!block.lock_rate_limiter().is_blocked());
+                assert!(!block.rate_limiter.lock().is_blocked());
                 // Complete async IO ops if needed
                 simulate_async_completion_event(&mut block, true);
 
@@ -2436,7 +2422,7 @@ mod tests {
         assert!(block.reset());
         assert_eq!(
             block.config().rate_limiter,
-            RateLimiterConfig::from(&*block.lock_rate_limiter()).into_option()
+            RateLimiterConfig::from(&*block.rate_limiter.lock()).into_option()
         );
 
         set_queue(&mut block, 0, vq.create_queue());
@@ -2445,8 +2431,8 @@ mod tests {
 
         assert!(block.reset());
         assert_eq!(block.config().rate_limiter, None);
-        assert!(block.lock_rate_limiter().bandwidth().is_none());
-        assert!(block.lock_rate_limiter().ops().is_none());
+        assert!(block.rate_limiter.lock().bandwidth().is_none());
+        assert!(block.rate_limiter.lock().ops().is_none());
     }
 
     #[test]
