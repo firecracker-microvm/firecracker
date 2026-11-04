@@ -3,7 +3,6 @@
 """Tests for the net device."""
 
 import re
-import time
 
 import pytest
 from tenacity import Retrying, stop_after_attempt, wait_fixed
@@ -16,12 +15,14 @@ from framework.utils import (
     generate_mmds_get_request,
     generate_mmds_session_token,
 )
+from framework.utils_wait import start_guest_process, wait_for_tcp_port_on_guest
 from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 MMDS_IPV4_ADDR = "169.254.169.254"
 
 # The iperf version to run this tests with
 IPERF_BINARY = "iperf3"
+IPERF_PORT = 5201
 
 # VIRTIO_NET_F_MTU feature bit index (virtio spec, network device section)
 VIRTIO_NET_F_MTU_BIT = 3
@@ -47,16 +48,17 @@ def test_high_ingress_traffic(uvm):
     test_microvm.start()
 
     # Start iperf3 server on the guest.
-    test_microvm.ssh.check_output("{} -sD\n".format(IPERF_BINARY))
-    time.sleep(1)
+    test_microvm.ssh.check_output(f"{IPERF_BINARY} -sD -p {IPERF_PORT}")
+    wait_for_tcp_port_on_guest(test_microvm, IPERF_PORT)
 
     # Start iperf3 client on the host. Send 1Gbps UDP traffic.
     # If the net device breaks, iperf will freeze, and we'll hit the pytest timeout
     utils.check_output(
-        "{} {} -c {} -u -V -b 1000000000 -t 30".format(
+        "{} {} -c {} -p {} -u -V -b 1000000000 -t 30".format(
             test_microvm.netns.cmd_prefix(),
             IPERF_BINARY,
             guest_ip,
+            IPERF_PORT,
         ),
     )
 
@@ -114,13 +116,11 @@ def test_tap_offload(uvm_any):
     message = "x"
 
     # Start a UDP server in the guest
-    # vm.ssh.check_output(f"nohup socat UDP-LISTEN:{port} - > {out_filename} &")
-    vm.ssh.check_output(
-        f"nohup socat UDP4-LISTEN:{port} CREATE:{out_filename} > /dev/null 2>&1 &"
+    start_guest_process(
+        vm,
+        f"socat -d -d UDP4-LISTEN:{port} CREATE:{out_filename}",
+        "listening on",
     )
-
-    # wait for socat server to spin up
-    time.sleep(1)
 
     # Try to send a UDP message from host with UDP offload enabled
     vm.netns.check_output(f"python3 ./host_tools/udp_offload.py {vm.ssh.host} {port}")
