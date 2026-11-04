@@ -1159,6 +1159,51 @@ pub fn mark_dirty_host(mem: &GuestMemoryMmap, ptr: *const u8, len: usize) {
     unreachable!("host range {ptr:p}+{len:#x} is not within a single guest memory region");
 }
 
+/// Strategy used to represent unplugged memory slots in a full snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HoleStrategy {
+    /// Seek over holes, preserving sparse-file output. The writer must be seekable.
+    Seek,
+    /// Write explicit zeros, for example when streaming to a FIFO.
+    WriteZeros,
+}
+
+/// Size of the lazily allocated heap buffer reused to fill holes.
+const ZERO_FILL_CHUNK_SIZE: usize = 128 * 1024;
+
+/// Move the writer's cursor over an unplugged memory range.
+fn skip_hole<T: std::io::Seek>(writer: &mut T, len: usize) -> Result<(), MemoryError> {
+    let offset = i64::try_from(len).map_err(|_| MemoryError::SlotSizeTooLarge)?;
+    writer
+        .seek(SeekFrom::Current(offset))
+        .map_err(MemoryError::SeekError)?;
+    Ok(())
+}
+
+/// Write `len` zero bytes using a reusable buffer bounded by `zeroes.len()`.
+/// The `WriteVolatile` implementation must treat the source slice as read-only.
+fn write_zeros<T: WriteVolatile>(
+    writer: &mut T,
+    zeroes: &mut [u8],
+    mut len: usize,
+) -> Result<(), MemoryError> {
+    if len == 0 {
+        return Ok(());
+    }
+    assert!(!zeroes.is_empty(), "zero-fill buffer must not be empty");
+
+    while len > 0 {
+        let chunk_len = len.min(zeroes.len());
+        // `VolatileSlice` requires a mutable borrow, but WriteVolatile reads
+        // from this source; keep the buffer zeroed and never modify it here.
+        writer
+            .write_all_volatile(&VolatileSlice::from(&mut zeroes[..chunk_len]))
+            .map_err(|err| MemoryError::WriteMemory(err.into()))?;
+        len -= chunk_len;
+    }
+    Ok(())
+}
+
 /// Defines the interface for snapshotting memory.
 pub trait GuestMemoryExtension
 where
@@ -1170,8 +1215,12 @@ where
     /// Mark memory range as dirty
     fn mark_dirty(&self, addr: GuestAddress, len: usize);
 
-    /// Dumps all contents of GuestMemoryMmap to a writer.
-    fn dump<T: WriteVolatile + std::io::Seek>(&self, writer: &mut T) -> Result<(), MemoryError>;
+    /// Dumps all contents of GuestMemoryMmap to a writer using the given hole strategy.
+    fn dump<T: WriteVolatile + std::io::Seek>(
+        &self,
+        writer: &mut T,
+        hole: HoleStrategy,
+    ) -> Result<(), MemoryError>;
 
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
     fn dump_dirty<T: WriteVolatile + std::io::Seek>(
@@ -1260,20 +1309,36 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         }
     }
 
-    /// Dumps all contents of GuestMemoryMmap to a writer.
-    fn dump<T: WriteVolatile + std::io::Seek>(&self, writer: &mut T) -> Result<(), MemoryError> {
-        self.iter()
-            .flat_map(|region| region.slots())
-            .try_for_each(|(mem_slot, plugged)| {
+    /// Dumps all contents of GuestMemoryMmap to a writer using the given hole strategy.
+    fn dump<T: WriteVolatile + std::io::Seek>(
+        &self,
+        writer: &mut T,
+        hole: HoleStrategy,
+    ) -> Result<(), MemoryError> {
+        // Allocate only if a hole must be emitted, then reuse one bounded heap
+        // buffer for every unplugged slot in this dump. A zero-initialized heap
+        // buffer of this size can remain demand-zero on Linux while only read;
+        // do not mutate it after creation.
+        let mut zeroes: Option<Vec<u8>> = None;
+        for region in self.iter() {
+            for (mem_slot, plugged) in region.slots() {
                 if !plugged {
-                    let ilen = i64::try_from(mem_slot.slice.len()).unwrap();
-                    writer.seek(SeekFrom::Current(ilen)).unwrap();
+                    match hole {
+                        HoleStrategy::Seek => skip_hole(writer, mem_slot.slice.len())?,
+                        HoleStrategy::WriteZeros => {
+                            let zeroes =
+                                zeroes.get_or_insert_with(|| vec![0u8; ZERO_FILL_CHUNK_SIZE]);
+                            write_zeros(writer, zeroes.as_mut_slice(), mem_slot.slice.len())?;
+                        }
+                    }
                 } else {
-                    writer.write_all_volatile(&mem_slot.slice)?;
+                    writer
+                        .write_all_volatile(&mem_slot.slice)
+                        .map_err(|err| MemoryError::WriteMemory(err.into()))?;
                 }
-                Ok(())
-            })
-            .map_err(MemoryError::WriteMemory)
+            }
+        }
+        Ok(())
     }
 
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
@@ -1448,6 +1513,7 @@ mod tests {
     use std::io::{Read, Seek, Write};
     use std::os::unix::fs::{FileExt, MetadataExt};
 
+    use vm_memory::bitmap::BitmapSlice;
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
@@ -1456,6 +1522,36 @@ mod tests {
     use crate::test_utils::single_region_mem;
     use crate::utils::mib_to_bytes;
     use crate::vstate::memory::test_utils::into_region_ext;
+
+    struct WriteLengthRecorder(Vec<usize>);
+
+    impl WriteVolatile for WriteLengthRecorder {
+        fn write_volatile<B: BitmapSlice>(
+            &mut self,
+            buf: &VolatileSlice<B>,
+        ) -> Result<usize, vm_memory::VolatileMemoryError> {
+            self.0.push(buf.len());
+            Ok(buf.len())
+        }
+    }
+
+    fn assert_files_equal_in_chunks<A: Read, B: Read>(left: &mut A, right: &mut B, mut len: usize) {
+        const COMPARE_CHUNK_SIZE: usize = 64 * 1024;
+        let mut left_chunk = [0u8; COMPARE_CHUNK_SIZE];
+        let mut right_chunk = [0u8; COMPARE_CHUNK_SIZE];
+
+        while len > 0 {
+            let chunk_len = len.min(COMPARE_CHUNK_SIZE);
+            left.read_exact(&mut left_chunk[..chunk_len]).unwrap();
+            right.read_exact(&mut right_chunk[..chunk_len]).unwrap();
+            assert_eq!(&left_chunk[..chunk_len], &right_chunk[..chunk_len]);
+            len -= chunk_len;
+        }
+
+        let mut extra = [0u8; 1];
+        assert_eq!(left.read(&mut extra).unwrap(), 0);
+        assert_eq!(right.read(&mut extra).unwrap(), 0);
+    }
 
     #[test]
     fn test_anonymous() {
@@ -1602,7 +1698,9 @@ mod tests {
             guest_memory.write(&vec![value; size], addr).unwrap();
         }
         let mut memory_file = TempFile::new().unwrap().into_file();
-        guest_memory.dump(&mut memory_file).unwrap();
+        guest_memory
+            .dump(&mut memory_file, HoleStrategy::Seek)
+            .unwrap();
         let mut dumped = Vec::new();
         memory_file.rewind().unwrap();
         memory_file.read_to_end(&mut dumped).unwrap();
@@ -1869,7 +1967,9 @@ mod tests {
 
         // dump the full memory.
         let mut memory_file = TempFile::new().unwrap().into_file();
-        guest_memory.dump(&mut memory_file).unwrap();
+        guest_memory
+            .dump(&mut memory_file, HoleStrategy::Seek)
+            .unwrap();
 
         let restored_guest_memory = into_region_ext(
             snapshot_file(
@@ -1892,6 +1992,117 @@ mod tests {
             .read(restored_region.as_mut_slice(), region_2_address)
             .unwrap();
         assert_eq!(second_region, restored_region);
+    }
+
+    #[test]
+    fn test_dump_hole_strategies_match_with_unplugged_slot() {
+        let page_size = host_page_size();
+        // Layout: [plugged DRAM][unplugged slot][plugged slot].
+        let dram_size = page_size * 2;
+        let slot_size = page_size * 2;
+        let dram_base = GuestAddress(0);
+        let hp_base = GuestAddress(dram_size as u64);
+        let dram_raw = anonymous(&[(dram_base, dram_size)], false, HugePageConfig::None)
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        let dram_ext = GuestRegionMmapExt::dram_from_mmap_region(dram_raw, 0);
+        let hp_raw = anonymous(&[(hp_base, slot_size * 2)], false, HugePageConfig::None)
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        let hp_state = GuestMemoryRegionState {
+            base_address: hp_base.0,
+            size: slot_size * 2,
+            region_type: GuestRegionType::Hotpluggable,
+            plugged: vec![false, true],
+        };
+        let hp_ext = GuestRegionMmapExt::from_state(hp_raw, &hp_state, 1).unwrap();
+        let guest_memory = GuestMemoryMmap::from_regions(vec![dram_ext, hp_ext]).unwrap();
+        let dram_pattern = vec![0xAAu8; dram_size];
+        guest_memory.write(&dram_pattern, dram_base).unwrap();
+        let plugged_hp_base = GuestAddress(hp_base.0 + slot_size as u64);
+        let hp_pattern = vec![0xBBu8; slot_size];
+        guest_memory.write(&hp_pattern, plugged_hp_base).unwrap();
+
+        let expected_len = dram_size + slot_size * 2;
+        let mut seek_file = TempFile::new().unwrap().into_file();
+        seek_file.set_len(expected_len as u64).unwrap();
+        guest_memory
+            .dump(&mut seek_file, HoleStrategy::Seek)
+            .unwrap();
+        let mut zeros_file = TempFile::new().unwrap().into_file();
+        guest_memory
+            .dump(&mut zeros_file, HoleStrategy::WriteZeros)
+            .unwrap();
+
+        seek_file.seek(SeekFrom::Start(0)).unwrap();
+        zeros_file.seek(SeekFrom::Start(0)).unwrap();
+        assert_files_equal_in_chunks(&mut seek_file, &mut zeros_file, expected_len);
+    }
+
+    #[test]
+    fn test_dump_write_zeros_chunks_large_holes() {
+        let page_size = host_page_size();
+        let dram_size = page_size;
+        let slot_size = ZERO_FILL_CHUNK_SIZE + page_size;
+        let dram_base = GuestAddress(0);
+        let hp_base = GuestAddress(dram_size as u64);
+        let dram_raw = anonymous(&[(dram_base, dram_size)], false, HugePageConfig::None)
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        let dram_ext = GuestRegionMmapExt::dram_from_mmap_region(dram_raw, 0);
+        let hp_raw = anonymous(&[(hp_base, slot_size * 2)], false, HugePageConfig::None)
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        let hp_state = GuestMemoryRegionState {
+            base_address: hp_base.0,
+            size: slot_size * 2,
+            region_type: GuestRegionType::Hotpluggable,
+            plugged: vec![false, false],
+        };
+        let hp_ext = GuestRegionMmapExt::from_state(hp_raw, &hp_state, 1).unwrap();
+        let guest_memory = GuestMemoryMmap::from_regions(vec![dram_ext, hp_ext]).unwrap();
+        guest_memory
+            .write(&vec![0xCCu8; dram_size], dram_base)
+            .unwrap();
+
+        let expected_len = dram_size + slot_size * 2;
+        let mut seek_file = TempFile::new().unwrap().into_file();
+        seek_file.set_len(expected_len as u64).unwrap();
+        guest_memory
+            .dump(&mut seek_file, HoleStrategy::Seek)
+            .unwrap();
+        let physical_size = seek_file.metadata().unwrap().blocks() * 512;
+        assert!(physical_size < expected_len as u64);
+        let mut zeros_file = TempFile::new().unwrap().into_file();
+        guest_memory
+            .dump(&mut zeros_file, HoleStrategy::WriteZeros)
+            .unwrap();
+
+        seek_file.seek(SeekFrom::Start(0)).unwrap();
+        zeros_file.seek(SeekFrom::Start(0)).unwrap();
+        assert_files_equal_in_chunks(&mut seek_file, &mut zeros_file, expected_len);
+    }
+
+    #[test]
+    fn test_write_zeros_uses_bounded_chunks() {
+        let mut writer = WriteLengthRecorder(Vec::new());
+        let mut zeroes = vec![0u8; ZERO_FILL_CHUNK_SIZE];
+        let total_len = ZERO_FILL_CHUNK_SIZE * 2 + 17;
+
+        write_zeros(&mut writer, &mut zeroes, total_len).unwrap();
+
+        assert_eq!(
+            writer.0,
+            vec![ZERO_FILL_CHUNK_SIZE, ZERO_FILL_CHUNK_SIZE, 17]
+        );
     }
 
     #[test]

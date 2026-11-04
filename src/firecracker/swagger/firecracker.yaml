@@ -1790,7 +1790,10 @@ definitions:
     properties:
       mem_file_path:
         type: string
-        description: Path to the file that will contain the guest memory.
+        description:
+          Path to the file that will contain the guest memory. Full snapshots
+          support regular files and FIFOs to stream memory without landing on
+          disk; diff snapshots require a seekable regular file.
       snapshot_path:
         type: string
         description: Path to the file that will contain the microVM state.
