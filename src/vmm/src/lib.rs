@@ -122,7 +122,7 @@ use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use device_manager::DeviceManager;
+use device_manager::{DeviceManager, VirtioDevices};
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use snapshot::Persist;
 use vm_memory::GuestMemoryBackend;
@@ -154,6 +154,7 @@ use crate::seccomp::SeccompFeatures;
 use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::BalloonDeviceConfig;
 use crate::vmm_config::boot_source::BootSourceConfig;
+use crate::vmm_config::drive::FileEngineType;
 use crate::vmm_config::entropy::EntropyDeviceConfig;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::MachineConfig;
@@ -314,6 +315,10 @@ pub struct Vmm {
     /// derived from its configuration when it was built, plus the ones the command line added.
     /// Changing it afterwards has no effect; an installed seccomp filter cannot be relaxed.
     pub seccomp_features: SeccompFeatures,
+    /// Whether the seccomp filters leave out the `async-io` rules, which drives using the Async
+    /// io engine need. They do not with `--no-seccomp`, nor with custom filters that allow
+    /// io_uring without tagging its rules.
+    pub async_io_blocked: bool,
     // Device manager
     device_manager: DeviceManager,
 }
@@ -746,6 +751,15 @@ impl Vmm {
         config: HotplugDeviceConfig,
         event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
+        // The Async io engine needs the io_uring rules, which the seccomp filters only have when
+        // the microVM allows Async drives.
+        if let HotplugDeviceConfig::Block(drive) = &config
+            && drive.file_engine_type == Some(FileEngineType::Async)
+            && self.async_io_blocked
+            && matches!(self.device_manager.virtio_devices, VirtioDevices::Pci(_))
+        {
+            return Err(VmmActionError::AsyncDriveHotplugNotEnabled);
+        }
         log_dev_preview_warning("PCI device hotplug", None);
         let kvm_vm = self
             .vm

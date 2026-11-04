@@ -2,14 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for PCI device hotplug"""
 
+import json
 import os
 
 import pytest
 
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
+from framework import defs
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_pci
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
+from host_tools.cargo_build import DEFAULT_TARGET, run_seccompiler_bin
 
 VIRTIO_PCI_VENDOR_ID = 0x1AF4
 VIRTIO_PCI_DEVICE_ID_NET = 0x1041
@@ -123,6 +126,136 @@ def test_hotplug_block(uvm_any):
     # Unplugging the same device again must be rejected
     with pytest.raises(RuntimeError, match="Device not found"):
         vm.api.drive.delete("block0")
+
+
+def _hotplug_async_drive(vm, drive_id):
+    """Hot-plug a drive using the Async io engine and check the guest can use it."""
+    _, lspci_before, _ = vm.ssh.check_output("lspci -n")
+
+    host_file = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, drive_id), size=4)
+    vm.api.drive.put(
+        drive_id=drive_id,
+        path_on_host=vm.create_jailed_resource(host_file.path),
+        is_root_device=False,
+        is_read_only=False,
+        io_engine="Async",
+    )
+    vm.disks[drive_id] = host_file.path
+
+    vm.ssh.check_output("echo 1 > /sys/bus/pci/rescan")
+    _, lspci_after, _ = vm.ssh.check_output("lspci -n")
+    new_entries = set(lspci_after.splitlines()) - set(lspci_before.splitlines())
+    assert len(new_entries) == 1
+    entry = new_entries.pop()
+    assert f"{VIRTIO_PCI_VENDOR_ID:04x}:{VIRTIO_PCI_DEVICE_ID_BLOCK:04x}" in entry
+
+    bdf = entry.split()[0]
+    _, dev_name, _ = vm.ssh.check_output(
+        f"ls /sys/bus/pci/devices/0000:{bdf}/virtio*/block/"
+    )
+    mnt = f"/tmp/{drive_id}_mnt"
+    vm.ssh.check_output(f"mkdir -p {mnt}")
+    vm.ssh.check_output(f"mount /dev/{dev_name.strip()} {mnt}")
+    vm.ssh.check_output(f"echo hotplug_test > {mnt}/test && sync")
+    _, stdout, _ = vm.ssh.check_output(f"cat {mnt}/test")
+    assert stdout.strip() == "hotplug_test"
+
+    # The backing file is removed once the returned object is collected.
+    return host_file
+
+
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+def test_hotplug_async_block_on_restore(microvm_factory, guest_kernel, rootfs):
+    """
+    Test that hot-plugging an Async drive needs `hotplug_async_drives`.
+
+    Without it the seccomp filters lack the io_uring rules, so the request is
+    rejected. Loading a snapshot can turn it on.
+    """
+    vm = microvm_factory.build_booted(guest_kernel, rootfs, pci=True)
+
+    host_file = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "block0"), size=4)
+    with pytest.raises(RuntimeError, match="requires `hotplug_async_drives`"):
+        vm.api.drive.put(
+            drive_id="block0",
+            path_on_host=vm.create_jailed_resource(host_file.path),
+            is_root_device=False,
+            is_read_only=False,
+            io_engine="Async",
+        )
+
+    snapshot = vm.snapshot_full()
+    vm.kill()
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+    restored_vm.restore_from_snapshot(snapshot, resume=True, hotplug_async_drives=True)
+    _hotplug_async_drive(restored_vm, "block0")
+
+
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+def test_hotplug_async_block_machine_config(microvm_factory, guest_kernel, rootfs):
+    """
+    Test hot-plugging Async drives into a microVM configured with
+    `hotplug_async_drives`, before and after a snapshot restore.
+    """
+    vm = microvm_factory.build_booted(
+        guest_kernel, rootfs, pci=True, hotplug_async_drives=True
+    )
+    assert vm.api.machine_config.get().json()["hotplug_async_drives"]
+    block0 = _hotplug_async_drive(vm, "block0")
+
+    # The snapshot keeps the option.
+    snapshot = vm.snapshot_full()
+    assert snapshot.disks["block0"] == block0.path
+    restored_vm = microvm_factory.build_from_snapshot(snapshot)
+    _hotplug_async_drive(restored_vm, "block1")
+
+
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+def test_hotplug_async_block_no_seccomp(microvm_factory, guest_kernel, rootfs):
+    """
+    Test that without seccomp filters, Async drives can always be hot-plugged.
+    """
+    vm = microvm_factory.build(guest_kernel, rootfs, pci=True)
+    vm.jailer.extra_args.update({"no-seccomp": None})
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+    vm.start()
+    _hotplug_async_drive(vm, "block0")
+
+
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+def test_hotplug_async_block_custom_filter(
+    microvm_factory, guest_kernel, rootfs, tmp_path
+):
+    """
+    Test that a custom seccomp filter whose io_uring rules are not tagged
+    `async-io` lets Async drives be hot-plugged.
+    """
+    seccomp_filter = json.loads(
+        (defs.SECCOMP_JSON_DIR / f"{DEFAULT_TARGET}.json").read_text(encoding="ascii")
+    )
+    untagged = 0
+    for thread in seccomp_filter.values():
+        for rule in thread["filter"]:
+            if rule.get("feature") == "async-io":
+                del rule["feature"]
+                untagged += 1
+    assert untagged
+    json_path = tmp_path / "filter.json"
+    json_path.write_text(json.dumps(seccomp_filter))
+    bpf_path = tmp_path / "filter.bpfmap"
+    run_seccompiler_bin(bpf_path=bpf_path, json_path=json_path)
+
+    vm = microvm_factory.build(guest_kernel, rootfs, pci=True)
+    vm.create_jailed_resource(bpf_path)
+    vm.jailer.extra_args.update({"seccomp-filter": bpf_path.name})
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+    vm.start()
+    _hotplug_async_drive(vm, "block0")
 
 
 @pin_guest_kernel(ACPI_GUEST_KERNELS)

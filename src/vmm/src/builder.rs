@@ -149,6 +149,16 @@ fn log_seccomp_features(vm_resources: &super::resources::VmResources) -> Seccomp
     vm_resources.required_seccomp_features()
 }
 
+/// Whether the seccomp filters of the threads that run devices leave out the rules that drives
+/// using the Async io engine need, so that such drives cannot be hot-plugged.
+fn async_io_blocked(seccomp_filters: &BpfThreadMap, features: SeccompFeatures) -> bool {
+    ["vmm", "vcpu"].iter().any(|thread| {
+        seccomp_filters
+            .get(*thread)
+            .is_some_and(|filter| filter.leaves_out(SeccompFeatures::ASYNC_IO, features))
+    })
+}
+
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
 ///
 /// The built microVM and all the created vCPUs start off in the paused state.
@@ -348,6 +358,7 @@ pub fn build_microvm_for_boot(
         vm,
         device_manager,
         seccomp_features,
+        async_io_blocked: async_io_blocked(seccomp_filters, seccomp_features),
     };
     let vmm = Arc::new(Mutex::new(vmm));
 
@@ -582,6 +593,7 @@ pub fn build_microvm_from_snapshot(
         vm,
         device_manager,
         seccomp_features,
+        async_io_blocked: async_io_blocked(seccomp_filters, seccomp_features),
     };
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
@@ -963,6 +975,7 @@ pub(crate) mod tests {
             vm: Vm::Kvm(Arc::new(vm)),
             device_manager: default_device_manager(),
             seccomp_features: SeccompFeatures::empty(),
+            async_io_blocked: false,
         }
     }
 
@@ -986,6 +999,7 @@ pub(crate) mod tests {
             vm: Vm::Kvm(vm),
             device_manager,
             seccomp_features: SeccompFeatures::empty(),
+            async_io_blocked: false,
         }
     }
 

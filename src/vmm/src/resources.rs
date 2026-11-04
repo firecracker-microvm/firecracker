@@ -171,7 +171,9 @@ impl VmResources {
     /// is running, without the ones the command line enables.
     ///
     /// With the API running and the PCI transport in use, devices of any hot-pluggable type can be
-    /// added after boot, so the rules of all those device types are kept.
+    /// added after boot, so the rules of all those device types are kept. The io_uring rules that
+    /// hot-plugged drives using the Async io engine need are kept only when the machine
+    /// configuration allows such drives.
     pub fn derived_seccomp_features(&self) -> SeccompFeatures {
         let mut features = SeccompFeatures::empty();
 
@@ -184,9 +186,11 @@ impl VmResources {
         if self.api_enabled && self.pci_enabled {
             features |= SeccompFeatures::HOTPLUG
                 | SeccompFeatures::BLOCK
-                | SeccompFeatures::ASYNC_IO
                 | SeccompFeatures::NET
                 | SeccompFeatures::PMEM;
+            if self.machine_config.hotplug_async_drives {
+                features |= SeccompFeatures::ASYNC_IO;
+            }
         }
 
         for block in &self.block.devices {
@@ -339,6 +343,9 @@ impl VmResources {
 
         if updated.pcie_hotplug_ports > 0 && !self.pci_enabled {
             return Err(MachineConfigError::PcieHotplugPortsRequirePci);
+        }
+        if updated.hotplug_async_drives && !self.pci_enabled {
+            return Err(MachineConfigError::HotplugAsyncDrivesRequirePci);
         }
 
         // The VM cannot have a memory size smaller than the target size
@@ -1662,6 +1669,7 @@ mod tests {
             track_dirty_pages: Some(false),
             huge_pages: Some(HugePageConfig::None),
             pcie_hotplug_ports: Some(0),
+            hotplug_async_drives: Some(false),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         };
@@ -1815,6 +1823,38 @@ mod tests {
             vm_resources.machine_config.pcie_hotplug_ports,
             MAX_PCIE_HOTPLUG_PORTS
         );
+    }
+
+    #[test]
+    fn test_update_machine_config_hotplug_async_drives() {
+        let mut vm_resources = default_vm_resources();
+        let mut update = MachineConfigUpdate::from(vm_resources.machine_config.clone());
+
+        // Off by default.
+        assert!(!vm_resources.machine_config.hotplug_async_drives);
+
+        // Hot-plugging needs the PCI bus.
+        assert!(!vm_resources.pci_enabled);
+        update.hotplug_async_drives = Some(true);
+        assert_eq!(
+            vm_resources.update_machine_config(&update).unwrap_err(),
+            MachineConfigError::HotplugAsyncDrivesRequirePci
+        );
+        assert!(!vm_resources.machine_config.hotplug_async_drives);
+
+        // Leaving it off does not, though.
+        update.hotplug_async_drives = Some(false);
+        vm_resources.update_machine_config(&update).unwrap();
+
+        vm_resources.pci_enabled = true;
+        update.hotplug_async_drives = Some(true);
+        vm_resources.update_machine_config(&update).unwrap();
+        assert!(vm_resources.machine_config.hotplug_async_drives);
+
+        // An update that does not mention the option leaves it alone.
+        update.hotplug_async_drives = None;
+        vm_resources.update_machine_config(&update).unwrap();
+        assert!(vm_resources.machine_config.hotplug_async_drives);
     }
 
     #[test]
@@ -2033,8 +2073,19 @@ mod tests {
             SeccompFeatures::PCI
         );
 
-        // PCI with the API: any hot-pluggable device type may show up later.
+        // PCI with the API: any hot-pluggable device type may show up later, but drives using the
+        // Async io engine only when the machine configuration allows them.
         vm_resources.api_enabled = true;
+        assert_eq!(
+            vm_resources.required_seccomp_features(),
+            SeccompFeatures::API
+                | SeccompFeatures::PCI
+                | SeccompFeatures::HOTPLUG
+                | SeccompFeatures::BLOCK
+                | SeccompFeatures::NET
+                | SeccompFeatures::PMEM
+        );
+        vm_resources.machine_config.hotplug_async_drives = true;
         assert_eq!(
             vm_resources.required_seccomp_features(),
             SeccompFeatures::API
@@ -2044,6 +2095,13 @@ mod tests {
                 | SeccompFeatures::ASYNC_IO
                 | SeccompFeatures::NET
                 | SeccompFeatures::PMEM
+        );
+
+        // Without the API nothing can be hot-plugged, so allowing Async drives adds nothing.
+        vm_resources.api_enabled = false;
+        assert_eq!(
+            vm_resources.required_seccomp_features(),
+            SeccompFeatures::PCI
         );
 
         // Devices configured for the MMIO transport.

@@ -57,7 +57,7 @@ untagged or tagged `api`. The features are:
 | `pci`            | `--enable-pci` is used (or the restored snapshot uses the PCI transport)                                                                                 |
 | `hotplug`        | the API is enabled and the PCI transport is used, i.e. devices can be hot-plugged                                                                        |
 | `block`          | a block device (virtio-block or vhost-user-block) is configured                                                                                          |
-| `async-io`       | a virtio-block device uses the `Async` io engine                                                                                                         |
+| `async-io`       | a virtio-block device uses the `Async` io engine, or `hotplug_async_drives` allows hot-plugging such drives                                              |
 | `net`            | a virtio-net device is configured                                                                                                                        |
 | `vsock`          | a vsock device is configured                                                                                                                             |
 | `pmem`           | a virtio-pmem device is configured                                                                                                                       |
@@ -74,9 +74,13 @@ used, and the filter each thread gets is logged when it is composed, e.g.
 >
 > When devices can be hot-plugged (`--enable-pci` together with the API), the
 > device set is not final when the filters are installed, so the rules of every
-> hot-pluggable device type (`block`, `async-io`, `net`, `pmem`) are kept along
-> with `hotplug`. Without PCI or with `--no-api`, no device can be added after
-> boot and only the configured device types are allowed.
+> hot-pluggable device type (`block`, `net`, `pmem`) are kept along with
+> `hotplug`. The `async-io` rules, which allow `io_uring`, are kept only when
+> the `hotplug_async_drives` machine-config option allows hot-plugging drives
+> that use the `Async` io engine (see
+> [device hotplug](device-hotplug.md#hotplugging-drives-that-use-the-async-io-engine)).
+> Without PCI or with `--no-api`, no device can be added after boot and only the
+> configured device types are allowed.
 
 The optional `--seccomp-features` parameter enables additional features on top
 of the derived ones, for every thread. It takes `all`, `none` (which adds

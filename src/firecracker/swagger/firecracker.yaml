@@ -1500,6 +1500,13 @@ definitions:
           hot-plugged device, so this is the maximum number of devices that
           can be hot-plugged into the VM. Requires PCI to be enabled with the
           --enable-pci command line flag.
+      hotplug_async_drives:
+        type: boolean
+        default: false
+        description: >-
+          Allows hot-plugging drives that use the Async io engine. Enabling it
+          keeps the io_uring system calls in the seccomp filters. Requires PCI
+          to be enabled with the --enable-pci command line flag.
 
   MemoryBackend:
     type: object
@@ -1805,6 +1812,14 @@ definitions:
           memory-mapping behavior. Explicit hugetlbfs (`2M`) pages require a UFFD
           memory backend. With UFFD, the effectiveness of transparent huge pages
           may be limited.
+      hotplug_async_drives:
+        type: boolean
+        default: false
+        description:
+          Allows hot-plugging drives that use the Async io engine into the
+          restored microVM. A snapshot of a microVM that allowed it keeps
+          allowing it; this option can only enable it. Requires a snapshot of a
+          microVM that uses PCI.
 
 
   TokenBucket:

@@ -60,6 +60,31 @@ echo 1 > /sys/bus/pci/rescan
 After the rescan, the device will appear in `lspci` and the corresponding device
 node (e.g. `/dev/vdb`, `/dev/pmem1`) will be created by the guest kernel.
 
+### Hotplugging drives that use the `Async` io engine
+
+Drives that use the `Async` io engine submit their I/O through `io_uring`, which
+the seccomp filters only allow when the microVM needs it (see
+[seccomp](seccomp.md#feature-tagged-rules)). Hot-plugging such a drive is
+rejected unless the microVM allows it, by setting `hotplug_async_drives` in the
+machine configuration before boot:
+
+```console
+curl --unix-socket $socket_location -i \
+    -X PATCH 'http://localhost/machine-config' \
+    -H 'Accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d '{
+        "hotplug_async_drives": true
+    }'
+```
+
+or by setting `"hotplug_async_drives": true` in the snapshot load request. The
+option is saved in snapshots, so a restored microVM keeps allowing it. A microVM
+that has a drive using the `Async` io engine at boot, or that is started with
+`--seccomp-features async-io`, allows it too. So does a microVM started with
+`--no-seccomp`, or with a custom `--seccomp-filter` whose `io_uring` rules are
+not tagged `async-io`.
+
 ## Hot-unplugging a device
 
 Hot-unplugging is a two-step process: first the guest must release the device,
