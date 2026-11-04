@@ -44,6 +44,7 @@ incremental = false
 
 [profile.release]
 panic = "abort"
+overflow-checks = true
 lto = true
 codegen-units = 1
 strip = "none"
