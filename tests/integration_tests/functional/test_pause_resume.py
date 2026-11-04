@@ -145,14 +145,18 @@ def test_kvmclock_ctrl(uvm):
     """
 
     microvm = uvm
+    # Before 5.13 the guest watchdog can report a false soft lockup on resume:
+    # watchdog_timer_fn() reads the touch timestamp, then get_timestamp() ->
+    # sched_clock() -> a pvclock read consumes PVCLOCK_GUEST_STOPPED before
+    # kvm_check_and_clear_guest_paused() sees it (fixed by 9bf3bc949f8a and
+    # 0f90b88dbcd1, first released in 5.13). 6.1 and 6.18 need KVM_KVMCLOCK_CTRL
+    # just the same but cannot hit the race, so they still cover the ioctl.
+    if microvm.guest_kernel_version < (5, 13):
+        pytest.skip("pre-5.13 guest watchdog false-positives on pause/resume")
+
     microvm.help.enable_console()
     microvm.spawn()
-
-    # With 2 vCPUs under certain conditions soft lockup warnings can rarely be in dmesg causing this test to fail.
-    # Example of the warning: `watchdog: BUG: soft lockup - CPU#0 stuck for (x)s! [(udev-worker):758]`
-    # With 1 vCPU this intermittent issue doesn't occur. If the KVM_CLOCK_CTRL IOCTL is not made
-    # the test will fail with 1 vCPU, so we can assert the call to the IOCTL is made.
-    microvm.basic_config(vcpu_count=1)
+    microvm.basic_config()
     microvm.add_net_iface()
     microvm.start()
 
