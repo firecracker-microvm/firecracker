@@ -126,21 +126,6 @@ impl Default for TimestampUs {
     }
 }
 
-/// Returns a timestamp in nanoseconds from a monotonic clock.
-///
-/// Uses `_rdstc` on `x86_64` and [`get_time`](fn.get_time.html) on other architectures.
-pub fn timestamp_cycles() -> u64 {
-    #[cfg(target_arch = "x86_64")]
-    // SAFETY: Safe because there's nothing that can go wrong with this call.
-    unsafe {
-        std::arch::x86_64::_rdtsc()
-    }
-    #[cfg(not(target_arch = "x86_64"))]
-    {
-        get_time_ns(ClockType::Monotonic)
-    }
-}
-
 /// Returns a timestamp in nanoseconds based on the provided clock type.
 ///
 /// # Arguments

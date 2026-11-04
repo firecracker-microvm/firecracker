@@ -96,6 +96,12 @@ and this project adheres to
 
 ### Fixed
 
+- [#6377](https://github.com/firecracker-microvm/firecracker/pull/6377): The
+  MMDS TCP stack now measures its retransmission timeout (300 ms) and idle
+  connection eviction threshold (10 s) on a monotonic clock. On x86_64 both were
+  counted in TSC cycles and therefore depended on the host CPU frequency; on
+  aarch64 they were 1.2 s and 40 s.
+
 - [#6302](https://github.com/firecracker-microvm/firecracker/issues/6302): Fixed
   AMX tile state being lost after a snapshot restore. The IA32_XFD and
   IA32_XFD_ERR MSRs are now saved in snapshots. Without them a restored guest
