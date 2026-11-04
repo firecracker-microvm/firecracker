@@ -5,14 +5,12 @@
 import hashlib
 import os.path
 import re
-import time
 from contextlib import ExitStack, contextmanager
-from pathlib import Path
 from socket import AF_UNIX, SOCK_STREAM, socket
 from subprocess import Popen
 from threading import Thread
 
-from tenacity import Retrying, stop_after_attempt, wait_fixed
+from framework.utils_wait import start_guest_process, wait_for_unix_socket_on_host
 
 ECHO_SERVER_PORT = 5252
 SERVER_ACCEPT_BACKLOG = 128
@@ -143,11 +141,11 @@ def start_guest_echo_server(vm):
 
     Returns a UDS path to connect to the server.
     """
-    cmd = f"nohup socat VSOCK-LISTEN:{ECHO_SERVER_PORT},backlog=128,reuseaddr,fork EXEC:'/bin/cat' > /dev/null 2>&1 &"
-    vm.ssh.check_output(cmd)
-
-    # Give the server time to initialise
-    time.sleep(1)
+    start_guest_process(
+        vm,
+        f"socat -d -d VSOCK-LISTEN:{ECHO_SERVER_PORT},backlog=128,reuseaddr,fork EXEC:'/bin/cat'",
+        "listening on",
+    )
 
     return os.path.join(vm.jailer.chroot_path(), VSOCK_UDS_PATH)
 
@@ -197,14 +195,7 @@ def host_echo_server(vm, server_port_path):
         ]
     )
     try:
-        # Give socat a bit of time to create the socket
-        for attempt in Retrying(
-            wait=wait_fixed(0.2),
-            stop=stop_after_attempt(3),
-            reraise=True,
-        ):
-            with attempt:
-                assert Path(server_port_path).exists()
+        wait_for_unix_socket_on_host("", server_port_path)
 
         # Link the listening Unix socket into the VM's jail, so that
         # Firecracker can connect to it.
