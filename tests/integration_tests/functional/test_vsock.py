@@ -694,11 +694,9 @@ def test_device_reset(uvm):
     ret = vm.ssh.run("ls /sys/bus/virtio/drivers/vmw_vsock_virtio_transport/virtio*")
     assert ret.returncode != 0
 
-    # Rebind and verify the data path works by starting a guest echo server
-    # and sending data from the host through the vsock.
+    # Rebind and verify the data path works by sending data from the host
+    # to the echo server, whose listening socket survives the reset.
     vm.ssh.check_output(
         f"echo {virtio_dev} > /sys/bus/virtio/drivers/vmw_vsock_virtio_transport/bind"
     )
-    uds_path = start_guest_echo_server(vm)
-    blob_path, blob_hash = make_blob(vm.path)
     check_host_connections(uds_path, blob_path, blob_hash)
