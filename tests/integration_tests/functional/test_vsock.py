@@ -65,7 +65,6 @@ def vsock_uvm(uvm, request):
         mem_size_mib=1024,
         log_level="Info",
         emit_metrics=True,
-        pin_threads=True,
     )
 
 
