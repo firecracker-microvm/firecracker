@@ -21,7 +21,6 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack
-from pathlib import Path
 from socket import timeout as SocketTimeout
 
 import pytest
@@ -47,6 +46,7 @@ from framework.utils_vsock import (
     start_guest_echo_server,
     vsock_connect_to_guest,
 )
+from framework.utils_wait import start_guest_process, wait_for_unix_socket_on_host
 from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 from host_tools.fcmetrics import validate_fc_metrics
 
@@ -379,31 +379,18 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
         )
 
         try:
-            # Waiting for the host socat to create socket
-            for attempt in Retrying(
-                wait=wait_fixed(0.1), stop=stop_after_delay(1.0), reraise=True
-            ):
-                with attempt:
-                    assert Path(host_socket_path).exists()
+            wait_for_unix_socket_on_host("", host_socket_path)
 
             new_vm.create_jailed_resource(host_socket_path)
 
-            # Create a socat process in the guest which will connect to the host socat
-            guest_socat_commmand = (
-                "rm -f /tmp/socat.log; tmux new -d 'socat -d -d - "
-                f"vsock-connect:2:{ECHO_SERVER_PORT} 2>/tmp/socat.log'"
+            # Create a socat process in the guest which will connect to the
+            # host socat and wait until it is connected. Without a tty, stdin
+            # hits EOF right away, so tell socat to ignore it.
+            start_guest_process(
+                new_vm,
+                f"socat -d -d -,ignoreeof vsock-connect:2:{ECHO_SERVER_PORT}",
+                "starting data transfer loop",
             )
-            new_vm.ssh.run(guest_socat_commmand)
-
-            # socat should be connected to the host socat now
-            for attempt in Retrying(
-                wait=wait_fixed(0.1), stop=stop_after_delay(5.0), reraise=True
-            ):
-                with attempt:
-                    code, _, _ = new_vm.ssh.run(
-                        "grep -q 'starting data transfer loop' /tmp/socat.log"
-                    )
-                    assert code == 0
 
             # Create snapshot.
             snapshot = new_vm.snapshot_full()
