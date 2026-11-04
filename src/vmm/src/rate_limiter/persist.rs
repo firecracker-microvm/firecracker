@@ -74,22 +74,17 @@ impl Persist<'_> for RateLimiter {
     }
 
     fn restore(_: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
-        let rate_limiter = RateLimiter {
-            ops: if let Some(ops) = state.ops.as_ref() {
-                Some(TokenBucket::restore((), ops)?)
-            } else {
-                None
-            },
-            bandwidth: if let Some(bw) = state.bandwidth.as_ref() {
-                Some(TokenBucket::restore((), bw)?)
-            } else {
-                None
-            },
-            timer_fd: TimerFd::new(),
-            timer_active: Arc::new(AtomicBool::new(false)),
+        let restore = |bucket: &Option<TokenBucketState>| {
+            bucket
+                .as_ref()
+                .map(|b| TokenBucket::restore((), b))
+                .transpose()
         };
-
-        Ok(rate_limiter)
+        Ok(RateLimiter::with_buckets(
+            restore(&state.bandwidth)?,
+            restore(&state.ops)?,
+            TimerFd::new(),
+        ))
     }
 }
 
