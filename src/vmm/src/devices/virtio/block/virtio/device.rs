@@ -2556,6 +2556,39 @@ mod tests {
     }
 
     #[test]
+    fn test_quiesce_disk_without_queues() {
+        // A drive always has a queue, but an empty list must not panic.
+        quiesce_disk(std::iter::empty::<&mut BlockResources>(), true, true);
+    }
+
+    #[test]
+    fn test_threaded_rate_limiter_event() {
+        let mut block = default_threaded_block(FileEngineType::Sync);
+        let mem = default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        // One op per 100 ms, already spent: the limiter is blocked and its refill timer armed.
+        let clock = MockClock::new();
+        let mut limiter = RateLimiter::new_mocked(0, 0, 0, 1, 0, 100, &clock);
+        assert!(limiter.consume(1, TokenType::Ops));
+        assert!(!limiter.consume(1, TokenType::Ops));
+        set_rate_limiter(&mut block, limiter);
+        block.activate(mem.clone(), default_interrupt()).unwrap();
+
+        read_blk_req_descriptors(&vq);
+        vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
+        mem.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(vq.dtable[0].addr.get()))
+            .unwrap();
+
+        // The request waits for the limiter, then the unblock kicks the running worker.
+        block.kick();
+        clock.advance(Duration::from_millis(100));
+        block.process_rate_limiter_event();
+        block.prepare_save();
+        assert_eq!(vq.used.idx.get(), 1);
+    }
+
+    #[test]
     fn test_queue_dirty_readiness() {
         use vm_memory::GuestMemoryBackend;
 
@@ -2596,6 +2629,115 @@ mod tests {
         assert!(!used_ring_dirty());
         block.commit_dirty();
         assert!(used_ring_dirty());
+    }
+
+    #[test]
+    fn test_threaded_finish_commits_dirty() {
+        use vm_memory::GuestMemoryBackend;
+
+        use crate::test_utils::single_region_mem_dirty_tracking;
+        use crate::utils::u64_to_usize;
+        use crate::vstate::memory::{Bitmap, GuestMemoryExtension};
+
+        let mut block = default_threaded_block(FileEngineType::Sync);
+        let mem = single_region_mem_dirty_tracking(0x10000);
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        block.activate(mem.clone(), default_interrupt()).unwrap();
+
+        // As on teardown, the VMM commits while the worker runs, and the worker then completes a
+        // request before it is asked to finish.
+        block.commit_dirty();
+        read_blk_req_descriptors(&vq);
+        vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
+        mem.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(vq.dtable[0].addr.get()))
+            .unwrap();
+        mem.reset_dirty();
+        block.kick();
+
+        // The worker commits its used ring write before the device drops the queue; an
+        // uncommitted one fails the assert in `GuestMemorySliceMut::drop`.
+        drop(block);
+        assert_eq!(vq.used.idx.get(), 1);
+        assert!(
+            mem.find_region(GuestAddress(0))
+                .unwrap()
+                .bitmap()
+                .dirty_at(u64_to_usize(vq.used_start().raw_value()))
+        );
+    }
+
+    #[test]
+    fn test_mq_async_snapshot_and_drop() {
+        use std::os::unix::fs::FileExt;
+
+        use crate::devices::virtio::block::virtio::test_utils::default_config;
+        use crate::snapshot::Persist;
+
+        let f = TempFile::new().unwrap();
+        f.as_file().set_len(0x1000).unwrap();
+        let mut config = default_config(
+            f.as_path().to_str().unwrap().to_string(),
+            FileEngineType::Async,
+        );
+        config.num_queues = NonZeroU16::new(2);
+        config.cache_type = CacheType::Writeback;
+        let mut block = VirtioBlock::new(config).unwrap();
+        block.spawn_worker(Arc::new(vec![])).unwrap();
+
+        let mem = default_mem();
+        let vqs = [
+            VirtQueue::new(GuestAddress(0), &mem, 16),
+            VirtQueue::new(GuestAddress(0x4000), &mem, 16),
+        ];
+        for (idx, vq) in vqs.iter().enumerate() {
+            set_queue(&mut block, idx, vq.create_queue());
+        }
+        block.activate(mem.clone(), default_interrupt()).unwrap();
+
+        // One write per queue, each to its own sector from its own buffers.
+        let status_addr = |idx: u8| GuestAddress(0xa000 + 0x4000 * u64::from(idx));
+        for (idx, vq) in (0u8..).zip(&vqs) {
+            let header_addr = 0x8000 + 0x4000 * u64::from(idx);
+            read_blk_req_descriptors(vq);
+            vq.dtable[0].set(header_addr, 0x1000, VIRTQ_DESC_F_NEXT, 1);
+            vq.dtable[1].set(header_addr + 0x1000, 0x200, VIRTQ_DESC_F_NEXT, 2);
+            vq.dtable[2].set(status_addr(idx).0, 0x1000, VIRTQ_DESC_F_WRITE, 3);
+            mem.write_obj(
+                RequestHeader::new(VIRTIO_BLK_T_OUT, u64::from(idx)),
+                GuestAddress(header_addr),
+            )
+            .unwrap();
+            mem.write_slice(&[0xa0 + idx; 0x200], GuestAddress(header_addr + 0x1000))
+                .unwrap();
+        }
+
+        // Both workers submit their write; the snapshot takes them back while the writes may still
+        // be in flight, and every request is completed by the time it returns.
+        block.kick();
+        block.prepare_save();
+        for (idx, vq) in (0u8..).zip(&vqs) {
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(
+                u32::from(mem.read_obj::<u8>(status_addr(idx)).unwrap()),
+                VIRTIO_BLK_S_OK
+            );
+        }
+        let BlockRuntimeState::Threaded(active) = &block.state else {
+            unreachable!()
+        };
+        assert!(matches!(&active.workers, ThreadedWorkers::Held(held) if held.len() == 2));
+        assert_eq!(block.save().virtio_state.queues.len(), 2);
+
+        // Dropping the held writeback drive finishes both threads; both writes are in the file.
+        drop(block);
+        let mut sector = [0u8; 0x200];
+        for idx in 0u8..2 {
+            f.as_file()
+                .read_exact_at(&mut sector, u64::from(idx) * 0x200)
+                .unwrap();
+            assert_eq!(sector, [0xa0 + idx; 0x200]);
+        }
     }
 
     #[test]
@@ -2747,9 +2889,18 @@ mod tests {
                 "updating an active disk must notify the guest"
             );
 
+            // While the workers are taken back for a snapshot, the device updates them itself.
+            block.prepare_save();
+            let disk = TempFile::new().unwrap();
+            disk.as_file().set_len(0x4000).unwrap();
+            block
+                .update_disk_image(disk.as_path().to_str().unwrap().to_string())
+                .unwrap();
+            assert_eq!(u64::from_le(block.config_space.capacity), 32);
+
             assert!(block.reset());
             for resources in block.resources() {
-                assert_eq!(resources.disk.nsectors, 24);
+                assert_eq!(resources.disk.nsectors, 32);
             }
         }
     }
