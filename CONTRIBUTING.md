@@ -156,6 +156,16 @@ Your contribution needs to meet the following standards:
   [this PR](https://github.com/firecracker-microvm/firecracker/pull/3557) for a
   lot of examples.
 
+- Avoid adding dependencies if possible. If dependency is required, add it with
+  `default-features = false` and only enable minimal set of required features.
+  This avoids transitively adding unnecessary dependencies.
+
+  Example:
+
+  ```toml
+  thiserror = { version = "2.0.18", default-features = false, features = ["std"] }
+  ```
+
 - Document your pull requests. Include the reasoning behind each change, and the
   testing done.
 
