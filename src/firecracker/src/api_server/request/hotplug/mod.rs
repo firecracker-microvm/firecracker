@@ -20,21 +20,38 @@ struct UnplugParams {
     force: bool,
 }
 
-pub(crate) fn parse_unplug_device(
-    device_type: VirtioDeviceType,
+fn parse_unplug_params(
     id_from_path: Option<&str>,
     body: Option<&Body>,
-) -> Result<ParsedRequest, RequestError> {
+) -> Result<(String, bool), RequestError> {
     let id = checked_id(id_from_path.ok_or(RequestError::EmptyID)?)?;
     let params: UnplugParams = match body {
         Some(body) => serde_json::from_slice(body.raw())?,
         None => UnplugParams::default(),
     };
+    Ok((id.to_string(), params.force))
+}
 
+pub(crate) fn parse_unplug_device(
+    device_type: VirtioDeviceType,
+    id_from_path: Option<&str>,
+    body: Option<&Body>,
+) -> Result<ParsedRequest, RequestError> {
+    let (id, force) = parse_unplug_params(id_from_path, body)?;
     Ok(ParsedRequest::new_sync(VmmAction::HotUnplugDevice(
-        (device_type, id.to_string()),
-        params.force,
+        (device_type, id),
+        force,
     )))
+}
+
+pub(crate) fn parse_unplug_passthrough_device(
+    id_from_path: Option<&str>,
+    body: Option<&Body>,
+) -> Result<ParsedRequest, RequestError> {
+    let (id, force) = parse_unplug_params(id_from_path, body)?;
+    Ok(ParsedRequest::new_sync(
+        VmmAction::HotUnplugPassthroughDevice(id, force),
+    ))
 }
 
 #[cfg(test)]
@@ -74,5 +91,20 @@ mod tests {
         parse(Some("invalid_payload")).unwrap_err();
         parse(Some(r#"{ "force": "yes" }"#)).unwrap_err();
         parse(Some(r#"{ "forced": true }"#)).unwrap_err();
+    }
+
+    #[test]
+    fn test_parse_unplug_passthrough_device_request() {
+        let body = Body::new(r#"{ "force": true }"#);
+        match vmm_action_from_request(
+            parse_unplug_passthrough_device(Some("dev0"), Some(&body)).unwrap(),
+        ) {
+            VmmAction::HotUnplugPassthroughDevice(id, force) => {
+                assert_eq!(id, "dev0");
+                assert!(force);
+            }
+            other => panic!("unexpected action: {other:?}"),
+        }
+        parse_unplug_passthrough_device(None, None).unwrap_err();
     }
 }
