@@ -14,6 +14,7 @@ import pytest
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_rootfs_mode
 from framework.http_api import Session
+from framework.utils_wait import wait_for_unix_socket_on_host
 
 signum_str = {
     SIGBUS: "sigbus",
@@ -86,10 +87,7 @@ def test_sigpipe_from_log_write(microvm_factory, tmp_path):
     )
     os.close(write_fd)
     try:
-        for _ in range(100):
-            if sock.exists():
-                break
-            sleep(0.05)
+        wait_for_unix_socket_on_host("", sock)
 
         session = Session()
         assert session.get(url, timeout=5).status_code == 200
