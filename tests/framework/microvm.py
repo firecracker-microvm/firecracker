@@ -1533,11 +1533,11 @@ class Serial:
             # serial already opened
             return
 
-        attempt = 0
-        while not Path(self._vm.screen_log).exists() and attempt < 5:
-            time.sleep(0.2)
-            attempt += 1
-
+        for attempt in Retrying(
+            wait=wait_fixed(0.1), stop=stop_after_delay(5.0), reraise=True
+        ):
+            with attempt:
+                assert Path(self._vm.screen_log).exists(), "screen log not created"
         serial_log_fd = os.open(self._vm.screen_log, os.O_RDONLY)
         self._poller = select.poll()
         self._poller.register(serial_log_fd, select.POLLIN | select.POLLHUP)
