@@ -17,7 +17,7 @@ index f2d3bd1c3..8121421a9 100644
  		return err;
  	}
  
-+	if (kvm_gmem_folio_no_direct_map(folio)) {
++	if (kvm_gmem_no_direct_map(inode)) {
 +		err = kvm_gmem_folio_zap_direct_map(folio);
 +		if (err) {
 +			folio_unlock(folio);
