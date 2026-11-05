@@ -35,7 +35,8 @@ pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<Fingerprint, FingerprintDumpError> {
             "/sys/devices/system/cpu/cpu0/regs/identification/revidr_el1",
         )?,
         bios_version: read_sysfs_file("/sys/devices/virtual/dmi/id/bios_version")?,
-        bios_revision: read_sysfs_file("/sys/devices/virtual/dmi/id/bios_release")?,
+        // This file does not exist on some systems
+        bios_revision: read_optional_sysfs_file("/sys/devices/virtual/dmi/id/bios_release")?,
         guest_cpu_config: crate::template::dump::dump(vmm)?,
     })
 }
@@ -65,6 +66,18 @@ fn read_sysfs_file(path: &str) -> Result<String, FingerprintDumpError> {
     Ok(s.trim_end_matches('\n').to_string())
 }
 
+fn read_optional_sysfs_file(path: &str) -> Result<String, FingerprintDumpError> {
+    match read_sysfs_file(path) {
+        Ok(value) => Ok(value),
+        Err(FingerprintDumpError::ReadSysfsFile(_, err))
+            if err.kind() == std::io::ErrorKind::NotFound =>
+        {
+            Ok(String::new())
+        }
+        Err(err) => Err(err),
+    }
+}
+
 #[cfg(target_arch = "x86_64")]
 fn get_microcode_version() -> Result<String, FingerprintDumpError> {
     let cpuinfo = read_to_string("/proc/cpuinfo").map_err(FingerprintDumpError::ReadProcCpuinfo)?;
@@ -82,6 +95,10 @@ fn get_microcode_version() -> Result<String, FingerprintDumpError> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
+    use vmm_sys_util::tempfile::TempFile;
+
     use super::*;
 
     #[test]
@@ -103,6 +120,30 @@ mod tests {
         if read_sysfs_file(invalid_sysfs_path).is_ok() {
             panic!("Should fail with `No such file or directory`");
         }
+    }
+
+    #[test]
+    fn test_read_optional_sysfs_file() {
+        let file = TempFile::new().unwrap();
+        writeln!(file.as_file(), "1.0").unwrap();
+        assert_eq!(
+            read_optional_sysfs_file(file.as_path().to_str().unwrap()).unwrap(),
+            "1.0"
+        );
+    }
+
+    #[test]
+    fn test_read_missing_optional_sysfs_file() {
+        assert_eq!(read_optional_sysfs_file("/sys/invalid/path").unwrap(), "");
+    }
+
+    #[test]
+    fn test_read_optional_sysfs_file_error() {
+        assert!(matches!(
+            read_optional_sysfs_file("/sys"),
+            Err(FingerprintDumpError::ReadSysfsFile(_, err))
+                if err.kind() == std::io::ErrorKind::IsADirectory
+        ));
     }
 
     #[cfg(target_arch = "x86_64")]
