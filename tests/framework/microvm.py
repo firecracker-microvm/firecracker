@@ -838,16 +838,9 @@ class Microvm:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
             sock.connect(str(self.jailer.api_socket_path()))
 
-    # Firecracker typically prints this within a few milliseconds of being
-    # spawned, so poll frequently: a coarse fixed delay here adds directly to
-    # the wall time of every test that boots a VM. Keep the total budget at
-    # ~1 second.
-    @retry(wait=wait_fixed(0.01), stop=stop_after_delay(1.0), reraise=True)
     def check_log_message(self, message):
         """Wait until `message` appears in logging output."""
-        assert (
-            message in self.log_data
-        ), f'Message ("{message}") not found in log data ("{self.log_data}").'
+        self.check_any_log_message([message])
 
     @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
     def get_exit_code(self):
@@ -861,14 +854,18 @@ class Microvm:
             return exit_code
         raise AssertionError(f"unable to find exit code from the log: {self.log_data}")
 
-    @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
+    # Firecracker typically prints these within a few milliseconds of being
+    # spawned, so poll frequently: a coarse fixed delay here adds directly to
+    # the wall time of every test that boots a VM. Keep the total budget at
+    # ~1 second.
+    @retry(wait=wait_fixed(0.01), stop=stop_after_delay(1.0), reraise=True)
     def check_any_log_message(self, messages):
         """Wait until any message in `messages` appears in logging output."""
         for message in messages:
             if message in self.log_data:
                 return
         raise AssertionError(
-            f"`{messages}` were not found in this log: {self.log_data}"
+            f"None of {messages} was found in this log: {self.log_data}"
         )
 
     def serial_input(self, input_string):
