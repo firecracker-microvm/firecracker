@@ -133,7 +133,7 @@ def test_tap_offload(uvm_any):
         reraise=True,
     ):
         with attempt:
-            ret = vm.ssh.check_output(f"sync; cat {out_filename}")
+            ret = vm.ssh.run(f"sync; cat {out_filename}")
             assert ret.stdout == message, f"{ret.stdout=} {ret.stderr=}"
 
 
