@@ -170,6 +170,13 @@ and this project adheres to
   unusable for the rest of the microVM's lifetime. The reset now waits until
   every in-flight request has completed.
 
+## [1.18.0]
+
+### Added
+
+- [#6393](https://github.com/firecracker-microvm/firecracker/pull/6393): Added
+  enclave support.
+
 ## [1.17.0]
 
 ### Added
