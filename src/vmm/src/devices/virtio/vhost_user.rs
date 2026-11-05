@@ -4,18 +4,28 @@
 // Portions Copyright 2019 Intel Corporation. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::ops::Deref;
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 
+use utils::time::{ClockType, get_time_us};
 use vhost::vhost_user::message::*;
 use vhost::vhost_user::{Frontend, VhostUserFrontend};
 use vhost::{Error as VhostError, VhostBackend, VhostUserMemoryRegionInfo, VringConfigData};
 use vm_memory::{Address, GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion};
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::ActivateError;
+use crate::devices::virtio::device::{ActiveState, DeviceState};
+use crate::devices::virtio::queue::{Queue, QueueError};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
+use crate::devices::virtio::vhost_user_metrics::{
+    VhostUserDeviceMetrics, VhostUserMetricsPerDevice,
+};
+use crate::logger::{IncMetric, StoreMetric, debug};
+use crate::utils::u64_to_usize;
+use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// vhost-user error.
@@ -364,7 +374,7 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
     }
 
     /// Update guest memory table to the backend.
-    fn update_mem_table(&self, mem: &GuestMemoryMmap) -> Result<(), VhostUserError> {
+    pub fn update_mem_table(&self, mem: &GuestMemoryMmap) -> Result<(), VhostUserError> {
         let mut regions: Vec<VhostUserMemoryRegionInfo> = Vec::new();
 
         for region in mem.iter() {
@@ -391,78 +401,447 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
         Ok(())
     }
 
-    /// Set up vhost-user backend. This includes updating memory table,
-    /// sending information about virtio rings and enabling them.
-    pub fn setup_backend(
-        &mut self,
+    /// Send the backend what it needs to run one vring: its size, addresses
+    /// and starting index, and the eventfds used for notifications in each
+    /// direction. The vring stays disabled until [`Self::activate_queues`].
+    pub fn setup_queue(
+        &self,
         mem: &GuestMemoryMmap,
-        queues: &[(usize, &Queue, &EventFd)],
-        interrupt: Arc<dyn VirtioInterrupt>,
+        queue_index: usize,
+        queue: &Queue,
+        queue_evt: &EventFd,
+        interrupt: &dyn VirtioInterrupt,
     ) -> Result<(), VhostUserError> {
-        // Provide the memory table to the backend.
-        self.update_mem_table(mem)?;
+        self.vu
+            .set_vring_num(queue_index, queue.config.size)
+            .map_err(VhostUserError::VhostUserSetVringNum)?;
 
-        // Send set_vring_num here, since it could tell backends, like SPDK,
-        // how many virt queues to be handled, which backend required to know
-        // at early stage.
-        for (queue_index, queue, _) in queues.iter() {
-            self.vu
-                .set_vring_num(*queue_index, queue.config.size)
-                .map_err(VhostUserError::VhostUserSetVringNum)?;
-        }
+        let config_data = VringConfigData {
+            queue_max_size: queue.config.max_size,
+            queue_size: queue.config.size,
+            flags: 0u32,
+            desc_table_addr: mem
+                .get_host_address(queue.config.desc_table_address)
+                .map_err(VhostUserError::DescriptorTableAddress)?
+                as u64,
+            used_ring_addr: mem
+                .get_host_address(queue.config.used_ring_address)
+                .map_err(VhostUserError::UsedAddress)? as u64,
+            avail_ring_addr: mem
+                .get_host_address(queue.config.avail_ring_address)
+                .map_err(VhostUserError::AvailAddress)? as u64,
+            log_addr: None,
+        };
 
-        for (queue_index, queue, queue_evt) in queues.iter() {
-            let config_data = VringConfigData {
-                queue_max_size: queue.config.max_size,
-                queue_size: queue.config.size,
-                flags: 0u32,
-                desc_table_addr: mem
-                    .get_host_address(queue.config.desc_table_address)
-                    .map_err(VhostUserError::DescriptorTableAddress)?
-                    as u64,
-                used_ring_addr: mem
-                    .get_host_address(queue.config.used_ring_address)
-                    .map_err(VhostUserError::UsedAddress)? as u64,
-                avail_ring_addr: mem
-                    .get_host_address(queue.config.avail_ring_address)
-                    .map_err(VhostUserError::AvailAddress)? as u64,
-                log_addr: None,
-            };
+        self.vu
+            .set_vring_addr(queue_index, &config_data)
+            .map_err(VhostUserError::VhostUserSetVringAddr)?;
+        self.vu
+            .set_vring_base(queue_index, queue.avail_ring_idx_get())
+            .map_err(VhostUserError::VhostUserSetVringBase)?;
 
-            self.vu
-                .set_vring_addr(*queue_index, &config_data)
-                .map_err(VhostUserError::VhostUserSetVringAddr)?;
-            self.vu
-                .set_vring_base(*queue_index, queue.avail_ring_idx_get())
-                .map_err(VhostUserError::VhostUserSetVringBase)?;
+        // No matter the queue, we set irq_evt for signaling the guest that buffers were
+        // consumed.
+        self.vu
+            .set_vring_call(
+                queue_index,
+                interrupt
+                    .notifier(VirtioInterruptType::Queue(
+                        queue_index.try_into().unwrap_or_else(|_| {
+                            panic!("vhost-user: invalid queue index: {queue_index}")
+                        }),
+                    ))
+                    .as_ref()
+                    .unwrap(),
+            )
+            .map_err(VhostUserError::VhostUserSetVringCall)?;
 
-            // No matter the queue, we set irq_evt for signaling the guest that buffers were
-            // consumed.
-            self.vu
-                .set_vring_call(
-                    *queue_index,
-                    interrupt
-                        .notifier(VirtioInterruptType::Queue(
-                            (*queue_index).try_into().unwrap_or_else(|_| {
-                                panic!("vhost-user: invalid queue index: {}", *queue_index)
-                            }),
-                        ))
-                        .as_ref()
-                        .unwrap(),
-                )
-                .map_err(VhostUserError::VhostUserSetVringCall)?;
+        self.vu
+            .set_vring_kick(queue_index, queue_evt)
+            .map_err(VhostUserError::VhostUserSetVringKick)?;
 
-            self.vu
-                .set_vring_kick(*queue_index, queue_evt)
-                .map_err(VhostUserError::VhostUserSetVringKick)?;
+        Ok(())
+    }
 
+    /// Enable the given vrings. Backends such as SPDK and DPDK start processing a
+    /// vring as soon as it is enabled, so this comes after every one is set up.
+    pub fn activate_queues(
+        &mut self,
+        queue_indexes: impl IntoIterator<Item = usize>,
+    ) -> Result<(), VhostUserError> {
+        for queue_index in queue_indexes {
             self.vu
-                .set_vring_enable(*queue_index, true)
+                .set_vring_enable(queue_index, true)
                 .map_err(VhostUserError::VhostUserSetVringEnable)?;
         }
 
         Ok(())
     }
+}
+
+/// Largest number of queues a vhost-user device can be given.
+///
+/// `SET_VRING_KICK` and `SET_VRING_CALL` carry the vring index in bits 0-7 of
+/// their payload, so the protocol can address 256 queues.
+const MAX_QUEUES: u64 = 256;
+
+/// Largest config space a backend can return: a `GET_CONFIG` reply carries it
+/// after a `VhostUserConfig` header, within `MAX_MSG_SIZE`.
+#[allow(clippy::cast_possible_truncation)] // 4084 fits in a u32.
+const MAX_CONFIG_SPACE_SIZE: u32 = (MAX_MSG_SIZE - std::mem::size_of::<VhostUserConfig>()) as u32;
+
+/// How a device type configures its vhost-user frontend.
+///
+/// Everything that varies by virtio device type is supplied here, so that
+/// [`VhostUserDevice`] itself stays device-type agnostic.
+#[derive(Debug)]
+pub struct VhostUserDeviceConfig {
+    /// Path of the backend's Unix socket.
+    pub socket: String,
+    /// Number of virtqueues to allocate.
+    pub num_queues: u64,
+    /// Size of each virtqueue.
+    pub queue_size: u16,
+    /// Virtio features to offer the backend, device-specific bits included.
+    /// Whatever the backend acks is what the guest driver is then offered.
+    pub avail_features: u64,
+    /// Size of the config space to fetch from the backend, which has to return
+    /// exactly this many bytes. So this is the device type's config space size
+    /// and not an upper bound. 0 is for a device type with no config space, and
+    /// then nothing is fetched.
+    pub config_space_size: u32,
+    /// Whether the CONFIG protocol feature is mandatory. Frontends with no
+    /// device-specific fallback for the config space require it.
+    pub require_config: bool,
+    /// Name to report this device's metrics under.
+    pub metrics_name: String,
+}
+
+/// Error building a vhost-user frontend.
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum VhostUserDeviceError {
+    /// A vhost-user device needs at least one queue, got {0}
+    InvalidNumQueues(u64),
+    /// Config space size must be at most 4084 bytes, and not 0 when CONFIG is
+    /// required, got {0}
+    InvalidConfigSpaceSize(u32),
+    /// A vhost-user device supports at most {1} queues, got {0}
+    TooManyQueues(u64, u64),
+    /// Queue size must be a power of two, got {0}
+    InvalidQueueSize(u16),
+    /// Backend returned {0} bytes of config space, expected {1}
+    ShortConfigSpace(usize, u32),
+    /// Backend did not negotiate the mandatory CONFIG protocol feature
+    ConfigFeatureNotNegotiated,
+    /// Vhost-user: {0}
+    VhostUser(VhostUserError),
+    /// Failed to get config space from the backend: {0}
+    GetConfig(VhostError),
+    /// Failed to create eventfd: {0}
+    EventFd(std::io::Error),
+    /// Failed to signal the guest driver: {0}
+    Interrupt(InterruptError),
+    /// Device is not active
+    DeviceNotActive,
+}
+
+/// Device-type agnostic vhost-user frontend.
+///
+/// Owns the parts of a vhost-user frontend that do not depend on which virtio
+/// device type is being implemented: the backend handle, the negotiated
+/// features and config space, and the virtqueues. Device types embed this and
+/// add their own state alongside it.
+pub struct VhostUserDevice<T: VhostUserHandleBackend> {
+    pub avail_features: u64,
+    pub acked_features: u64,
+    /// Config space fetched from the backend, empty if CONFIG was not acked.
+    pub config_space: Vec<u8>,
+    config_space_size: u32,
+    pub activate_evt: EventFd,
+    pub queues: Vec<Queue>,
+    pub queue_evts: Vec<EventFd>,
+    pub device_state: DeviceState,
+    pub vu_handle: VhostUserHandleImpl<T>,
+    pub vu_acked_protocol_features: u64,
+    pub metrics: Arc<VhostUserDeviceMetrics>,
+}
+
+// Custom because `Debug` is not derivable through `vhost`'s `Frontend`.
+impl<T: VhostUserHandleBackend> std::fmt::Debug for VhostUserDevice<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VhostUserDevice")
+            .field("avail_features", &self.avail_features)
+            .field("acked_features", &self.acked_features)
+            .field("config_space", &self.config_space)
+            .field("config_space_size", &self.config_space_size)
+            .field("activate_evt", &self.activate_evt)
+            .field("queues", &self.queues)
+            .field("queue_evts", &self.queue_evts)
+            .field("device_state", &self.device_state)
+            .field("vu_handle", &self.vu_handle)
+            .field(
+                "vu_acked_protocol_features",
+                &self.vu_acked_protocol_features,
+            )
+            .field("metrics", &self.metrics)
+            .finish()
+    }
+}
+
+impl<T: VhostUserHandleBackend> VhostUserDevice<T> {
+    /// Connect to the backend, negotiate features, fetch the config space and
+    /// allocate the queues.
+    pub fn new(config: VhostUserDeviceConfig) -> Result<Self, VhostUserDeviceError> {
+        // Device-specific minimums (virtio-fs wants a hiprio queue plus at
+        // least one request queue, say) are the caller's business.
+        if config.num_queues == 0 {
+            return Err(VhostUserDeviceError::InvalidNumQueues(config.num_queues));
+        }
+
+        // `MAX_QUEUES` is what the vhost-user protocol can address. Checking
+        // here reports an oversized config to the caller before an eventfd is
+        // allocated for every queue.
+        if config.num_queues > MAX_QUEUES {
+            return Err(VhostUserDeviceError::TooManyQueues(
+                config.num_queues,
+                MAX_QUEUES,
+            ));
+        }
+
+        // Virtio requires a power of two. Nothing else checks the size a
+        // device is built with, only the smaller size a driver later selects,
+        // so an unusable queue would otherwise surface as a guest that
+        // silently refuses to probe the device.
+        if !config.queue_size.is_power_of_two() {
+            return Err(VhostUserDeviceError::InvalidQueueSize(config.queue_size));
+        }
+
+        // The vhost crate rejects this too, but only when it fetches the config
+        // space, which needs the backend to ack CONFIG. Checking here gives the
+        // same result whichever backend we talk to, and avoids allocating the
+        // buffer first.
+        //
+        // Requiring CONFIG while asking for no config space can't be satisfied.
+        if config.config_space_size > MAX_CONFIG_SPACE_SIZE
+            || (config.require_config && config.config_space_size == 0)
+        {
+            return Err(VhostUserDeviceError::InvalidConfigSpaceSize(
+                config.config_space_size,
+            ));
+        }
+
+        let start_time = get_time_us(ClockType::Monotonic);
+
+        let mut vu_handle = VhostUserHandleImpl::<T>::new(&config.socket, config.num_queues)
+            .map_err(VhostUserDeviceError::VhostUser)?;
+        let (backend_acked_features, vu_acked_protocol_features) = vu_handle
+            .negotiate_features(config.avail_features, VhostUserProtocolFeatures::CONFIG)
+            .map_err(VhostUserDeviceError::VhostUser)?;
+
+        let config_acked =
+            vu_acked_protocol_features & VhostUserProtocolFeatures::CONFIG.bits() != 0;
+        if config.require_config && !config_acked {
+            return Err(VhostUserDeviceError::ConfigFeatureNotNegotiated);
+        }
+
+        let config_space = if config_acked && config.config_space_size > 0 {
+            get_config_space(&mut vu_handle, config.config_space_size)?
+        } else {
+            vec![]
+        };
+
+        let activate_evt =
+            EventFd::new(libc::EFD_NONBLOCK).map_err(VhostUserDeviceError::EventFd)?;
+
+        let num_queues = u64_to_usize(config.num_queues);
+        let queues = (0..num_queues)
+            .map(|_| Queue::new(config.queue_size))
+            .collect();
+        let queue_evts = (0..num_queues)
+            .map(|_| EventFd::new(libc::EFD_NONBLOCK).map_err(VhostUserDeviceError::EventFd))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // What the backend acked is what the guest driver may choose from.
+        let avail_features = backend_acked_features;
+        // The guest has acked nothing yet. The vhost-user protocol bit is
+        // pre-seeded because the guest never negotiates it but the backend
+        // expects it kept.
+        let acked_features =
+            backend_acked_features & VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits();
+
+        let metrics = VhostUserMetricsPerDevice::alloc(config.metrics_name);
+        metrics
+            .init_time_us
+            .store(get_time_us(ClockType::Monotonic) - start_time);
+
+        Ok(Self {
+            avail_features,
+            acked_features,
+            config_space,
+            config_space_size: config.config_space_size,
+            activate_evt,
+            queues,
+            queue_evts,
+            device_state: DeviceState::Inactive,
+            vu_handle,
+            vu_acked_protocol_features,
+            metrics,
+        })
+    }
+
+    /// Set up the backend's vrings for the queues the guest marked ready.
+    pub fn activate(
+        &mut self,
+        mem: GuestMemoryMmap,
+        interrupt: Arc<dyn VirtioInterrupt>,
+    ) -> Result<(), ActivateError> {
+        assert!(!self.is_activated());
+
+        // A driver only initializes the queues it intends to use, and how many
+        // that is comes from the backend-owned config space rather than from
+        // the configured queue count (virtio-fs scales its request queues to
+        // the vCPU count, for example). Initializing a queue the guest never
+        // configured returns NotReady and aborts activation, so only the ready
+        // ones are set up here. Real vring indices are preserved, so queues 0
+        // and 2 being ready maps to vrings 0 and 2 rather than 0 and 1.
+        let num_ready = self.queues.iter().filter(|q| q.config.ready).count();
+
+        // Activating with nothing ready would otherwise set up no vrings at
+        // all and report success.
+        if num_ready == 0 {
+            return Err(ActivateError::QueueMemoryError(QueueError::NotReady));
+        }
+
+        if num_ready < self.queues.len() {
+            // The queue count a driver uses comes from the backend-owned config
+            // space, so being given more than it wants is normal rather than a
+            // problem worth warning about.
+            debug!(
+                "vhost-user: setting up {} of {} configured vrings, the guest driver did not \
+                 ready the rest",
+                num_ready,
+                self.queues.len()
+            );
+        }
+
+        for queue in self.queues.iter_mut().filter(|q| q.config.ready) {
+            queue
+                .initialize(&mem)
+                .map_err(ActivateError::QueueMemoryError)?;
+        }
+
+        let start_time = get_time_us(ClockType::Monotonic);
+
+        // Set the features again, now they are negotiated with the guest
+        // driver as well.
+        self.vu_handle
+            .set_features(self.acked_features)
+            .and_then(|()| self.vu_handle.update_mem_table(&mem))
+            .and_then(|()| {
+                self.queues
+                    .iter()
+                    .zip(&self.queue_evts)
+                    .enumerate()
+                    .filter(|(_, (queue, _))| queue.config.ready)
+                    .try_for_each(|(i, (queue, evt))| {
+                        self.vu_handle
+                            .setup_queue(&mem, i, queue, evt, interrupt.as_ref())
+                    })
+            })
+            .and_then(|()| {
+                self.vu_handle.activate_queues(
+                    self.queues
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, queue)| queue.config.ready)
+                        .map(|(i, _)| i),
+                )
+            })
+            .map_err(|err| {
+                self.metrics.activate_fails.inc();
+                ActivateError::VhostUser(err)
+            })?;
+
+        self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
+        self.metrics
+            .activate_time_us
+            .store(get_time_us(ClockType::Monotonic) - start_time);
+        Ok(())
+    }
+
+    pub fn is_activated(&self) -> bool {
+        self.device_state.is_activated()
+    }
+
+    pub fn socket_path(&self) -> &str {
+        &self.vu_handle.socket_path
+    }
+
+    pub fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
+
+    /// Interrupt of the activated device.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the device is not activated.
+    pub fn interrupt(&self) -> &dyn VirtioInterrupt {
+        self.device_state
+            .active_state()
+            .expect("Device is not initialized")
+            .interrupt
+            .deref()
+    }
+
+    /// Re-read the config space from the backend and tell the guest driver it
+    /// changed. Fails if the device is not activated, if the backend did not ack
+    /// CONFIG, or if the device has no config space.
+    pub fn update_config(&mut self) -> Result<(), VhostUserDeviceError> {
+        let start_time = get_time_us(ClockType::Monotonic);
+
+        let Some(device_state) = self.device_state.active_state() else {
+            return Err(VhostUserDeviceError::DeviceNotActive);
+        };
+        let interrupt = device_state.interrupt.clone();
+
+        self.config_space = get_config_space(&mut self.vu_handle, self.config_space_size)?;
+
+        interrupt
+            .trigger(VirtioInterruptType::Config)
+            .map_err(VhostUserDeviceError::Interrupt)?;
+
+        self.metrics
+            .config_change_time_us
+            .store(get_time_us(ClockType::Monotonic) - start_time);
+
+        Ok(())
+    }
+}
+
+fn get_config_space<T: VhostUserHandleBackend>(
+    vu_handle: &mut VhostUserHandleImpl<T>,
+    size: u32,
+) -> Result<Vec<u8>, VhostUserDeviceError> {
+    let size_bytes = u64_to_usize(u64::from(size));
+    let buffer = vec![0u8; size_bytes];
+    let (_, config_space) = vu_handle
+        .vu
+        .get_config(0, size, VhostUserConfigFlags::WRITABLE, &buffer)
+        .map_err(VhostUserDeviceError::GetConfig)?;
+
+    // vhost 0.17 already refuses a reply whose payload differs from the size
+    // asked for. Checking again here keeps that from depending on the crate
+    // version, so a short reply can never reach the guest as a config space
+    // padded out with zeros.
+    if config_space.len() != size_bytes {
+        return Err(VhostUserDeviceError::ShortConfigSpace(
+            config_space.len(),
+            size,
+        ));
+    }
+
+    Ok(config_space)
 }
 
 #[cfg(test)]
@@ -478,6 +857,512 @@ pub(crate) mod tests {
     use crate::test_utils::create_tmp_socket;
     use crate::vstate::memory;
     use crate::vstate::memory::{FileOffset, GuestAddress, GuestRegionMmapExt};
+
+    /// Backend that records the vring index of every per-vring call, so a test
+    /// can tell an index-preserving setup from an index-compacting one.
+    #[derive(Default)]
+    pub(crate) struct VringCalls {
+        pub num: Vec<usize>,
+        pub addr: Vec<usize>,
+        pub base: Vec<usize>,
+        pub call: Vec<usize>,
+        pub kick: Vec<usize>,
+        pub enable: Vec<usize>,
+    }
+
+    pub(crate) struct MockRecorder {
+        pub calls: std::cell::RefCell<VringCalls>,
+    }
+
+    impl VhostUserHandleBackend for MockRecorder {
+        fn from_stream(_sock: UnixStream, _max_queue_num: u64) -> Self {
+            Self {
+                calls: std::cell::RefCell::new(VringCalls::default()),
+            }
+        }
+
+        fn set_owner(&self) -> Result<(), vhost::Error> {
+            Ok(())
+        }
+
+        fn set_hdr_flags(&self, _flags: VhostUserHeaderFlag) {}
+
+        fn get_features(&self) -> Result<u64, vhost::Error> {
+            Ok(0)
+        }
+
+        fn get_protocol_features(&mut self) -> Result<VhostUserProtocolFeatures, vhost::Error> {
+            Ok(VhostUserProtocolFeatures::empty())
+        }
+
+        fn set_protocol_features(
+            &mut self,
+            _features: VhostUserProtocolFeatures,
+        ) -> Result<(), vhost::Error> {
+            Ok(())
+        }
+
+        fn set_features(&self, _features: u64) -> Result<(), vhost::Error> {
+            Ok(())
+        }
+
+        fn set_mem_table(
+            &self,
+            _regions: &[VhostUserMemoryRegionInfo],
+        ) -> Result<(), vhost::Error> {
+            Ok(())
+        }
+
+        fn set_vring_num(&self, queue_index: usize, _num: u16) -> Result<(), vhost::Error> {
+            self.calls.borrow_mut().num.push(queue_index);
+            Ok(())
+        }
+
+        fn set_vring_addr(
+            &self,
+            queue_index: usize,
+            _config_data: &VringConfigData,
+        ) -> Result<(), vhost::Error> {
+            self.calls.borrow_mut().addr.push(queue_index);
+            Ok(())
+        }
+
+        fn set_vring_base(&self, queue_index: usize, _base: u16) -> Result<(), vhost::Error> {
+            self.calls.borrow_mut().base.push(queue_index);
+            Ok(())
+        }
+
+        fn set_vring_call(&self, queue_index: usize, _fd: &EventFd) -> Result<(), vhost::Error> {
+            self.calls.borrow_mut().call.push(queue_index);
+            Ok(())
+        }
+
+        fn set_vring_kick(&self, queue_index: usize, _fd: &EventFd) -> Result<(), vhost::Error> {
+            self.calls.borrow_mut().kick.push(queue_index);
+            Ok(())
+        }
+
+        fn set_vring_enable(
+            &mut self,
+            queue_index: usize,
+            _enable: bool,
+        ) -> Result<(), vhost::Error> {
+            self.calls.borrow_mut().enable.push(queue_index);
+            Ok(())
+        }
+    }
+
+    fn recording_device(socket: String, num_queues: u64) -> VhostUserDevice<MockRecorder> {
+        VhostUserDevice::<MockRecorder>::new(VhostUserDeviceConfig {
+            socket,
+            num_queues,
+            queue_size: 128,
+            avail_features: 0,
+            config_space_size: 8,
+            require_config: false,
+            metrics_name: format!("test_generic_{num_queues}"),
+        })
+        .unwrap()
+    }
+
+    fn ready_queue(device: &mut VhostUserDevice<MockRecorder>, index: usize) {
+        let config = &mut device.queues[index].config;
+        config.ready = true;
+        config.size = config.max_size;
+    }
+
+    fn test_mem() -> GuestMemoryMmap {
+        let region_size = 0x10000;
+        let file = TempFile::new().unwrap().into_file();
+        file.set_len(region_size as u64).unwrap();
+        create_mem(file, &[(GuestAddress(0x0), region_size)], libc::MAP_SHARED)
+    }
+
+    #[test]
+    fn test_activate_preserves_vring_indices() {
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
+        let mut device = recording_device(tmp_socket_path, 3);
+
+        // The guest readies vrings 0 and 2 and leaves 1 alone, which is what a
+        // driver using fewer queues than were configured looks like.
+        ready_queue(&mut device, 0);
+        ready_queue(&mut device, 2);
+
+        device.activate(test_mem(), default_interrupt()).unwrap();
+
+        // Vring 2 has to be set up as vring 2, not renumbered to 1.
+        let calls = device.vu_handle.vu.calls.borrow();
+        assert_eq!(calls.num, vec![0, 2]);
+        assert_eq!(calls.addr, vec![0, 2]);
+        assert_eq!(calls.base, vec![0, 2]);
+        assert_eq!(calls.call, vec![0, 2]);
+        assert_eq!(calls.kick, vec![0, 2]);
+        assert_eq!(calls.enable, vec![0, 2]);
+    }
+
+    #[test]
+    fn test_activate_without_ready_queues() {
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
+        let mut device = recording_device(tmp_socket_path, 2);
+
+        // Nothing ready has to fail rather than set up no vrings and report
+        // success.
+        assert!(matches!(
+            device.activate(test_mem(), default_interrupt()),
+            Err(ActivateError::QueueMemoryError(QueueError::NotReady))
+        ));
+        assert!(!device.is_activated());
+
+        let calls = device.vu_handle.vu.calls.borrow();
+        assert!(calls.num.is_empty());
+    }
+
+    #[test]
+    fn test_new_rejects_invalid_config() {
+        let config = |num_queues, config_space_size| VhostUserDeviceConfig {
+            socket: "no-such-socket".to_string(),
+            num_queues,
+            queue_size: 128,
+            avail_features: 0,
+            config_space_size,
+            require_config: false,
+            metrics_name: "test_invalid_config".to_string(),
+        };
+
+        // These are all rejected before the socket is touched, so the bogus
+        // path above never gets in the way.
+        assert!(matches!(
+            VhostUserDevice::<MockRecorder>::new(config(0, 8)),
+            Err(VhostUserDeviceError::InvalidNumQueues(0))
+        ));
+        assert!(matches!(
+            VhostUserDevice::<MockRecorder>::new(config(1, MAX_CONFIG_SPACE_SIZE + 1)),
+            Err(VhostUserDeviceError::InvalidConfigSpaceSize(size))
+                if size == MAX_CONFIG_SPACE_SIZE + 1
+        ));
+        assert!(matches!(
+            VhostUserDevice::<MockRecorder>::new(config(MAX_QUEUES + 1, 8)),
+            Err(VhostUserDeviceError::TooManyQueues(got, MAX_QUEUES))
+                if got == MAX_QUEUES + 1
+        ));
+
+        let required_without_space = VhostUserDeviceConfig {
+            require_config: true,
+            ..config(1, 0)
+        };
+        assert!(matches!(
+            VhostUserDevice::<MockRecorder>::new(required_without_space),
+            Err(VhostUserDeviceError::InvalidConfigSpaceSize(0))
+        ));
+
+        let odd_queue_size = VhostUserDeviceConfig {
+            queue_size: 100,
+            ..config(1, 8)
+        };
+        assert!(matches!(
+            VhostUserDevice::<MockRecorder>::new(odd_queue_size),
+            Err(VhostUserDeviceError::InvalidQueueSize(100))
+        ));
+
+        // The limits themselves are accepted, and so is a config space size of
+        // 0, so these get as far as the missing socket.
+        assert!(matches!(
+            VhostUserDevice::<MockRecorder>::new(config(MAX_QUEUES, MAX_CONFIG_SPACE_SIZE)),
+            Err(VhostUserDeviceError::VhostUser(_))
+        ));
+        assert!(matches!(
+            VhostUserDevice::<MockRecorder>::new(config(1, 0)),
+            Err(VhostUserDeviceError::VhostUser(_))
+        ));
+    }
+
+    #[test]
+    fn test_new_rejects_short_config_space() {
+        /// Backend that acks CONFIG and then under-fills the config space.
+        struct MockShortConfig;
+
+        impl VhostUserHandleBackend for MockShortConfig {
+            fn from_stream(_sock: UnixStream, _max_queue_num: u64) -> Self {
+                Self
+            }
+
+            fn set_owner(&self) -> Result<(), vhost::Error> {
+                Ok(())
+            }
+
+            fn set_hdr_flags(&self, _flags: VhostUserHeaderFlag) {}
+
+            fn get_features(&self) -> Result<u64, vhost::Error> {
+                Ok(VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits())
+            }
+
+            fn get_protocol_features(&mut self) -> Result<VhostUserProtocolFeatures, vhost::Error> {
+                Ok(VhostUserProtocolFeatures::CONFIG)
+            }
+
+            fn set_protocol_features(
+                &mut self,
+                _features: VhostUserProtocolFeatures,
+            ) -> Result<(), vhost::Error> {
+                Ok(())
+            }
+
+            fn get_config(
+                &mut self,
+                _offset: u32,
+                _size: u32,
+                _flags: VhostUserConfigFlags,
+                _buf: &[u8],
+            ) -> Result<(VhostUserConfig, VhostUserConfigPayload), vhost::Error> {
+                // Asked for 8 bytes, answers with 3.
+                Ok((VhostUserConfig::default(), vec![0x69, 0x69, 0x69]))
+            }
+        }
+
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
+        let result = VhostUserDevice::<MockShortConfig>::new(VhostUserDeviceConfig {
+            socket: tmp_socket_path,
+            num_queues: 1,
+            queue_size: 128,
+            avail_features: VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits(),
+            config_space_size: 8,
+            require_config: true,
+            metrics_name: "test_short_config".to_string(),
+        });
+
+        // Otherwise the guest would read the bytes the backend did not send as
+        // zeros.
+        assert!(matches!(
+            result,
+            Err(VhostUserDeviceError::ShortConfigSpace(3, 8))
+        ));
+    }
+
+    /// Backend acking a strict subset of what the frontend offers, with the
+    /// protocol bit but without the CONFIG protocol feature.
+    struct MockFeatures;
+
+    impl VhostUserHandleBackend for MockFeatures {
+        fn from_stream(_sock: UnixStream, _max_queue_num: u64) -> Self {
+            Self
+        }
+
+        fn set_owner(&self) -> Result<(), vhost::Error> {
+            Ok(())
+        }
+
+        fn set_hdr_flags(&self, _flags: VhostUserHeaderFlag) {}
+
+        fn get_features(&self) -> Result<u64, vhost::Error> {
+            // Offers bit 1 and bit 2 plus the protocol bit. Bit 2 is one the
+            // frontend below does not offer.
+            Ok((1 << 1) | (1 << 2) | VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits())
+        }
+
+        fn set_features(&self, _features: u64) -> Result<(), vhost::Error> {
+            Ok(())
+        }
+
+        fn get_protocol_features(&mut self) -> Result<VhostUserProtocolFeatures, vhost::Error> {
+            // No CONFIG, so a device that requires it has to be rejected.
+            Ok(VhostUserProtocolFeatures::empty())
+        }
+
+        fn set_protocol_features(
+            &mut self,
+            _features: VhostUserProtocolFeatures,
+        ) -> Result<(), vhost::Error> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_backend_acked_features_reach_the_guest() {
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
+
+        // The frontend offers bit 1 and bit 3 plus the protocol bit. The
+        // backend offers bit 1 and bit 2 plus the protocol bit.
+        let frontend = (1 << 1) | (1 << 3) | VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits();
+        let device = VhostUserDevice::<MockFeatures>::new(VhostUserDeviceConfig {
+            socket: tmp_socket_path,
+            num_queues: 1,
+            queue_size: 128,
+            avail_features: frontend,
+            config_space_size: 8,
+            require_config: false,
+            metrics_name: "test_features_narrow".to_string(),
+        })
+        .unwrap();
+
+        // Only what both sides offer reaches the guest: bit 1 and the protocol
+        // bit. Bit 2 (backend only) and bit 3 (frontend only) are both dropped,
+        // so this fails if the device advertises its own offer or the backend's
+        // set rather than the intersection.
+        assert_eq!(
+            device.avail_features,
+            (1 << 1) | VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits()
+        );
+
+        // The guest has acked nothing yet except the protocol bit, which it
+        // never negotiates but the backend expects kept.
+        assert_eq!(
+            device.acked_features,
+            VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits()
+        );
+    }
+
+    #[test]
+    fn test_new_rejects_missing_required_config() {
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
+
+        // The backend negotiates the protocol feature but not CONFIG, so a
+        // device that requires a config space has to be rejected rather than
+        // built with an empty one.
+        let result = VhostUserDevice::<MockFeatures>::new(VhostUserDeviceConfig {
+            socket: tmp_socket_path,
+            num_queues: 1,
+            queue_size: 128,
+            avail_features: VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits(),
+            config_space_size: 8,
+            require_config: true,
+            metrics_name: "test_require_config".to_string(),
+        });
+
+        assert!(matches!(
+            result,
+            Err(VhostUserDeviceError::ConfigFeatureNotNegotiated)
+        ));
+    }
+
+    #[test]
+    fn test_new_accepts_required_config_when_acked() {
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
+
+        // CONFIG is required and the backend acks it, so the device is built
+        // with the config space the backend returned.
+        let device = VhostUserDevice::<MockConfig>::new(VhostUserDeviceConfig {
+            socket: tmp_socket_path,
+            num_queues: 1,
+            queue_size: 128,
+            avail_features: VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits(),
+            config_space_size: 8,
+            require_config: true,
+            metrics_name: "test_require_config_acked".to_string(),
+        })
+        .unwrap();
+        assert_eq!(device.config_space, vec![1; 8]);
+    }
+
+    #[test]
+    fn test_config_space_empty_without_config_feature() {
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
+
+        // The recording backend acks no CONFIG and the device does not require
+        // it, so there is no config space to fetch or serve.
+        let device = recording_device(tmp_socket_path, 1);
+        assert!(device.config_space.is_empty());
+    }
+
+    /// Backend that acks CONFIG and answers each GET_CONFIG with the full size
+    /// asked for, every byte set to how many times it has been asked.
+    struct MockConfig {
+        fetches: std::cell::Cell<u8>,
+    }
+
+    impl VhostUserHandleBackend for MockConfig {
+        fn from_stream(_sock: UnixStream, _max_queue_num: u64) -> Self {
+            Self {
+                fetches: std::cell::Cell::new(0),
+            }
+        }
+
+        fn set_owner(&self) -> Result<(), vhost::Error> {
+            Ok(())
+        }
+
+        fn set_hdr_flags(&self, _flags: VhostUserHeaderFlag) {}
+
+        fn get_features(&self) -> Result<u64, vhost::Error> {
+            Ok(VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits())
+        }
+
+        fn get_protocol_features(&mut self) -> Result<VhostUserProtocolFeatures, vhost::Error> {
+            Ok(VhostUserProtocolFeatures::CONFIG)
+        }
+
+        fn set_protocol_features(
+            &mut self,
+            _features: VhostUserProtocolFeatures,
+        ) -> Result<(), vhost::Error> {
+            Ok(())
+        }
+
+        fn get_config(
+            &mut self,
+            _offset: u32,
+            size: u32,
+            _flags: VhostUserConfigFlags,
+            _buf: &[u8],
+        ) -> Result<(VhostUserConfig, VhostUserConfigPayload), vhost::Error> {
+            self.fetches.set(self.fetches.get() + 1);
+            Ok((
+                VhostUserConfig::default(),
+                vec![self.fetches.get(); u64_to_usize(u64::from(size))],
+            ))
+        }
+    }
+
+    #[test]
+    fn test_config_space_fetched_and_refreshed() {
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
+        let mut device = VhostUserDevice::<MockConfig>::new(VhostUserDeviceConfig {
+            socket: tmp_socket_path,
+            num_queues: 1,
+            queue_size: 128,
+            avail_features: VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits(),
+            config_space_size: 8,
+            require_config: false,
+            metrics_name: "test_config_refresh".to_string(),
+        })
+        .unwrap();
+
+        // Fetched once at construction, at the size asked for.
+        assert_eq!(device.config_space, vec![1; 8]);
+
+        device.device_state = DeviceState::Activated(ActiveState {
+            mem: test_mem(),
+            interrupt: default_interrupt(),
+        });
+        device.update_config().unwrap();
+
+        // Refreshing fetches it again and tells the guest driver it changed.
+        assert_eq!(device.config_space, vec![2; 8]);
+        assert!(
+            device
+                .interrupt()
+                .has_pending_interrupt(VirtioInterruptType::Config)
+        );
+    }
+
+    #[test]
+    fn test_no_config_space_skips_fetch() {
+        let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
+
+        // A device type with no config space asks for none, so nothing is
+        // fetched even though the backend acks CONFIG.
+        let device = VhostUserDevice::<MockConfig>::new(VhostUserDeviceConfig {
+            socket: tmp_socket_path,
+            num_queues: 1,
+            queue_size: 128,
+            avail_features: VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits(),
+            config_space_size: 0,
+            require_config: false,
+            metrics_name: "test_no_config_space".to_string(),
+        })
+        .unwrap();
+        assert!(device.config_space.is_empty());
+        assert_eq!(device.vu_handle.vu.fetches.get(), 0);
+    }
 
     pub(crate) fn create_mem(
         file: File,
@@ -854,7 +1739,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_setup_backend() {
+    fn test_setup_queue() {
         #[derive(Default)]
         struct VringData {
             index: usize,
@@ -947,11 +1832,12 @@ pub(crate) mod tests {
 
         let event_fd = EventFd::new(0).unwrap();
 
-        let queues = [(0, &queue, &event_fd)];
-
         let interrupt = default_interrupt();
-        vuh.setup_backend(&guest_memory, &queues, interrupt.clone())
+        vuh.setup_queue(&guest_memory, 0, &queue, &event_fd, interrupt.as_ref())
             .unwrap();
+        // Nothing is enabled until every queue has been set up.
+        assert!(!unsafe { &*vuh.vu.vrings.get() }[0].enable);
+        vuh.activate_queues([0]).unwrap();
 
         // VhostUserHandleImpl should correctly send memory and queues information to
         // the backend.
