@@ -713,11 +713,14 @@ mod tests {
         match handle.from_worker.recv_timeout(RECV_TIMEOUT_SEC).unwrap() {
             ControlResponse::HandedBack(worker) => {
                 assert_eq!(worker.resources.queue.save(), expected_queue_state);
+                // Finishing a running worker completes its I/O on its thread and returns its
+                // resources.
+                handle.start(worker);
             }
             response => panic!("Unexpected block worker response: {response:?}"),
         }
 
-        handle.finish();
+        assert!(handle.finish().is_some());
     }
 
     #[test]
@@ -771,6 +774,21 @@ mod tests {
         assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
 
         drop(worker);
+        assert!(handle.finish().is_none());
+    }
+
+    #[test]
+    fn test_finish_after_worker_panic() {
+        let handle = WorkerHandle::spawn(
+            Arc::new(vec![]),
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+            "fc_test".into(),
+        )
+        .unwrap();
+
+        // A parked worker has nothing to hand back, so its thread panics. Finishing it afterwards
+        // returns no resources instead of waiting for a reply.
+        handle.request(ControlMsg::HandBack);
         assert!(handle.finish().is_none());
     }
 

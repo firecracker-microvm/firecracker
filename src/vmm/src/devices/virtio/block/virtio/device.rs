@@ -2496,6 +2496,51 @@ mod tests {
     }
 
     #[test]
+    fn test_quiesce_disk_without_queues() {
+        // A drive always has a queue, but an empty list must not panic.
+        quiesce_disk(std::iter::empty::<&mut BlockResources>(), true, true);
+    }
+
+    #[test]
+    fn test_threaded_rate_limiter_event() {
+        let mut block = default_threaded_block(FileEngineType::Sync);
+        let mem = default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        // One op per 100 ms, already spent: the limiter is blocked and its refill timer armed.
+        let clock = MockClock::new();
+        let mut limiter = RateLimiter::new_mocked(0, 0, 0, 1, 0, 100, &clock);
+        assert!(limiter.consume(1, TokenType::Ops));
+        assert!(!limiter.consume(1, TokenType::Ops));
+        set_rate_limiter(&mut block, limiter);
+        block.activate(mem.clone(), default_interrupt()).unwrap();
+
+        read_blk_req_descriptors(&vq);
+        vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
+        mem.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(vq.dtable[0].addr.get()))
+            .unwrap();
+
+        // The request waits for the limiter, then the unblock kicks the running worker.
+        block.kick();
+        clock.advance(Duration::from_millis(100));
+        block.process_rate_limiter_event();
+        block.prepare_save();
+        assert_eq!(vq.used.idx.get(), 1);
+
+        // An unblock while the worker is taken back for a snapshot leaves it with the device. The
+        // request spent the refilled op, so the next one blocks the limiter again.
+        assert!(!block.rate_limiter.lock().consume(1, TokenType::Ops));
+        assert!(block.rate_limiter.is_blocked());
+        clock.advance(Duration::from_millis(100));
+        block.process_rate_limiter_event();
+        assert!(!block.rate_limiter.is_blocked());
+        let BlockRuntimeState::Threaded(active) = &block.state else {
+            unreachable!()
+        };
+        assert_eq!(active.paused.len(), 1);
+    }
+
+    #[test]
     fn test_queue_dirty_readiness() {
         use vm_memory::GuestMemoryBackend;
 
@@ -2687,9 +2732,18 @@ mod tests {
                 "updating an active disk must notify the guest"
             );
 
+            // While the workers are taken back for a snapshot, the device updates them itself.
+            block.prepare_save();
+            let disk = TempFile::new().unwrap();
+            disk.as_file().set_len(0x4000).unwrap();
+            block
+                .update_disk_image(disk.as_path().to_str().unwrap().to_string())
+                .unwrap();
+            assert_eq!(u64::from_le(block.config_space.capacity), 32);
+
             assert!(block.reset());
             for resources in block.resources() {
-                assert_eq!(resources.disk.nsectors, 24);
+                assert_eq!(resources.disk.nsectors, 32);
             }
         }
     }
