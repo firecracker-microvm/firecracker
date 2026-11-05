@@ -370,13 +370,17 @@ where
         // with guest driver as well.
         self.vu_handle
             .set_features(self.acked_features)
+            .and_then(|()| self.vu_handle.update_mem_table(&mem))
             .and_then(|()| {
-                self.vu_handle.setup_backend(
+                self.vu_handle.setup_queue(
                     &mem,
-                    &[(0, &self.queues[0], &self.queue_evts[0])],
-                    interrupt.clone(),
+                    0,
+                    &self.queues[0],
+                    &self.queue_evts[0],
+                    interrupt.as_ref(),
                 )
             })
+            .and_then(|()| self.vu_handle.activate_queues([0]))
             .map_err(|err| {
                 self.metrics.activate_fails.inc();
                 ActivateError::VhostUser(err)

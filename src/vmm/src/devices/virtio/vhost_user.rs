@@ -6,7 +6,6 @@
 
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
-use std::sync::Arc;
 
 use vhost::vhost_user::message::*;
 use vhost::vhost_user::{Frontend, VhostUserFrontend};
@@ -364,7 +363,7 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
     }
 
     /// Update guest memory table to the backend.
-    fn update_mem_table(&self, mem: &GuestMemoryMmap) -> Result<(), VhostUserError> {
+    pub fn update_mem_table(&self, mem: &GuestMemoryMmap) -> Result<(), VhostUserError> {
         let mut regions: Vec<VhostUserMemoryRegionInfo> = Vec::new();
 
         for region in mem.iter() {
@@ -391,73 +390,77 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
         Ok(())
     }
 
-    /// Set up vhost-user backend. This includes updating memory table,
-    /// sending information about virtio rings and enabling them.
-    pub fn setup_backend(
-        &mut self,
+    /// Send the backend what it needs to run one vring: its size, addresses
+    /// and starting index, and the eventfds used for notifications in each
+    /// direction. The vring stays disabled until [`Self::activate_queues`].
+    pub fn setup_queue(
+        &self,
         mem: &GuestMemoryMmap,
-        queues: &[(usize, &Queue, &EventFd)],
-        interrupt: Arc<dyn VirtioInterrupt>,
+        queue_index: usize,
+        queue: &Queue,
+        queue_evt: &EventFd,
+        interrupt: &dyn VirtioInterrupt,
     ) -> Result<(), VhostUserError> {
-        // Provide the memory table to the backend.
-        self.update_mem_table(mem)?;
+        self.vu
+            .set_vring_num(queue_index, queue.config.size)
+            .map_err(VhostUserError::VhostUserSetVringNum)?;
 
-        // Send set_vring_num here, since it could tell backends, like SPDK,
-        // how many virt queues to be handled, which backend required to know
-        // at early stage.
-        for (queue_index, queue, _) in queues.iter() {
-            self.vu
-                .set_vring_num(*queue_index, queue.config.size)
-                .map_err(VhostUserError::VhostUserSetVringNum)?;
-        }
+        let config_data = VringConfigData {
+            queue_max_size: queue.config.max_size,
+            queue_size: queue.config.size,
+            flags: 0u32,
+            desc_table_addr: mem
+                .get_host_address(queue.config.desc_table_address)
+                .map_err(VhostUserError::DescriptorTableAddress)?
+                as u64,
+            used_ring_addr: mem
+                .get_host_address(queue.config.used_ring_address)
+                .map_err(VhostUserError::UsedAddress)? as u64,
+            avail_ring_addr: mem
+                .get_host_address(queue.config.avail_ring_address)
+                .map_err(VhostUserError::AvailAddress)? as u64,
+            log_addr: None,
+        };
 
-        for (queue_index, queue, queue_evt) in queues.iter() {
-            let config_data = VringConfigData {
-                queue_max_size: queue.config.max_size,
-                queue_size: queue.config.size,
-                flags: 0u32,
-                desc_table_addr: mem
-                    .get_host_address(queue.config.desc_table_address)
-                    .map_err(VhostUserError::DescriptorTableAddress)?
-                    as u64,
-                used_ring_addr: mem
-                    .get_host_address(queue.config.used_ring_address)
-                    .map_err(VhostUserError::UsedAddress)? as u64,
-                avail_ring_addr: mem
-                    .get_host_address(queue.config.avail_ring_address)
-                    .map_err(VhostUserError::AvailAddress)? as u64,
-                log_addr: None,
-            };
+        self.vu
+            .set_vring_addr(queue_index, &config_data)
+            .map_err(VhostUserError::VhostUserSetVringAddr)?;
+        self.vu
+            .set_vring_base(queue_index, queue.avail_ring_idx_get())
+            .map_err(VhostUserError::VhostUserSetVringBase)?;
 
-            self.vu
-                .set_vring_addr(*queue_index, &config_data)
-                .map_err(VhostUserError::VhostUserSetVringAddr)?;
-            self.vu
-                .set_vring_base(*queue_index, queue.avail_ring_idx_get())
-                .map_err(VhostUserError::VhostUserSetVringBase)?;
+        // No matter the queue, we set irq_evt for signaling the guest that buffers were
+        // consumed.
+        self.vu
+            .set_vring_call(
+                queue_index,
+                interrupt
+                    .notifier(VirtioInterruptType::Queue(
+                        queue_index.try_into().unwrap_or_else(|_| {
+                            panic!("vhost-user: invalid queue index: {queue_index}")
+                        }),
+                    ))
+                    .as_ref()
+                    .unwrap(),
+            )
+            .map_err(VhostUserError::VhostUserSetVringCall)?;
 
-            // No matter the queue, we set irq_evt for signaling the guest that buffers were
-            // consumed.
-            self.vu
-                .set_vring_call(
-                    *queue_index,
-                    interrupt
-                        .notifier(VirtioInterruptType::Queue(
-                            (*queue_index).try_into().unwrap_or_else(|_| {
-                                panic!("vhost-user: invalid queue index: {}", *queue_index)
-                            }),
-                        ))
-                        .as_ref()
-                        .unwrap(),
-                )
-                .map_err(VhostUserError::VhostUserSetVringCall)?;
+        self.vu
+            .set_vring_kick(queue_index, queue_evt)
+            .map_err(VhostUserError::VhostUserSetVringKick)?;
 
-            self.vu
-                .set_vring_kick(*queue_index, queue_evt)
-                .map_err(VhostUserError::VhostUserSetVringKick)?;
+        Ok(())
+    }
 
+    /// Enable the given vrings. Backends such as SPDK and DPDK start processing a
+    /// vring as soon as it is enabled, so this comes after every one is set up.
+    pub fn activate_queues(
+        &mut self,
+        queue_indexes: impl IntoIterator<Item = usize>,
+    ) -> Result<(), VhostUserError> {
+        for queue_index in queue_indexes {
             self.vu
-                .set_vring_enable(*queue_index, true)
+                .set_vring_enable(queue_index, true)
                 .map_err(VhostUserError::VhostUserSetVringEnable)?;
         }
 
@@ -854,7 +857,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_setup_backend() {
+    fn test_setup_queue() {
         #[derive(Default)]
         struct VringData {
             index: usize,
@@ -947,11 +950,12 @@ pub(crate) mod tests {
 
         let event_fd = EventFd::new(0).unwrap();
 
-        let queues = [(0, &queue, &event_fd)];
-
         let interrupt = default_interrupt();
-        vuh.setup_backend(&guest_memory, &queues, interrupt.clone())
+        vuh.setup_queue(&guest_memory, 0, &queue, &event_fd, interrupt.as_ref())
             .unwrap();
+        // Nothing is enabled until every queue has been set up.
+        assert!(!unsafe { &*vuh.vu.vrings.get() }[0].enable);
+        vuh.activate_queues([0]).unwrap();
 
         // VhostUserHandleImpl should correctly send memory and queues information to
         // the backend.
