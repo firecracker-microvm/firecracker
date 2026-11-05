@@ -1,7 +1,7 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use kvm_bindings::{KVM_CAP_ARM_WRITABLE_IMP_ID_REGS, KVMIO, kvm_enable_cap};
 use serde::{Deserialize, Serialize};
@@ -33,7 +33,7 @@ pub struct KvmVm {
     /// Architecture independent parts of a vm.
     pub common: VmCommon,
     // On aarch64 we need to keep around the fd obtained by creating the VGIC device.
-    irqchip_handle: Option<crate::arch::aarch64::gic::GICDevice>,
+    irqchip_handle: OnceLock<crate::arch::aarch64::gic::GICDevice>,
 }
 
 /// Error type for [`KvmVm::restore_state`]
@@ -88,17 +88,17 @@ impl KvmVm {
 
         Ok(KvmVm {
             common,
-            irqchip_handle: None,
+            irqchip_handle: OnceLock::new(),
         })
     }
 
     /// Pre-vCPU creation setup.
-    pub fn arch_pre_create_vcpus(&mut self, _: u8) -> Result<(), KvmVmError> {
+    pub fn arch_pre_create_vcpus(&self, _: u8) -> Result<(), KvmVmError> {
         Ok(())
     }
 
     /// Post-vCPU creation setup.
-    pub fn arch_post_create_vcpus(&mut self, nr_vcpus: u8) -> Result<(), KvmVmError> {
+    pub fn arch_post_create_vcpus(&self, nr_vcpus: u8) -> Result<(), KvmVmError> {
         // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) before setting up the
         // IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
         // was already initialized.
@@ -107,17 +107,16 @@ impl KvmVm {
     }
 
     /// Creates the GIC (Global Interrupt Controller).
-    pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<(), KvmVmError> {
-        self.irqchip_handle = Some(
-            crate::arch::aarch64::gic::create_gic(self.fd(), vcpu_count.into(), None)
-                .map_err(KvmVmError::VmCreateGIC)?,
-        );
+    pub fn setup_irqchip(&self, vcpu_count: u8) -> Result<(), KvmVmError> {
+        let gic = crate::arch::aarch64::gic::create_gic(self.fd(), vcpu_count.into(), None)
+            .map_err(KvmVmError::VmCreateGIC)?;
+        self.irqchip_handle.set(gic).expect("IRQ chip already set");
         Ok(())
     }
 
     /// Gets a reference to the irqchip of the VM.
     pub fn get_irqchip(&self) -> &crate::arch::aarch64::gic::GICDevice {
-        self.irqchip_handle.as_ref().expect("IRQ chip not set")
+        self.irqchip_handle.get().expect("IRQ chip not set")
     }
 
     /// Saves and returns the KVM VM state.

@@ -230,7 +230,11 @@ impl KvmVm {
     /// Creates the specified number of [`Vcpu`]s.
     ///
     /// Each vCPU gets a clone of the `vcpus_exit_evt` EventFd stored on this KvmVm.
-    pub fn create_vcpus(&mut self, vcpu_count: u8) -> Result<Vec<Vcpu>, VmError> {
+    ///
+    /// This also creates the irqchip, which KVM registers on its io bus with `call_srcu()`. A
+    /// memslot update issued right after that waits a full SRCU grace period (tens of ms), so
+    /// register every memslot before calling this.
+    pub fn create_vcpus(&self, vcpu_count: u8) -> Result<Vec<Vcpu>, VmError> {
         self.arch_pre_create_vcpus(vcpu_count)?;
 
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
@@ -964,7 +968,7 @@ pub(crate) mod tests {
     #[test]
     fn test_create_vcpus() {
         let vcpu_count = 2;
-        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
 
         let vcpu_vec = vm.create_vcpus(vcpu_count).unwrap();
 
