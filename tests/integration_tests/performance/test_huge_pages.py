@@ -3,7 +3,6 @@
 """Integration tests for Firecracker's huge pages support"""
 
 import signal
-import time
 
 import pytest
 
@@ -207,8 +206,8 @@ def test_ept_violation_count(
         # Verify if guest can run commands, and also wake up the fast page fault helper to trigger page faults.
         vm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
 
-        # Give the helper time to touch all its pages
-        time.sleep(5)
+        # Wait for the helper to touch all its pages and exit.
+        utils.wait_for_fast_page_fault_helper_output(vm.ssh, pid)
 
         if global_props.cpu_architecture == "x86_64":
             trace_entry = "reason EPT_VIOLATION"
