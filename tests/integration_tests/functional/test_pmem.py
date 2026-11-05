@@ -7,10 +7,9 @@ import os
 import re
 
 import pytest
-from tenacity import Retrying, stop_after_delay, wait_fixed
 
 import host_tools.drive as drive_tools
-from framework import utils
+from framework import utils, utils_wait
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_rootfs_mode
 from framework.utils_hugepages import HugePagesConfig
 from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
@@ -277,11 +276,7 @@ def test_device_reset(uvm, huge_pages):
     vm.ssh.check_output(f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_pmem/bind")
     # The NVDIMM subsystem creates the device node asynchronously after driver
     # probe, so we need to wait for it.
-    for attempt in Retrying(
-        wait=wait_fixed(0.1), stop=stop_after_delay(5.0), reraise=True
-    ):
-        with attempt:
-            vm.ssh.check_output("ls /dev/pmem0")
+    utils_wait.wait_for_guest_cmd(vm, "ls /dev/pmem0")
     vm.ssh.check_output("mount /dev/pmem0 /tmp")
     vm.ssh.check_output("echo reset_test > /tmp/testfile")
     ret = vm.ssh.check_output("cat /tmp/testfile")
