@@ -5,8 +5,8 @@ Subject: [PATCH 62/94] fixup for write and direct map removal
 
 Make sure the two work together.
 ---
- virt/kvm/guest_memfd.c | 7 +++++++
- 1 file changed, 7 insertions(+)
+ virt/kvm/guest_memfd.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
 
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
 index d60be4b52555..b5732e2299cd 100644
@@ -25,11 +25,12 @@ index d60be4b52555..b5732e2299cd 100644
  	return 0;
  }
  
-@@ -678,6 +684,7 @@ static int kvm_gmem_write_end(const struct kiocb *kiocb,
+@@ -678,6 +684,8 @@ static int kvm_gmem_write_end(const struct kiocb *kiocb,
  {
  	if (!folio_test_uptodate(folio)) {
  		folio_zero_range(folio, copied, len - copied);
-+		kvm_gmem_folio_zap_direct_map(folio);
++		if (kvm_gmem_no_direct_map(folio_inode(folio)))
++			kvm_gmem_folio_zap_direct_map(folio);
  		folio_mark_uptodate(folio);
  	}
  
