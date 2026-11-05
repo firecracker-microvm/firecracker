@@ -622,3 +622,38 @@ def test_vfio_nvme_hot_unplug(uvm_booted, vfio_nvme, force):
 
     # Nothing blocks snapshots once the passthrough device is gone
     vm.snapshot_full()
+
+
+@vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+def test_vfio_nvme_diff_snapshot_after_unplug(uvm_configured, vfio_nvme):
+    """
+    The device DMA writes are not dirty tracked, so after it was hot-plugged
+    Diff snapshots are refused until a Full snapshot captures all the memory.
+    A Full snapshot taken before the hot-plug or a failed one does not count.
+    """
+    vm = uvm_configured
+    vm.add_net_iface()
+    vm.start()
+    vm.snapshot_full()
+    vm.resume()
+
+    vm.add_passthrough_device("nvme0", vfio_nvme)
+    _wait_for_nvme(vm)
+    _check_write_readback(vm, "1M", 64)
+    vm.api.device_passthrough.delete("nvme0", force=True)
+
+    diff_error = "Diff snapshots are not allowed after hot-plugging"
+    with pytest.raises(RuntimeError, match=diff_error):
+        vm.snapshot_diff()
+    vm.resume()
+    with pytest.raises(RuntimeError, match="No such file or directory"):
+        vm.snapshot_full(mem_path="missing/mem")
+    vm.resume()
+    with pytest.raises(RuntimeError, match=diff_error):
+        vm.snapshot_diff()
+    vm.resume()
+
+    vm.snapshot_full()
+    vm.resume()
+    vm.snapshot_diff()

@@ -37,7 +37,9 @@ use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, MachineConfigUpdate};
-use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, MemBackendType};
+use crate::vmm_config::snapshot::{
+    CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
+};
 use crate::vstate::kvm::KvmState;
 use crate::vstate::memory::{
     self, GuestMemoryState, GuestRegionMmap, GuestRegionType, MemoryError,
@@ -164,6 +166,8 @@ pub enum CreateSnapshotError {
     SerializeMicrovmState(#[from] crate::snapshot::SnapshotError),
     /// Cannot perform {0} on the snapshot backing file: {1}
     SnapshotBackingFile(&'static str, io::Error),
+    /// Diff snapshots are not allowed after hot-plugging passthrough or vhost-user devices until a Full snapshot is taken
+    DiffNotAllowed,
 }
 
 /// Snapshot version
@@ -178,6 +182,9 @@ pub fn create_snapshot(
     let microvm_state = vmm
         .save_state(vm_info)
         .map_err(CreateSnapshotError::MicrovmState)?;
+    if params.snapshot_type == SnapshotType::Diff && !vmm.can_create_diff_snapshots {
+        return Err(CreateSnapshotError::DiffNotAllowed);
+    }
 
     snapshot_state_to_file(
         &microvm_state,
@@ -199,6 +206,8 @@ pub fn create_snapshot(
         params.snapshot_type,
         params.sync_snapshot_files,
     )?;
+    // The memory file now holds all of the guest memory, so Diff snapshots can build on it
+    vmm.can_create_diff_snapshots = true;
 
     Ok(())
 }
@@ -811,6 +820,43 @@ mod tests {
             panic!("expected MMIO virtio device state");
         };
         assert_eq!(restored_mmio, mmio)
+    }
+
+    #[test]
+    fn test_diff_snapshot_after_untracked_device() {
+        let mut vmm = default_vmm();
+        let vm_info = VmInfo::from(&vmm);
+        let snapshot_file = TempFile::new().unwrap();
+        let mem_file = TempFile::new().unwrap();
+        let mut params = CreateSnapshotParams {
+            snapshot_type: SnapshotType::Diff,
+            snapshot_path: snapshot_file.as_path().to_path_buf(),
+            mem_file_path: mem_file.as_path().to_path_buf(),
+            sync_snapshot_files: false,
+        };
+        let diff_rejected = |vmm: &mut Vmm, params: &CreateSnapshotParams| {
+            matches!(
+                create_snapshot(vmm, &vm_info, params),
+                Err(CreateSnapshotError::DiffNotAllowed)
+            )
+        };
+
+        // As if a passthrough device was hot-plugged and unplugged
+        vmm.can_create_diff_snapshots = false;
+        assert!(diff_rejected(&mut vmm, &params));
+
+        // A failed Full snapshot does not count
+        params.snapshot_type = SnapshotType::Full;
+        params.mem_file_path = "/nonexistent/mem".into();
+        create_snapshot(&mut vmm, &vm_info, &params).unwrap_err();
+        params.snapshot_type = SnapshotType::Diff;
+        params.mem_file_path = mem_file.as_path().to_path_buf();
+        assert!(diff_rejected(&mut vmm, &params));
+
+        params.snapshot_type = SnapshotType::Full;
+        create_snapshot(&mut vmm, &vm_info, &params).unwrap();
+        params.snapshot_type = SnapshotType::Diff;
+        create_snapshot(&mut vmm, &vm_info, &params).unwrap();
     }
 
     #[test]
