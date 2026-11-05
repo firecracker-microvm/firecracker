@@ -112,7 +112,9 @@ def get_changed_files():
         branch = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH", "main")
         base = f"origin/{branch}"
 
-    stdout = subprocess.check_output(f"git diff --name-only {base}".split(" "))
+    # Diff against the merge base, so that commits that landed on the base
+    # branch after the PR branched off don't count as changed by the PR.
+    stdout = subprocess.check_output(["git", "diff", "--name-only", f"{base}...HEAD"])
 
     return [Path(line) for line in stdout.decode().splitlines()]
 
