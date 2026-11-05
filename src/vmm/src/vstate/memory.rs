@@ -1169,7 +1169,7 @@ pub enum HoleStrategy {
 }
 
 /// Size of the lazily allocated heap buffer reused to fill holes.
-const ZERO_FILL_CHUNK_SIZE: usize = 128 * 1024;
+const ZERO_FILL_CHUNK_SIZE: usize = 2 * 1024 * 1024;
 
 /// Move the writer's cursor over an unplugged memory range.
 fn skip_hole<T: std::io::Seek>(writer: &mut T, len: usize) -> Result<(), MemoryError> {

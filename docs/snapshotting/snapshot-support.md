@@ -277,7 +277,7 @@ Details about the required and optional fields can be found in the
 > FIFO lets guest memory be streamed (e.g. to compression, encryption or upload)
 > without landing on local disk. Start the reader first: opening a FIFO blocks
 > until a reader connects. Unplugged memory slots are written as explicit zeros
-> using a lazily allocated, reusable 128 KiB buffer. Size pre-allocation and
+> using a lazily allocated, reusable 2 MiB buffer. Size pre-allocation and
 > `fsync` are skipped for FIFOs. `Diff` snapshots require a seekable regular
 > file and fail fast otherwise.
 
