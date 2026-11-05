@@ -67,8 +67,8 @@ pub struct PciDevices {
 
     // All VFIO PCI devices
     pub vfio_devices: Vec<Arc<Mutex<VfioDevice>>>,
-    // Rust drops items in declaration order, so make sure the `container` is dropped after all vfio
-    // devices
+    // Rust drops items in declaration order, so make sure the `container` is dropped after all
+    // vfio devices
     vfio_container: Option<Arc<VfioContainer>>,
 }
 
@@ -112,6 +112,14 @@ pub enum PciManagerError {
     InconsistentRootPort(usize, PciSBDF, u8),
     /// VFIO error: {0}
     Vfio(#[from] VfioError),
+    /// Trying to add a device with duplicate id: {0}
+    DeviceIdDuplicate(String),
+    /// Trying to add a device with duplicate SBDF: {0}
+    DeviceSBDFDuplicate(PciSBDF),
+    /// Device with id: {0} not found
+    DeviceNotFound(String),
+    /// Device '{0}' is not removable because it's not plugged to a PCIe root port.
+    DeviceNotRemovable(String),
 }
 
 impl PciDevices {
@@ -170,6 +178,17 @@ impl PciDevices {
         Ok(())
     }
 
+    fn next_sbdf(&self, placement: PciPlacement) -> Result<PciSBDF, PciManagerError> {
+        match placement {
+            PciPlacement::PrimaryBus => Ok(self.pci_segment.next_device_sbdf()?),
+            PciPlacement::SecondaryBus => {
+                let port = self.pci_segment.next_free_root_port()?;
+                let secondary_bus = port.lock().expect("Poisoned lock").secondary_bus();
+                Ok(PciSBDF::new(self.pci_segment.id, secondary_bus, 0, 0))
+            }
+        }
+    }
+
     pub(crate) fn attach_pci_virtio_device(
         &mut self,
         vm: &Arc<KvmVm>,
@@ -178,15 +197,7 @@ impl PciDevices {
         event_manager: &mut EventManager,
         placement: PciPlacement,
     ) -> Result<(), PciManagerError> {
-        let (sbdf, root_port) = match placement {
-            PciPlacement::PrimaryBus => (self.pci_segment.next_device_sbdf()?, None),
-            PciPlacement::SecondaryBus => {
-                let port = self.pci_segment.next_free_root_port()?;
-                let secondary_bus = port.lock().expect("Poisoned lock").secondary_bus();
-                let sbdf = PciSBDF::new(self.pci_segment.id, secondary_bus, 0, 0);
-                (sbdf, Some(port))
-            }
-        };
+        let sbdf = self.next_sbdf(placement)?;
         debug!("Allocating SBDF: {sbdf:?} for device");
 
         let device_type = device.lock().expect("Poisoned lock").device_type();
@@ -203,8 +214,10 @@ impl PciDevices {
 
         // It's likely that the guest has already programmed the root port's
         // window. Try to place the device BAR inside that window if possible.
-        let port_window =
-            root_port.and_then(|port| port.lock().expect("Poisoned lock").nonpref_memory_window());
+        let port_window = self
+            .pci_segment
+            .root_port_for_bus(sbdf.bus())
+            .and_then(|port| port.lock().expect("Poisoned lock").nonpref_memory_window());
 
         // Don't hold the resource allocator lock across attach_common()
         // below: a device access holds the bus lock and can take the allocator
@@ -321,30 +334,52 @@ impl PciDevices {
         }
     }
 
-    pub fn attach_vfio_device(
+    /// Attach VFIO device and notify the guest about it
+    pub fn hotplug_vfio_device(
         &mut self,
         vm: &Arc<KvmVm>,
         config: DevicePassthroughConfig,
     ) -> Result<(), PciManagerError> {
+        let sbdf = self.attach_vfio_device(vm, config, PciPlacement::SecondaryBus)?;
+
+        // Notify the guest the device is hot-plugged
+        // Hotplugged devices are always behind secondary root_ports.
+        let port = self.pci_segment.root_port_for_bus(sbdf.bus()).unwrap();
+        port.lock().expect("Poisoned lock").plug();
+
+        Ok(())
+    }
+
+    /// Attach VFIO device without notifying the guest
+    pub fn attach_vfio_device(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        config: DevicePassthroughConfig,
+        placement: PciPlacement,
+    ) -> Result<PciSBDF, PciManagerError> {
         for device in self.vfio_devices.iter() {
             let device = device.lock().unwrap();
-            // SAFETY: We must never add 2 devices with same id or same SBDF
-            assert_ne!(device.config.id, config.id);
-            assert_ne!(device.config.sbdf, config.sbdf);
+            if device.config.id == config.id {
+                return Err(PciManagerError::DeviceIdDuplicate(config.id));
+            }
+            if device.config.sbdf == config.sbdf {
+                return Err(PciManagerError::DeviceSBDFDuplicate(config.sbdf));
+            }
         }
 
-        let pci_device_bdf = self.pci_segment.next_device_sbdf()?;
+        let pci_device_bdf = self.next_sbdf(placement)?;
         debug!("VFIO: Allocating BDF: {pci_device_bdf:?} for device");
 
-        let device = if let Some(container) = &self.vfio_container {
-            VfioDevice::new(container, vm, config, pci_device_bdf)?
-        } else {
-            let container = vfio_create_kvm_vfio_device_and_vfio_container(vm.as_ref())?;
-            let device = VfioDevice::new(&container, vm, config, pci_device_bdf)?;
-            vfio_dma_map_guest_memory(&container, vm.guest_memory())?;
-            self.vfio_container = Some(container);
-            device
-        };
+        if self.vfio_container.is_none() {
+            self.vfio_container =
+                Some(vfio_create_kvm_vfio_device_and_vfio_container(vm.as_ref())?);
+        }
+        let container = self.vfio_container.as_ref().unwrap();
+
+        let device = VfioDevice::new(container, vm, config, pci_device_bdf)?;
+        if self.vfio_devices.is_empty() {
+            vfio_dma_map_guest_memory(container, vm.guest_memory())?;
+        }
 
         // Obtain this to avoid needing to lock device mutex below
         let emulated_areas = device.emulated_areas.clone();
@@ -354,7 +389,8 @@ impl PciDevices {
         // This is for config space
         self.pci_segment
             .pci_buses
-            .root_bus()
+            .get(pci_device_bdf.bus())
+            .unwrap()
             .lock()
             .unwrap()
             // SAFETY: we should never add 2 devices with same device id
@@ -371,7 +407,91 @@ impl PciDevices {
 
         self.vfio_devices.push(device);
 
+        Ok(pci_device_bdf)
+    }
+
+    fn find_removable_vfio_device_by_id(&self, id: String) -> Result<(usize, u8), PciManagerError> {
+        for (idx, device) in self.vfio_devices.iter().enumerate() {
+            let device = device.lock().expect("Poisoned lock");
+            if device.config.id == id {
+                let bus = device.sbdf.bus();
+                if bus == 0 {
+                    return Err(PciManagerError::DeviceNotRemovable(id));
+                }
+                return Ok((idx, bus));
+            }
+        }
+        Err(PciManagerError::DeviceNotFound(id))
+    }
+
+    /// Ask the guest to release a VFIO device.
+    pub fn request_unplug_vfio(&self, id: String) -> Result<(), PciManagerError> {
+        let (_, bus) = self.find_removable_vfio_device_by_id(id)?;
+        self.pci_segment
+            .root_port_for_bus(bus)
+            .unwrap()
+            .lock()
+            .expect("Poisoned lock")
+            .request_unplug();
         Ok(())
+    }
+
+    /// Detach VFIO device and notify guest about it. Search for a device by id.
+    pub fn detach_vfio_device_by_id(
+        &mut self,
+        vm: &KvmVm,
+        id: String,
+    ) -> Result<(), PciManagerError> {
+        let (idx, _) = self.find_removable_vfio_device_by_id(id)?;
+        self.detach_vfio_device_by_idx(vm, idx);
+        Ok(())
+    }
+
+    /// Detach VFIO device and notify guest about it. Search for a device by the bus number.
+    pub fn detach_vfio_device_by_bus(&mut self, vm: &KvmVm, bus: u8) -> bool {
+        assert_ne!(bus, 0);
+
+        if let Some(idx) = self
+            .vfio_devices
+            .iter()
+            .position(|device| device.lock().expect("Poisoned lock").sbdf.bus() == bus)
+        {
+            self.detach_vfio_device_by_idx(vm, idx);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn detach_vfio_device_by_idx(&mut self, vm: &KvmVm, idx: usize) {
+        let device = self.vfio_devices.remove(idx);
+        let sbdf = device.lock().expect("Poisoned lock").sbdf;
+
+        self.pci_segment
+            .root_port_for_bus(sbdf.bus())
+            .unwrap()
+            .lock()
+            .expect("Poisoned lock")
+            .eject();
+
+        // Remove the device from the PCI bus first, so the guest cannot relocate its BARs anymore
+        self.pci_segment
+            .pci_buses
+            .get(sbdf.bus())
+            .unwrap()
+            .lock()
+            .expect("Poisoned lock")
+            .remove_device(sbdf.device());
+
+        let emulated_areas = device.lock().expect("Poisoned lock").emulated_areas.clone();
+        for area in emulated_areas {
+            // SAFETY: areas were inserted on attach and follow BAR relocations
+            vm.common.mmio_bus.remove(area.gpa, area.size).unwrap();
+        }
+
+        // Ensure no other references to the device remain, so it is freed when this function
+        // returns
+        assert_eq!(Arc::strong_count(&device), 1);
     }
 
     fn restore_pci_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
@@ -857,9 +977,9 @@ impl<'a> Persist<'a> for PciDevices {
             )?
         }
 
-        // After PCI devices are restored, we must set up the GSI routes (one KVM_SET_GSI_ROUTING call for all vectors),
-        // and enable all unmasked vectors (one kvm_irqfd call per vector).
-        // Ordering: routing must be set before IRQFDs to avoid kernel panics on
+        // After PCI devices are restored, we must set up the GSI routes (one KVM_SET_GSI_ROUTING
+        // call for all vectors), and enable all unmasked vectors (one kvm_irqfd call per
+        // vector). Ordering: routing must be set before IRQFDs to avoid kernel panics on
         // older AMD/SVM hosts (see kernel commit a80ced6ea514).
         if !pci_devices.virtio_devices.is_empty() || !state.root_ports.is_empty() {
             constructor_args

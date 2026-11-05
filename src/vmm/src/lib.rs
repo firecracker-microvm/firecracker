@@ -155,6 +155,7 @@ use crate::rpc_interface::VmmActionError;
 use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::BalloonDeviceConfig;
 use crate::vmm_config::boot_source::BootSourceConfig;
+use crate::vmm_config::device_passthrough::DevicePassthroughConfig;
 use crate::vmm_config::entropy::EntropyDeviceConfig;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::MachineConfig;
@@ -313,6 +314,8 @@ pub struct Vmm {
     pub vm: Vm,
     // Device manager
     device_manager: DeviceManager,
+    // Cleared once a device writing guest memory without dirty tracking is hot-plugged
+    can_create_diff_snapshots: bool,
 }
 
 impl Vmm {
@@ -765,8 +768,31 @@ impl Vmm {
             .as_kvm()
             .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?
             .clone();
+        let is_vhost_user = config.is_vhost_user();
         self.device_manager
-            .hotplug_device(kvm_vm, config, event_manager)
+            .hotplug_device(kvm_vm, config, event_manager)?;
+
+        if is_vhost_user {
+            self.can_create_diff_snapshots = false;
+        }
+        Ok(())
+    }
+
+    /// Attaches a passthrough device after VM start
+    pub fn hotplug_passthrough_device(
+        &mut self,
+        config: DevicePassthroughConfig,
+    ) -> Result<(), VmmActionError> {
+        log_dev_preview_warning("device passthrough hotplug", None);
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?;
+        self.device_manager
+            .hotplug_passthrough_device(kvm_vm, config)?;
+
+        self.can_create_diff_snapshots = false;
+        Ok(())
     }
 
     /// Detaches a device after VM start
@@ -785,6 +811,21 @@ impl Vmm {
             .clone();
         self.device_manager
             .hot_unplug_device(kvm_vm, device_id, event_manager, force)
+    }
+
+    /// Detaches a passthrough device after VM start
+    pub fn hot_unplug_passthrough_device(
+        &mut self,
+        id: String,
+        force: bool,
+    ) -> Result<(), VmmActionError> {
+        log_dev_preview_warning("device passthrough hot-unplug", None);
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?;
+        self.device_manager
+            .hot_unplug_passthrough_device(kvm_vm, id, force)
     }
 
     /// Remove any devices that the guest acknowledged that they can go.
