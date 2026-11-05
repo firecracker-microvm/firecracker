@@ -1316,9 +1316,9 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         hole: HoleStrategy,
     ) -> Result<(), MemoryError> {
         // Allocate only if a hole must be emitted, then reuse one bounded heap
-        // buffer for every unplugged slot in this dump. A zero-initialized heap
-        // buffer of this size can remain demand-zero on Linux while only read;
-        // do not mutate it after creation.
+        // buffer for every unplugged slot in this dump. The buffer is mutable
+        // only because `VolatileSlice` requires a mutable borrow; the writer
+        // reads it and this code never changes it after zero-initialization.
         let mut zeroes: Option<Vec<u8>> = None;
         for region in self.iter() {
             for (mem_slot, plugged) in region.slots() {
