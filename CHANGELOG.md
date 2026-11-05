@@ -170,6 +170,12 @@ and this project adheres to
   unusable for the rest of the microVM's lifetime. The reset now waits until
   every in-flight request has completed.
 
+- [#6388](https://github.com/firecracker-microvm/firecracker/pull/6388): Fixed
+  microVM creation and snapshot restore taking 20-50 ms longer on hosts running
+  Linux 6.18 or newer, by registering guest memory before creating the vCPUs. On
+  Intel hosts only the pmem part of the delay is removed; the rest needs a
+  kernel fix.
+
 ## [1.18.0]
 
 ### Added
