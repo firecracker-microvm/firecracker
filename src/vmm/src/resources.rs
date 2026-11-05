@@ -534,7 +534,7 @@ impl VmResources {
         memfd: bool,
     ) -> Result<(Vec<GuestRegionMmap>, Option<MemfdBacking>), MemoryError> {
         let regions =
-            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
+            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib))?;
 
         if memfd {
             let mut backing = MemfdBacking::new(
@@ -756,6 +756,7 @@ mod tests {
         let dram_size = mib_to_bytes(resources.machine_config.mem_size_mib) as u64;
         // Right after DRAM, which does not start at guest address 0 on all architectures.
         let hotplug_addr = crate::arch::arch_memory_regions(u64_to_usize(dram_size))
+            .unwrap()
             .iter()
             .map(|&(start, size)| start.0 + size as u64)
             .max()
@@ -1648,6 +1649,12 @@ mod tests {
 
         // Invalid mem_size_mib.
         aux_vm_config.mem_size_mib = Some(0);
+        assert_eq!(
+            vm_resources.update_machine_config(&aux_vm_config),
+            Err(MachineConfigError::InvalidMemorySize)
+        );
+        // Byte count overflows usize.
+        aux_vm_config.mem_size_mib = Some(usize::MAX >> 10);
         assert_eq!(
             vm_resources.update_machine_config(&aux_vm_config),
             Err(MachineConfigError::InvalidMemorySize)

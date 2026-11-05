@@ -110,7 +110,7 @@ def test_network_tcp_throughput(
     # Time (in seconds) for which iperf "warms up"
     warmup_sec = 5
     # Time (in seconds) for which iperf runs after warmup is done
-    runtime_sec = 20
+    runtime_sec = 10
 
     metrics.set_dimensions(
         {

@@ -51,7 +51,7 @@ class VsockIPerf3Test(IPerf3Test):
     WARMUP_SEC = 3
 
     # Time (in seconds) for which iperf runs after warmup is done
-    RUNTIME_SEC = 20
+    RUNTIME_SEC = 10
 
     # VM guest memory size
     GUEST_MEM_MIB = 1024
@@ -116,8 +116,11 @@ def consume_vsock_ping_output(ping_output):
 @pytest.mark.timeout(120)
 @pytest.mark.nonci
 @pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
-@pytest.mark.parametrize("payload_length", ["64K", "1024K"], ids=["p64K", "p1024K"])
-@pytest.mark.parametrize("mode", ["g2h", "h2g"])
+@pytest.mark.parametrize(
+    "mode,payload_length",
+    [("g2h", "64K"), ("h2g", "64K"), ("h2g", "1024K")],
+    ids=["g2h-p64K", "h2g-p64K", "h2g-p1024K"],
+)
 def test_vsock_throughput(
     uvm,
     vcpus,

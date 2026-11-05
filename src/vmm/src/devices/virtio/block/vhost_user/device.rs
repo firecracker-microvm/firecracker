@@ -265,14 +265,13 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
         }
     }
 
-    pub fn config_update(&mut self) -> Result<(), VhostUserBlockError> {
+    pub fn update_config(&mut self) -> Result<(), VhostUserBlockError> {
         let start_time = get_time_us(ClockType::Monotonic);
-        let interrupt = self
-            .device_state
-            .active_state()
-            .expect("Device is not initialized")
-            .interrupt
-            .clone();
+
+        let Some(device_state) = self.device_state.active_state() else {
+            return Err(VhostUserBlockError::DeviceNotActive);
+        };
+        let interrupt = device_state.interrupt.clone();
 
         // This buffer is used for config size check in vhost crate.
         let buffer = [0u8; BLOCK_CONFIG_SPACE_SIZE as usize];
@@ -732,13 +731,16 @@ mod tests {
         vhost_block.write_config(0x69, &[0]);
         assert_eq!(vhost_block.config_space, vec![0x69, 0x69, 0x69]);
 
+        // Before device is active, update_config should error out
+        vhost_block.update_config().unwrap_err();
+
         // Testing [`config_update`]
         vhost_block.device_state = DeviceState::Activated(ActiveState {
             mem: default_mem(),
             interrupt: default_interrupt(),
         });
         vhost_block.config_space = vec![];
-        vhost_block.config_update().unwrap();
+        vhost_block.update_config().unwrap();
         assert_eq!(vhost_block.config_space, vec![0x69, 0x69, 0x69]);
         assert_eq!(
             vhost_block.interrupt_status().load(Ordering::SeqCst),

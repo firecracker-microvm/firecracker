@@ -711,7 +711,7 @@ impl VirtioBlock {
     }
 
     /// Spawn a parked worker thread for the next activation.
-    pub(crate) fn spawn_worker(
+    pub fn spawn_worker(
         &mut self,
         seccomp_filter: Arc<BpfProgram>,
     ) -> Result<(), VirtioBlockError> {
@@ -2449,13 +2449,46 @@ mod tests {
         assert!(block.lock_rate_limiter().ops().is_none());
     }
 
-    #[test]
-    fn test_queue_dirty_readiness() {
+    /// Whether the page holding `vq`'s used ring is marked dirty in `mem`'s bitmap.
+    fn used_ring_dirty(mem: &GuestMemoryMmap, vq: &VirtQueue) -> bool {
         use vm_memory::GuestMemoryBackend;
 
-        use crate::test_utils::single_region_mem_dirty_tracking;
         use crate::utils::u64_to_usize;
-        use crate::vstate::memory::{Bitmap, GuestMemoryExtension};
+        use crate::vstate::memory::Bitmap;
+
+        mem.find_region(GuestAddress(0))
+            .unwrap()
+            .bitmap()
+            .dirty_at(u64_to_usize(vq.used_start().raw_value()))
+    }
+
+    /// Commits while queue 0's worker runs, then has the worker complete a request. Returns with
+    /// the worker paused and its used ring write recorded but not committed.
+    fn complete_request_after_commit(
+        block: &mut VirtioBlock,
+        mem: &GuestMemoryMmap,
+        vq: &VirtQueue,
+    ) {
+        use crate::vstate::memory::GuestMemoryExtension;
+
+        // A running worker answers a commit request too.
+        block.commit_dirty();
+
+        block.prepare_save();
+        read_blk_req_descriptors(vq);
+        vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
+        mem.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(vq.dtable[0].addr.get()))
+            .unwrap();
+        mem.reset_dirty();
+        block.kick();
+        block.prepare_save();
+        assert_eq!(vq.used.idx.get(), 1);
+        assert!(!used_ring_dirty(mem, vq));
+    }
+
+    #[test]
+    fn test_queue_dirty_readiness() {
+        use crate::test_utils::single_region_mem_dirty_tracking;
 
         // Queue 1 is never enabled by the driver, so only queue 0 has a used ring to report.
         let mut block = default_mq_block(FileEngineType::Sync, 2);
@@ -2465,31 +2498,32 @@ mod tests {
         assert!(block.queue_config(0).unwrap().ready);
         assert!(!block.queue_config(1).unwrap().ready);
         block.activate(mem.clone(), default_interrupt()).unwrap();
-        let used_ring = u64_to_usize(vq.used_start().raw_value());
-        let used_ring_dirty = || {
-            mem.find_region(GuestAddress(0))
-                .unwrap()
-                .bitmap()
-                .dirty_at(used_ring)
-        };
 
-        // A running worker answers a commit request too.
-        block.commit_dirty();
-
-        block.prepare_save();
-        read_blk_req_descriptors(&vq);
-        vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
-        mem.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(vq.dtable[0].addr.get()))
-            .unwrap();
-        mem.reset_dirty();
-        block.kick();
-        block.prepare_save();
-        assert_eq!(vq.used.idx.get(), 1);
+        complete_request_after_commit(&mut block, &mem, &vq);
 
         // The worker records its used ring writes; a commit reports them.
-        assert!(!used_ring_dirty());
         block.commit_dirty();
-        assert!(used_ring_dirty());
+        assert!(used_ring_dirty(&mem, &vq));
+    }
+
+    #[test]
+    fn test_threaded_drop_commits_dirty() {
+        use crate::test_utils::single_region_mem_dirty_tracking;
+
+        let mut block = default_threaded_block(FileEngineType::Sync);
+        let mem = single_region_mem_dirty_tracking(0x10000);
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        block.activate(mem.clone(), default_interrupt()).unwrap();
+
+        // As on teardown, the VMM commits while the worker runs, the worker then completes a
+        // request, and it is still running when the device is dropped.
+        complete_request_after_commit(&mut block, &mem, &vq);
+        block.kick();
+
+        // The worker commits the used ring write before it drops the queue.
+        drop(block);
+        assert!(used_ring_dirty(&mem, &vq));
     }
 
     #[test]

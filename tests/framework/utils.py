@@ -424,24 +424,27 @@ def start_fast_page_fault_helper(ssh_connection, timeout_s=10) -> str:
     """
     # The helper truncates its output file when it finishes; remove any
     # leftover from a previous run (e.g. inside a restored snapshot).
-    ssh_connection.check_output(
+    _, pid, _ = ssh_connection.check_output(
         f"rm -f {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH}; "
-        f"nohup {FAST_PAGE_FAULT_HELPER_BIN} >/dev/null 2>&1 </dev/null &"
+        f"nohup {FAST_PAGE_FAULT_HELPER_BIN} >/dev/null 2>&1 </dev/null & echo $!"
     )
-    _, pid, _ = ssh_connection.check_output("pidof fast_page_fault_helper")
     pid = pid.strip()
     wait_for_fast_page_fault_helper_ready(ssh_connection, pid, timeout_s)
     return pid
 
 
-def wait_for_fast_page_fault_helper_output(ssh_connection) -> str:
+def wait_for_fast_page_fault_helper_output(ssh_connection, pid=None) -> str:
     """Wait for fast_page_fault_helper to finish and return the duration it
     reported, in nanoseconds. The helper writes the whole output in the single
-    flush at fclose, so a non-empty file is also a complete one.
+    flush at fclose, so a non-empty file is also a complete one. With `pid`,
+    wait for the helper to exit instead of polling for the file once a second.
     """
+    if pid:
+        wait = f"tail --pid={pid} -s 0.05 -f /dev/null"
+    else:
+        wait = f"while [ ! -s {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH} ]; do sleep 1; done"
     _, duration, _ = ssh_connection.check_output(
-        f"while [ ! -s {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH} ]; do sleep 1; done; "
-        f"cat {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH}"
+        f"{wait}; cat {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH}"
     )
     return duration
 
@@ -700,7 +703,7 @@ def get_firecracker_version_from_toml():
     """
     cmd = "cd ../src/firecracker && cargo pkgid | cut -d# -f2 | cut -d: -f2"
     _, stdout, _ = check_output(cmd)
-    return semver.Version.parse(stdout)
+    return semver.Version.parse(stdout.strip())
 
 
 def get_kernel_version(level=2):

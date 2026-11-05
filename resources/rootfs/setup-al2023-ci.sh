@@ -97,6 +97,10 @@ ln -s /dev/null /etc/systemd/network/99-default.link
 # this does not save much, but oh well
 rm -rf /usr/share/{doc,man,info,locale}
 
+# botocore ships a model for every AWS service (~100 MiB). The only guest
+# user is test_mmds's credential-provider test, which needs none of them.
+find /usr/lib/python3*/*-packages/botocore/data -mindepth 1 -maxdepth 1 -type d -exec rm -r {} +
+
 cat >>/etc/sysctl.conf <<EOF
 # This avoids a SPECTRE vuln
 kernel.unprivileged_bpf_disabled=1

@@ -158,8 +158,8 @@ impl SubmissionQueue {
     ) -> Result<(MmapRegion, MmapRegion), SQueueError> {
         // map the SQ_ring. The actual size of the ring is `num_entries * size_of(entry_type)`.
         // To this we add an offset as per the io_uring specifications.
-        let sqe_ring_size =
-            (params.sq_off.array as usize) + (params.sq_entries as usize) * mem::size_of::<u32>();
+        let sqe_ring_size = (params.sq_off.array as usize)
+            .strict_add((params.sq_entries as usize).strict_mul(mem::size_of::<u32>()));
 
         let sqe_ring = mmap(
             sqe_ring_size,
@@ -169,7 +169,7 @@ impl SubmissionQueue {
 
         // map the SQEs.
         let sqes_array_size =
-            (params.sq_entries as usize) * mem::size_of::<generated::io_uring_sqe>();
+            (params.sq_entries as usize).strict_mul(mem::size_of::<generated::io_uring_sqe>());
 
         let sqes = mmap(
             sqes_array_size,

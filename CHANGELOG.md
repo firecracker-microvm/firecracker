@@ -47,6 +47,11 @@ and this project adheres to
 - [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228): Device
   hotplug now requires `pcie_hotplug_ports` to be set in the machine
   configuration, and only devices behind a PCIe root port can be hot-unplugged.
+- [#6357](https://github.com/firecracker-microvm/firecracker/pull/6357):
+  `PUT`/`PATCH /machine-config` now rejects a `mem_size_mib` larger than the
+  architecture can address (1022 GiB on aarch64, `usize::MAX` minus the MMIO
+  gaps on x86_64) instead of silently clamping it and failing later with an
+  out-of-memory error at boot.
 - [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
   PL061 GPIO controller backing the new aarch64 power button is always attached
   and uses one extra GSI, which reduces the GSIs left for VirtIO devices. With
@@ -77,6 +82,9 @@ and this project adheres to
   largest frame needs, instead of every buffer the guest has made available.
   This lowers the cost of receiving each frame and improves receive throughput
   for small packets.
+- [#6354](https://github.com/firecracker-microvm/firecracker/pull/6354): Unified
+  the saved virtio device state across the MMIO and PCI transports and dropped
+  the redundant PCI SBDF from the saved state.
 
 ### Deprecated
 
@@ -116,6 +124,13 @@ and this project adheres to
   one when the guest connected to a port in the `[2^30, 2^31)` range, which is
   used for host-side ports of host-initiated connections. Guest connection
   requests to ports in this range are now refused.
+
+- [#6331](https://github.com/firecracker-microvm/firecracker/pull/6331): Fixed
+  MMDS TCP retransmissions. Since responses larger than one segment were
+  supported, every retransmission of response data failed, counting
+  `mmds.tx_errors`; the guest's connection then stalled until it acknowledged
+  everything, or was reset if a segment had been lost. Responses are now resent
+  from the oldest unacknowledged byte.
 
 - [#6208](https://github.com/firecracker-microvm/firecracker/pull/6208): Fixed
   the vsock device stalling the VMM thread when the guest connects to a
