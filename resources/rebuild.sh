@@ -96,7 +96,10 @@ EOF
 }
 
 function clone_amazon_linux_repo {
-    [ -d linux ] || git clone --no-checkout --filter=tree:0 https://github.com/amazonlinux/linux
+    [ -d linux ] && return
+    # Worktrees of a previous clone are unusable, drop them with it.
+    rm -rf linux-*
+    git clone --no-checkout --filter=tree:0 https://github.com/amazonlinux/linux
 }
 
 # prints the git tag corresponding to the newest and best matching the provided kernel version $1
@@ -129,7 +132,11 @@ function build_al_kernel {
     # Extract the kernel version from the config file provided as parameter.
     local KERNEL_VERSION=$(echo $KERNEL_CFG | grep -Po "microvm-kernel-ci-$ARCH-\K(\d+\.\d+)")
 
-    pushd linux
+    # Each kernel version builds in its own worktree, so that versions can
+    # build concurrently.
+    local WORKTREE=linux-$KERNEL_VERSION
+    [ -d $WORKTREE ] || git -C linux worktree add -f --detach --no-checkout ../$WORKTREE
+    pushd $WORKTREE
     # fails immediately after clone because nothing is checked out
     make distclean || true
 
@@ -210,18 +217,44 @@ function prepare_and_build_rootfs {
     done
 }
 
+# Split the debug info out of kernel image $1, built in kernel tree $2.
 function vmlinux_split_debuginfo {
     VMLINUX="$1"
     DEBUGINFO="$VMLINUX.debug"
     VMLINUX_ORIG="$VMLINUX"
     if [ $ARCH = "aarch64" ]; then
         # in aarch64, the debug info is in vmlinux
-        VMLINUX_ORIG=linux/vmlinux
+        VMLINUX_ORIG=$2/vmlinux
     fi
     objcopy --only-keep-debug $VMLINUX_ORIG $DEBUGINFO
     objcopy --preserve-dates --strip-debug --add-gnu-debuglink=$DEBUGINFO $VMLINUX
     # gdb does not support compressed files, but compress them because they are huge
     gzip -v $DEBUGINFO
+}
+
+# Build the CI and debug flavours of kernel version $1 (5.10, 6.1 or 6.18).
+# $2 selects which flavours, see `kernels [version]` in the help.
+function build_al_kernel_flavours {
+    local VERSION=$1
+    local SELECTED=$2
+    local KERNEL_CFG=$PWD/guest_configs/microvm-kernel-ci-$ARCH-$VERSION.config
+    local CI_CONFIG=$PWD/guest_configs/ci.config
+    local NVME_CONFIG=$PWD/guest_configs/nvme.config
+    local EFI_CONFIG=$PWD/guest_configs/efi.config
+    local FTRACE_CONFIG=$PWD/guest_configs/ftrace.config
+    local DEBUG_CONFIG=$PWD/guest_configs/debug.config
+
+    if [[ "$SELECTED" == @(all|$VERSION) ]]; then
+        build_al_kernel $KERNEL_CFG $CI_CONFIG $NVME_CONFIG $EFI_CONFIG
+    fi
+    if [[ $ARCH == "x86_64" && $VERSION == "5.10" && "$SELECTED" == @(all|5.10-no-acpi) ]]; then
+        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config $CI_CONFIG $NVME_CONFIG
+    fi
+    if [[ "$SELECTED" == @(all|$VERSION) ]]; then
+        OUTPUT_DIR=$OUTPUT_DIR/debug build_al_kernel $KERNEL_CFG $CI_CONFIG $NVME_CONFIG $EFI_CONFIG $FTRACE_CONFIG $DEBUG_CONFIG
+        # build_al_kernel leaves the path of the kernel it built in OUTPUT_FILE.
+        vmlinux_split_debuginfo $OUTPUT_FILE linux-$VERSION
+    fi
 }
 
 function build_al_kernels {
@@ -237,41 +270,24 @@ function build_al_kernels {
     fi
 
     clone_amazon_linux_repo
+    mkdir -pv $OUTPUT_DIR/debug
 
-    CI_CONFIG="$PWD/guest_configs/ci.config"
-    NVME_CONFIG="$PWD/guest_configs/nvme.config"
-    EFI_CONFIG="$PWD/guest_configs/efi.config"
-
-    if [[ "$KERNEL_VERSION" == @(all|5.10) ]]; then
-        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config "$CI_CONFIG" "$NVME_CONFIG" "$EFI_CONFIG"
-    fi
-    if [[ $ARCH == "x86_64" && "$KERNEL_VERSION" == @(all|5.10-no-acpi) ]]; then
-        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config "$CI_CONFIG" "$NVME_CONFIG"
-    fi
-    if [[ "$KERNEL_VERSION" == @(all|6.1) ]]; then
-        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config "$CI_CONFIG" "$NVME_CONFIG" "$EFI_CONFIG"
-    fi
-    if [[ "$KERNEL_VERSION" == @(all|6.18) ]]; then
-        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.18.config "$CI_CONFIG" "$NVME_CONFIG" "$EFI_CONFIG"
-    fi
-
-    # Build debug kernels
-    FTRACE_CONFIG="$PWD/guest_configs/ftrace.config"
-    DEBUG_CONFIG="$PWD/guest_configs/debug.config"
-    OUTPUT_DIR=$OUTPUT_DIR/debug
-    mkdir -pv $OUTPUT_DIR
-    if [[ "$KERNEL_VERSION" == @(all|5.10) ]]; then
-        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config" "$CI_CONFIG" "$NVME_CONFIG" "$EFI_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
-        vmlinux_split_debuginfo $OUTPUT_DIR/vmlinux-5.10.*
-    fi
-    if [[ "$KERNEL_VERSION" == @(all|6.1) ]]; then
-        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config" "$CI_CONFIG" "$NVME_CONFIG" "$EFI_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
-        vmlinux_split_debuginfo $OUTPUT_DIR/vmlinux-6.1.*
-    fi
-    if [[ "$KERNEL_VERSION" == @(all|6.18) ]]; then
-        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-6.18.config" "$CI_CONFIG" "$NVME_CONFIG" "$EFI_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
-        vmlinux_split_debuginfo $OUTPUT_DIR/vmlinux-6.18.*
-    fi
+    # Build the kernel versions concurrently, each in its own worktree. Their
+    # output is prefixed with the version to tell them apart.
+    # Background jobs ignore SIGINT, so take them down with the script.
+    trap 'trap - INT TERM; kill 0' INT TERM
+    local VERSION
+    local pids=()
+    for VERSION in 5.10 6.1 6.18; do
+        (build_al_kernel_flavours $VERSION $KERNEL_VERSION 2>&1 | sed -u "s/^/[$VERSION] /") &
+        pids+=($!)
+    done
+    local pid
+    local rc=0
+    for pid in ${pids[@]}; do
+        wait $pid || rc=$?
+    done
+    [ $rc = 0 ] || die "Building the kernels failed"
 }
 
 function print_help {

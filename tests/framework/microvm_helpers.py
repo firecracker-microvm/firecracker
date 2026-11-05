@@ -250,13 +250,17 @@ class MicrovmHelpers:
     def tmux_gdb(self):
         """Run GDB on a new tmux window"""
         chroot_gdb_socket = Path(self.vm.jailer.chroot_path(), self.vm.gdb_socket)
+        # rebuild.sh builds each kernel version in resources/linux-<major.minor>
+        kernel_tree = "resources/linux-" + ".".join(
+            self.vm.guest_kernel.version.split(".")[:2]
+        )
 
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".gdb", delete=False, prefix="fc_gdb_"
         ) as f:
             f.write(f"""
                 target remote {chroot_gdb_socket}
-                directory resources/linux
+                directory {kernel_tree}
                 hbreak start_kernel
                 continue
             """)
