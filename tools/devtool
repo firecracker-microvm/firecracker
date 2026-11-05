@@ -143,6 +143,10 @@ DEFAULT_ARTIFACTS_S3_BUCKET=s3://spec.ccfc.min/firecracker-ci
 # connection errors such as ConnectionResetError during large downloads).
 AWS_S3_MAX_ATTEMPTS=5
 
+# Track only the container and Docker client owned by this invocation.
+DEVCTR_NAME=""
+DEVCTR_PID=""
+
 # Lockfile used while modifying KVM modules
 KVM_MODULE_LOCKFILE="/tmp/.kvm_module_lock"
 
@@ -347,6 +351,27 @@ validate_kernel_version() {
 }
 
 
+# Stop this invocation's container, including daemon-managed descendants.
+cleanup_devctr() {
+    local container_name="${DEVCTR_NAME:-}"
+    local client_pid="${DEVCTR_PID:-}"
+
+    [ -n "$container_name" ] || return 0
+
+    trap '' INT TERM
+
+    say_warn "Stopping interrupted development container '$container_name'"
+
+    [ -n "$client_pid" ] && kill -TERM "$client_pid" 2>/dev/null || true
+
+    docker rm --force "$container_name" >/dev/null 2>&1 || \
+        say_warn "Could not remove development container '$container_name'"
+
+    [ -n "$client_pid" ] && wait "$client_pid" 2>/dev/null || true
+
+    return 0
+}
+
 # Helper function to run the dev container. Pulls the image first if it is
 # not available locally.
 # Usage: run_devctr <docker args> -- <container args>
@@ -398,7 +423,13 @@ run_devctr() {
     # Finally, run the dev container
     # Use 'z' on the --volume parameter for docker to automatically relabel the
     # content and allow sharing between containers.
+    #
+    # Make the container name very unique as we force delete it
+    # on interrupt.
+    DEVCTR_NAME="firecracker-devtool-${BASHPID}-${RANDOM}-${RANDOM}"
+
     docker run "${docker_args[@]}" \
+        --name "$DEVCTR_NAME" \
         --rm \
         --volume /dev:/dev \
         --volume "$FC_ROOT_DIR:$CTR_FC_ROOT_DIR:z" \
@@ -407,7 +438,20 @@ run_devctr() {
         --tmpfs /srv:exec,dev,size=32G \
         -v /boot:/boot \
         --env PYTHONDONTWRITEBYTECODE=1 \
-        "$DEVCTR_IMAGE" "${ctr_args[@]}"
+        "$DEVCTR_IMAGE" "${ctr_args[@]}" <&0 &
+
+    DEVCTR_PID=$!
+
+    # Waiting for an asynchronous client lets Bash handle signals immediately.
+    # Removing its container also kills Cargo/rustc children managed by Docker.
+    local docker_status=0
+
+    wait "$DEVCTR_PID" || docker_status=$?
+
+    DEVCTR_PID=""
+    DEVCTR_NAME=""
+
+    return "$docker_status"
 }
 
 # Helper function to test that the argument provided is a valid path to a SSH key.
@@ -1584,5 +1628,13 @@ main() {
     #
     $cmd "$@"
 }
+
+trap cleanup_devctr EXIT
+
+# Use Bash's conventional status of 128 + signal number and run EXIT cleanup.
+# SIGINT (Ctrl-C) is signal 2, so its exit status is 130.
+trap 'exit 130' INT
+# SIGTERM is signal 15, so its exit status is 143.
+trap 'exit 143' TERM
 
 main "$@"
