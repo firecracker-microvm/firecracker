@@ -12,6 +12,9 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 
+use crate::vmm_config::machine_config::HugePageConfig;
+use crate::vstate::memory::GuestRegionMmap;
+
 /// This describes the mapping between Firecracker base virtual address and
 /// offset in the buffer or file backend for a guest memory region. It is used
 /// to tell an external process/thread where to populate the guest memory data
@@ -21,7 +24,7 @@ use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 /// backend at `offset` bytes from the beginning, and should be copied/populated
 /// into `base_host_address`.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct GuestRegionUffdMapping {
+pub struct GuestRegionMapping {
     /// Base host virtual address where the guest memory contents for this
     /// region should be copied/populated.
     pub base_host_virt_addr: u64,
@@ -38,96 +41,188 @@ pub struct GuestRegionUffdMapping {
     pub page_size_kib: usize,
 }
 
-/// Error type for [`send_uffd_handshake`]
+/// Error type for [`Handshake::send`]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum HandshakeError {
     /// Failed to connect to UDS Unix stream: {0}
     Connect(#[from] std::io::Error),
-    /// Failed to sends file descriptor: {0}
+    /// Failed to send file descriptors: {0}
     Send(#[from] vmm_sys_util::errno::Error),
 }
 
-pub(crate) fn send_uffd_handshake(
-    mem_uds_path: &Path,
-    backend_mappings: &[GuestRegionUffdMapping],
-    uffd: &impl AsRawFd,
-) -> Result<(), HandshakeError> {
-    // This is safe to unwrap() because we control the contents of the vector
-    // (i.e GuestRegionUffdMapping entries).
-    let backend_mappings = serde_json::to_string(backend_mappings).unwrap();
+/// The message Firecracker sends to a memory backend once guest memory is set up: the layout of
+/// guest memory, with the file descriptor the backend needs attached as `SCM_RIGHTS` data.
+#[derive(Debug)]
+pub struct Handshake {
+    /// One entry per guest memory region, in the order the regions were allocated. A region's
+    /// `offset` is its offset in a guest memory file.
+    pub regions: Vec<GuestRegionMapping>,
+}
 
-    let socket = UnixStream::connect(mem_uds_path)?;
-    socket.send_with_fd(
-        backend_mappings.as_bytes(),
-        // In the happy case we can close the fd since the other process has it open and is
-        // using it to serve us pages.
-        //
-        // The problem is that if other process crashes/exits, firecracker guest memory
-        // will simply revert to anon-mem behavior which would lead to silent errors and
-        // undefined behavior.
-        //
-        // To tackle this scenario, the page fault handler can notify Firecracker of any
-        // crashes/exits. There is no need for Firecracker to explicitly send its process ID.
-        // The external process can obtain Firecracker's PID by calling `getsockopt` with
-        // `libc::SO_PEERCRED` option like so:
-        //
-        // let mut val = libc::ucred { pid: 0, gid: 0, uid: 0 };
-        // let mut ucred_size: u32 = mem::size_of::<libc::ucred>() as u32;
-        // libc::getsockopt(
-        //      socket.as_raw_fd(),
-        //      libc::SOL_SOCKET,
-        //      libc::SO_PEERCRED,
-        //      &mut val as *mut _ as *mut _,
-        //      &mut ucred_size as *mut libc::socklen_t,
-        // );
-        //
-        // Per this linux man page: https://man7.org/linux/man-pages/man7/unix.7.html,
-        // `SO_PEERCRED` returns the credentials (PID, UID and GID) of the peer process
-        // connected to this socket. The returned credentials are those that were in effect
-        // at the time of the `connect` call.
-        //
-        // Moreover, Firecracker holds a copy of the UFFD fd as well, so that even if the
-        // page fault handler process does not tear down Firecracker when necessary, the
-        // uffd will still be alive but with no one to serve faults, leading to guest freeze.
-        uffd.as_raw_fd(),
-    )?;
+impl Handshake {
+    /// Describes `regions`, all backed by pages of the size `huge_pages` selects.
+    pub fn new<'a>(
+        regions: impl Iterator<Item = &'a GuestRegionMmap>,
+        huge_pages: HugePageConfig,
+    ) -> Self {
+        let mut mappings = Vec::new();
+        let mut offset = 0;
+        for mem_region in regions {
+            #[allow(deprecated)]
+            mappings.push(GuestRegionMapping {
+                base_host_virt_addr: mem_region.as_ptr() as u64,
+                size: mem_region.size(),
+                offset,
+                page_size: huge_pages.page_size(),
+                page_size_kib: huge_pages.page_size(),
+            });
+            offset += mem_region.size() as u64;
+        }
+        Self { regions: mappings }
+    }
 
-    // We prevent Rust from closing the socket file descriptor to avoid a potential race condition
-    // between the mappings message and the connection shutdown. If the latter arrives at the UFFD
-    // handler first, the handler never sees the mappings.
-    forget(socket);
+    /// Connects to `uds_path` and sends the message with `fd` attached, then keeps the connection
+    /// open for the life of the process.
+    pub fn send(&self, uds_path: &Path, fd: &impl AsRawFd) -> Result<(), HandshakeError> {
+        // This is safe to unwrap() because we control the contents of the vector
+        // (i.e GuestRegionMapping entries).
+        let backend_mappings = serde_json::to_string(&self.regions).unwrap();
 
-    Ok(())
+        let socket = UnixStream::connect(uds_path)?;
+        socket.send_with_fd(
+            backend_mappings.as_bytes(),
+            // In the happy case we can close the fd since the other process has it open and is
+            // using it to serve us pages.
+            //
+            // The problem is that if other process crashes/exits, firecracker guest memory
+            // will simply revert to anon-mem behavior which would lead to silent errors and
+            // undefined behavior.
+            //
+            // To tackle this scenario, the page fault handler can notify Firecracker of any
+            // crashes/exits. There is no need for Firecracker to explicitly send its process ID.
+            // The external process can obtain Firecracker's PID by calling `getsockopt` with
+            // `libc::SO_PEERCRED` option like so:
+            //
+            // let mut val = libc::ucred { pid: 0, gid: 0, uid: 0 };
+            // let mut ucred_size: u32 = mem::size_of::<libc::ucred>() as u32;
+            // libc::getsockopt(
+            //      socket.as_raw_fd(),
+            //      libc::SOL_SOCKET,
+            //      libc::SO_PEERCRED,
+            //      &mut val as *mut _ as *mut _,
+            //      &mut ucred_size as *mut libc::socklen_t,
+            // );
+            //
+            // Per this linux man page: https://man7.org/linux/man-pages/man7/unix.7.html,
+            // `SO_PEERCRED` returns the credentials (PID, UID and GID) of the peer process
+            // connected to this socket. The returned credentials are those that were in effect
+            // at the time of the `connect` call.
+            //
+            // Moreover, Firecracker holds a copy of the UFFD fd as well, so that even if the
+            // page fault handler process does not tear down Firecracker when necessary, the
+            // uffd will still be alive but with no one to serve faults, leading to guest freeze.
+            fd.as_raw_fd(),
+        )?;
+
+        // We prevent Rust from closing the socket file descriptor to avoid a potential race
+        // condition between the mappings message and the connection shutdown. If the latter
+        // arrives at the backend first, the backend never sees the mappings.
+        forget(socket);
+
+        Ok(())
+    }
+}
+
+/// Receives one handshake on `listener`: the message and the fds that came with it.
+#[cfg(test)]
+pub(crate) fn receive_handshake(
+    listener: &std::os::unix::net::UnixListener,
+) -> (Vec<GuestRegionMapping>, Vec<std::fs::File>) {
+    use std::os::unix::io::FromRawFd;
+
+    let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
+
+    let mut message_buf = vec![0u8; 1024];
+    let mut fds = [-1; 3];
+    let mut iovecs = [libc::iovec {
+        iov_base: message_buf.as_mut_ptr().cast(),
+        iov_len: message_buf.len(),
+    }];
+    // SAFETY: `iovecs` points into `message_buf`, which outlives the call.
+    let (bytes_read, fd_count) = unsafe {
+        stream
+            .recv_with_fds(&mut iovecs, &mut fds)
+            .expect("Cannot recv_with_fds")
+    };
+    message_buf.resize(bytes_read, 0);
+    let files = fds[..fd_count]
+        .iter()
+        // SAFETY: the kernel just gave us these fds; nobody else owns them.
+        .map(|&fd| unsafe { std::fs::File::from_raw_fd(fd) })
+        .collect();
+    (serde_json::from_slice(&message_buf).unwrap(), files)
 }
 
 #[cfg(test)]
 mod tests {
     use std::os::unix::net::UnixListener;
 
+    use vm_memory::GuestAddress;
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
-    use crate::vmm_config::machine_config::HugePageConfig;
+    use crate::vstate::memory;
 
     #[test]
-    fn test_send_uffd_handshake() {
-        #[allow(deprecated)]
-        let uffd_regions = vec![
-            GuestRegionUffdMapping {
-                base_host_virt_addr: 0,
-                size: 0x100000,
-                offset: 0,
-                page_size: HugePageConfig::None.page_size(),
-                page_size_kib: HugePageConfig::None.page_size(),
-            },
-            GuestRegionUffdMapping {
-                base_host_virt_addr: 0x100000,
-                size: 0x200000,
-                offset: 0,
-                page_size: HugePageConfig::Hugetlbfs2M.page_size(),
-                page_size_kib: HugePageConfig::Hugetlbfs2M.page_size(),
-            },
+    fn test_handshake_new() {
+        let regions = [
+            (GuestAddress(0), 0x20000),
+            (GuestAddress(0x100000), 0x10000),
         ];
+        let guest_memory = memory::anonymous(&regions, false, HugePageConfig::None).unwrap();
+
+        let handshake = Handshake::new(guest_memory.iter(), HugePageConfig::None);
+        let regions = &handshake.regions;
+
+        assert_eq!(regions.len(), 2);
+        assert_eq!(
+            regions[0].base_host_virt_addr,
+            guest_memory[0].as_ptr() as u64
+        );
+        assert_eq!(regions[0].size, 0x20000);
+        assert_eq!(regions[0].offset, 0);
+        assert_eq!(regions[0].page_size, HugePageConfig::None.page_size());
+        // Regions are contiguous in the memory file, whatever the gap between them in guest
+        // physical memory.
+        assert_eq!(
+            regions[1].base_host_virt_addr,
+            guest_memory[1].as_ptr() as u64
+        );
+        assert_eq!(regions[1].size, 0x10000);
+        assert_eq!(regions[1].offset, 0x20000);
+    }
+
+    #[test]
+    fn test_handshake_send() {
+        #[allow(deprecated)]
+        let handshake = Handshake {
+            regions: vec![
+                GuestRegionMapping {
+                    base_host_virt_addr: 0,
+                    size: 0x100000,
+                    offset: 0,
+                    page_size: HugePageConfig::None.page_size(),
+                    page_size_kib: HugePageConfig::None.page_size(),
+                },
+                GuestRegionMapping {
+                    base_host_virt_addr: 0x100000,
+                    size: 0x200000,
+                    offset: 0,
+                    page_size: HugePageConfig::Hugetlbfs2M.page_size(),
+                    page_size_kib: HugePageConfig::Hugetlbfs2M.page_size(),
+                },
+            ],
+        };
 
         let uds_path = TempFile::new().unwrap();
         let uds_path = uds_path.as_path();
@@ -135,19 +230,10 @@ mod tests {
 
         let listener = UnixListener::bind(uds_path).expect("Cannot bind to socket path");
 
-        send_uffd_handshake(uds_path, &uffd_regions, &std::io::stdin()).unwrap();
+        handshake.send(uds_path, &std::io::stdin()).unwrap();
 
-        let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
-
-        let mut message_buf = vec![0u8; 1024];
-        let (bytes_read, _) = stream
-            .recv_with_fd(&mut message_buf[..])
-            .expect("Cannot recv_with_fd");
-        message_buf.resize(bytes_read, 0);
-
-        let deserialized: Vec<GuestRegionUffdMapping> =
-            serde_json::from_slice(&message_buf).unwrap();
-
-        assert_eq!(uffd_regions, deserialized);
+        let (deserialized, files) = receive_handshake(&listener);
+        assert_eq!(handshake.regions, deserialized);
+        assert_eq!(files.len(), 1);
     }
 }
