@@ -41,6 +41,13 @@ and this project adheres to
   exceed the vCPU count. Custom seccomp filters must include the new
   `blk_worker` thread category. See
   [block documentation](docs/block.md#threaded-mode-and-multiqueue).
+- [#5687](https://github.com/firecracker-microvm/firecracker/issues/5687): Added
+  developer preview support for a generic vhost-user frontend device. This
+  allows attaching any virtio device type (e.g. virtio-fs, virtio-scsi) via the
+  vhost-user protocol without requiring a dedicated Firecracker frontend for
+  each device type, configured via the `PUT /vhost-user-devices/{id}` API
+  endpoint. Config space is owned by the backend via the mandatory CONFIG
+  protocol feature. Snapshotting is not supported.
 
 ### Changed
 

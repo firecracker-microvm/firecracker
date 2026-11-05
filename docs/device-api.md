@@ -33,6 +33,7 @@ BadRequest - HTTP response.
 | `entropy`                 |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |      O      |     O      |
 | `pmem/{id}`               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
 | `serial`                  |    O     |     **R**      |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+| `vhost-user-devices/{id}` |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 
 ## Input Schema
 
