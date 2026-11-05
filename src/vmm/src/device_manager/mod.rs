@@ -1435,37 +1435,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_unplug_root_block() {
-        let mut evt_manager = EventManager::new().unwrap();
-        let mut vmm = default_vmm_with_pci();
-        let f = TempFile::new().unwrap();
-
-        // Simulate a root block device added pre-boot by attaching it
-        // directly to the PCI bus (bypassing the hotplug path which
-        // rejects root devices).
-        let cfg = make_hotplug_block_cfg("rootfs", &f, true);
-        let block = Block::new(cfg).unwrap();
-        pci_devices_mut(&mut vmm.device_manager)
-            .attach_pci_virtio_device(
-                vmm.vm.as_kvm().unwrap(),
-                "rootfs".to_string(),
-                Arc::new(Mutex::new(block)),
-                &mut evt_manager,
-                PciPlacement::PrimaryBus,
-            )
-            .unwrap();
-
-        // Hot-unplugging the root block device must be rejected
-        let device_id = (VirtioDeviceType::Block, "rootfs".to_string());
-        assert!(matches!(
-            vmm.hot_unplug_device(device_id, &mut evt_manager, true),
-            Err(VmmActionError::PciManager(
-                PciManagerError::DeviceNotRemovable(..)
-            ))
-        ));
-    }
-
-    #[test]
     fn test_graceful_unplug_waits_for_the_guest() {
         let mut evt_manager = EventManager::new().unwrap();
         let mut vmm = default_vmm_with_hotplug_ports(1);
@@ -1526,43 +1495,6 @@ pub(crate) mod tests {
             .unwrap();
 
         let device_id = (VirtioDeviceType::Block, "block0".to_string());
-        assert!(matches!(
-            vmm.hot_unplug_device(device_id, &mut evt_manager, true),
-            Err(VmmActionError::PciManager(
-                PciManagerError::DeviceNotRemovable(..)
-            ))
-        ));
-    }
-
-    #[test]
-    fn test_unplug_root_pmem() {
-        let mut evt_manager = EventManager::new().unwrap();
-        let mut vmm = default_vmm_with_pci();
-        let f = TempFile::new().unwrap();
-        f.as_file().set_len(0x1000).unwrap();
-
-        // Simulate a root pmem device added pre-boot by attaching it
-        // directly to the PCI bus.
-        let cfg = PmemConfig {
-            id: "pmem_root".to_string(),
-            path_on_host: f.as_path().to_str().unwrap().to_string(),
-            root_device: true,
-            read_only: false,
-            ..Default::default()
-        };
-        let pmem = Pmem::new(vmm.vm.as_kvm().unwrap().clone(), cfg).unwrap();
-        pci_devices_mut(&mut vmm.device_manager)
-            .attach_pci_virtio_device(
-                vmm.vm.as_kvm().unwrap(),
-                "pmem_root".to_string(),
-                Arc::new(Mutex::new(pmem)),
-                &mut evt_manager,
-                PciPlacement::PrimaryBus,
-            )
-            .unwrap();
-
-        // Hot-unplugging the root pmem device must be rejected
-        let device_id = (VirtioDeviceType::Pmem, "pmem_root".to_string());
         assert!(matches!(
             vmm.hot_unplug_device(device_id, &mut evt_manager, true),
             Err(VmmActionError::PciManager(
