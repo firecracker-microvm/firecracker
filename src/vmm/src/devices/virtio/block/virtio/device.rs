@@ -22,7 +22,7 @@ use vm_memory::ByteValued;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::io::FileEngine;
-use super::worker::{BlockWorker, FlushMode, WorkerHandle};
+use super::worker::{BlockWorker, WorkerHandle};
 use super::{
     BLOCK_QUEUE_SIZE, DEFAULT_BLOCK_NUM_QUEUES, MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE,
     VirtioBlockError,
@@ -417,6 +417,10 @@ pub(crate) struct ThreadedActive {
     pub(crate) worker_handles: Vec<WorkerHandle>,
     interrupt: Arc<dyn VirtioInterrupt>,
     queue_configs: Vec<QueueConfig>,
+    /// The workers, while they are taken back from their threads for a snapshot (see
+    /// `VirtioBlock::prepare_save`); the next kick starts them again. Empty while the threads run
+    /// them.
+    pub(crate) paused: Vec<BlockWorker>,
 }
 
 /// Runtime resources used by the block data path.
@@ -442,6 +446,36 @@ impl BlockResources {
             .drain(true)
             .expect("Failed to reset block IO engine");
         self.is_io_engine_throttled = false;
+    }
+}
+
+/// Completes the pending I/O of every queue of a drive and then, if `flush` is set, flushes its
+/// backing file.
+///
+/// Every queue writes through its own descriptor of the same file, and one fsync covers what all of
+/// them wrote, so only one queue flushes. Which one does not matter, as long as every other queue
+/// drained before it: the last one here.
+fn quiesce_disk<'a>(
+    queues: impl IntoIterator<Item = &'a mut BlockResources>,
+    flush: bool,
+    discard: bool,
+) {
+    let mut queues: Vec<_> = queues.into_iter().collect();
+    let Some((last, rest)) = queues.split_last_mut() else {
+        return;
+    };
+    for queue in rest {
+        if let Err(err) = queue.disk.file_engine.drain(discard) {
+            error!("Failed to drain block IO engine: {:?}", err);
+        }
+    }
+    let result = if flush {
+        last.disk.file_engine.drain_and_flush(discard)
+    } else {
+        last.disk.file_engine.drain(discard)
+    };
+    if let Err(err) = result {
+        error!("Failed to drain and flush block data: {:?}", err);
     }
 }
 
@@ -610,11 +644,13 @@ impl VirtioBlock {
             BlockRuntimeState::Inline(worker) => {
                 worker.process_queue().unwrap();
             }
-            BlockRuntimeState::Threaded(active) => {
+            // A worker taken back for a snapshot stays with the device until the next kick.
+            BlockRuntimeState::Threaded(active) if active.paused.is_empty() => {
                 for handle in &active.worker_handles {
-                    handle.kick(false);
+                    handle.kick();
                 }
             }
+            BlockRuntimeState::Threaded(_) => {}
             BlockRuntimeState::Configuring(_, _) => {}
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
         }
@@ -643,6 +679,18 @@ impl VirtioBlock {
             }
             BlockRuntimeState::Inline(worker) => {
                 worker.update_disk_image(disk_image_path, read_only)?
+            }
+            // The workers taken back for a snapshot are updated here, the running ones on their
+            // threads.
+            BlockRuntimeState::Threaded(active) if !active.paused.is_empty() => {
+                let (last, rest) = active
+                    .paused
+                    .split_last_mut()
+                    .expect("threaded block device must have at least one worker");
+                for worker in rest {
+                    worker.update_disk_image(disk_image_path.clone(), read_only)?;
+                }
+                last.update_disk_image(disk_image_path, read_only)?
             }
             BlockRuntimeState::Threaded(active) => {
                 let (last, rest) = active
@@ -685,16 +733,26 @@ impl VirtioBlock {
     /// Prepare device for being snapshotted.
     pub fn prepare_save(&mut self) {
         match &mut self.state {
-            BlockRuntimeState::Inline(worker) => worker.prepare_save(FlushMode::DrainAndFlush),
+            BlockRuntimeState::Inline(worker) => {
+                worker.prepare_save();
+                quiesce_disk([&mut worker.resources], true, false);
+            }
+            // Take every worker back, so their queues cannot move under the snapshot, then flush
+            // once all of them drained. A second snapshot of the same pause finds them taken
+            // already.
             BlockRuntimeState::Threaded(active) => {
-                let (last, rest) = active
-                    .worker_handles
-                    .split_last()
-                    .expect("threaded block device must have at least one worker");
-                for handle in rest {
-                    handle.pause(FlushMode::Drain);
+                if active.paused.is_empty() {
+                    active.paused = active
+                        .worker_handles
+                        .iter()
+                        .map(WorkerHandle::hand_back)
+                        .collect();
                 }
-                last.pause(FlushMode::DrainAndFlush);
+                quiesce_disk(
+                    active.paused.iter_mut().map(|worker| &mut worker.resources),
+                    true,
+                    false,
+                );
             }
             BlockRuntimeState::Configuring(_, _) => {}
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
@@ -718,7 +776,7 @@ impl VirtioBlock {
                     Ok(queue_evt) => queue_evt,
                     Err(err) => {
                         for handle in spawned {
-                            handle.finish(FlushMode::Drain);
+                            handle.finish();
                         }
                         return Err(VirtioBlockError::EventFd(err));
                     }
@@ -729,7 +787,7 @@ impl VirtioBlock {
                     Ok(worker) => worker,
                     Err(err) => {
                         for handle in spawned {
-                            handle.finish(FlushMode::Drain);
+                            handle.finish();
                         }
                         return Err(VirtioBlockError::ThreadSpawn(err));
                     }
@@ -902,6 +960,7 @@ impl VirtioDevice for VirtioBlock {
                 worker_handles,
                 interrupt,
                 queue_configs,
+                paused: Vec::new(),
             });
         }
         Ok(())
@@ -927,11 +986,19 @@ impl VirtioDevice for VirtioBlock {
                     active.queue_configs.len(),
                     "active block queues must have one worker each"
                 );
-                let resources = active
-                    .worker_handles
-                    .iter()
-                    .map(WorkerHandle::reset)
-                    .collect();
+                let resources = if active.paused.is_empty() {
+                    active
+                        .worker_handles
+                        .iter()
+                        .map(WorkerHandle::reset)
+                        .collect()
+                } else {
+                    active
+                        .paused
+                        .into_iter()
+                        .map(|worker| worker.resources)
+                        .collect()
+                };
                 (resources, active.worker_handles)
             }
             BlockRuntimeState::Inline(worker) => (vec![worker.resources], Vec::new()),
@@ -964,10 +1031,15 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn kick(&mut self) {
-        match &self.state {
+        match &mut self.state {
             BlockRuntimeState::Threaded(active) => {
+                // Workers taken back for a snapshot go back to their threads first, as activation
+                // hands them over.
+                for (handle, worker) in active.worker_handles.iter().zip(active.paused.drain(..)) {
+                    handle.start(worker);
+                }
                 for handle in &active.worker_handles {
-                    handle.kick(true);
+                    handle.kick();
                 }
             }
             BlockRuntimeState::Inline(_) => self.notify_queue_events(),
@@ -984,9 +1056,14 @@ impl VirtioDevice for VirtioBlock {
                 }
             }
             BlockRuntimeState::Inline(worker) => worker.resources.queue.commit_dirty(),
+            // A running worker commits its own queue on its thread; the workers taken back for a
+            // snapshot are committed here.
             BlockRuntimeState::Threaded(active) => {
                 for handle in &active.worker_handles {
                     handle.commit_dirty();
+                }
+                for worker in &active.paused {
+                    worker.resources.queue.commit_dirty();
                 }
             }
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
@@ -996,45 +1073,28 @@ impl VirtioDevice for VirtioBlock {
 
 impl Drop for VirtioBlock {
     fn drop(&mut self) {
-        let flush_mode = match self.config.cache_type {
-            CacheType::Unsafe => FlushMode::Drain,
-            CacheType::Writeback => FlushMode::DrainAndFlush,
-        };
+        let flush = self.config.cache_type == CacheType::Writeback;
 
         match std::mem::replace(&mut self.state, BlockRuntimeState::Placeholder) {
-            BlockRuntimeState::Inline(mut worker) => match flush_mode {
-                FlushMode::Drain => worker.drain(true),
-                FlushMode::DrainAndFlush => worker.drain_and_flush(true),
-            },
+            BlockRuntimeState::Inline(mut worker) => {
+                quiesce_disk([&mut worker.resources], flush, true);
+            }
+            // A running worker drains on its thread and returns its queue as it exits; the workers
+            // taken back for a snapshot are here already. Flush once every queue is back.
             BlockRuntimeState::Threaded(mut active) => {
-                let last = active
+                let mut finished: Vec<_> = active
                     .worker_handles
-                    .pop()
-                    .expect("threaded block device must have at least one worker");
-                for handle in active.worker_handles {
-                    handle.finish(FlushMode::Drain);
-                }
-                last.finish(flush_mode);
+                    .into_iter()
+                    .filter_map(WorkerHandle::finish)
+                    .collect();
+                let paused = active.paused.iter_mut().map(|worker| &mut worker.resources);
+                quiesce_disk(paused.chain(&mut finished), flush, true);
             }
             BlockRuntimeState::Configuring(mut resources, worker_handles) => {
-                let (last, rest) = resources
-                    .split_last_mut()
-                    .expect("block device must have at least one queue");
-                for resource in rest {
-                    if let Err(err) = resource.disk.file_engine.drain(true) {
-                        error!("Failed to drain ops on drop: {:?}", err);
-                    }
-                }
-                let result = match flush_mode {
-                    FlushMode::Drain => last.disk.file_engine.drain(true),
-                    FlushMode::DrainAndFlush => last.disk.file_engine.drain_and_flush(true),
-                };
-                if let Err(err) = result {
-                    error!("Failed to drain ops and flush block data: {:?}", err);
-                }
+                quiesce_disk(&mut resources, flush, true);
                 for handle in worker_handles {
                     // a parked worker owns no runtime resources, it just joins the thread
-                    handle.finish(FlushMode::Drain);
+                    handle.finish();
                 }
             }
             BlockRuntimeState::Placeholder => {}

@@ -9,7 +9,6 @@ use std::num::NonZeroU16;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::device::{BlockResources, BlockRuntimeState, DiskProperties};
-use super::worker::WorkerHandle;
 use super::*;
 use crate::devices::virtio::block::persist::BlockConstructorArgs;
 use crate::devices::virtio::block::virtio::device::{
@@ -80,17 +79,17 @@ impl Persist<'_> for VirtioBlock {
 
     fn save(&self) -> Self::State {
         let virtio_state = if let BlockRuntimeState::Threaded(active) = &self.state {
-            VirtioDeviceState {
-                device_type: VirtioDeviceType::Block,
-                avail_features: self.avail_features,
-                acked_features: self.acked_features,
-                queues: active
-                    .worker_handles
-                    .iter()
-                    .map(WorkerHandle::get_queue_state)
-                    .collect(),
-                activated: true,
-            }
+            // `prepare_save` has taken the workers back, so their queues cannot move under the
+            // snapshot.
+            assert_eq!(
+                active.paused.len(),
+                active.worker_handles.len(),
+                "a threaded block device is saved only after prepare_save took every worker back"
+            );
+            VirtioDeviceState::from_device(
+                self,
+                active.paused.iter().map(|worker| &worker.resources.queue),
+            )
         } else {
             VirtioDeviceState::from_device(self, self.resources().iter().map(|r| &r.queue))
         };
