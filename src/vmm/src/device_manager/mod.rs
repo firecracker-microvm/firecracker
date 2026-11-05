@@ -552,7 +552,7 @@ impl DeviceManager {
         match &self.virtio_devices {
             VirtioDevices::Pci(pci_devices) => {
                 if pci_devices.contains_virtio_device(&device_id) {
-                    return Err(VmmActionError::DeviceIdInUse);
+                    return Err(PciManagerError::DeviceIdDuplicate(device_id.1).into());
                 }
             }
             VirtioDevices::Enclave(enclave_devices) => {
@@ -1244,7 +1244,9 @@ pub(crate) mod tests {
         let cfg2 = HotplugDeviceConfig::Block(make_hotplug_block_cfg("block0", &f, false));
         assert!(matches!(
             vmm.hotplug_device(cfg2, &mut evt_manager),
-            Err(VmmActionError::DeviceIdInUse)
+            Err(VmmActionError::PciManager(
+                PciManagerError::DeviceIdDuplicate(_)
+            ))
         ));
 
         // Root block device is rejected
