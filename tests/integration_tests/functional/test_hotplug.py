@@ -98,7 +98,7 @@ def test_hotplug_block(uvm_any):
     assert stdout.strip() == "hotplug_test"
 
     # Hotplugging a device with a duplicate ID must be rejected
-    with pytest.raises(RuntimeError, match="Device ID in use"):
+    with pytest.raises(RuntimeError, match="device with duplicate id"):
         vm.api.drive.put(
             drive_id="block0",
             path_on_host=vm.create_jailed_resource(host_file.path),
@@ -211,7 +211,7 @@ def test_hotplug_pmem(uvm_any):
         )
 
     # Hotplugging a device with a duplicate ID must be rejected
-    with pytest.raises(RuntimeError, match="Device ID in use"):
+    with pytest.raises(RuntimeError, match="device with duplicate id"):
         vm.api.pmem.put(
             id="pmem0",
             path_on_host=vm.create_jailed_resource(host_file.path),
@@ -304,7 +304,7 @@ def test_hotplug_net(uvm_any):
 
     # Hotplugging a device with a duplicate ID must be rejected
     iface2 = net_tools.NetIfaceConfig.with_id(2)
-    with pytest.raises(RuntimeError, match="Device ID in use"):
+    with pytest.raises(RuntimeError, match="device with duplicate id"):
         vm.api.network.put(
             iface_id=iface1.dev_name,
             host_dev_name=iface2.tap_name,

@@ -219,8 +219,6 @@ pub enum VmmActionError {
     StartMicrovm(#[from] StartMicrovmError),
     /// Vsock config error: {0}
     VsockConfig(#[from] VsockConfigError),
-    /// Device ID in use
-    DeviceIdInUse,
     /// PCI is not enabled
     PciNotEnabled,
     /// PCI manager error: {0}
