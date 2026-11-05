@@ -310,8 +310,7 @@ impl PciDevices {
         device_id: VirtioDeviceId,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
-        // We don't need the bus itself, but just a check that the device can be removed
-        _ = self.find_removable_virtio_device_bus_by_id(&device_id)?;
+        let bus = self.find_removable_virtio_device_bus_by_id(&device_id)?;
 
         let pci_device_arc = self
             .virtio_devices
@@ -320,10 +319,12 @@ impl PciDevices {
 
         let sbdf = pci_device_arc.lock().expect("Poisoned lock").sbdf;
 
-        // If the device is behind a root port, notify the guest.
-        if let Some(port) = self.pci_segment.root_port_for_bus(sbdf.bus()) {
-            port.lock().expect("Poisoned lock").eject();
-        }
+        self.pci_segment
+            .root_port_for_bus(bus)
+            .unwrap()
+            .lock()
+            .expect("Poisoned lock")
+            .eject();
 
         // Remove the device from the PCI bus first. A config space access runs
         // with the PCI bus lock held and can relocate the BAR, so afterwards
