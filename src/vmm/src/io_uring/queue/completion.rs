@@ -49,8 +49,9 @@ impl CompletionQueue {
 
         // Map the CQ_ring. The actual size of the ring is `num_entries * size_of(entry_type)`.
         // To this we add an offset as per the io_uring specifications.
-        let ring_size = (params.cq_off.cqes as usize)
-            + (params.cq_entries as usize) * std::mem::size_of::<generated::io_uring_cqe>();
+        let ring_size = (params.cq_off.cqes as usize).strict_add(
+            (params.cq_entries as usize).strict_mul(std::mem::size_of::<generated::io_uring_cqe>()),
+        );
         let cqes = mmap(ring_size, io_uring_fd, generated::IORING_OFF_CQ_RING.into())?;
 
         let ring = cqes.as_volatile_slice();

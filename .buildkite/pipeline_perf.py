@@ -103,7 +103,11 @@ REVISION_A = os.environ.get("REVISION_A")
 REVISION_B = os.environ.get("REVISION_B")
 REVISION_A_ARTIFACTS = os.environ.get("REVISION_A_ARTIFACTS")
 REVISION_B_ARTIFACTS = os.environ.get("REVISION_B_ARTIFACTS")
-A_B_TEST_DEFAULT_MAX_ITERATIONS = 4
+# In case of no real regressions, each iteration will shrink the number of tests performed,
+# so each iteration will be faster and faster. In case of a real regression, datapoints
+# between iterations aren't forgotten, so the test suit won't shrink much, and it's possible
+# the regression will manifest as a BuildKite timeout.
+A_B_TEST_DEFAULT_MAX_ITERATIONS = 16
 
 # Either both are specified or neither. Only doing either is a bug. If you want to
 # run performance tests _on_ a specific commit, specify neither and put your commit

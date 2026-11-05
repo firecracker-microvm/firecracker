@@ -1120,10 +1120,12 @@ cmd_test() {
     # in order to set-up the Firecracker jail (manipulating cgroups, net
     # namespaces, etc).
     # We need to run a privileged container to get that kind of access.
+    # The core limit is 1 rather than 0 because the kernel ignores 0 when
+    # core_pattern pipes dumps to a handler, while 1 makes it skip the dump.
     run_devctr \
         --privileged \
         --security-opt seccomp=unconfined \
-        --ulimit core=0 \
+        --ulimit core=1 \
         --ulimit nofile=4096:4096 \
         --ulimit memlock=-1:-1 \
         --workdir "$CTR_FC_ROOT_DIR" \

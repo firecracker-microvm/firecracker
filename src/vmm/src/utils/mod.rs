@@ -48,6 +48,11 @@ pub const fn mib_to_bytes(mib: usize) -> usize {
     mib << MIB_TO_BYTES_SHIFT
 }
 
+/// Converts MiB to Bytes, returning `None` if the byte count does not fit in a `usize`.
+pub const fn checked_mib_to_bytes(mib: usize) -> Option<usize> {
+    mib.checked_mul(1 << MIB_TO_BYTES_SHIFT)
+}
+
 /// Converts MiB to Bytes, widening to `u64` first so the result cannot wrap.
 ///
 /// The largest input yields just under 4 PiB, which always fits in a `u64` byte count.
@@ -177,6 +182,16 @@ mod tests {
         assert_eq!(align_up!(4096u64, 4096u64), 4096);
         assert_eq!(align_up!(8192u64, 4096u64), 8192);
         assert_eq!(align_up!(0x20_0000u64, 0x20_0000u64), 0x20_0000); // 2 MiB
+    }
+
+    #[test]
+    fn test_checked_mib_to_bytes() {
+        assert_eq!(checked_mib_to_bytes(1), Some(1 << 20));
+        assert_eq!(
+            checked_mib_to_bytes(usize::MAX >> 20),
+            Some(usize::MAX & !((1 << 20) - 1))
+        );
+        assert_eq!(checked_mib_to_bytes((usize::MAX >> 20) + 1), None);
     }
 
     #[test]

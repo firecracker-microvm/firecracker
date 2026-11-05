@@ -692,7 +692,7 @@ impl Default for VirtioDevices {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VirtioDevicesState {
     /// Virtio devices attached over the MMIO transport.
-    Mmio(persist::DeviceStates),
+    Mmio(persist::DeviceStates<persist::MMIODeviceState>),
     /// Virtio devices attached over the PCI transport.
     Pci(pci_mngr::PciDevicesState),
 }

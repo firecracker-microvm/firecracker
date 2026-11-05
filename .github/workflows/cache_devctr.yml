@@ -4,8 +4,10 @@ name: Cache dev container
 # pull request checks load it from there instead of pulling it from the
 # registry, which rate limits anonymous pulls. The job is idempotent: it
 # exits early when the image for the current tag is already cached, so
-# running it on every devtool change is cheap. The weekly schedule keeps
-# the entry from being evicted for inactivity.
+# running it on every devtool change is cheap. The daily schedule keeps
+# the entry from being evicted for inactivity and re-attempts a pull that
+# failed, so a tag bump that hit the registry's limits is cached within a
+# day instead of leaving every pull request to pull on its own.
 
 on:
   push:
@@ -15,7 +17,7 @@ on:
       - tools/devtool
       - .github/workflows/cache_devctr.yml
   schedule:
-    - cron: "0 1 * * 6"
+    - cron: "0 1 * * *"
   workflow_dispatch:
 
 permissions:
@@ -52,11 +54,20 @@ jobs:
           path: ${{ runner.temp }}/fcuvm.tar.zst
           key: ${{ steps.image.outputs.key }}
 
+      # Anonymous pulls share a per-source-IP data budget with every other
+      # GitHub-hosted runner, so back off for minutes rather than seconds.
       - name: "Pull dev container"
         if: steps.restore.outputs.cache-hit != 'true'
         env:
           IMAGE: ${{ steps.image.outputs.image }}
-        run: docker pull "$IMAGE"
+        run: |
+          for attempt in 1 2 3 4 5; do
+            docker pull "$IMAGE" && exit 0
+            echo "Pull attempt $attempt failed; retrying in 2 minutes."
+            sleep 120
+          done
+          echo "::error::Could not pull $IMAGE; re-run this workflow."
+          exit 1
 
       - name: "Save image"
         if: steps.restore.outputs.cache-hit != 'true'

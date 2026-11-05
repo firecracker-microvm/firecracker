@@ -668,6 +668,9 @@ impl ThreadedWorker {
             FlushMode::DrainAndFlush => worker.drain_and_flush(true),
         }
         worker.resources.is_io_engine_throttled = false;
+        // A running worker can write the used ring after the VMM's last commit, so commit the
+        // pages before the queue is dropped.
+        worker.resources.queue.commit_dirty();
     }
 
     fn is_finished(&self) -> bool {
