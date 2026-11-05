@@ -26,7 +26,7 @@ use crate::device_manager::{DevicePersistError, DevicesState};
 // serialised virtio transport variant.
 pub use crate::device_manager::VirtioDevicesState;
 use crate::logger::{info, warn};
-use crate::mem_backend::{GuestRegionUffdMapping, HandshakeError, send_uffd_handshake};
+use crate::mem_backend::{Handshake, HandshakeError};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Snapshot;
@@ -551,8 +551,8 @@ fn guest_memory_from_uffd(
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<(Vec<GuestRegionMmap>, Option<Uffd>), GuestMemoryFromUffdError> {
-    let (guest_memory, backend_mappings) =
-        create_guest_memory(mem_state, track_dirty_pages, huge_pages)?;
+    let guest_memory = memory::anonymous(&mem_state.regions(), track_dirty_pages, huge_pages)?;
+    let handshake = Handshake::new(guest_memory.iter(), huge_pages);
 
     let mut uffd_builder = UffdBuilder::new();
 
@@ -574,32 +574,9 @@ fn guest_memory_from_uffd(
             .map_err(GuestMemoryFromUffdError::Register)?;
     }
 
-    send_uffd_handshake(mem_uds_path, &backend_mappings, &uffd)?;
+    handshake.send(mem_uds_path, &uffd)?;
 
     Ok((guest_memory, Some(uffd)))
-}
-
-fn create_guest_memory(
-    mem_state: &GuestMemoryState,
-    track_dirty_pages: bool,
-    huge_pages: HugePageConfig,
-) -> Result<(Vec<GuestRegionMmap>, Vec<GuestRegionUffdMapping>), GuestMemoryFromUffdError> {
-    let guest_memory = memory::anonymous(&mem_state.regions(), track_dirty_pages, huge_pages)?;
-    let mut backend_mappings = Vec::with_capacity(guest_memory.len());
-    let mut offset = 0;
-    for mem_region in guest_memory.iter() {
-        #[allow(deprecated)]
-        backend_mappings.push(GuestRegionUffdMapping {
-            base_host_virt_addr: mem_region.as_ptr() as u64,
-            size: mem_region.size(),
-            offset,
-            page_size: huge_pages.page_size(),
-            page_size_kib: huge_pages.page_size(),
-        });
-        offset += mem_region.size() as u64;
-    }
-
-    Ok((guest_memory, backend_mappings))
 }
 
 #[cfg(test)]
@@ -623,7 +600,6 @@ mod tests {
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
-    use crate::vstate::memory::{GuestMemoryRegionState, GuestRegionType};
 
     fn default_vmm_with_devices() -> Vmm {
         let mut event_manager = EventManager::new().expect("Cannot create EventManager");
@@ -727,25 +703,5 @@ mod tests {
             panic!("expected MMIO virtio device state");
         };
         assert_eq!(restored_mmio, mmio)
-    }
-
-    #[test]
-    fn test_create_guest_memory() {
-        let mem_state = GuestMemoryState {
-            regions: vec![GuestMemoryRegionState {
-                base_address: 0,
-                size: 0x20000,
-                region_type: GuestRegionType::Dram,
-                plugged: vec![true],
-            }],
-        };
-
-        let (_, uffd_regions) =
-            create_guest_memory(&mem_state, false, HugePageConfig::None).unwrap();
-
-        assert_eq!(uffd_regions.len(), 1);
-        assert_eq!(uffd_regions[0].size, 0x20000);
-        assert_eq!(uffd_regions[0].offset, 0);
-        assert_eq!(uffd_regions[0].page_size, HugePageConfig::None.page_size());
     }
 }
