@@ -489,6 +489,7 @@ pub fn build_and_boot_enclave(
         shutdown_exit_code: None,
         vm: Vm::Enclave(enclave_vm),
         device_manager,
+        can_create_diff_snapshots: true,
     };
     let vmm = Arc::new(Mutex::new(vmm));
     // Enclave VMs are already running after the NE start ioctl — there is no

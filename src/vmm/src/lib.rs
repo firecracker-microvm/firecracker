@@ -167,6 +167,7 @@ use crate::vmm_config::machine_config::MachineConfig;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::mmds::MmdsConfig;
 use crate::vmm_config::net::NetworkInterfaceConfig;
+use crate::vmm_config::snapshot::SnapshotType;
 use crate::vmm_config::vsock::VsockDeviceConfig;
 pub use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{GuestMemoryMmap, GuestMemoryRegion};
@@ -321,6 +322,8 @@ pub struct Vmm {
     pub vm: Vm,
     // Device manager
     device_manager: DeviceManager,
+    // Cleared once a device writing guest memory without dirty tracking is hot-plugged
+    can_create_diff_snapshots: bool,
 }
 
 impl Vmm {
@@ -463,7 +466,7 @@ impl Vmm {
     }
 
     /// Check if the VMM can be snapshotted
-    pub fn can_snapshot(&self) -> Result<(), MicrovmStateError> {
+    pub fn can_snapshot(&self, snapshot_type: SnapshotType) -> Result<(), MicrovmStateError> {
         if self.vm.as_kvm().is_none() {
             return Err(MicrovmStateError::NotAllowed(
                 "snapshot requires KVM".into(),
@@ -502,6 +505,14 @@ impl Vmm {
         if self.instance_info.state != VmState::Paused {
             return Err(MicrovmStateError::NotAllowed(
                 "snapshot requires a paused microVM".into(),
+            ));
+        }
+
+        if snapshot_type == SnapshotType::Diff && !self.can_create_diff_snapshots {
+            return Err(MicrovmStateError::NotAllowed(
+                "Diff snapshots are not allowed after hot-plugging passthrough or vhost-user \
+                 devices until a Full snapshot is taken"
+                    .into(),
             ));
         }
 
@@ -798,8 +809,14 @@ impl Vmm {
             self.machine_config
                 .validate_num_queues(&block_config.drive_id, block_config.num_queues)?;
         }
+        let is_vhost_user = config.is_vhost_user();
         self.device_manager
-            .hotplug_device(&self.vm, config, event_manager)
+            .hotplug_device(&self.vm, config, event_manager)?;
+
+        if is_vhost_user {
+            self.can_create_diff_snapshots = false;
+        }
+        Ok(())
     }
 
     /// Attaches a passthrough device after VM start
@@ -813,7 +830,10 @@ impl Vmm {
             .as_kvm()
             .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?;
         self.device_manager
-            .hotplug_passthrough_device(kvm_vm, config)
+            .hotplug_passthrough_device(kvm_vm, config)?;
+
+        self.can_create_diff_snapshots = false;
+        Ok(())
     }
 
     /// Detaches a device after VM start
