@@ -457,6 +457,27 @@ prefer `@pin_guest_kernel(GUEST_KERNEL_DEFAULT)` to keep CI fast. Tests that
 exercise guest-Firecracker interactions should leave `guest_kernel` at the
 default so they run against every supported kernel.
 
+#### Variants
+
+To also run a test at another value of a dimension fixture with a default value,
+such as `track_dirty_pages`, but only for some of its cases, use `pin_variant`
+from `framework.variants`. It does not work for fixtures with their own
+`params`, such as `pci_enabled`:
+
+```python
+from framework.variants import pin_variant
+
+@pytest.mark.parametrize("vcpus", [1, 2])
+@pin_variant("track_dirty_pages", [False, True], when={"vcpus": 2, "pci_enabled": True})
+def test_foo(uvm, vcpus, track_dirty_pages): ...
+```
+
+Every case runs at the first value. The other values run only for the cases
+whose parameters match `when`, which maps parameter names, fixtures included, to
+a value or to a list, tuple or set of values. Runs at the other values carry a
+marker named after the dimension, registered in `pytest.ini`, so CI can select
+or exclude them with `-m`.
+
 #### Huge pages
 
 `huge_pages` defaults to `HugePagesConfig.NONE` (anonymous memory). The

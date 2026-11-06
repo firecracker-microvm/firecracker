@@ -48,6 +48,8 @@ from framework.vm_lifecycle import VmLifecycle
 from host_tools.metrics import get_metrics_logger
 from host_tools.network import NetNs
 
+pytest_plugins = ["framework.variants"]
+
 # This codebase uses Python features available in Python 3.10 or above
 if sys.version_info < (3, 10):
     raise SystemError("This codebase requires Python 3.10 or above.")
@@ -617,7 +619,9 @@ def vm_backend(request, record_property):
 # defaults baked into their bodies. Override a dim with
 # `@pytest.mark.parametrize(<dim>, [...], indirect=True)` or use the helpers
 # from `framework.artifacts` (`pin_guest_kernel`, `pin_rootfs_mode`,
-# `pin_pci`) and `framework.utils_cpu_templates` (`pin_cpu_template`).
+# `pin_pci`) and `framework.utils_cpu_templates` (`pin_cpu_template`). To run
+# a dim at extra values for chosen cases only, use
+# `framework.variants.pin_variant`.
 #
 # Module-level `pytestmark` works for tests that don't override that same
 # dim per-test — pytest's parametrize markers do NOT merge: a pytestmark +
