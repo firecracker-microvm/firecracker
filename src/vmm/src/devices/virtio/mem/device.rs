@@ -778,7 +778,7 @@ pub(crate) mod test_utils {
     use crate::devices::virtio::test_utils::test::VirtioTestDevice;
     use crate::utils::mib_to_bytes;
     use crate::vmm_config::machine_config::HugePageConfig;
-    use crate::vstate::memory;
+    use crate::vstate::memory::{self, GuestMemoryRegionState};
     use crate::vstate::vm::tests::setup_vm_with_memory;
 
     impl VirtioTestDevice for VirtioMem {
@@ -804,6 +804,15 @@ pub(crate) mod test_utils {
         .unwrap();
         let vm = Arc::new(vm);
         VirtioMem::new(vm, addr, 1024, 2, 128).unwrap()
+    }
+
+    pub(crate) fn default_hotpluggable_region() -> GuestMemoryRegionState {
+        GuestMemoryRegionState {
+            base_address: 512 << 30,
+            size: mib_to_bytes(1024),
+            region_type: GuestRegionType::Hotpluggable,
+            plugged: vec![false; 8],
+        }
     }
 }
 

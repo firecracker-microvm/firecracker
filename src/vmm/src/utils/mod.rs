@@ -72,6 +72,15 @@ pub fn bytes_to_u32_mib(bytes: u64) -> u32 {
     u32::try_from(bytes >> MIB_TO_BYTES_SHIFT).expect("byte count does not originate from u32 MiB")
 }
 
+/// Converts Bytes to MiB, returning `None` if the byte count is not a whole number of MiB or the
+/// MiB count does not fit in a `u32`.
+pub fn checked_bytes_to_u32_mib(bytes: u64) -> Option<u32> {
+    if !bytes.is_multiple_of(1 << MIB_TO_BYTES_SHIFT) {
+        return None;
+    }
+    u32::try_from(bytes >> MIB_TO_BYTES_SHIFT).ok()
+}
+
 /// Converts Bytes to MiB, truncating any remainder
 pub const fn bytes_to_mib(bytes: usize) -> usize {
     bytes >> MIB_TO_BYTES_SHIFT
@@ -190,6 +199,19 @@ mod tests {
     #[should_panic(expected = "byte count does not originate from u32 MiB")]
     fn test_bytes_to_u32_mib_panics_above_u32_mib() {
         bytes_to_u32_mib(u32_mib_to_bytes(u32::MAX) + (1 << 20));
+    }
+
+    #[test]
+    fn test_checked_bytes_to_u32_mib() {
+        for mib in [0, 1, 2, 128, 1024, u32::MAX] {
+            assert_eq!(checked_bytes_to_u32_mib(u32_mib_to_bytes(mib)), Some(mib));
+        }
+        assert_eq!(checked_bytes_to_u32_mib((1 << 20) - 1), None);
+        assert_eq!(checked_bytes_to_u32_mib((1 << 20) + 1), None);
+        assert_eq!(
+            checked_bytes_to_u32_mib(u32_mib_to_bytes(u32::MAX) + (1 << 20)),
+            None
+        );
     }
 
     #[test]
