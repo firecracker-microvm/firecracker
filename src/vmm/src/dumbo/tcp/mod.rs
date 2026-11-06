@@ -52,8 +52,13 @@ impl RstConfig {
             // If s contains an ACK number, we use that as the sequence number of the RST.
             RstConfig::Seq(s.ack_number())
         } else {
-            // Otherwise we try to guess a valid ACK number for the RST like this.
-            RstConfig::Ack(s.sequence_number().wrapping_add(s.payload_len().into()))
+            // Otherwise we acknowledge the whole segment, as RFC 793 describes. Its length counts
+            // the payload, plus one for each of the SYN and FIN flags.
+            let flags = s.flags_after_ns();
+            let seg_len = u32::from(s.payload_len())
+                + u32::from(flags.intersects(TcpFlags::SYN))
+                + u32::from(flags.intersects(TcpFlags::FIN));
+            RstConfig::Ack(s.sequence_number().wrapping_add(seg_len))
         }
     }
 
@@ -131,11 +136,37 @@ mod tests {
             (0, seq, TcpFlags::RST | TcpFlags::ACK)
         );
 
+        // SYN and FIN each occupy one sequence number, so the RST acknowledges past them.
+        s.set_flags_after_ns(TcpFlags::SYN);
+        assert_eq!(RstConfig::new(&s), RstConfig::Ack(seq + 1));
+        s.set_flags_after_ns(TcpFlags::FIN);
+        assert_eq!(RstConfig::new(&s), RstConfig::Ack(seq + 1));
+        s.set_flags_after_ns(TcpFlags::SYN | TcpFlags::FIN);
+        assert_eq!(RstConfig::new(&s), RstConfig::Ack(seq + 2));
+
         // Let's set the ACK flag.
         s.set_flags_after_ns(TcpFlags::ACK);
         let cfg = RstConfig::new(&s);
         assert_eq!(cfg, RstConfig::Seq(ack));
         assert_eq!(cfg.seq_ack_tcp_flags(), (ack, 0, TcpFlags::RST));
+
+        // The acknowledged length also counts the payload, and wraps around the sequence space.
+        let payload = [0u8; 10];
+        let s = TcpSegment::write_segment(
+            buf.as_mut(),
+            0,
+            0,
+            u32::MAX,
+            ack,
+            TcpFlags::SYN | TcpFlags::FIN,
+            0,
+            None,
+            100,
+            Some((payload.as_ref(), payload.len())),
+            None,
+        )
+        .unwrap();
+        assert_eq!(RstConfig::new(&s), RstConfig::Ack(11));
     }
 
     #[test]

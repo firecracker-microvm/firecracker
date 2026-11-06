@@ -152,6 +152,17 @@ impl<T: NetworkBytes + Debug> TcpSegment<'_, T> {
         Flags::from_bits_truncate(self.bytes[FLAGS_AFTER_NS_OFFSET])
     }
 
+    /// Returns whether `SYN` is the only control flag set, not counting `ECE` and `CWR`.
+    ///
+    /// An ECN-setup SYN carries both `ECE` and `CWR` (RFC 3168, section 6.1.1), and a SYN with
+    /// only one of them is a non-ECN-setup SYN. Neither asks for anything a receiver which does
+    /// not implement ECN must refuse: a SYN-ACK without `ECE` tells the peer to continue without
+    /// it. So a SYN carrying either or both flags counts as a plain SYN here.
+    #[inline]
+    pub fn has_only_syn_flag(&self) -> bool {
+        self.flags_after_ns().difference(Flags::ECE | Flags::CWR) == Flags::SYN
+    }
+
     /// Returns the value of the `window size` header field.
     #[inline]
     pub fn window_size(&self) -> u16 {
@@ -642,6 +653,32 @@ mod tests {
         assert_eq!(p.urgent_pointer(), 0);
         p.set_urgent_pointer(5554);
         assert_eq!(p.urgent_pointer(), 5554);
+    }
+
+    #[test]
+    fn test_has_only_syn_flag() {
+        let mut a = [0u8; 100];
+        let mut p = TcpSegment::from_bytes_unchecked(a.as_mut());
+
+        let ecn = [
+            Flags::empty(),
+            Flags::ECE,
+            Flags::CWR,
+            Flags::ECE | Flags::CWR,
+        ];
+
+        for ecn_flags in ecn {
+            p.set_flags_after_ns(Flags::SYN | ecn_flags);
+            assert!(p.has_only_syn_flag(), "{ecn_flags:?}");
+
+            for other in [Flags::ACK, Flags::FIN, Flags::RST, Flags::PSH, Flags::URG] {
+                p.set_flags_after_ns(Flags::SYN | other | ecn_flags);
+                assert!(!p.has_only_syn_flag(), "{other:?} {ecn_flags:?}");
+            }
+
+            p.set_flags_after_ns(ecn_flags);
+            assert!(!p.has_only_syn_flag(), "{ecn_flags:?}");
+        }
     }
 
     #[test]
