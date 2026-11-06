@@ -101,6 +101,12 @@ regardless of success or failure, pass the `-s` flag, e.g.
 - Docker
 - `awscli` version 2
 
+The Python tests also require `taskset(1)` in the `PATH` of the environment
+running `pytest`. The `cpu-template-helper` tests use it to keep CPU
+configuration comparisons on the same logical CPU. The development container
+already includes it; for native test runs, install the `util-linux` package as
+described below.
+
 ## Rust Integration Tests
 
 The `pytest`-powered integration tests rely on Firecracker's HTTP API for
@@ -753,9 +759,12 @@ binaries: `firecracker` and `jailer`.
 
 Tested in Ubuntu 22.04 and AL2023. AL2 does not work due to an old Python (3.8).
 
+Install `util-linux` to provide `taskset(1)`, which must be available in the
+`PATH` used by `pytest`.
+
 ```sh
 # replace with yum in Fedora/AmazonLinux
-sudo apt install python3-pip
+sudo apt install python3-pip util-linux
 sudo pip3 install pytest ipython requests psutil tenacity filelock "urllib3<2.0" requests_unixsocket aws_embedded_metrics pytest-json-report pytest-timeout
 cd tests
 sudo env /usr/local/bin/pytest integration_tests/functional/test_api.py
@@ -782,6 +791,10 @@ uvm.help.tmux_ssh()
 It supports a number of options, you can check with `devtool sandbox -- --help`.
 
 ### Running outside of Docker
+
+First install the dependencies listed in
+[How to run tests outside of Docker](#how-to-run-tests-outside-of-docker),
+including `util-linux` for `taskset(1)`.
 
 Running without Docker
 
