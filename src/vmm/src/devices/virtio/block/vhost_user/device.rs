@@ -67,25 +67,31 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
     type Error = VhostUserBlockError;
 
     fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
-        if let (Some(socket), None, None, None, None, None, None, None, None, None, None) = (
-            &value.socket,
-            &value.is_read_only,
-            &value.discard,
-            &value.num_queues,
-            &value.path_on_host,
-            &value.rate_limiter,
-            &value.file_engine_type,
-            &value.image_format,
-            &value.blk_size,
-            &value.topology,
-            &value.dmb_size_mib,
-        ) {
+        // No `..` on purpose: adding a field to `BlockDeviceConfig` must force
+        // a decision on whether vhost-user supports it.
+        if let BlockDeviceConfig {
+            drive_id,
+            partuuid,
+            is_root_device,
+            cache_type,
+            socket: Some(socket),
+            dmb_size_mib: None,
+            is_read_only: None,
+            discard: None,
+            num_queues: None,
+            path_on_host: None,
+            rate_limiter: None,
+            file_engine_type: None,
+            image_format: None,
+            blk_size: None,
+            topology: None,
+        } = value
+        {
             Ok(Self {
-                drive_id: value.drive_id.clone(),
-                partuuid: value.partuuid.clone(),
-                is_root_device: value.is_root_device,
-                cache_type: value.cache_type,
-
+                drive_id: drive_id.clone(),
+                partuuid: partuuid.clone(),
+                is_root_device: *is_root_device,
+                cache_type: *cache_type,
                 socket: socket.clone(),
             })
         } else {
@@ -101,19 +107,8 @@ impl From<VhostUserBlockConfig> for BlockDeviceConfig {
             partuuid: value.partuuid,
             is_root_device: value.is_root_device,
             cache_type: value.cache_type,
-            dmb_size_mib: None,
-
-            is_read_only: None,
-            discard: None,
-            num_queues: None,
-            path_on_host: None,
-            rate_limiter: None,
-            file_engine_type: None,
-            image_format: None,
-            blk_size: None,
-            topology: None,
-
             socket: Some(value.socket),
+            ..Default::default()
         }
     }
 }
