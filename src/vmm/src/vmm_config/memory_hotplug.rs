@@ -3,9 +3,11 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::arch::host_page_size;
 use crate::devices::virtio::mem::{
     VIRTIO_MEM_DEFAULT_BLOCK_SIZE_MIB, VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB, VirtioMem,
 };
+use crate::utils::{u32_mib_to_bytes, usize_to_u64};
 
 /// Errors associated with memory hotplug configuration.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -18,6 +20,8 @@ pub enum MemoryHotplugConfigError {
     SlotSizeTooSmall(u32),
     /// Slot size must be a multiple of block size ({0} MiB)
     SlotSizeNotMultipleOfBlockSize(u32),
+    /// Slot size must be a multiple of 64 host pages ({0} KiB)
+    SlotSizeNotMultipleOfHostPages(u64),
     /// Total size must not be lower than slot size ({0} MiB)
     TotalSizeTooSmall(u32),
     /// Total size must be a multiple of slot size ({0} MiB)
@@ -49,6 +53,10 @@ pub struct MemoryHotplugConfig {
 impl MemoryHotplugConfig {
     /// Validates the configuration.
     pub fn validate(&self) -> Result<(), MemoryHotplugConfigError> {
+        self.validate_for_page_size(host_page_size())
+    }
+
+    fn validate_for_page_size(&self, page_size: usize) -> Result<(), MemoryHotplugConfigError> {
         let min_block_size_mib = VIRTIO_MEM_DEFAULT_BLOCK_SIZE_MIB;
         if self.block_size_mib < min_block_size_mib {
             return Err(MemoryHotplugConfigError::BlockSizeTooSmall(
@@ -68,6 +76,14 @@ impl MemoryHotplugConfig {
         if !self.slot_size_mib.is_multiple_of(self.block_size_mib) {
             return Err(MemoryHotplugConfigError::SlotSizeNotMultipleOfBlockSize(
                 self.block_size_mib,
+            ));
+        }
+        // Each slot must start on a word of its region's dirty bitmap, one bit per host page, so
+        // that KVM's dirty log of a slot can be merged into it a word at a time.
+        let slot_alignment = 64 * usize_to_u64(page_size);
+        if !u32_mib_to_bytes(self.slot_size_mib).is_multiple_of(slot_alignment) {
+            return Err(MemoryHotplugConfigError::SlotSizeNotMultipleOfHostPages(
+                slot_alignment / 1024,
             ));
         }
 
@@ -172,6 +188,29 @@ mod tests {
             }
             _ => panic!("Expected InvalidSlotSizeMultiple error"),
         }
+    }
+
+    #[test]
+    fn test_slot_size_not_multiple_of_host_pages() {
+        let config = MemoryHotplugConfig {
+            total_size_mib: 1040,
+            block_size_mib: 2,
+            slot_size_mib: 130,
+        };
+        config.validate_for_page_size(4096).unwrap();
+        match config.validate_for_page_size(65536) {
+            Err(MemoryHotplugConfigError::SlotSizeNotMultipleOfHostPages(alignment)) => {
+                assert_eq!(alignment, 4096)
+            }
+            _ => panic!("Expected SlotSizeNotMultipleOfHostPages error"),
+        }
+
+        let config = MemoryHotplugConfig {
+            total_size_mib: 1024,
+            block_size_mib: 2,
+            slot_size_mib: 128,
+        };
+        config.validate_for_page_size(65536).unwrap();
     }
 
     #[test]
