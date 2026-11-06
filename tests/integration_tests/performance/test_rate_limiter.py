@@ -4,7 +4,7 @@
 
 import pytest
 
-from framework import utils
+from framework import utils, utils_wait
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from host_tools import cpu_load
 
@@ -347,13 +347,13 @@ def _patch_iface_bw(test_microvm, iface_id, rx_or_tx, new_bucket_size, new_refil
 
 def _start_iperf_server_on_guest(test_microvm):
     """Start iperf in server mode through an SSH connection."""
-    utils.kill_and_wait_on_guest(test_microvm, IPERF_BINARY)
+    utils_wait.kill_and_wait_on_guest(test_microvm, IPERF_BINARY)
 
     iperf_cmd = f"{IPERF_BINARY} -sD -f KBytes --logfile {GUEST_IPERF_SERVER_LOG}"
     test_microvm.ssh.run(iperf_cmd)
 
     # Wait for the iperf server to start listening
-    utils.wait_for_tcp_port_on_guest(test_microvm, IPERF_PORT)
+    utils_wait.wait_for_tcp_port_on_guest(test_microvm, IPERF_PORT)
 
 
 def _run_iperf_on_guest(test_microvm, iperf_cmd):
@@ -363,7 +363,7 @@ def _run_iperf_on_guest(test_microvm, iperf_cmd):
 
 def _start_iperf_server_on_host(netns_cmd_prefix):
     """Start iperf in server mode after killing any leftover iperf daemon."""
-    utils.kill_and_wait_on_host(IPERF_BINARY)
+    utils_wait.kill_and_wait_on_host(IPERF_BINARY)
 
     iperf_cmd = "{} {} -sD -f KBytes -p {}\n".format(
         netns_cmd_prefix, IPERF_BINARY, IPERF_PORT
@@ -371,7 +371,7 @@ def _start_iperf_server_on_host(netns_cmd_prefix):
     utils.check_output(iperf_cmd)
 
     # Wait for the iperf server to start listening
-    utils.wait_for_tcp_port_on_host(netns_cmd_prefix, IPERF_PORT)
+    utils_wait.wait_for_tcp_port_on_host(netns_cmd_prefix, IPERF_PORT)
 
 
 def _run_iperf_on_host(iperf_cmd, test_microvm):
