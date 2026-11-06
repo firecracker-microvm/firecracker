@@ -11,6 +11,7 @@ use std::io;
 use std::io::{Seek, SeekFrom};
 use std::ops::Deref;
 use std::os::fd::AsRawFd;
+use std::os::unix::fs::MetadataExt;
 use std::sync::{Arc, Mutex};
 
 use bitvec::vec::BitVec;
@@ -75,6 +76,10 @@ pub enum MemoryError {
     Mprotect(std::io::Error),
     /// Error calling madvise: {0}
     Madvise(std::io::Error),
+    /// Cannot find the holes in the snapshot memory file: {0}
+    SeekHole(std::io::Error),
+    /// Cannot map a hole of the snapshot memory file anonymously: {0}
+    RemapHole(std::io::Error),
     /// Size too large for i64 conversion
     SlotSizeTooLarge,
     /// Dirty bitmap not found for memory slot {0}
@@ -1123,13 +1128,111 @@ pub fn snapshot_file(
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    memory_regions_from_ranges_file_backed(
+    let file = Arc::new(file);
+    let guest_regions = memory_regions_from_ranges_file_backed(
         regions,
         libc::MAP_PRIVATE,
-        FileOffset::new(file, 0),
+        FileOffset::from_arc(Arc::clone(&file), 0),
         track_dirty_pages,
         huge_pages.madvise_flags(),
-    )
+    )?;
+    // A private file mapping is never backed by transparent huge pages, so the hint alone does
+    // nothing here. A hole in the file reads as zeros, as an untouched anonymous page does, so
+    // each 2 MiB-aligned run of holes is mapped anonymously instead and the guest's first write
+    // there can take a huge page. Data and unaligned hole edges stay file-backed.
+    if huge_pages == HugePageConfig::Transparent {
+        let host_bases: Vec<_> = guest_regions.iter().map(|r| r.as_ptr() as u64).collect();
+        map_holes_anonymously(&file, regions, &host_bases, MAX_ANONYMOUS_HOLES)?;
+    }
+    Ok(guest_regions)
+}
+
+/// The most runs of holes a restore maps anonymously. Each one can add two mappings, which count
+/// against `vm.max_map_count` (65530 by default) along with the ones later discards create, so a
+/// fragmented memory file gets the largest runs mapped anonymously and the rest left file-backed.
+const MAX_ANONYMOUS_HOLES: usize = 1024;
+
+/// Replaces the mapping of up to `max_runs` of the largest 2 MiB-aligned runs of holes in `file`
+/// with anonymous memory advised for transparent huge pages. `regions` lie back to back in the
+/// file, each mapped at the matching entry of `host_bases`.
+fn map_holes_anonymously(
+    file: &File,
+    regions: &[(GuestAddress, usize)],
+    host_bases: &[u64],
+    max_runs: usize,
+) -> Result<(), MemoryError> {
+    const HUGE_PAGE: u64 = mib_to_bytes(2) as u64;
+    let metadata = file.metadata().map_err(MemoryError::SeekHole)?;
+    // A file with a block allocated for every byte has no holes. Checking that first keeps a
+    // dense file free, where on tmpfs even one SEEK_HOLE scans the whole page cache.
+    if metadata.blocks() * 512 >= metadata.size() {
+        return Ok(());
+    }
+    let seek = |at: u64, whence: libc::c_int| -> Result<Option<u64>, MemoryError> {
+        let at = i64::try_from(at).map_err(|_| MemoryError::OffsetTooLarge)?;
+        // SAFETY: lseek on a descriptor owned by `file`.
+        let ret = unsafe { libc::lseek(file.as_raw_fd(), at, whence) };
+        if ret >= 0 {
+            return Ok(Some(ret.cast_unsigned()));
+        }
+        let err = io::Error::last_os_error();
+        // ENXIO: no hole or data after `at`.
+        if err.raw_os_error() == Some(libc::ENXIO) {
+            Ok(None)
+        } else {
+            Err(MemoryError::SeekHole(err))
+        }
+    };
+    let end: u64 = regions.iter().map(|&(_, size)| size as u64).sum();
+    let mut runs = Vec::new();
+    let mut pos = 0;
+    while pos < end {
+        let Some(hole) = seek(pos, libc::SEEK_HOLE)? else {
+            break;
+        };
+        if hole >= end {
+            break;
+        }
+        let data = seek(hole, libc::SEEK_DATA)?.map_or(end, |data| data.min(end));
+        // A run of holes can cross from one region into the next.
+        let mut offset = 0;
+        for (&(_, size), &host_base) in regions.iter().zip(host_bases) {
+            let (lo, hi) = (hole.max(offset), data.min(offset + size as u64));
+            if lo < hi {
+                let start = align_up!(host_base + (lo - offset), HUGE_PAGE);
+                let stop = align_down!(host_base + (hi - offset), HUGE_PAGE);
+                if start < stop {
+                    runs.push((start, stop - start));
+                }
+            }
+            offset += size as u64;
+        }
+        pos = data;
+    }
+    runs.sort_unstable_by_key(|&(_, len)| std::cmp::Reverse(len));
+    for &(start, len) in runs.iter().take(max_runs) {
+        let len = u64_to_usize(len);
+        // SAFETY: the range lies inside a region mapping created by the caller, and MAP_FIXED
+        // replaces exactly that range, with the flags the region was created with.
+        let ret = unsafe {
+            libc::mmap(
+                start as *mut c_void,
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE | libc::MAP_NORESERVE,
+                -1,
+                0,
+            )
+        };
+        if ret == libc::MAP_FAILED {
+            return Err(MemoryError::RemapHole(io::Error::last_os_error()));
+        }
+        // SAFETY: the range was mapped just above.
+        if unsafe { libc::madvise(start as *mut c_void, len, libc::MADV_HUGEPAGE) } != 0 {
+            return Err(MemoryError::Madvise(io::Error::last_os_error()));
+        }
+    }
+    Ok(())
 }
 
 /// Marks as dirty the `len` bytes of guest memory mapped at host address `ptr`.
@@ -1509,6 +1612,96 @@ mod tests {
         ];
         let guest_regions = snapshot_file(file, &regions, false, HugePageConfig::None).unwrap();
         assert_eq!(guest_regions.len(), 3);
+    }
+
+    /// The mappings of `/proc/self/maps` that overlap `[start, end)`, as
+    /// `(start, end, backed by a file)`.
+    fn mappings_in(start: u64, end: u64) -> Vec<(u64, u64, bool)> {
+        std::fs::read_to_string("/proc/self/maps")
+            .unwrap()
+            .lines()
+            .filter_map(|line| {
+                let mut fields = line.split_whitespace();
+                let (lo, hi) = fields.next()?.split_once('-')?;
+                let (lo, hi) = (
+                    u64::from_str_radix(lo, 16).ok()?,
+                    u64::from_str_radix(hi, 16).ok()?,
+                );
+                let inode = fields.nth(3)?;
+                (lo < end && hi > start).then_some((lo.max(start), hi.min(end), inode != "0"))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_snapshot_file_maps_aligned_holes_anonymously_with_thp() {
+        const MIB: usize = 1 << 20;
+        // Two 8 MiB regions over one 16 MiB file: data at [0, 1) MiB, a hole from 1 MiB that
+        // crosses into the second region, and data at [14, 16) MiB. Only the 2 MiB-aligned parts
+        // of the hole go anonymous, cut at the region boundary.
+        let size = 8 * MIB;
+        let regions = vec![(GuestAddress(0), size), (GuestAddress(0x1_0000_0000), size)];
+        for huge_pages in [HugePageConfig::None, HugePageConfig::Transparent] {
+            // A fresh file each time: on tmpfs, reading a hole through the mapping allocates a
+            // page for it.
+            let file = TempFile::new().unwrap().into_file();
+            file.set_len(2 * size as u64).unwrap();
+            file.write_all_at(&vec![0x42u8; MIB], 0).unwrap();
+            file.write_all_at(&vec![0x43u8; 2 * MIB], (14 * MIB) as u64)
+                .unwrap();
+            let guest_regions = snapshot_file(file, &regions, false, huge_pages).unwrap();
+
+            let want: [Vec<(u64, u64)>; 2] = match huge_pages {
+                HugePageConfig::Transparent => [
+                    vec![((2 * MIB) as u64, size as u64)],
+                    vec![(0, (6 * MIB) as u64)],
+                ],
+                _ => [vec![], vec![]],
+            };
+            for (region, want) in guest_regions.iter().zip(want) {
+                let base = region.as_ptr() as u64;
+                let anonymous: Vec<_> = mappings_in(base, base + size as u64)
+                    .into_iter()
+                    .filter(|&(_, _, file_backed)| !file_backed)
+                    .map(|(lo, hi, _)| (lo - base, hi - base))
+                    .collect();
+                assert_eq!(anonymous, want, "{huge_pages:?}");
+            }
+
+            // SAFETY: each region is mapped for `size` bytes and nothing else uses it.
+            let first = unsafe { std::slice::from_raw_parts(guest_regions[0].as_ptr(), size) };
+            let second = unsafe { std::slice::from_raw_parts(guest_regions[1].as_ptr(), size) };
+            assert!(first[..MIB].iter().all(|&b| b == 0x42));
+            assert!(first[MIB..].iter().all(|&b| b == 0));
+            assert!(second[..6 * MIB].iter().all(|&b| b == 0));
+            assert!(second[6 * MIB..].iter().all(|&b| b == 0x43));
+        }
+    }
+
+    #[test]
+    fn test_map_holes_anonymously_keeps_the_largest_runs() {
+        const MIB: usize = 1 << 20;
+        // Data at [0, 2), [4, 6) and [12, 16) MiB leaves a 2 MiB and a 6 MiB run of holes. With
+        // room for one run, only the 6 MiB one goes anonymous.
+        let size = 16 * MIB;
+        let regions = vec![(GuestAddress(0), size)];
+        let file = TempFile::new().unwrap().into_file();
+        file.set_len(size as u64).unwrap();
+        for (at, len) in [(0, 2), (4, 2), (12, 4)] {
+            file.write_all_at(&vec![0x42u8; len * MIB], (at * MIB) as u64)
+                .unwrap();
+        }
+        let walked = file.try_clone().unwrap();
+        let guest_regions = snapshot_file(file, &regions, false, HugePageConfig::None).unwrap();
+        let base = guest_regions[0].as_ptr() as u64;
+        map_holes_anonymously(&walked, &regions, &[base], 1).unwrap();
+
+        let anonymous: Vec<_> = mappings_in(base, base + size as u64)
+            .into_iter()
+            .filter(|&(_, _, file_backed)| !file_backed)
+            .map(|(lo, hi, _)| (lo - base, hi - base))
+            .collect();
+        assert_eq!(anonymous, vec![((6 * MIB) as u64, (12 * MIB) as u64)]);
     }
 
     #[test]

@@ -232,6 +232,7 @@ class Microvm:
         self.initrd_file = None
         self.boot_args = None
         self.uffd_handler = None
+        self.restored_mem_file = None
 
         self.fc_binary_path = Path(fc_binary_path)
         assert fc_binary_path.exists()
@@ -1155,6 +1156,8 @@ class Microvm:
                 "backend_type": "Uffd",
                 "backend_path": str(self.uffd_handler.socket_path),
             }
+        else:
+            self.restored_mem_file = Path(self.chroot()) / jailed_snapshot.mem.name
 
         for key, value in jailed_snapshot.meta.items():
             if key == "kernel_file":
