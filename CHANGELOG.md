@@ -10,6 +10,12 @@ and this project adheres to
 
 ### Added
 
+- [#6067](https://github.com/firecracker-microvm/firecracker/issues/6067): Added
+  support for the pvpanic MMIO device on x86_64 and aarch64, enabled with
+  `--enable-pvpanic`. Guest panic notifications are currently only logged and do
+  not stop or reset the microVM. The device state is saved and restored with the
+  microVM, bumping the snapshot version to `14.0.0`. See
+  [pvpanic documentation](docs/pvpanic.md).
 - [#6226](https://github.com/firecracker-microvm/firecracker/pull/6226),
   [#6227](https://github.com/firecracker-microvm/firecracker/pull/6227),
   [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228),

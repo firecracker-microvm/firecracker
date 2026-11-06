@@ -248,6 +248,10 @@ fn main_exec() -> Result<(), MainError> {
                 "Whether or not to load boot timer device for logging elapsed time since \
                  InstanceStart command.",
             ))
+            .arg(Argument::new("enable-pvpanic").takes_value(false).help(
+                "Enables the pvpanic MMIO device so the guest can signal kernel panics to \
+                 Firecracker.",
+            ))
             .arg(
                 Argument::new("version")
                     .takes_value(false)
@@ -395,6 +399,7 @@ fn main_exec() -> Result<(), MainError> {
         .map(|x| x.expect("Unable to open or read from the mmds content file"));
 
     let boot_timer_enabled = arguments.flag_present("boot-timer");
+    let pvpanic_enabled = arguments.flag_present("enable-pvpanic");
     let pci_enabled = arguments.flag_present("enable-pci");
     let api_enabled = !arguments.flag_present("no-api");
     let api_payload_limit = arg_parser
@@ -449,6 +454,7 @@ fn main_exec() -> Result<(), MainError> {
             instance_info,
             process_time_reporter,
             boot_timer_enabled,
+            pvpanic_enabled,
             pci_enabled,
             api_payload_limit,
             mmds_size_limit,
@@ -465,6 +471,7 @@ fn main_exec() -> Result<(), MainError> {
             vmm_config_json,
             instance_info,
             boot_timer_enabled,
+            pvpanic_enabled,
             pci_enabled,
             mmds_size_limit,
             metadata_json.as_deref(),
@@ -590,6 +597,7 @@ fn build_microvm_from_json(
     config_json: String,
     instance_info: InstanceInfo,
     boot_timer_enabled: bool,
+    pvpanic_enabled: bool,
     pci_enabled: bool,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
@@ -603,6 +611,7 @@ fn build_microvm_from_json(
     )
     .map_err(BuildFromJsonError::ParseFromJson)?;
     vm_resources.boot_timer = boot_timer_enabled;
+    vm_resources.pvpanic = pvpanic_enabled;
     let vmm = vmm::builder::build_and_boot_microvm(
         &instance_info,
         &vm_resources,
@@ -628,11 +637,13 @@ enum RunWithoutApiError {
     SeccompFilter(vmm::seccomp::InstallationError),
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_without_api(
     seccomp_filters: &BpfThreadMap,
     config_json: Option<String>,
     instance_info: InstanceInfo,
     bool_timer_enabled: bool,
+    pvpanic_enabled: bool,
     pci_enabled: bool,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
@@ -651,6 +662,7 @@ fn run_without_api(
         config_json.unwrap(),
         instance_info,
         bool_timer_enabled,
+        pvpanic_enabled,
         pci_enabled,
         mmds_size_limit,
         metadata_json,

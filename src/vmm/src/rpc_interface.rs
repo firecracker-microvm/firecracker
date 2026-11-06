@@ -376,12 +376,14 @@ impl<'a> PrebootApiController<'a> {
         to_api: &std::sync::mpsc::Sender<ApiResponse>,
         api_event_fd: &vmm_sys_util::eventfd::EventFd,
         boot_timer_enabled: bool,
+        pvpanic_enabled: bool,
         pci_enabled: bool,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
     ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromRequestsError> {
         let mut vm_resources = VmResources {
             boot_timer: boot_timer_enabled,
+            pvpanic: pvpanic_enabled,
             mmds_size_limit,
             pci_enabled,
             ..Default::default()
