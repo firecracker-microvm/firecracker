@@ -5,8 +5,9 @@ production.**
 
 ## Prerequisites
 
-You can check if your system meets the requirements by running
-`firecracker/tools/devtool checkenv`.
+Once you have cloned the repository (see
+[Getting a Firecracker Binary](#getting-a-firecracker-binary)), you can check if
+your system meets the requirements by running `tools/devtool checkenv`.
 
 An opinionated way to run Firecracker is to launch an
 [EC2](https://aws.amazon.com/ec2/) `c5.metal` instance with Ubuntu 24.04.
@@ -32,21 +33,24 @@ Firecracker supports **x86_64** and **aarch64** Linux, see
 
 ### KVM
 
-Firecracker requires read/write access to `/dev/kvm` exposed by the KVM module.
+Firecracker requires read/write access to `/dev/kvm`, which the kernel creates
+when KVM initialises, that is when the kernel has KVM support (built in or as
+the `kvm` module) and the CPU exposes virtualization extensions.
 
-The presence of the KVM module can be checked with:
+The presence of KVM can be checked with:
 
 ```bash
-lsmod | grep kvm
+ls -l /dev/kvm
 ```
 
 An example output where it is enabled:
 
 ```bash
-kvm_intel             348160  0
-kvm                   970752  1 kvm_intel
-irqbypass              16384  1 kvm
+crw-rw---- 1 root kvm 10, 232 Nov 13 17:23 /dev/kvm
 ```
+
+If the device is missing, KVM is not available on this host; on EC2 that means
+the instance is not a `.metal` type.
 
 Some Linux distributions use the `kvm` group to manage access to `/dev/kvm`,
 while others rely on access control lists. If you have the ACL package for your
@@ -56,16 +60,11 @@ distro installed, you can grant Read+Write access with:
 sudo setfacl -m u:${USER}:rw /dev/kvm
 ```
 
-If access is managed via the `kvm` group, check that the KVM group exists:
+If access is managed via the `kvm` group, check that the KVM group exists and
+that `/dev/kvm` belongs to it in the `ls -l` output above:
 
 ```bash
 getent group kvm
-```
-
-and check that `/dev/kvm` is associated with the kvm group:
-
-```bash
-ls -l /dev/kvm
 ```
 
 You can see if your current user is already in the kvm group by running:
@@ -194,13 +193,30 @@ sudo systemctl start docker
 # It is possible to build for gnu, by passing the arguments '-l gnu'.
 #
 # This will produce the firecracker and jailer binaries under
-# `./firecracker/build/cargo_target/${toolchain}/debug`.
+# `./firecracker_src/build/cargo_target/${toolchain}/debug`.
 #
 sudo ./firecracker_src/tools/devtool build
 
 # Rename the binary to "firecracker"
 sudo cp ./firecracker_src/build/cargo_target/${ARCH}-unknown-linux-musl/debug/firecracker firecracker
 ```
+
+`tools/devtool build` builds in `debug`; to build release binaries pass
+`--release`, e.g. `tools/devtool build --release`.
+
+SSH can be used to work with libraries from private git repos by passing the
+`--ssh-keys` flag to specify the paths to your public and private SSH keys on
+the host. Both are required for git authentication when fetching the
+repositories.
+
+```bash
+tools/devtool build --ssh-keys ~/.ssh/id_rsa.pub ~/.ssh/id_rsa
+```
+
+Only a single set of credentials is supported. `devtool` cannot fetch multiple
+private repos which rely on different credentials.
+
+Documentation on `devtool` can be seen with `tools/devtool --help`.
 
 ### Starting Firecracker
 
@@ -267,12 +283,6 @@ sudo curl -X PUT --unix-socket "${API_SOCKET}" \
 KERNEL="./$(ls vmlinux* | tail -1)"
 KERNEL_BOOT_ARGS="console=ttyS0 reboot=k panic=1"
 
-ARCH=$(uname -m)
-
-if [ ${ARCH} = "aarch64" ]; then
-    KERNEL_BOOT_ARGS="keep_bootcon ${KERNEL_BOOT_ARGS}"
-fi
-
 # Set boot source
 sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     --data "{
@@ -307,10 +317,6 @@ sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/network-interfaces/net1"
 
-# API requests are handled asynchronously, it is important the configuration is
-# set, before `InstanceStart`.
-sleep 0.015s
-
 # Start microVM
 sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     --data "{
@@ -318,8 +324,8 @@ sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/actions"
 
-# API requests are handled asynchronously, it is important the microVM has been
-# started before we attempt to SSH into it.
+# Wait for the guest to boot and for sshd to start before we attempt to SSH
+# into it.
 sleep 2s
 
 KEY_NAME=./$(ls *.id_rsa | tail -1)
@@ -347,11 +353,12 @@ power management.
 
 ### Configuring the microVM without sending API requests
 
-You can boot a guest without using the API socket by passing the parameter
-`--config-file` to the Firecracker process. E.g.:
+You can boot a guest without sending API requests by passing the parameter
+`--config-file` to the Firecracker process. If you also pass `--no-api`,
+Firecracker will not create the API socket at all. E.g.:
 
 ```wrap
-sudo ./firecracker --api-sock /tmp/firecracker.socket --config-file <path_to_the_configuration_file>
+sudo ./firecracker --config-file <path_to_the_configuration_file> --no-api
 ```
 
 `path_to_the_configuration_file` is the path to a JSON file with the
@@ -359,9 +366,9 @@ configuration for all of the microVM's resources. The JSON **must** contain the
 configuration for the guest kernel and rootfs, all of the other resources are
 optional. This configuration method will also start the microVM, as such you
 need to specify all desired pre-boot configurable resources in the JSON. The
-names of the resources can be seen in \[`firecracker.yaml`\]
-(../src/firecracker/swagger/firecracker.yaml) and the names of their fields are
-the same that are used in the API requests.
+names of the resources can be seen in
+[`firecracker.yaml`](../src/firecracker/swagger/firecracker.yaml) and the names
+of their fields are the same that are used in the API requests.
 
 An example of configuration file is provided:
 [`tests/framework/vm_config.json`](../tests/framework/vm_config.json).
@@ -369,27 +376,9 @@ An example of configuration file is provided:
 Once the guest is booted, refer [network-setup](./network-setup.md#in-the-guest)
 to bring up the network in the guest machine.
 
-After the microVM is started you can still use the socket to send API requests
-for post-boot operations.
-
-### Building Firecracker
-
-SSH can be used to work with libraries from private git repos by passing the
-`--ssh-keys` flag to specify the paths to your public and private SSH keys on
-the host. Both are required for git authentication when fetching the
-repositories.
-
-```bash
-tools/devtool build --ssh-keys ~/.ssh/id_rsa.pub ~/.ssh/id_rsa
-```
-
-Only a single set of credentials is supported. `devtool` cannot fetch multiple
-private repos which rely on different credentials.
-
-`tools/devtool build` builds in `debug` to build release binaries pass
-`--release` e.g. `tools/devtool build --release`
-
-Documentation on `devtool` can be seen with `tools/devtool --help`.
+If you omit `--no-api` and pass `--api-sock` as before, you can still use the
+socket to send API requests for post-boot operations after the microVM has
+started.
 
 ## Running the Integration Test Suite
 
