@@ -1,7 +1,9 @@
 # Getting Started with Firecracker
 
 **All resources are used for demonstration purposes and are not intended for
-production.**
+production.** For a production deployment, follow the
+[production host setup recommendations](prod-host-setup.md) and run Firecracker
+under the [jailer](jailer.md).
 
 ## Prerequisites
 
@@ -93,10 +95,14 @@ You can check if you have access to `/dev/kvm` with:
 ## Running Firecracker
 
 In production, Firecracker is designed to be run securely inside an execution
-jail, set up by the [`jailer`](../src/jailer/) binary. This is how our
-[integration test suite](#running-the-integration-test-suite) does it.
+jail, set up by the [`jailer`](jailer.md) binary, which applies cgroups,
+namespaces (including a network namespace via `--netns`), resource limits and
+drops privileges. This is how our
+[integration test suite](#running-the-integration-test-suite) does it. The host
+itself should be configured following the
+[production host setup recommendations](prod-host-setup.md).
 
-For simplicity, this guide will not use the [`jailer`](../src/jailer/).
+For simplicity, this guide will not use the `jailer`.
 
 ### Getting a rootfs and Guest Kernel Image
 
