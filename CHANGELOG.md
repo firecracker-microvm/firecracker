@@ -101,6 +101,10 @@ and this project adheres to
   representation. Together with the other changes in this pull request, this
   reduces the size of the `firecracker` binary's code by about 10% (297 KiB on
   x86_64, 247 KiB on aarch64).
+- [#6321](https://github.com/firecracker-microvm/firecracker/pull/6321): The
+  memory hotplug configuration now rejects a `slot_size_mib` that isn't a
+  multiple of 64 host pages. This only affects hosts with pages larger than 32
+  KiB: with 64 KiB pages, slots must be a multiple of 4 MiB.
 
 ### Deprecated
 
