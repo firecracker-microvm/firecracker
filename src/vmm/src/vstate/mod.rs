@@ -1,6 +1,8 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+/// Allocator of guest address ranges.
+pub mod address_allocator;
 /// Module with the implementation of a Bus that can hold devices.
 pub mod bus;
 /// VM interrupts implementation.

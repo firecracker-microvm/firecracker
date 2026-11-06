@@ -10,12 +10,12 @@ use std::fmt::Debug;
 use std::mem::{self, size_of};
 
 use libc::c_char;
-use vm_allocator::AllocPolicy;
 use vm_memory::GuestMemoryBackend;
 
 use crate::arch::GSI_LEGACY_END;
 use crate::arch::x86_64::generated::mpspec;
 use crate::logger::debug;
+use crate::vstate::address_allocator::{AllocPolicy, AllocatorError};
 use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 use crate::vstate::resources::ResourceAllocator;
 
@@ -62,7 +62,7 @@ pub enum MptableError {
     /// Failure to write MP table header.
     WriteMpcTable,
     /// Failure to allocate memory for MPTable
-    AllocateMemory(#[from] vm_allocator::Error),
+    AllocateMemory(#[from] AllocatorError),
 }
 
 // With APIC/xAPIC, there are only 255 APIC IDs available. And IOAPIC occupies
@@ -123,10 +123,10 @@ pub fn setup_mptable(
     }
 
     let mp_size = compute_mp_size(num_cpus);
-    let mptable_addr = resource_allocator
-        .system_memory
-        .allocate(mp_size as u64, 1, AllocPolicy::FirstMatch)?
-        .start();
+    let mptable_addr =
+        resource_allocator
+            .system_memory
+            .allocate(mp_size as u64, 1, AllocPolicy::FirstMatch)?;
     debug!(
         "mptable: Allocated {mp_size} bytes for MPTable {num_cpus} vCPUs at address {:#010x}",
         mptable_addr

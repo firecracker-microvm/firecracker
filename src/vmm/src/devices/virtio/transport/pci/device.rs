@@ -10,12 +10,12 @@
 use std::cmp;
 use std::fmt::{Debug, Formatter};
 use std::io::Write;
+use std::ops::RangeInclusive;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 
 use kvm_ioctls::{IoEventAddress, NoDatamatch};
 use serde::{Deserialize, Serialize};
-use vm_allocator::{AddressAllocator, AllocPolicy, RangeInclusive};
 use vm_memory::{ByteValued, Le32};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
@@ -38,6 +38,7 @@ use crate::pci::{
     PciCapabilityId, PciClassCode, PciDevice, PciMassStorageSubclass, PciNetworkControllerSubclass,
     PciSBDF,
 };
+use crate::vstate::address_allocator::{AddressAllocator, AllocPolicy, AllocatorError};
 use crate::vstate::bus::BusDevice;
 use crate::vstate::interrupts::{InterruptError, MsixVectorGroup};
 use crate::vstate::vm::KvmVm;
@@ -264,7 +265,7 @@ pub enum VirtioPciDeviceError {
     /// Could not activate restored device: {0}
     Activate(#[from] ActivateError),
     /// Could not allocate the virtio-pci BAR: {0}
-    BarAllocation(#[from] vm_allocator::Error),
+    BarAllocation(#[from] AllocatorError),
 }
 
 pub struct VirtioPciDevice {
@@ -356,25 +357,23 @@ impl VirtioPciDevice {
     /// is large enough and available.
     fn allocate_bar_address(
         allocator: &mut AddressAllocator,
-        hint: Option<RangeInclusive>,
+        hint: Option<RangeInclusive<u64>>,
     ) -> Result<u64, VirtioPciDeviceError> {
         if let Some(hint) = hint
-            && hint.len() >= CAPABILITY_BAR_SIZE
-            && let Ok(range) = allocator.allocate(
+            && CAPABILITY_BAR_SIZE - 1 <= hint.end() - hint.start()
+            && let Ok(start) = allocator.allocate(
                 CAPABILITY_BAR_SIZE,
                 CAPABILITY_BAR_SIZE,
-                AllocPolicy::ExactMatch(hint.start()),
+                AllocPolicy::ExactMatch(*hint.start()),
             )
         {
-            Ok(range.start())
+            Ok(start)
         } else {
-            let range = allocator.allocate(
+            Ok(allocator.allocate(
                 CAPABILITY_BAR_SIZE,
                 BRIDGE_WINDOW_SIZE,
                 AllocPolicy::FirstMatch,
-            )?;
-
-            Ok(range.start())
+            )?)
         }
     }
 
@@ -388,7 +387,7 @@ impl VirtioPciDevice {
     pub fn allocate_bars(
         &mut self,
         allocator: &mut AddressAllocator,
-        hint: Option<RangeInclusive>,
+        hint: Option<RangeInclusive<u64>>,
     ) -> Result<(), VirtioPciDeviceError> {
         // Allocate the virtio-pci capability BAR.
         // See http://docs.oasis-open.org/virtio/virtio/v1.0/cs04/virtio-v1.0-cs04.html#x1-740004
@@ -406,14 +405,8 @@ impl VirtioPciDevice {
 
     /// Free the PCI BAR of the VirtIO device.
     pub fn free_bars(&mut self, allocator: &mut AddressAllocator) {
-        let bar_end = self
-            .bar_address
-            .checked_add(CAPABILITY_BAR_SIZE - 1)
-            .expect("virtio-pci BAR end address overflows");
-        let range =
-            RangeInclusive::new(self.bar_address, bar_end).expect("Invalid virtio-pci BAR range");
         allocator
-            .free(&range)
+            .free(self.bar_address, CAPABILITY_BAR_SIZE)
             .expect("virtio-pci BAR is not allocated");
         self.bar_address = 0;
     }
@@ -750,17 +743,14 @@ impl VirtioPciDevice {
         }
 
         // Try to allocate the new range from the resource allocator.
-        let new_range = match self.vm.resource_allocator().mmio32_memory.allocate(
+        if let Err(err) = self.vm.resource_allocator().mmio32_memory.allocate(
             CAPABILITY_BAR_SIZE,
             CAPABILITY_BAR_SIZE,
             AllocPolicy::ExactMatch(new_base),
         ) {
-            Ok(range) => range,
-            Err(err) => {
-                error!("Cannot reserve relocated BAR range at {new_base:#x}: {err:?}");
-                return;
-            }
-        };
+            error!("Cannot reserve relocated BAR range at {new_base:#x}: {err:?}");
+            return;
+        }
 
         // Register the new notification ioeventfds first. If this fails
         // nothing has moved yet, so the device keeps working at its old base.
@@ -783,7 +773,11 @@ impl VirtioPciDevice {
                 error!("Failed to remove notification ioeventfds at {new_base:#x}: {err:?}");
                 // As above, only release the old range if it has no ioeventfds left.
             } else {
-                let _ = self.vm.resource_allocator().mmio32_memory.free(&new_range);
+                let _ = self
+                    .vm
+                    .resource_allocator()
+                    .mmio32_memory
+                    .free(new_base, CAPABILITY_BAR_SIZE);
             }
             return;
         }
@@ -792,14 +786,11 @@ impl VirtioPciDevice {
             // As above, only release the old range if it has no ioeventfds left.
             error!("Failed to remove old notification ioeventfds at {old_base:#x}: {err:?}");
         } else {
-            // SAFETY: old_base was allocated from the resource allocator, comes
-            // from a previous relocation which validated it, or comes from a
-            // snapshot, which is trusted. So the range is always valid.
-            let old_end = old_base
-                .checked_add(CAPABILITY_BAR_SIZE - 1)
-                .expect("BAR end address overflows");
-            let old_range = RangeInclusive::new(old_base, old_end).expect("Invalid BAR range");
-            let _ = self.vm.resource_allocator().mmio32_memory.free(&old_range);
+            let _ = self
+                .vm
+                .resource_allocator()
+                .mmio32_memory
+                .free(old_base, CAPABILITY_BAR_SIZE);
         }
 
         self.bar_address = new_base;
@@ -1264,7 +1255,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use linux_loader::loader::Cmdline;
-    use vm_allocator::{AddressAllocator, AllocPolicy, RangeInclusive};
     use vm_memory::{ByteValued, Le32};
 
     use super::{
@@ -1292,6 +1282,7 @@ mod tests {
     use crate::pci::msix::MsixCap;
     use crate::pci::{PciCapabilityId, PciClassCode, PciDevice};
     use crate::rate_limiter::RateLimiter;
+    use crate::vstate::address_allocator::{AddressAllocator, AllocPolicy, AllocatorError};
 
     /// The address the single virtio-pci BAR of a freshly booted VM ends up
     /// at: the first CAPABILITY_BAR_SIZE-aligned address of the 32-bit MMIO
@@ -1427,7 +1418,7 @@ mod tests {
         let mut locked_virtio_pci_device = device.lock().unwrap();
         let bar_address = locked_virtio_pci_device.bar_address;
 
-        let mut allocator = AddressAllocator::new(FIRST_BAR_BASE, CAPABILITY_BAR_SIZE - 1).unwrap();
+        let mut allocator = AddressAllocator::new(FIRST_BAR_BASE, CAPABILITY_BAR_SIZE - 1);
         assert!(matches!(
             locked_virtio_pci_device.allocate_bars(&mut allocator, None),
             Err(VirtioPciDeviceError::BarAllocation(_))
@@ -1496,8 +1487,8 @@ mod tests {
 
     #[test]
     fn test_bar_address_prefers_the_hint() {
-        let mut allocator = AddressAllocator::new(0xc000_0000, 0x1000_0000).unwrap();
-        let hint = Some(RangeInclusive::new(0xc020_0000, 0xc03f_ffff).unwrap());
+        let mut allocator = AddressAllocator::new(0xc000_0000, 0x1000_0000);
+        let hint = Some(0xc020_0000..=0xc03f_ffff);
 
         // With no hint we take the bottom of the pool.
         assert_eq!(
@@ -1507,7 +1498,7 @@ mod tests {
 
         // A hint is honoured, so the BAR lands at its base.
         assert_eq!(
-            VirtioPciDevice::allocate_bar_address(&mut allocator, hint).unwrap(),
+            VirtioPciDevice::allocate_bar_address(&mut allocator, hint.clone()).unwrap(),
             0xc020_0000
         );
 
@@ -1520,11 +1511,8 @@ mod tests {
 
         // A hint too small to hold the BAR is ignored.
         assert_ne!(
-            VirtioPciDevice::allocate_bar_address(
-                &mut allocator,
-                Some(RangeInclusive::new(0xc100_0000, 0xc100_ffff).unwrap())
-            )
-            .unwrap(),
+            VirtioPciDevice::allocate_bar_address(&mut allocator, Some(0xc100_0000..=0xc100_ffff))
+                .unwrap(),
             0xc100_0000
         );
     }
@@ -1547,7 +1535,7 @@ mod tests {
         device.write_config_register(COMMAND_REG, 0, &command.to_le_bytes());
     }
 
-    fn allocate_bar_range(vmm: &Vmm, base: u64) -> Result<RangeInclusive, vm_allocator::Error> {
+    fn allocate_bar_range(vmm: &Vmm, base: u64) -> Result<u64, AllocatorError> {
         kvm_vm(vmm).resource_allocator().mmio32_memory.allocate(
             CAPABILITY_BAR_SIZE,
             CAPABILITY_BAR_SIZE,

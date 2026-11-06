@@ -3,7 +3,6 @@
 
 use acpi_tables::fadt::{FADT_F_HW_REDUCED_ACPI, FADT_F_PWR_BUTTON, FADT_F_SLP_BUTTON};
 use acpi_tables::{Dsdt, Fadt, Madt, Mcfg, Rsdp, Sdt, Xsdt, aml};
-use vm_allocator::AllocPolicy;
 
 use crate::Vcpu;
 use crate::acpi::x86_64::{
@@ -12,6 +11,7 @@ use crate::acpi::x86_64::{
 use crate::arch::x86_64::layout;
 use crate::device_manager::DeviceManager;
 use crate::logger::{debug, error};
+use crate::vstate::address_allocator::{AllocPolicy, AllocatorError};
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 use crate::vstate::resources::ResourceAllocator;
 
@@ -34,7 +34,7 @@ const HYPERVISOR_VENDOR_ID: [u8; 8] = *b"FIRECKVM";
 /// Error type for ACPI related operations
 pub enum AcpiError {
     /// Could not allocate resources: {0}
-    VmAllocator(#[from] vm_allocator::Error),
+    VmAllocator(#[from] AllocatorError),
     /// ACPI tables error: {0}
     AcpiTables(#[from] acpi_tables::AcpiError),
     /// Error creating AML bytecode: {0}
@@ -60,10 +60,11 @@ impl AcpiTableWriter<'_> {
     where
         S: Sdt,
     {
-        let addr = resource_allocator
-            .system_memory
-            .allocate(table.len().try_into().unwrap(), 1, AllocPolicy::FirstMatch)?
-            .start();
+        let addr = resource_allocator.system_memory.allocate(
+            table.len().try_into().unwrap(),
+            1,
+            AllocPolicy::FirstMatch,
+        )?;
 
         table
             .write_to_guest(self.mem, GuestAddress(addr))
@@ -220,6 +221,7 @@ mod tests {
     use crate::arch::x86_64::layout::{SYSTEM_MEM_SIZE, SYSTEM_MEM_START};
     use crate::builder::tests::default_vmm;
     use crate::utils::u64_to_usize;
+    use crate::vstate::address_allocator::AllocatorError;
     use crate::vstate::resources::ResourceAllocator;
     use crate::vstate::vm::tests::setup_vm_with_memory;
 
@@ -267,7 +269,7 @@ mod tests {
         assert!(
             matches!(
                 err,
-                AcpiError::VmAllocator(vm_allocator::Error::ResourceNotAvailable)
+                AcpiError::VmAllocator(AllocatorError::ResourceNotAvailable)
             ),
             "{:?}",
             err

@@ -33,6 +33,7 @@ use crate::pci::PciSBDF;
 use crate::pci::msix::MsixTableEntry;
 use crate::persist::CreateSnapshotError;
 use crate::vmm_config::snapshot::SnapshotType;
+use crate::vstate::address_allocator::AllocatorError;
 use crate::vstate::bus::Bus;
 use crate::vstate::interrupts::{InterruptError, MsixVector, MsixVectorGroup};
 use crate::vstate::kvm::Kvm;
@@ -113,7 +114,7 @@ pub enum VmError {
     /// Error calling mincore: {0}
     Mincore(vmm_sys_util::errno::Error),
     /// ResourceAllocator error: {0}
-    ResourceAllocator(#[from] vm_allocator::Error),
+    ResourceAllocator(#[from] AllocatorError),
     /// MemoryError error: {0}
     MemoryError(#[from] MemoryError),
 }
@@ -1217,7 +1218,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_restore_state_resource_allocator() {
-        use vm_allocator::AllocPolicy;
+        use crate::vstate::address_allocator::AllocPolicy;
 
         let mut vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
@@ -1231,7 +1232,7 @@ pub(crate) mod tests {
                 .mmio32_memory
                 .allocate(1024, 1024, AllocPolicy::FirstMatch)
                 .unwrap();
-            (gsi, range.start())
+            (gsi, range)
         };
 
         let state = vm.save_state().unwrap();
@@ -1257,6 +1258,6 @@ pub(crate) mod tests {
             .mmio32_memory
             .allocate(1024, 1024, AllocPolicy::FirstMatch)
             .unwrap();
-        assert_eq!(range + 1024, range_new.start());
+        assert_eq!(range + 1024, range_new);
     }
 }

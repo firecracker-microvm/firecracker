@@ -13,7 +13,6 @@ use std::sync::{Arc, Mutex};
 
 #[cfg(target_arch = "x86_64")]
 use acpi_tables::{Aml, aml};
-use vm_allocator::AllocPolicy;
 
 use crate::arch::PCI_MMCONFIG_START;
 use crate::device_manager::pci_mngr::PciManagerError;
@@ -27,6 +26,7 @@ use crate::pci::bus::{PCI_CONFIG_IO_PORT, PCI_CONFIG_IO_PORT_SIZE, PciConfigIo};
 use crate::pci::bus::{
     PCI_MMIO_CONFIG_SIZE_PER_SEGMENT, PciBusError, PciBuses, PciConfigMmio, PciHostBridge,
 };
+use crate::vstate::address_allocator::AllocPolicy;
 use crate::vstate::vm::KvmVm;
 
 pub struct PciSegment {
@@ -100,11 +100,11 @@ impl PciSegment {
 
         let resource_allocator = vm.resource_allocator();
 
-        let start_of_mem32_area = resource_allocator.mmio32_memory.base();
-        let end_of_mem32_area = resource_allocator.mmio32_memory.end();
+        let start_of_mem32_area = resource_allocator.mmio32_memory.base;
+        let end_of_mem32_area = resource_allocator.mmio32_memory.end;
 
-        let start_of_mem64_area = resource_allocator.mmio64_memory.base();
-        let end_of_mem64_area = resource_allocator.mmio64_memory.end();
+        let start_of_mem64_area = resource_allocator.mmio64_memory.base;
+        let end_of_mem64_area = resource_allocator.mmio64_memory.end;
 
         let segment = PciSegment {
             id,
@@ -195,15 +195,11 @@ impl PciSegment {
 
             let msix_vectors = Arc::new(KvmVm::create_msix_group(vm.clone(), 1)?);
 
-            let msix_bar_addr = vm
-                .resource_allocator()
-                .mmio32_memory
-                .allocate(
-                    ROOT_PORT_MSIX_BAR_SIZE,
-                    ROOT_PORT_MSIX_BAR_SIZE,
-                    AllocPolicy::FirstMatch,
-                )?
-                .start();
+            let msix_bar_addr = vm.resource_allocator().mmio32_memory.allocate(
+                ROOT_PORT_MSIX_BAR_SIZE,
+                ROOT_PORT_MSIX_BAR_SIZE,
+                AllocPolicy::FirstMatch,
+            )?;
 
             let root_port = Arc::new(Mutex::new(PciRootPort::new(
                 sbdf,

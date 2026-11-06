@@ -3,13 +3,12 @@
 
 //! Emulation of a PCI Express root port with native hot-plug support.
 
+use std::ops::RangeInclusive;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 
 use serde::{Deserialize, Serialize};
-use vm_allocator::RangeInclusive;
 use vmm_sys_util::eventfd::EventFd;
-
 use zerocopy::IntoBytes;
 
 use crate::logger::{error, warn};
@@ -243,13 +242,13 @@ impl PciRootPort {
 
     /// Return the non-prefetchable memory window the guest programmed for this
     /// port, or `None` if the window is disabled (base > limit).
-    pub fn nonpref_memory_window(&self) -> Option<RangeInclusive> {
+    pub fn nonpref_memory_window(&self) -> Option<RangeInclusive<u64>> {
         const MEMORY_WINDOW_REG: u16 = 8;
 
         let reg = self.configuration.read_reg(MEMORY_WINDOW_REG);
         let base = u64::from(reg & 0xfff0) << 16;
         let limit = (u64::from((reg >> 16) & 0xfff0) << 16) | 0xf_ffff;
-        RangeInclusive::new(base, limit).ok()
+        (base <= limit).then_some(base..=limit)
     }
 
     fn slot_reg_idx(&self) -> u16 {
