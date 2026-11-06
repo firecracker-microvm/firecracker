@@ -581,6 +581,22 @@ impl<'a> Persist<'a> for PciDevices {
 
         let mut pci_devices = PciDevices::new(constructor_args.vm, hotplug_ports)?;
 
+        // Each pmem device registers a memslot, which must precede every ioeventfd
+        // registration below, see `KvmVm::create_vcpus`.
+        let pmem_devices = state
+            .pmem_devices
+            .iter()
+            .map(|pmem_state| {
+                Pmem::restore(
+                    PmemConstructorArgs {
+                        mem,
+                        vm: constructor_args.vm.clone(),
+                    },
+                    &pmem_state.device_state,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
         // Root ports first: a device that was behind one is restored
         // onto that port's secondary bus, which has to exist by then.
         pci_devices
@@ -727,14 +743,8 @@ impl<'a> Persist<'a> for PciDevices {
             )?
         }
 
-        for pmem_state in &state.pmem_devices {
-            let device = Arc::new(Mutex::new(Pmem::restore(
-                PmemConstructorArgs {
-                    mem,
-                    vm: constructor_args.vm.clone(),
-                },
-                &pmem_state.device_state,
-            )?));
+        for (pmem_state, pmem) in state.pmem_devices.iter().zip(pmem_devices) {
+            let device = Arc::new(Mutex::new(pmem));
 
             constructor_args
                 .vm_resources

@@ -54,7 +54,6 @@ use crate::vmm_config::boot_source::{
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError};
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
-use crate::vmm_config::pmem::PmemConfig;
 use crate::vstate::kvm::{Kvm, KvmError};
 use crate::vstate::memory::GuestRegionMmap;
 #[cfg(target_arch = "aarch64")]
@@ -204,7 +203,6 @@ pub fn build_microvm_for_boot(
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm)?;
-    let mut vcpus = vm.create_vcpus(vcpu_count)?;
     vm.register_dram_memory_regions(guest_memory)?;
 
     // Allocate memory as soon as possible to make hotpluggable memory available to all consumers,
@@ -229,6 +227,16 @@ pub fn build_microvm_for_boot(
 
     let kvm_vm = Arc::new(vm);
     let vm = Vm::Kvm(kvm_vm.clone());
+
+    let pmem_devices = vm_resources
+        .pmem
+        .configs
+        .iter()
+        .map(|config| Pmem::new(kvm_vm.clone(), config.clone()))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // All memslots are registered by now, see `create_vcpus`.
+    let mut vcpus = kvm_vm.create_vcpus(vcpu_count)?;
 
     let mut device_manager = DeviceManager::new(
         event_manager,
@@ -284,7 +292,7 @@ pub fn build_microvm_for_boot(
         &mut device_manager,
         &vm,
         &mut boot_cmdline,
-        &vm_resources.pmem.configs,
+        pmem_devices,
         event_manager,
     )?;
 
@@ -515,11 +523,12 @@ pub fn build_microvm_from_snapshot(
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm).map_err(StartMicrovmError::KvmVm)?;
 
-    let mut vcpus = vm
-        .create_vcpus(vcpu_count)
+    vm.restore_memory_regions(guest_memory, &microvm_state.vm_state.memory)
         .map_err(StartMicrovmError::KvmVm)?;
 
-    vm.restore_memory_regions(guest_memory, &microvm_state.vm_state.memory)
+    // All memslots are registered by now, see `create_vcpus`.
+    let mut vcpus = vm
+        .create_vcpus(vcpu_count)
         .map_err(StartMicrovmError::KvmVm)?;
 
     #[cfg(target_arch = "x86_64")]
@@ -800,20 +809,18 @@ fn attach_pmem_devices(
     device_manager: &mut DeviceManager,
     vm: &Vm,
     cmdline: &mut LoaderKernelCmdline,
-    configs: &[PmemConfig],
+    devices: Vec<Pmem>,
     event_manager: &mut EventManager,
 ) -> Result<(), StartMicrovmError> {
-    let kvm_vm = vm.as_kvm().ok_or(AttachDeviceError::NotSupported)?;
-    for (i, config) in configs.iter().enumerate() {
-        if config.root_device {
+    for (i, pmem) in devices.into_iter().enumerate() {
+        if pmem.config.root_device {
             cmdline.insert_str(format!("root=/dev/pmem{i}"))?;
-            match config.read_only {
+            match pmem.config.read_only {
                 true => cmdline.insert_str("ro")?,
                 false => cmdline.insert_str("rw")?,
             }
         }
-        let id = config.id.clone();
-        let pmem = Pmem::new(kvm_vm.clone(), config.clone())?;
+        let id = pmem.config.id.clone();
         let device = Arc::new(Mutex::new(pmem));
 
         device_manager.attach_boot_virtio_device(vm, id, device, cmdline, event_manager, false)?;
@@ -939,7 +946,7 @@ pub(crate) mod tests {
             &[5_000_000_000, 5_000_000_000][..],
         ] {
             let count = u8::try_from(offsets.len()).unwrap();
-            let mut source_vm = setup_vm_with_memory(0x1000);
+            let source_vm = setup_vm_with_memory(0x1000);
             let source_vcpus = source_vm.create_vcpus(count).unwrap();
             if !source_vcpus[0].kvm_vcpu.supports_tsc_offset_attr() {
                 eprintln!("Skipping TSC offset synchronization: KVM attribute unavailable");
@@ -996,7 +1003,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_vmm() -> Vmm {
-        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
 
         let _ = vm.create_vcpus(1).unwrap();
 
@@ -1015,7 +1022,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_vmm_with_pci_ports(hotplug_ports: u8) -> Vmm {
-        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
 
         let _ = vm.create_vcpus(1).unwrap();
 
@@ -1211,11 +1218,17 @@ pub(crate) mod tests {
             builder.build(config, false).unwrap();
         }
 
+        let kvm_vm = vmm.vm.as_kvm().unwrap();
+        let devices = builder
+            .configs
+            .iter()
+            .map(|config| Pmem::new(kvm_vm.clone(), config.clone()).unwrap())
+            .collect();
         attach_pmem_devices(
             &mut vmm.device_manager,
             &vmm.vm,
             cmdline,
-            &builder.configs,
+            devices,
             event_manager,
         )
         .unwrap();

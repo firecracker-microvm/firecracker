@@ -114,13 +114,13 @@ impl KvmVm {
     }
 
     /// Pre-vCPU creation setup.
-    pub fn arch_pre_create_vcpus(&mut self, _: u8) -> Result<(), KvmVmError> {
+    pub fn arch_pre_create_vcpus(&self, _: u8) -> Result<(), KvmVmError> {
         // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
         self.setup_irqchip()
     }
 
     /// Post-vCPU creation setup.
-    pub fn arch_post_create_vcpus(&mut self, _: u8) -> Result<(), KvmVmError> {
+    pub fn arch_post_create_vcpus(&self, _: u8) -> Result<(), KvmVmError> {
         Ok(())
     }
 
