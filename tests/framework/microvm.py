@@ -1110,8 +1110,13 @@ class Microvm:
         *,
         huge_pages: Optional[HugePagesConfig] = None,
         uffd_handler_name: str = None,
+        track_dirty_pages: Optional[bool] = None,
     ):
-        """Restore a snapshot"""
+        """Restore a snapshot
+
+        If ``track_dirty_pages`` is left as ``None``, dirty page tracking is
+        enabled only for snapshot types that need it (``SnapshotType.DIFF``).
+        """
         self.backend.require_restore_support()
 
         jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
@@ -1185,10 +1190,13 @@ class Microvm:
         if huge_pages is not None:
             optional_kwargs["huge_pages"] = huge_pages
 
+        if track_dirty_pages is None:
+            track_dirty_pages = jailed_snapshot.snapshot_type.needs_dirty_page_tracking
+
         self.api.snapshot_load.put(
             mem_backend=mem_backend,
             snapshot_path=str(jailed_vmstate),
-            enable_diff_snapshots=jailed_snapshot.snapshot_type.needs_dirty_page_tracking,
+            track_dirty_pages=track_dirty_pages,
             resume_vm=resume,
             **optional_kwargs,
         )
@@ -1397,22 +1405,16 @@ class MicroVMFactory:
             vm.ssh_key = ssh_key
         return vm
 
-    def build_from_snapshot(
-        self, snapshot: Snapshot, uffd_handler_name=None, clock_realtime=False
-    ):
+    def build_from_snapshot(self, snapshot: Snapshot, **restore_kwargs):
         """Build a microvm from a snapshot
 
+        Extra keyword arguments are forwarded to `Microvm.restore_from_snapshot`.
         Backends that cannot restore raise here before anything is spawned.
         """
         self.backend.require_restore_support()
         vm = self.build()
         vm.spawn()
-        vm.restore_from_snapshot(
-            snapshot,
-            resume=True,
-            uffd_handler_name=uffd_handler_name,
-            clock_realtime=clock_realtime,
-        )
+        vm.restore_from_snapshot(snapshot, resume=True, **restore_kwargs)
         return vm
 
     def build_booted(
@@ -1450,13 +1452,15 @@ class MicroVMFactory:
         current_snapshot,
         nr_vms,
         *,
-        uffd_handler_name=None,
         incremental=False,
         use_snapshot_editor=True,
         no_netns_reuse=False,
+        **restore_kwargs,
     ):
         """A generator of `n` microvms restored, either all restored from the same given snapshot
         (incremental=False), or created by taking successive snapshots of restored VMs
+
+        Extra keyword arguments are forwarded to `Microvm.restore_from_snapshot`.
         """
         self.backend.require_restore_support()
 
@@ -1472,7 +1476,7 @@ class MicroVMFactory:
             microvm.spawn()
 
             snapshot_copy = microvm.restore_from_snapshot(
-                current_snapshot, resume=True, uffd_handler_name=uffd_handler_name
+                current_snapshot, resume=True, **restore_kwargs
             )
 
             yield microvm
