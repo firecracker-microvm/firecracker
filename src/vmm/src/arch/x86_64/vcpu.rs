@@ -1216,6 +1216,16 @@ pub(crate) mod tests {
         );
     }
 
+    #[test]
+    fn test_exception_payload_enabled() {
+        // Test that KVM_CAP_EXCEPTION_PAYLOAD is enabled. Otherwise, KVM_SET_VCPU_EVENTS fails
+        // with KVM_VCPUEVENT_VALID_PAYLOAD set.
+        let (_vm, vcpu) = setup_vcpu(0x1000);
+        let mut events = vcpu.fd.get_vcpu_events().unwrap();
+        events.flags |= kvm_bindings::KVM_VCPUEVENT_VALID_PAYLOAD;
+        vcpu.fd.set_vcpu_events(&events).unwrap();
+    }
+
     /// Runs the vCPU until the next exit and returns the port if it is a PIO write.
     fn run_to_pio_write(vcpu: &mut KvmVcpu) -> Option<u16> {
         match vcpu.fd.run().unwrap() {
