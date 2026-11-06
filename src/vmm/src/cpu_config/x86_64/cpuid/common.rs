@@ -3,11 +3,21 @@
 #![allow(clippy::restriction)]
 
 use crate::arch::x86_64::generated::msr_index::{
-    MSR_IA32_BNDCFGS, MSR_IA32_CR_PAT, MSR_MTRRdefType, MSR_MTRRfix4K_C0000, MSR_MTRRfix4K_C8000,
+    MSR_IA32_BNDCFGS, MSR_IA32_CR_PAT, MSR_IA32_VMX_BASIC, MSR_IA32_VMX_CR0_FIXED0,
+    MSR_IA32_VMX_CR4_FIXED0, MSR_IA32_VMX_EPT_VPID_CAP, MSR_IA32_VMX_MISC,
+    MSR_IA32_VMX_PROCBASED_CTLS2, MSR_IA32_VMX_TRUE_ENTRY_CTLS, MSR_IA32_VMX_TRUE_EXIT_CTLS,
+    MSR_IA32_VMX_TRUE_PINBASED_CTLS, MSR_IA32_VMX_TRUE_PROCBASED_CTLS, MSR_IA32_VMX_VMCS_ENUM,
+    MSR_IA32_VMX_VMFUNC, MSR_MTRRdefType, MSR_MTRRfix4K_C0000, MSR_MTRRfix4K_C8000,
     MSR_MTRRfix4K_D0000, MSR_MTRRfix4K_D8000, MSR_MTRRfix4K_E0000, MSR_MTRRfix4K_E8000,
     MSR_MTRRfix4K_F0000, MSR_MTRRfix4K_F8000, MSR_MTRRfix16K_80000, MSR_MTRRfix16K_A0000,
-    MSR_MTRRfix64K_00000,
+    MSR_MTRRfix64K_00000, MSR_VM_HSAVE_PA,
 };
+
+/// Virtual Machine Extensions
+const VMX_BITINDEX: u32 = 5;
+
+/// Secure Virtual Machine
+const SVM_BITINDEX: u32 = 2;
 
 /// Error type for [`get_cpuid`].
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
@@ -137,6 +147,33 @@ pub(crate) fn msrs_to_save_by_cpuid(cpuid: &kvm_bindings::CpuId) -> Vec<u32> {
     // The number of emulated MCE banks can be configured via KVM_X86_SETUP_MCE.
     cpuid_msr_dep!(0x1, 0, edx, MCE_BITINDEX, 0x400..0x480);
 
+    // VMX capability MSRs, so that a restored guest keeps the nested VMX features it saw at boot
+    // rather than those the restoring host offers. Only the ones KVM lets userspace write are
+    // listed (see `vmx_set_vmx_msr()`); the others are derived from these and from CPUID.
+    cpuid_msr_dep!(
+        0x1,
+        0,
+        ecx,
+        VMX_BITINDEX,
+        [
+            MSR_IA32_VMX_BASIC,
+            MSR_IA32_VMX_TRUE_PINBASED_CTLS,
+            MSR_IA32_VMX_TRUE_PROCBASED_CTLS,
+            MSR_IA32_VMX_TRUE_EXIT_CTLS,
+            MSR_IA32_VMX_TRUE_ENTRY_CTLS,
+            MSR_IA32_VMX_MISC,
+            MSR_IA32_VMX_CR0_FIXED0,
+            MSR_IA32_VMX_CR4_FIXED0,
+            MSR_IA32_VMX_VMCS_ENUM,
+            MSR_IA32_VMX_PROCBASED_CTLS2,
+            MSR_IA32_VMX_EPT_VPID_CAP,
+            MSR_IA32_VMX_VMFUNC,
+        ]
+    );
+
+    // Host save area of a nested hypervisor using SVM.
+    cpuid_msr_dep!(0x8000_0001, 0, ecx, SVM_BITINDEX, [MSR_VM_HSAVE_PA]);
+
     msrs
 }
 
@@ -158,5 +195,27 @@ mod tests {
             get_cpuid(max_leaf_plus_one, 0),
             Err(GetCpuidError::UnsupportedLeaf(max_leaf_plus_one))
         );
+    }
+
+    #[test]
+    fn test_msrs_to_save_by_cpuid_nested_virt() {
+        let cpuid = |function, ecx| {
+            kvm_bindings::CpuId::from_entries(&[kvm_bindings::kvm_cpuid_entry2 {
+                function,
+                ecx,
+                ..Default::default()
+            }])
+            .unwrap()
+        };
+
+        let msrs = msrs_to_save_by_cpuid(&cpuid(0x1, 0));
+        assert!(!msrs.contains(&MSR_IA32_VMX_BASIC));
+
+        let msrs = msrs_to_save_by_cpuid(&cpuid(0x1, 1 << VMX_BITINDEX));
+        assert!(msrs.contains(&MSR_IA32_VMX_BASIC));
+        assert!(msrs.contains(&MSR_IA32_VMX_VMFUNC));
+
+        let msrs = msrs_to_save_by_cpuid(&cpuid(0x8000_0001, 1 << SVM_BITINDEX));
+        assert_eq!(msrs, vec![MSR_VM_HSAVE_PA]);
     }
 }
