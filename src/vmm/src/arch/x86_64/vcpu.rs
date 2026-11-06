@@ -737,7 +737,7 @@ impl KvmVcpu {
     }
 
     /// Use provided state to populate KVM internal state.
-    pub fn restore_state(&self, state: &VcpuState) -> Result<(), KvmVcpuError> {
+    pub fn restore_state(&mut self, state: &VcpuState) -> Result<(), KvmVcpuError> {
         // Ordering requirements:
         //
         // KVM_GET_VCPU_EVENTS/KVM_SET_VCPU_EVENTS is unsafe if other vCPUs are
@@ -800,6 +800,14 @@ impl KvmVcpu {
         self.fd
             .set_vcpu_events(&state.vcpu_events)
             .map_err(KvmVcpuError::VcpuSetVcpuEvents)?;
+
+        // Only the boot path adds the MSRs inferred from CPUID or set by a CPU template, so
+        // carry over the snapshot's list to save the same MSRs in the next snapshot.
+        self.msrs_to_save = state
+            .saved_msrs
+            .iter()
+            .flat_map(|msrs| msrs.as_slice().iter().map(|msr| msr.index))
+            .collect();
 
         self.kvmclock_ctrl();
         Ok(())
@@ -1098,7 +1106,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_cpuid_restore() {
-        let (vm, vcpu) = setup_vcpu(0x10000);
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
         vcpu.fd.set_cpuid2(&vm.kvm().supported_cpuid).unwrap();
 
         // Mutate the CPUID.
@@ -1116,7 +1124,7 @@ pub(crate) mod tests {
         drop(vcpu);
 
         // Restore the state into a new vcpu.
-        let (_vm, vcpu) = setup_vcpu(0x10000);
+        let (_vm, mut vcpu) = setup_vcpu(0x10000);
         let result2 = vcpu.restore_state(&state);
         assert!(result2.is_ok(), "{}", result2.unwrap_err());
 
@@ -1131,6 +1139,40 @@ pub(crate) mod tests {
             })
             .unwrap();
         assert!(leaf3.result.eax == 0x1234_5678);
+    }
+
+    #[test]
+    fn test_restore_state_keeps_msrs_to_save() {
+        // Test that a restored vCPU saves the same MSRs as the vCPU it was restored from,
+        // including the ones the boot path inferred from CPUID.
+        let saved_msrs = |state: &VcpuState| -> Vec<u32> {
+            state
+                .saved_msrs
+                .iter()
+                .flat_map(|msrs| msrs.as_slice().iter().map(|msr| msr.index))
+                .collect()
+        };
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
+        configure_vcpu(
+            &vm,
+            &mut vcpu,
+            &CustomCpuTemplate::default(),
+            EntryPoint {
+                entry_addr: GuestAddress(0),
+                protocol: BootProtocol::LinuxBoot,
+                setup_header: None,
+            },
+        )
+        .unwrap();
+        let state = vcpu.save_state().unwrap();
+
+        let (_vm, mut restored) = setup_vcpu(0x10000);
+        assert!(restored.msrs_to_save.len() < vcpu.msrs_to_save.len());
+        restored.restore_state(&state).unwrap();
+        assert_eq!(
+            saved_msrs(&restored.save_state().unwrap()),
+            saved_msrs(&state)
+        );
     }
 
     #[test]
