@@ -64,9 +64,10 @@ started, the hotpluggable region will be completely unplugged.
   better performance but less granularity (harder for the guest to unplug).
 
 - `slot_size_mib` (optional, default: 128): The size of KVM memory slots in MiB.
-  Must be at least 128 MiB and a multiple of `block_size_mib`. Larger slot sizes
-  improve performance for large memory operations but reduce unplugging
-  protection efficiency.
+  Must be at least 128 MiB and a multiple of `block_size_mib`. On hosts with
+  pages larger than 32 KiB, it must also be a multiple of 64 host pages (4 MiB
+  with 64 KiB pages). Larger slot sizes improve performance for large memory
+  operations but reduce unplugging protection efficiency.
 
 It is recommended to leave these values to the default unless strict memory
 protection is required, in which case `block_size_mib` should be equal to

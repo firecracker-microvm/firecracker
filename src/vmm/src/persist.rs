@@ -194,7 +194,7 @@ pub fn create_snapshot(
     // when asked, to keep the data path free of contention on the bitmap.
     vmm.device_manager.commit_dirty();
 
-    kvm_vm.snapshot_memory_to_file(
+    kvm_vm.snapshot_memory_to_path(
         &params.mem_file_path,
         params.snapshot_type,
         params.sync_snapshot_files,
