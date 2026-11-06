@@ -900,8 +900,8 @@ pub(crate) mod tests {
                 .collect();
 
             let mut vm = setup_vm_with_memory(0x1000);
-            let vcpus = vm.create_vcpus(count).unwrap();
-            for ((vcpu, state), &offset) in vcpus.iter().zip(&states).zip(offsets) {
+            let mut vcpus = vm.create_vcpus(count).unwrap();
+            for ((vcpu, state), &offset) in vcpus.iter_mut().zip(&states).zip(offsets) {
                 vcpu.kvm_vcpu.restore_state(state).unwrap();
                 // Establish exact offsets without depending on KVM's MSR-write heuristics.
                 vcpu.kvm_vcpu.set_tsc_offset(offset).unwrap();
