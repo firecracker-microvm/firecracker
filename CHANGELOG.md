@@ -96,6 +96,13 @@ and this project adheres to
 
 ### Fixed
 
+- [#6397](https://github.com/firecracker-microvm/firecracker/pull/6397): Fixed
+  snapshot restore of x86_64 guests that use nested virtualization. When the
+  guest CPUID offers VMX or SVM, snapshots now include the vCPU's nested state
+  and the VMX capability MSRs, so a restored guest no longer faults on its next
+  VMX/SVM instruction. Snapshots of a restored microVM now also include the MSRs
+  inferred from CPUID or set by a CPU template, which were previously left out.
+
 - [#6302](https://github.com/firecracker-microvm/firecracker/issues/6302): Fixed
   AMX tile state being lost after a snapshot restore. The IA32_XFD and
   IA32_XFD_ERR MSRs are now saved in snapshots. Without them a restored guest

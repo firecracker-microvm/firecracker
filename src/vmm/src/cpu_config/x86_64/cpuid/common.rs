@@ -19,6 +19,16 @@ const VMX_BITINDEX: u32 = 5;
 /// Secure Virtual Machine
 const SVM_BITINDEX: u32 = 2;
 
+/// Returns whether the CPUID offers VMX or SVM, i.e. lets the guest run nested guests.
+pub(crate) fn cpuid_has_nested_virt(cpuid: &kvm_bindings::CpuId) -> bool {
+    cpuid.as_slice().iter().any(|entry| {
+        (entry.function == 0x1 && entry.index == 0 && entry.ecx & (1 << VMX_BITINDEX) != 0)
+            || (entry.function == 0x8000_0001
+                && entry.index == 0
+                && entry.ecx & (1 << SVM_BITINDEX) != 0)
+    })
+}
+
 /// Error type for [`get_cpuid`].
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum GetCpuidError {

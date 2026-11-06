@@ -1605,6 +1605,18 @@
                         "index": 1,
                         "type": "dword",
                         "op": "eq",
+                        "val": 3229658814,
+                        "comment": "KVM_GET_NESTED_STATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
                         "val": 44707,
                         "comment": "KVM_GET_TSC_KHZ"
                     }
