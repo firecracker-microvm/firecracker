@@ -162,6 +162,11 @@ the feature can be combined with guest_memfd support in Firecracker.
   This is to guarantee that the vCPU will continue receiving TSC interrupts
   after restoring from the snapshot even if an interrupt is lost when taking a
   snapshot.
+- On x86_64, if the guest CPUID offers VMX or SVM, the snapshot includes the
+  vCPU's nested virtualization state, so a guest running nested guests keeps
+  running them after restoring from the snapshot. Without a
+  [CPU template](../cpu_templates/cpu-templates.md), guests see VMX or SVM when
+  the host allows nested virtualization; the static CPU templates hide them.
 
 ## Snapshot versioning
 
