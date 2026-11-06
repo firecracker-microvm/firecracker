@@ -17,10 +17,16 @@ start providing the feature by mistake.
 """
 
 from framework.artifacts import pin_pci
-from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
+from framework.utils_cpu_templates import (
+    CUSTOM_CPU_TEMPLATES,
+    STATIC_CPU_TEMPLATES,
+    pin_cpu_template,
+)
 
 
-@pin_cpu_template(ALL_CPU_TEMPLATES)
+# Without a CPU template, guests see VMX/SVM if the host allows nested
+# virtualization (see test_snapshot_nested.py).
+@pin_cpu_template([*STATIC_CPU_TEMPLATES, *CUSTOM_CPU_TEMPLATES])
 # The transport plays no part in what is asserted: guest CPU state.
 @pin_pci(True)
 def test_no_nested_virtualization(uvm_booted):
