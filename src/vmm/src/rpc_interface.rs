@@ -46,6 +46,7 @@ use crate::vmm_config::serial::SerialConfig;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
+use crate::vstate::kvm_stats::{KvmStats, KvmStatsError};
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
@@ -71,6 +72,8 @@ pub enum VmmAction {
     GetBalloonStats,
     /// Get complete microVM configuration in JSON format.
     GetFullVmConfig,
+    /// Get KVM's binary statistics for the VM and each vCPU.
+    GetKvmStats,
     /// Get MMDS contents.
     GetMMDS,
     /// Get the machine configuration of the microVM.
@@ -184,6 +187,8 @@ pub enum VmmActionError {
     MemoryHotplugUpdate(VmmError),
     /// Internal VMM error: {0}
     InternalVmm(#[from] VmmError),
+    /// KVM statistics error: {0}
+    KvmStats(#[from] KvmStatsError),
     /// Load snapshot error: {0}
     LoadSnapshot(#[from] LoadSnapshotError),
     /// Logger error: {0}
@@ -239,6 +244,8 @@ pub enum VmmData {
     Empty,
     /// The complete microVM configuration in JSON format.
     FullVmConfig(VmmConfig),
+    /// KVM's binary statistics for the VM and each vCPU.
+    KvmStats(KvmStats),
     /// The microVM configuration represented by `VmConfig`.
     MachineConfiguration(MachineConfig),
     /// Mmds contents.
@@ -511,6 +518,7 @@ impl<'a> PrebootApiController<'a> {
             | Pause
             | Resume
             | GetBalloonStats
+            | GetKvmStats
             | GetMemoryHotplugStatus
             | UpdateBalloon(_)
             | UpdateBalloonStatistics(_)
@@ -728,6 +736,9 @@ impl RuntimeApiController {
                 .map_err(VmmActionError::InternalVmm),
             GetFullVmConfig => Ok(VmmData::FullVmConfig(
                 self.vmm.lock().expect("Poisoned lock").full_config(),
+            )),
+            GetKvmStats => Ok(VmmData::KvmStats(
+                self.vmm.lock().expect("Poisoned lock").vm.kvm_stats()?,
             )),
             GetMemoryHotplugStatus => self
                 .vmm
@@ -1228,6 +1239,7 @@ mod tests {
         check_unsupported(preboot_request(VmmAction::Pause));
         check_unsupported(preboot_request(VmmAction::Resume));
         check_unsupported(preboot_request(VmmAction::GetBalloonStats));
+        check_unsupported(preboot_request(VmmAction::GetKvmStats));
         check_unsupported(preboot_request(VmmAction::UpdateBalloon(
             BalloonUpdateConfig { amount_mib: 0 },
         )));
@@ -1283,6 +1295,18 @@ mod tests {
             runtime_request(VmmAction::GetVmMachineConfig).unwrap(),
             VmmData::MachineConfiguration(MachineConfig::default())
         );
+    }
+
+    #[test]
+    fn test_runtime_get_kvm_stats() {
+        match runtime_request(VmmAction::GetKvmStats) {
+            Ok(VmmData::KvmStats(stats)) => {
+                assert_eq!(stats.vcpus.len(), 1);
+                assert!(stats.vcpus[0].stats.contains_key("exits"));
+            }
+            Err(VmmActionError::KvmStats(KvmStatsError::Unsupported)) => {}
+            res => panic!("{:?}", res),
+        }
     }
 
     #[test]

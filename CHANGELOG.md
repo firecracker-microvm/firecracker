@@ -41,6 +41,11 @@ and this project adheres to
   exceed the vCPU count. Custom seccomp filters must include the new
   `blk_worker` thread category. See
   [block documentation](docs/block.md#threaded-mode-and-multiqueue).
+- [#6288](https://github.com/firecracker-microvm/firecracker/issues/6288): Added
+  a `GET /vm/kvm-stats` API endpoint that returns KVM's binary statistics
+  (`KVM_GET_STATS_FD`, Linux 5.14 or later) for the VM and each vCPU, with the
+  kind and unit of each, including histograms such as `halt_wait_hist`. See the
+  [metrics documentation](docs/metrics.md#kvm-statistics).
 
 ### Changed
 

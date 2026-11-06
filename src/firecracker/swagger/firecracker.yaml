@@ -972,6 +972,30 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /vm/kvm-stats:
+    get:
+      summary: Returns KVM's binary statistics for the VM and each vCPU. Post-boot only.
+      description:
+        Reads KVM's binary statistics (KVM_GET_STATS_FD) for the VM and each vCPU at the time of
+        the request. Values are running totals since the VM and its vCPUs were created, so they
+        start from zero in a microVM loaded from a snapshot. Needs Linux 5.14 or later; the request
+        fails on older host kernels. The available statistics and their names depend on the host
+        kernel version and architecture.
+      operationId: describeKvmStats
+      responses:
+        200:
+          description: The KVM statistics
+          schema:
+            $ref: "#/definitions/KvmStats"
+        400:
+          description: KVM statistics are not available
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
   /vsock:
     put:
       summary: Creates/updates a vsock device. Pre-boot only.
@@ -1527,6 +1551,88 @@ definitions:
       vmm_version:
         description: MicroVM hypervisor build version.
         type: string
+
+  KvmStats:
+    type: object
+    description:
+      KVM's binary statistics for the VM and each vCPU, by name. The names, kinds and units are
+      those KVM declares, so they depend on the host kernel version and architecture.
+    required:
+      - vm
+      - vcpus
+    properties:
+      vm:
+        type: object
+        description: The VM's statistics, by name.
+        additionalProperties:
+          $ref: "#/definitions/KvmStat"
+      vcpus:
+        type: array
+        items:
+          $ref: "#/definitions/KvmVcpuStats"
+
+  KvmVcpuStats:
+    type: object
+    description: A vCPU's statistics.
+    required:
+      - index
+      - stats
+    properties:
+      index:
+        type: integer
+        description: The vCPU index.
+      stats:
+        type: object
+        description: The vCPU's statistics, by name.
+        additionalProperties:
+          $ref: "#/definitions/KvmStat"
+
+  KvmStat:
+    type: object
+    description:
+      A statistic, with the kind and unit KVM declares for it. The value is in unit scaled by
+      base^exponent; for example, nanoseconds for unit seconds, base 10 and exponent -9.
+    required:
+      - type
+      - value
+    properties:
+      type:
+        type: string
+        description:
+          The kind of statistic. cumulative only increases; instant can increase or decrease; peak
+          is the highest value seen. A linear-histogram's bucket i counts values in
+          [i * bucket_size, (i + 1) * bucket_size); a log2-histogram's bucket 0 counts zeros and
+          bucket i counts values in [2^(i-1), 2^i).
+        enum:
+          - cumulative
+          - instant
+          - peak
+          - linear-histogram
+          - log2-histogram
+      unit:
+        type: string
+        description: The unit. Absent for a plain count. A boolean value is 0 or 1.
+        enum:
+          - bytes
+          - seconds
+          - cycles
+          - boolean
+      base:
+        type: integer
+        description: The base of the unit's multiple. Present when exponent is not 0.
+        enum:
+          - 2
+          - 10
+      exponent:
+        type: integer
+        description: The exponent of the unit's multiple. Absent when 0.
+      bucket_size:
+        type: integer
+        description: The width of each bucket. Present for linear-histogram statistics.
+      value:
+        description:
+          The value. An integer for cumulative, instant and peak statistics; an array of integer
+          bucket counts for histograms.
 
   Logger:
     type: object
