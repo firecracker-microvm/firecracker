@@ -55,6 +55,15 @@ perf_test = {
         # Additionally, unplugging memory is dependent on how exactly it's being used, so some volatility is expected.
         "ab_opts": "--absolute-strength 0.005 --noise-threshold hotunplug_total_time=0.1",
     },
+    "device-hotplug": {
+        "label": "device-hotplug",
+        "tests": "integration_tests/performance/test_hotplug_device.py",
+        "devtool_opts": "-c 1-10 -m 0",
+        "ab_opts": (
+            "--absolute-strength plug_total_time=10"
+            " --absolute-strength plug_rescan_total_time=5"
+        ),
+    },
     "snapshot-latency": {
         "label": "snapshot-latency",
         "tests": "integration_tests/performance/test_snapshot.py::test_restore_latency integration_tests/performance/test_snapshot.py::test_post_restore_latency integration_tests/performance/test_snapshot.py::test_snapshot_create_latency",
