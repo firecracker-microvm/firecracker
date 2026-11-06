@@ -75,3 +75,49 @@ def test_transparent_huge_pages_allocation(uvm, huge_pages):
         assert (
             anon_huge_kb == 0
         ), f"Expected AnonHugePages == 0 with huge pages None, got {anon_huge_kb} kB"
+
+
+@pytest.mark.parametrize(
+    "restore_huge_pages", [HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT]
+)
+def test_transparent_huge_pages_after_file_restore(
+    uvm, microvm_factory, restore_huge_pages
+):
+    """
+    Test that after restoring from a sparse memory file, the guest's writes to
+    memory that was a hole in the file are backed by transparent huge pages
+    when the restore asks for them, and not otherwise.
+    """
+    if get_host_thp_setting() not in {"madvise", "always"}:
+        pytest.skip("THP must be enabled on the host (madvise or always)")
+
+    vm = uvm
+    vm.spawn()
+    vm.basic_config(vcpu_count=2, mem_size_mib=512)
+    vm.add_net_iface()
+    vm.start()
+    snapshot = vm.snapshot_full()
+    vm.kill()
+
+    # A full snapshot writes zero pages out too. Turn them back into holes, as
+    # a sparse copy of the file would.
+    utils.check_output(f"fallocate --dig-holes {snapshot.mem}")
+
+    # The remap splits guest memory into several mappings, and the memory
+    # monitor counts any mapping smaller than guest memory as VMM overhead.
+    restored_vm = microvm_factory.build(monitor_memory=False)
+    restored_vm.spawn()
+    restored_vm.restore_from_snapshot(
+        snapshot, resume=True, huge_pages=restore_huge_pages
+    )
+    restored_vm.ssh.check_output("python3 -c 'x = bytearray(128 * 1024 * 1024)'")
+
+    anon_huge_kb = get_anon_huge_pages_kb(restored_vm.firecracker_pid)
+    if restore_huge_pages == HugePagesConfig.TRANSPARENT:
+        assert (
+            anon_huge_kb > 64 * 1024
+        ), f"Expected AnonHugePages > 64 MiB after a Transparent restore, got {anon_huge_kb} kB"
+    else:
+        assert (
+            anon_huge_kb == 0
+        ), f"Expected AnonHugePages == 0 after a None restore, got {anon_huge_kb} kB"
