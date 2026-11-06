@@ -1910,7 +1910,8 @@ def test_negative_snapshot_load_api(microvm_factory):
 
     # API request with invalid `backend_type` should fail.
     with pytest.raises(
-        RuntimeError, match="unknown variant `foo`, expected `File` or `Uffd`"
+        RuntimeError,
+        match="unknown variant `foo`, expected one of `File`, `Uffd`, `SharedMemfd`",
     ):
         vm.api.snapshot_load.put(
             snapshot_path="foo",

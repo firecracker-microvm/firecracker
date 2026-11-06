@@ -29,7 +29,7 @@ use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 /// E.g. Guest memory contents for a region of `size` bytes can be found in the backend
 /// at `offset` bytes from the beginning, and should be copied/populated into `base_host_address`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct GuestRegionUffdMapping {
+pub struct GuestRegionMapping {
     /// Base host virtual address where the guest memory contents for this region
     /// should be copied/populated.
     pub base_host_virt_addr: u64,
@@ -41,7 +41,7 @@ pub struct GuestRegionUffdMapping {
     pub page_size: usize,
 }
 
-impl GuestRegionUffdMapping {
+impl GuestRegionMapping {
     fn contains(&self, fault_page_addr: u64) -> bool {
         fault_page_addr >= self.base_host_virt_addr
             && fault_page_addr < self.base_host_virt_addr + self.size as u64
@@ -50,19 +50,29 @@ impl GuestRegionUffdMapping {
 
 #[derive(Debug)]
 pub struct UffdHandler {
-    pub mem_regions: Vec<GuestRegionUffdMapping>,
+    pub mem_regions: Vec<GuestRegionMapping>,
     pub page_size: usize,
     backing_buffer: *const u8,
     uffd: Uffd,
 }
 
 impl UffdHandler {
-    fn try_get_mappings_and_file(
+    fn try_get_mappings_and_files(
         stream: &UnixStream,
-    ) -> Result<(String, Option<File>), std::io::Error> {
+    ) -> Result<(String, Vec<File>), std::io::Error> {
         let mut message_buf = vec![0u8; 1024];
-        let (bytes_read, file) = stream.recv_with_fd(&mut message_buf[..])?;
+        // Firecracker sends one or two fds, see `Runtime::run`.
+        let mut fds = [-1; 2];
+        let mut iovecs = [libc::iovec {
+            iov_base: message_buf.as_mut_ptr().cast::<c_void>(),
+            iov_len: message_buf.len(),
+        }];
+        let (bytes_read, fd_count) = unsafe { stream.recv_with_fds(&mut iovecs, &mut fds)? };
         message_buf.resize(bytes_read, 0);
+        let files = fds[..fd_count]
+            .iter()
+            .map(|&fd| unsafe { File::from_raw_fd(fd) })
+            .collect();
 
         // We do not expect to receive non-UTF-8 data from Firecracker, so this is probably
         // an error we can't recover from. Just immediately abort
@@ -71,38 +81,40 @@ impl UffdHandler {
                 "Received body is not a utf-8 valid string. Raw bytes received: {message_buf:#?}"
             )
         });
-        Ok((body, file))
+        Ok((body, files))
     }
 
-    fn get_mappings_and_file(stream: &UnixStream) -> (String, File) {
+    fn get_mappings_and_files(stream: &UnixStream) -> (String, Vec<File>) {
         // Sometimes, reading from the stream succeeds but we don't receive any
-        // UFFD descriptor. We don't really have a good understanding why this is
+        // descriptor. We don't really have a good understanding why this is
         // happening, but let's try to be a bit more robust and retry a few times
         // before we declare defeat.
         for _ in 1..=5 {
-            match Self::try_get_mappings_and_file(stream) {
-                Ok((body, Some(file))) => {
-                    return (body, file);
+            match Self::try_get_mappings_and_files(stream) {
+                Ok((body, files)) if !files.is_empty() => {
+                    return (body, files);
                 }
-                Ok((body, None)) => {
-                    println!("Didn't receive UFFD over socket. We received: '{body}'. Retrying...");
+                Ok((body, _)) => {
+                    println!(
+                        "Didn't receive any fd over socket. We received: '{body}'. Retrying..."
+                    );
                 }
                 Err(err) => {
-                    println!("Could not get UFFD and mapping from Firecracker: {err}. Retrying...");
+                    println!("Could not get fds and mapping from Firecracker: {err}. Retrying...");
                 }
             }
             std::thread::sleep(Duration::from_millis(100));
         }
 
-        panic!("Could not get UFFD and mappings after 5 retries");
+        panic!("Could not get fds and mappings after 5 retries");
     }
 
-    pub fn from_unix_stream(stream: &UnixStream, backing_buffer: *const u8, size: usize) -> Self {
-        let (body, file) = Self::get_mappings_and_file(stream);
-        let mappings =
-            serde_json::from_str::<Vec<GuestRegionUffdMapping>>(&body).unwrap_or_else(|_| {
-                panic!("Cannot deserialize memory mappings. Received body: {body}")
-            });
+    /// Serves page faults on `uffd` for the regions described by `body`, from the memory file
+    /// mapped at `backing_buffer`, `size` bytes long.
+    pub fn new(body: &str, uffd: File, backing_buffer: *const u8, size: usize) -> Self {
+        let mappings = serde_json::from_str::<Vec<GuestRegionMapping>>(body).unwrap_or_else(|_| {
+            panic!("Cannot deserialize memory mappings. Received body: {body}")
+        });
         let memsize: usize = mappings.iter().map(|r| r.size).sum();
         // Page size is the same for all memory regions, so just grab the first one
         let first_mapping = mappings.first().unwrap_or_else(|| {
@@ -117,7 +129,7 @@ impl UffdHandler {
         assert_eq!(memsize, size);
         assert!(page_size.is_power_of_two());
 
-        let uffd = unsafe { Uffd::from_raw_fd(file.into_raw_fd()) };
+        let uffd = unsafe { Uffd::from_raw_fd(uffd.into_raw_fd()) };
 
         Self {
             mem_regions: mappings,
@@ -161,7 +173,7 @@ impl UffdHandler {
         );
     }
 
-    fn populate_from_file(&self, region: &GuestRegionUffdMapping, dst: u64, len: usize) -> bool {
+    fn populate_from_file(&self, region: &GuestRegionMapping, dst: u64, len: usize) -> bool {
         let offset = dst - region.base_host_virt_addr;
         let src = self.backing_buffer as u64 + region.offset + offset;
 
@@ -195,40 +207,51 @@ impl UffdHandler {
 #[derive(Debug)]
 pub struct Runtime {
     stream: UnixStream,
-    backing_file: File,
+    /// The snapshot memory file page faults are populated from; none when the handler is the
+    /// memory backend of a boot.
+    backing_file: Option<File>,
     backing_memory: *mut u8,
     backing_memory_size: usize,
     uffds: HashMap<i32, UffdHandler>,
+    /// The guest memory memfd, when Firecracker shares it (`SharedMemfd` on restore, or
+    /// `machine-config.mem_backend` at boot). These example handlers only hold on to it.
+    memfd: Option<File>,
 }
 
 impl Runtime {
-    pub fn new(stream: UnixStream, backing_file: File) -> Self {
-        let file_meta = backing_file
-            .metadata()
-            .expect("can not get backing file metadata");
-        let backing_memory_size = file_meta.len() as usize;
-        // # Safety:
-        // File size and fd are valid
-        let ret = unsafe {
-            libc::mmap(
-                ptr::null_mut(),
-                backing_memory_size,
-                libc::PROT_READ,
-                libc::MAP_PRIVATE | libc::MAP_POPULATE,
-                backing_file.as_raw_fd(),
-                0,
-            )
-        };
-        if ret == libc::MAP_FAILED {
-            panic!("mmap on backing file failed");
+    pub fn new(stream: UnixStream, backing_file: Option<File>) -> Self {
+        let mut backing_memory = ptr::null_mut();
+        let mut backing_memory_size = 0;
+        if let Some(backing_file) = &backing_file {
+            let file_meta = backing_file
+                .metadata()
+                .expect("can not get backing file metadata");
+            backing_memory_size = file_meta.len() as usize;
+            // # Safety:
+            // File size and fd are valid
+            let ret = unsafe {
+                libc::mmap(
+                    ptr::null_mut(),
+                    backing_memory_size,
+                    libc::PROT_READ,
+                    libc::MAP_PRIVATE | libc::MAP_POPULATE,
+                    backing_file.as_raw_fd(),
+                    0,
+                )
+            };
+            if ret == libc::MAP_FAILED {
+                panic!("mmap on backing file failed");
+            }
+            backing_memory = ret.cast();
         }
 
         Self {
             stream,
             backing_file,
-            backing_memory: ret.cast(),
+            backing_memory,
             backing_memory_size,
             uffds: HashMap::default(),
+            memfd: None,
         }
     }
 
@@ -270,14 +293,15 @@ impl Runtime {
     }
 
     /// Polls the `UnixStream` and UFFD fds in a loop.
-    /// When stream is polled, new uffd is retrieved.
+    /// When stream is polled, Firecracker's handshake is received: a new
+    /// uffd to serve page faults for, the guest memory memfd, or both.
     /// When uffd is polled, page fault is handled by
     /// calling `pf_event_dispatch` with corresponding
     /// uffd object passed in.
     pub fn run(&mut self, pf_event_dispatch: impl Fn(&mut UffdHandler)) {
         let mut pollfds = vec![];
 
-        // Poll the stream for incoming uffds
+        // Poll the stream for Firecracker's handshake
         pollfds.push(libc::pollfd {
             fd: self.stream.as_raw_fd(),
             events: libc::POLLIN,
@@ -303,18 +327,33 @@ impl Runtime {
                 if pollfds[i].revents & libc::POLLIN != 0 {
                     nready -= 1;
                     if pollfds[i].fd == self.stream.as_raw_fd() {
-                        // Handle new uffd from stream
-                        let handler = UffdHandler::from_unix_stream(
-                            &self.stream,
-                            self.backing_memory,
-                            self.backing_memory_size,
-                        );
-                        pollfds.push(libc::pollfd {
-                            fd: handler.uffd.as_raw_fd(),
-                            events: libc::POLLIN,
-                            revents: 0,
-                        });
-                        self.uffds.insert(handler.uffd.as_raw_fd(), handler);
+                        // Handle the handshake from the stream. The fds that come with the
+                        // memory layout depend on how the microVM was started: `[uffd]` on
+                        // a restore with `backend_type: Uffd`, `[uffd, memfd]` with
+                        // `backend_type: SharedMemfd`, `[memfd]` on a boot with
+                        // `machine-config.mem_backend`. A handler without a memory file
+                        // was started for a boot, so its one fd is the memfd.
+                        let (body, mut files) = UffdHandler::get_mappings_and_files(&self.stream);
+                        if files.len() == 2 || self.backing_file.is_none() {
+                            let memfd = files.pop().unwrap();
+                            let size = memfd.metadata().expect("cannot stat memfd").len();
+                            println!("Received guest memory memfd of {size} bytes");
+                            self.memfd = Some(memfd);
+                        }
+                        if let Some(uffd) = files.pop() {
+                            let handler = UffdHandler::new(
+                                &body,
+                                uffd,
+                                self.backing_memory,
+                                self.backing_memory_size,
+                            );
+                            pollfds.push(libc::pollfd {
+                                fd: handler.uffd.as_raw_fd(),
+                                events: libc::POLLIN,
+                                revents: 0,
+                            });
+                            self.uffds.insert(handler.uffd.as_raw_fd(), handler);
+                        }
                     } else {
                         // Handle one of uffd page faults
                         pf_event_dispatch(self.uffds.get_mut(&pollfds[i].fd).unwrap());
@@ -360,7 +399,7 @@ mod tests {
                 UnixListener::bind(dummy_socket_path).expect("Cannot bind to socket path");
             let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
             // Update runtime with actual runtime
-            let runtime = uninit_runtime.write(Runtime::new(stream, file));
+            let runtime = uninit_runtime.write(Runtime::new(stream, Some(file)));
             runtime.run(|_: &mut UffdHandler| {});
         });
 
@@ -370,7 +409,7 @@ mod tests {
         let stream =
             UnixStream::connect(dummy_socket_path_clone).expect("Cannot connect to the socket");
 
-        let dummy_memory_region = vec![GuestRegionUffdMapping {
+        let dummy_memory_region = vec![GuestRegionMapping {
             base_host_virt_addr: 0,
             size: 0x1000,
             offset: 0,
@@ -403,7 +442,7 @@ mod tests {
         // there is no way to properly stop runtime, so
         // we send a message with an incorrect memory region
         // to cause runtime thread to panic
-        let error_memory_region = vec![GuestRegionUffdMapping {
+        let error_memory_region = vec![GuestRegionMapping {
             base_host_virt_addr: 0,
             size: 0,
             offset: 0,
@@ -414,6 +453,52 @@ mod tests {
             .send_with_fd(error_memory_region_json.as_bytes(), dummy_fd_2)
             .unwrap();
 
+        runtime_thread.join().unwrap_err();
+    }
+
+    /// A handler started without a memory file (for a boot) receives the guest memory memfd
+    /// alone, keeps it, and has no uffd to serve.
+    #[test]
+    fn test_runtime_memfd_only() {
+        let tmp_dir = TempDir::new().unwrap();
+        let socket_path = tmp_dir.as_path().join("memfd_socket");
+        let socket_path_clone = socket_path.clone();
+
+        let mut uninit_runtime = Box::new(MaybeUninit::<Runtime>::uninit());
+        let runtime_ptr = uninit_runtime.as_ptr().cast::<Runtime>();
+
+        let runtime_thread = std::thread::spawn(move || {
+            let listener = UnixListener::bind(socket_path).expect("Cannot bind to socket path");
+            let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
+            let runtime = uninit_runtime.write(Runtime::new(stream, None));
+            runtime.run(|_: &mut UffdHandler| panic!("no page faults to serve"));
+        });
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let stream = UnixStream::connect(socket_path_clone).expect("Cannot connect to the socket");
+        let regions = vec![GuestRegionMapping {
+            base_host_virt_addr: 0,
+            size: 0x2000,
+            offset: 0,
+            page_size: 4096,
+        }];
+        let regions_json = serde_json::to_string(&regions).unwrap();
+
+        // Stands in for the memfd.
+        let memfd = TempFile::new().unwrap();
+        memfd.as_file().set_len(0x2000).unwrap();
+        stream
+            .send_with_fd(regions_json.as_bytes(), memfd.as_file().as_raw_fd())
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        unsafe {
+            assert!((*runtime_ptr).uffds.is_empty());
+            let received = (*runtime_ptr).memfd.as_ref().expect("memfd not received");
+            assert_eq!(received.metadata().unwrap().len(), 0x2000);
+        }
+
+        // Closing the connection makes the runtime give up on the handshake and panic.
+        drop(stream);
         runtime_thread.join().unwrap_err();
     }
 }
