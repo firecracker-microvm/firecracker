@@ -6,12 +6,13 @@
 > [Developer Preview](RELEASE_POLICY.md#developer-preview-features). It may have
 > limitations, and its API or behavior may change in future releases.
 
-Device hotplugging allows attaching and detaching PCI virtio devices to a
-running microVM without requiring a reboot. Supported device types are:
+Device hotplugging allows attaching and detaching PCI devices to a running
+microVM without requiring a reboot. Supported device types are:
 
 - `virtio-block`
 - `virtio-pmem`
 - `virtio-net`
+- `vfio`
 
 ## Prerequisites
 
