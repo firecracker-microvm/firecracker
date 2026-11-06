@@ -358,6 +358,11 @@ class Microvm:
             or might_be_dead
         ), self.log_data
 
+        # Exiting closes the TAPs one by one and each close takes the RTNL
+        # mutex, so when the host is busy tearing down other network
+        # namespaces (e.g. containers) the exit can take seconds.
+        kill_timeout = 10.0 + 2.0 * len(self.iface)
+
         # Kill Firecracker and the screen wrapper independently so that one
         # already being dead (ProcessLookupError) doesn't leak the other.
         for pid_to_kill in (self.firecracker_pid, self.screen_pid):
@@ -366,7 +371,7 @@ class Microvm:
             try:
                 os.kill(pid_to_kill, signal.SIGKILL)
                 try:
-                    utils.wait_process_termination(pid_to_kill)
+                    utils.wait_process_termination(pid_to_kill, kill_timeout)
                 except TimeoutError:
                     utils.dump_proc_state(pid_to_kill)
                     raise
