@@ -5,6 +5,8 @@ use std::os::fd::AsRawFd;
 use std::sync::Arc;
 
 use vmm_sys_util::epoll::EventSet;
+#[cfg(test)]
+use vmm_sys_util::eventfd::EventFd;
 
 use super::device::BlockResources;
 use super::io::{BlockIoError, FileEngine, async_io};
@@ -30,6 +32,10 @@ pub(crate) struct BlockWorker {
     pub(crate) rate_limiter: SharedRateLimiter,
     pub(crate) discard_supported: bool,
     pub(crate) metrics: Arc<BlockDeviceMetrics>,
+    /// A source only tests add, so that a test can tell the device registers this worker's own
+    /// list rather than a copy of it. `process` consumes it.
+    #[cfg(test)]
+    pub(crate) test_event: Option<EventFd>,
 }
 
 macro_rules! unwrap_async_file_engine_or_return {
@@ -47,6 +53,8 @@ macro_rules! unwrap_async_file_engine_or_return {
 impl BlockWorker {
     const PROCESS_QUEUE: u32 = 0;
     const PROCESS_ASYNC_COMPLETION: u32 = 1;
+    #[cfg(test)]
+    const PROCESS_TEST: u32 = 2;
 
     /// Process a single event in the Virtio queue.
     ///
@@ -251,6 +259,14 @@ impl QueueGroupWorker for BlockWorker {
                 events: EventSet::IN,
             });
         }
+        #[cfg(test)]
+        if let Some(evt) = &self.test_event {
+            events.push(WorkerEvent {
+                fd: evt.as_raw_fd(),
+                token: Self::PROCESS_TEST,
+                events: EventSet::IN,
+            });
+        }
         events
     }
 
@@ -258,6 +274,12 @@ impl QueueGroupWorker for BlockWorker {
         match token {
             Self::PROCESS_QUEUE => self.process_queue_event(),
             Self::PROCESS_ASYNC_COMPLETION => self.process_async_completion_event(),
+            #[cfg(test)]
+            Self::PROCESS_TEST => {
+                if let Some(evt) = &self.test_event {
+                    let _ = evt.read();
+                }
+            }
             other => warn!("Block worker received an unexpected epoll token {other}"),
         }
     }

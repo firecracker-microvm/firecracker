@@ -53,6 +53,32 @@ pub enum WorkerError {
     Notify(#[from] std::io::Error),
 }
 
+/// Tokens at or above this belong to a device's inline worker, registered on the VMM event loop
+/// next to the device's own events (see [`register_inline_events`]); the device forwards them to
+/// the worker's [`QueueGroupWorker::process`] with this subtracted.
+pub(crate) const INLINE_WORKER_TOKEN_BASE: u32 = 1 << 16;
+
+/// Registers an inline worker's epoll sources on the VMM event loop, so that inline and threaded
+/// mode watch the same list.
+pub(crate) fn register_inline_events(ops: &mut EventOps, events: Vec<WorkerEvent>) {
+    for event in events {
+        assert!(
+            event.token < INLINE_WORKER_TOKEN_BASE,
+            "an inline worker event token must be below INLINE_WORKER_TOKEN_BASE"
+        );
+        if let Err(err) = ops.add(Events::with_data_raw(
+            event.fd,
+            INLINE_WORKER_TOKEN_BASE + event.token,
+            event.events,
+        )) {
+            error!(
+                "Failed to register inline worker event {}: {err}",
+                event.token
+            );
+        }
+    }
+}
+
 /// One epoll source of a worker: the fd to watch, how, and the token [`QueueGroupWorker::process`]
 /// receives for it.
 #[derive(Debug)]
@@ -804,6 +830,57 @@ pub(crate) mod tests {
             ops.add(Events::with_data_raw(self.0, 0, EventSet::IN))
                 .unwrap();
         }
+    }
+
+    /// A device that registers a given event list as its inline worker's, and records the worker
+    /// tokens it is handed back.
+    struct InlineDevice {
+        evts: Vec<(EventFd, u32)>,
+        seen: Vec<u32>,
+    }
+
+    impl MutEventSubscriber for InlineDevice {
+        fn process(&mut self, event: Events, _: &mut EventOps) {
+            let token = event.data() - INLINE_WORKER_TOKEN_BASE;
+            let (evt, _) = self.evts.iter().find(|(_, t)| *t == token).unwrap();
+            evt.read().unwrap();
+            self.seen.push(token);
+        }
+
+        fn init(&mut self, ops: &mut EventOps) {
+            let events = self
+                .evts
+                .iter()
+                .map(|(evt, token)| WorkerEvent {
+                    fd: evt.as_raw_fd(),
+                    token: *token,
+                    events: EventSet::IN,
+                })
+                .collect();
+            register_inline_events(ops, events);
+        }
+    }
+
+    #[test]
+    fn test_register_inline_events() {
+        // Every event in the list is watched, at its token offset by INLINE_WORKER_TOKEN_BASE, so
+        // an inline device sees exactly what its worker declares.
+        let device = Arc::new(Mutex::new(InlineDevice {
+            evts: vec![
+                (EventFd::new(libc::EFD_NONBLOCK).unwrap(), 0),
+                (EventFd::new(libc::EFD_NONBLOCK).unwrap(), 7),
+            ],
+            seen: Vec::new(),
+        }));
+        let mut event_manager = EventManager::new().unwrap();
+        event_manager.add_subscriber(device.clone());
+
+        device.lock().unwrap().evts[1].0.write(1).unwrap();
+        event_manager.run().unwrap();
+        assert_eq!(device.lock().unwrap().seen, vec![7]);
+        device.lock().unwrap().evts[0].0.write(1).unwrap();
+        event_manager.run().unwrap();
+        assert_eq!(device.lock().unwrap().seen, vec![7, 0]);
     }
 
     #[test]

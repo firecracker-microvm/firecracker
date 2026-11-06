@@ -4,34 +4,22 @@ use event_manager::{EventOps, Events, MutEventSubscriber};
 use vmm_sys_util::epoll::EventSet;
 
 use super::io::FileEngine;
-use crate::devices::virtio::block::virtio::device::VirtioBlock;
+use crate::devices::virtio::block::virtio::device::{BlockRuntimeState, VirtioBlock};
 use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::worker::{
+    INLINE_WORKER_TOKEN_BASE, QueueGroupWorker, register_inline_events,
+};
 use crate::logger::{error, warn};
 
 impl VirtioBlock {
+    // The data path's own events (queue, IO engine completion) are the inline worker's,
+    // registered from its event list at INLINE_WORKER_TOKEN_BASE and up.
     const PROCESS_ACTIVATE: u32 = 0;
-    const PROCESS_QUEUE: u32 = 1;
-    const PROCESS_RATE_LIMITER: u32 = 2;
-    const PROCESS_ASYNC_COMPLETION: u32 = 3;
+    const PROCESS_RATE_LIMITER: u32 = 1;
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
-        let resources = self.resources();
-        assert_eq!(resources.len(), 1, "inline block must have one queue");
-        if let Err(err) = ops.add(Events::with_data(
-            &resources[0].queue_evt,
-            Self::PROCESS_QUEUE,
-            EventSet::IN,
-        )) {
-            error!("Failed to register queue event: {}", err);
-        }
-        if let FileEngine::Async(engine) = &resources[0].disk.file_engine
-            && let Err(err) = ops.add(Events::with_data(
-                engine.completion_evt(),
-                Self::PROCESS_ASYNC_COMPLETION,
-                EventSet::IN,
-            ))
-        {
-            error!("Failed to register IO engine completion event: {}", err);
+        if let BlockRuntimeState::Inline(worker) = &self.state {
+            register_inline_events(ops, worker.events());
         }
     }
 
@@ -61,9 +49,7 @@ impl VirtioBlock {
         }
 
         self.register_rate_limiter_event(ops);
-        if !self.is_threaded_active() {
-            self.register_runtime_events(ops);
-        }
+        self.register_runtime_events(ops);
 
         if let Err(err) = ops.remove(Events::with_data(
             &self.activate_evt,
@@ -95,9 +81,12 @@ impl MutEventSubscriber for VirtioBlock {
         if self.is_activated() {
             match source {
                 Self::PROCESS_ACTIVATE => self.process_activate_event(ops),
-                Self::PROCESS_QUEUE => self.process_queue_event(),
                 Self::PROCESS_RATE_LIMITER => self.process_rate_limiter_event(),
-                Self::PROCESS_ASYNC_COMPLETION => self.process_async_completion_event(),
+                token if token >= INLINE_WORKER_TOKEN_BASE => {
+                    if let BlockRuntimeState::Inline(worker) = &mut self.state {
+                        worker.process(token - INLINE_WORKER_TOKEN_BASE);
+                    }
+                }
                 _ => warn!("Block: Spurious event received: {:?}", source),
             }
         } else {
@@ -109,15 +98,17 @@ impl MutEventSubscriber for VirtioBlock {
                 Self::PROCESS_ACTIVATE => {
                     let _ = self.activate_evt.read();
                 }
-                Self::PROCESS_QUEUE => self.drain_queue_events(),
                 Self::PROCESS_RATE_LIMITER => {
                     let _ = self.rate_limiter.lock().event_handler();
                 }
-                Self::PROCESS_ASYNC_COMPLETION => {
-                    let resources = self.resources();
-                    assert_eq!(resources.len(), 1, "inline block must have one queue");
-                    if let FileEngine::Async(engine) = &resources[0].disk.file_engine {
-                        let _ = engine.completion_evt().read();
+                // The inline worker's events stay registered across a reset: consume whichever
+                // fired (reading an eventfd that did not is a harmless EAGAIN).
+                token if token >= INLINE_WORKER_TOKEN_BASE => {
+                    self.drain_queue_events();
+                    for resources in self.resources() {
+                        if let FileEngine::Async(engine) = &resources.disk.file_engine {
+                            let _ = engine.completion_evt().read();
+                        }
                     }
                 }
                 _ => (),
@@ -132,9 +123,7 @@ impl MutEventSubscriber for VirtioBlock {
         //  - on device restore from snapshot.
         if self.is_activated() {
             self.register_rate_limiter_event(ops);
-            if !self.is_threaded_active() {
-                self.register_runtime_events(ops);
-            }
+            self.register_runtime_events(ops);
         } else {
             self.register_activate_event(ops);
         }
@@ -148,81 +137,181 @@ mod tests {
 
     use event_manager::{EventManager, SubscriberOps};
     use utils::time::MockClock;
+    use vmm_sys_util::eventfd::EventFd;
 
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
     use crate::devices::virtio::block::virtio::test_utils::{
         default_block, read_blk_req_descriptors, set_queue, set_rate_limiter,
-        simulate_async_completion_event,
     };
     use crate::devices::virtio::block::virtio::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
     use crate::devices::virtio::queue::VIRTQ_DESC_F_NEXT;
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
+    use crate::logger::IncMetric;
     use crate::rate_limiter::{RateLimiter, TokenType};
     use crate::vstate::memory::{Bytes, GuestAddress};
 
     #[test]
-    fn test_event_handler() {
+    fn test_inline_registers_the_worker_event_list() {
+        // A source only the worker declares: a device registering a list of its own instead of
+        // the worker's would never watch it.
         let mut event_manager = EventManager::new().unwrap();
-        let mut block = default_block(FileEngineType::default());
+        let mut block = default_block(FileEngineType::Sync);
         let mem = default_mem();
-        let interrupt = default_interrupt();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
-        read_blk_req_descriptors(&vq);
-
         let block = Arc::new(Mutex::new(block));
         let _id = event_manager.add_subscriber(block.clone());
-
-        let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
-        let data_addr = GuestAddress(vq.dtable[1].addr.get());
-        let status_addr = GuestAddress(vq.dtable[2].addr.get());
-
-        // Push a 'Write' operation.
-        {
-            mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
-                .unwrap();
-            // Make data read only, 512 bytes in len, and set the actual value to be written.
-            vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
-            vq.dtable[1].len.set(512);
-            mem.write_obj::<u64>(123_456_789, data_addr).unwrap();
-
-            // Trigger the queue event.
-            block
-                .lock()
-                .unwrap()
-                .queue_event(0)
-                .unwrap()
-                .write(1)
-                .unwrap();
-        }
-
-        // EventManager should report no events since block has only registered
-        // its activation event so far (even though queue event is pending).
-        let ev_count = event_manager.run_with_timeout(50).unwrap();
-        assert_eq!(ev_count, 0);
-
-        // Now activate the device.
         block
             .lock()
             .unwrap()
-            .activate(mem.clone(), interrupt)
+            .activate(mem, default_interrupt())
             .unwrap();
-        // Process the activate event.
-        let ev_count = event_manager.run_with_timeout(50).unwrap();
-        assert_eq!(ev_count, 1);
+        let test_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        {
+            let mut block = block.lock().unwrap();
+            let BlockRuntimeState::Inline(worker) = &mut block.state else {
+                panic!("a block device without num_queues runs inline");
+            };
+            worker.test_event = Some(test_evt.try_clone().unwrap());
+        }
 
-        // Handle the pending queue event through EventManager.
-        event_manager
-            .run_with_timeout(100)
-            .expect("Metrics event timeout or error.");
-        // Complete async IO ops if needed
-        simulate_async_completion_event(&mut block.lock().unwrap(), true);
+        // The activation event registers the inline worker's list, the test source included.
+        assert_eq!(event_manager.run_with_timeout(50).unwrap(), 1);
+        test_evt.write(1).unwrap();
+        assert_eq!(event_manager.run_with_timeout(50).unwrap(), 1);
+        // The worker's process consumed it.
+        test_evt.read().unwrap_err();
+    }
 
-        assert_eq!(vq.used.idx.get(), 1);
-        assert_eq!(vq.used.ring[0].get().id, 0);
-        assert_eq!(vq.used.ring[0].get().len, 1);
-        assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
+    #[test]
+    fn test_event_handler() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let mut event_manager = EventManager::new().unwrap();
+            let mut block = default_block(engine);
+            let mem = default_mem();
+            let interrupt = default_interrupt();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            set_queue(&mut block, 0, vq.create_queue());
+            read_blk_req_descriptors(&vq);
+
+            let block = Arc::new(Mutex::new(block));
+            let _id = event_manager.add_subscriber(block.clone());
+
+            let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
+            let data_addr = GuestAddress(vq.dtable[1].addr.get());
+            let status_addr = GuestAddress(vq.dtable[2].addr.get());
+
+            // Push a 'Write' operation.
+            {
+                mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
+                    .unwrap();
+                // Make data read only, 512 bytes in len, and set the actual value to be written.
+                vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
+                vq.dtable[1].len.set(512);
+                mem.write_obj::<u64>(123_456_789, data_addr).unwrap();
+
+                // Trigger the queue event.
+                block
+                    .lock()
+                    .unwrap()
+                    .queue_event(0)
+                    .unwrap()
+                    .write(1)
+                    .unwrap();
+            }
+
+            // EventManager should report no events since block has only registered
+            // its activation event so far (even though queue event is pending).
+            let ev_count = event_manager.run_with_timeout(50).unwrap();
+            assert_eq!(ev_count, 0);
+
+            // Now activate the device.
+            block
+                .lock()
+                .unwrap()
+                .activate(mem.clone(), interrupt)
+                .unwrap();
+            // Process the activate event.
+            let ev_count = event_manager.run_with_timeout(50).unwrap();
+            assert_eq!(ev_count, 1);
+
+            // Handle the pending queue event through EventManager. An async engine completes the
+            // request later, and its completion event reaches the inline worker through the same loop.
+            for _ in 0..10 {
+                if vq.used.idx.get() == 1 {
+                    break;
+                }
+                event_manager
+                    .run_with_timeout(100)
+                    .expect("Metrics event timeout or error.");
+            }
+
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 1);
+            assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
+        }
+    }
+
+    #[test]
+    fn test_inline_events_after_reset() {
+        let mut event_manager = EventManager::new().unwrap();
+        let mut block = default_block(FileEngineType::default());
+        let mem = default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        let block = Arc::new(Mutex::new(block));
+        event_manager.add_subscriber(block.clone());
+        block
+            .lock()
+            .unwrap()
+            .activate(mem, default_interrupt())
+            .unwrap();
+        // The activate event registers the inline worker's events.
+        assert_eq!(event_manager.run_with_timeout(50).unwrap(), 1);
+
+        // They stay registered across a reset: a queue notification is consumed and ignored.
+        assert!(block.lock().unwrap().reset());
+        let queue_evt = block
+            .lock()
+            .unwrap()
+            .queue_event(0)
+            .unwrap()
+            .try_clone()
+            .unwrap();
+        queue_evt.write(1).unwrap();
+        assert_eq!(event_manager.run_with_timeout(50).unwrap(), 1);
+        queue_evt.read().unwrap_err();
+    }
+
+    #[test]
+    fn test_subscribe_after_activation() {
+        // As on snapshot restore, the device is activated before it joins the event loop, which
+        // then registers the inline worker's events straight away.
+        let mut event_manager = EventManager::new().unwrap();
+        let mut block = default_block(FileEngineType::default());
+        let mem = default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        block.activate(mem, default_interrupt()).unwrap();
+        let block = Arc::new(Mutex::new(block));
+        event_manager.add_subscriber(block.clone());
+
+        // Block metrics are shared by drive id, so count the events this test adds.
+        let queue_events = block.lock().unwrap().metrics.queue_event_count.count();
+        block
+            .lock()
+            .unwrap()
+            .queue_event(0)
+            .unwrap()
+            .write(1)
+            .unwrap();
+        assert_eq!(event_manager.run_with_timeout(50).unwrap(), 1);
+        assert_eq!(
+            block.lock().unwrap().metrics.queue_event_count.count(),
+            queue_events + 1
+        );
     }
 
     #[test]
