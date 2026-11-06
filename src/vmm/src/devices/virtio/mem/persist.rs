@@ -13,8 +13,11 @@ use crate::devices::virtio::generated::virtio_mem::virtio_mem_config;
 use crate::devices::virtio::mem::{MEM_NUM_QUEUES, VirtioMem, VirtioMemError};
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::persist::SnapShotStateSanityCheckError;
 use crate::snapshot::Persist;
-use crate::utils::usize_to_u64;
+use crate::utils::{checked_bytes_to_u32_mib, u64_to_usize, usize_to_u64};
+use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
+use crate::vstate::memory::GuestMemoryRegionState;
 use crate::vstate::vm::KvmVm;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +30,68 @@ pub struct VirtioMemState {
     requested_size: u64,
     slot_size: usize,
     plugged_blocks: Vec<bool>,
+}
+
+impl VirtioMemState {
+    /// Checks the device's sizes against the memory hotplug configuration rules, and its state
+    /// against its sizes and the hotpluggable memory `region`.
+    pub fn validate_layout(
+        &self,
+        region: &GuestMemoryRegionState,
+    ) -> Result<(), SnapShotStateSanityCheckError> {
+        use SnapShotStateSanityCheckError::{
+            MemoryHotplugBlockCountMismatch, MemoryHotplugDeviceTooLarge,
+            MemoryHotplugDeviceUnaligned, MemoryHotplugRegionMismatch, MemoryHotplugSizeNotMib,
+            MemoryHotplugSlotMismatch,
+        };
+
+        let to_mib =
+            |bytes: u64| checked_bytes_to_u32_mib(bytes).ok_or(MemoryHotplugSizeNotMib(bytes));
+        MemoryHotplugConfig {
+            total_size_mib: to_mib(self.region_size)?,
+            block_size_mib: to_mib(self.block_size)?,
+            slot_size_mib: to_mib(usize_to_u64(self.slot_size))?,
+        }
+        .validate()?;
+
+        for (field, value) in [
+            ("address", self.addr),
+            ("usable size", self.usable_region_size),
+            ("requested size", self.requested_size),
+        ] {
+            if !value.is_multiple_of(self.block_size) {
+                return Err(MemoryHotplugDeviceUnaligned(field));
+            }
+        }
+        for (field, size) in [
+            ("usable size", self.usable_region_size),
+            ("requested size", self.requested_size),
+        ] {
+            if size > self.region_size {
+                return Err(MemoryHotplugDeviceTooLarge(field));
+            }
+        }
+        if usize_to_u64(self.plugged_blocks.len()) != self.region_size / self.block_size {
+            return Err(MemoryHotplugBlockCountMismatch);
+        }
+
+        if region.base_address != self.addr
+            || usize_to_u64(region.size) != self.region_size
+            || usize_to_u64(region.plugged.len()) != self.region_size / usize_to_u64(self.slot_size)
+        {
+            return Err(MemoryHotplugRegionMismatch);
+        }
+        let blocks_per_slot = u64_to_usize(usize_to_u64(self.slot_size) / self.block_size);
+        if let Some(slot) = region
+            .plugged
+            .iter()
+            .zip(self.plugged_blocks.chunks(blocks_per_slot))
+            .position(|(&plugged, blocks)| plugged != blocks.contains(&true))
+        {
+            return Err(MemoryHotplugSlotMismatch(slot));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -112,7 +177,15 @@ impl Persist<'_> for VirtioMem {
 mod tests {
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
-    use crate::devices::virtio::mem::device::test_utils::default_virtio_mem;
+    use crate::devices::virtio::mem::device::test_utils::{
+        default_hotpluggable_region, default_virtio_mem,
+    };
+    use crate::persist::SnapShotStateSanityCheckError::{
+        MemoryHotplugBlockCountMismatch, MemoryHotplugDeviceTooLarge, MemoryHotplugDeviceUnaligned,
+        MemoryHotplugRegionMismatch, MemoryHotplugSizeNotMib, MemoryHotplugSlotMismatch,
+    };
+    use crate::utils::{mib_to_bytes, u32_mib_to_bytes};
+    use crate::vmm_config::memory_hotplug::MemoryHotplugConfigError;
     use crate::vstate::vm::tests::setup_vm_with_memory;
 
     #[test]
@@ -148,5 +221,154 @@ mod tests {
         assert_eq!(original_dev.slot_size, restored_dev.slot_size);
         assert_eq!(original_dev.avail_features(), restored_dev.avail_features());
         assert_eq!(original_dev.acked_features(), restored_dev.acked_features());
+    }
+
+    #[test]
+    fn test_validate_layout() {
+        let state = default_virtio_mem().save();
+        let region = default_hotpluggable_region();
+        assert_eq!(state.validate_layout(&region), Ok(()));
+
+        let mut plugged = state.clone();
+        plugged.plugged_blocks[64] = true;
+        let mut plugged_region = region.clone();
+        plugged_region.plugged[1] = true;
+        assert_eq!(plugged.validate_layout(&plugged_region), Ok(()));
+
+        let invalid = VirtioMemState {
+            region_size: state.region_size + 1,
+            ..state.clone()
+        };
+        let invalid_region = GuestMemoryRegionState {
+            size: region.size + 1,
+            ..region.clone()
+        };
+        assert_eq!(
+            invalid.validate_layout(&invalid_region),
+            Err(MemoryHotplugSizeNotMib(state.region_size + 1))
+        );
+        const TOO_LARGE: u64 = u32_mib_to_bytes(u32::MAX) + u32_mib_to_bytes(1);
+        let invalid = VirtioMemState {
+            region_size: TOO_LARGE,
+            ..state.clone()
+        };
+        assert_eq!(
+            invalid.validate_layout(&region),
+            Err(MemoryHotplugSizeNotMib(TOO_LARGE))
+        );
+
+        let invalid = VirtioMemState {
+            slot_size: mib_to_bytes(64),
+            ..state.clone()
+        };
+        assert_eq!(
+            invalid.validate_layout(&region),
+            Err(MemoryHotplugConfigError::SlotSizeTooSmall(128).into())
+        );
+        let invalid = VirtioMemState {
+            block_size: 0,
+            ..state.clone()
+        };
+        assert_eq!(
+            invalid.validate_layout(&region),
+            Err(MemoryHotplugConfigError::BlockSizeTooSmall(2).into())
+        );
+        let invalid = VirtioMemState {
+            slot_size: 0,
+            ..state.clone()
+        };
+        assert_eq!(
+            invalid.validate_layout(&region),
+            Err(MemoryHotplugConfigError::SlotSizeTooSmall(128).into())
+        );
+
+        let invalid = VirtioMemState {
+            addr: state.addr + u32_mib_to_bytes(1),
+            ..state.clone()
+        };
+        let invalid_region = GuestMemoryRegionState {
+            base_address: region.base_address + u32_mib_to_bytes(1),
+            ..region.clone()
+        };
+        assert_eq!(
+            invalid.validate_layout(&invalid_region),
+            Err(MemoryHotplugDeviceUnaligned("address"))
+        );
+        let invalid = VirtioMemState {
+            usable_region_size: state.block_size + 1,
+            ..state.clone()
+        };
+        assert_eq!(
+            invalid.validate_layout(&region),
+            Err(MemoryHotplugDeviceUnaligned("usable size"))
+        );
+        let invalid = VirtioMemState {
+            requested_size: state.block_size + 1,
+            ..state.clone()
+        };
+        assert_eq!(
+            invalid.validate_layout(&region),
+            Err(MemoryHotplugDeviceUnaligned("requested size"))
+        );
+
+        let invalid = VirtioMemState {
+            usable_region_size: state.region_size + u32_mib_to_bytes(128),
+            ..state.clone()
+        };
+        assert_eq!(
+            invalid.validate_layout(&region),
+            Err(MemoryHotplugDeviceTooLarge("usable size"))
+        );
+        let invalid = VirtioMemState {
+            requested_size: state.region_size + state.block_size,
+            ..state.clone()
+        };
+        assert_eq!(
+            invalid.validate_layout(&region),
+            Err(MemoryHotplugDeviceTooLarge("requested size"))
+        );
+
+        let invalid = VirtioMemState {
+            plugged_blocks: vec![false],
+            ..state.clone()
+        };
+        assert_eq!(
+            invalid.validate_layout(&region),
+            Err(MemoryHotplugBlockCountMismatch)
+        );
+
+        let invalid_region = GuestMemoryRegionState {
+            base_address: region.base_address + u32_mib_to_bytes(128),
+            ..region.clone()
+        };
+        assert_eq!(
+            state.validate_layout(&invalid_region),
+            Err(MemoryHotplugRegionMismatch)
+        );
+        let invalid_region = GuestMemoryRegionState {
+            size: mib_to_bytes(512),
+            ..region.clone()
+        };
+        assert_eq!(
+            state.validate_layout(&invalid_region),
+            Err(MemoryHotplugRegionMismatch)
+        );
+        let invalid_region = GuestMemoryRegionState {
+            plugged: vec![false; 8192],
+            ..region.clone()
+        };
+        assert_eq!(
+            state.validate_layout(&invalid_region),
+            Err(MemoryHotplugRegionMismatch)
+        );
+
+        assert_eq!(
+            plugged.validate_layout(&region),
+            Err(MemoryHotplugSlotMismatch(1))
+        );
+        assert_eq!(
+            state.validate_layout(&plugged_region),
+            Err(MemoryHotplugSlotMismatch(1))
+        );
     }
 }
