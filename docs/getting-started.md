@@ -30,10 +30,10 @@ We exclusively use `.metal` instance types, because EC2 only supports KVM on
 
 The commands in this guide use `curl`, `wget`, `jq`, `ssh` and `ssh-keygen`,
 `unsquashfs` (from `squashfs-tools`), `mkfs.ext4` and `e2fsck` (from
-`e2fsprogs`) and `ip` (from `iproute2`). Building Firecracker from source
-additionally requires `docker`. On Amazon Linux 2023,
-`sudo dnf install -y squashfs-tools docker` installs the ones that are not part
-of the base image.
+`e2fsprogs`), `ip` (from `iproute2`) and `nft` (from `nftables`). Building
+Firecracker from source additionally requires `docker`. On Amazon Linux 2023,
+`sudo dnf install -y squashfs-tools nftables docker` installs the ones that are
+not part of the base image.
 
 ### Architecture & OS
 
@@ -266,11 +266,16 @@ PCI transport, as it yields higher throughput and lower latency for VirtIO
 devices. For more information regarding guest kernel requirements for using PCI
 look at our [kernel policy documentation](./kernel-policy.md).
 
-In a new terminal (do not close the 1st one):
+In a new terminal (do not close the 1st one), set up the host side of the
+network and configure the microVM. The firewall rules below use `nft`; if your
+host does not have it, use the `iptables-nft` rules from
+[network-setup](network-setup.md#configuration-via-iptables-nft) instead (legacy
+`iptables` accepts the same syntax):
 
 ```bash
 TAP_DEV="tap0"
 TAP_IP="172.16.0.1"
+GUEST_IP="172.16.0.2"
 MASK_SHORT="/30"
 
 # Setup network interface
@@ -280,17 +285,22 @@ sudo ip addr add "${TAP_IP}${MASK_SHORT}" dev "$TAP_DEV"
 sudo ip link set dev "$TAP_DEV" up
 
 # Enable ip forwarding
-sudo sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
-sudo iptables -P FORWARD ACCEPT
+echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
 
 # This tries to determine the name of the host network interface to forward
 # VM's outbound network traffic through. If outbound traffic doesn't work,
 # double check this returns the correct interface!
 HOST_IFACE=$(ip -j route list default |jq -r '.[0].dev')
 
-# Set up microVM internet access
-sudo iptables -t nat -D POSTROUTING -o "$HOST_IFACE" -j MASQUERADE || true
-sudo iptables -t nat -A POSTROUTING -o "$HOST_IFACE" -j MASQUERADE
+# Set up microVM internet access: NAT the guest's traffic out of the host
+# interface and allow forwarding between the TAP device and that interface.
+# The table is recreated from scratch so that this block can be re-run safely.
+sudo nft delete table firecracker 2> /dev/null || true
+sudo nft add table firecracker
+sudo nft "add chain firecracker postrouting { type nat hook postrouting priority srcnat; policy accept; }"
+sudo nft "add chain firecracker filter { type filter hook forward priority filter; policy accept; }"
+sudo nft add rule firecracker postrouting ip saddr "$GUEST_IP" oifname "$HOST_IFACE" counter masquerade
+sudo nft add rule firecracker filter iifname "$TAP_DEV" oifname "$HOST_IFACE" accept
 
 API_SOCKET="/tmp/firecracker.socket"
 LOGFILE="./firecracker.log"
@@ -444,18 +454,18 @@ started.
 
 ### Cleaning up
 
-Once the microVM has shut down, remove the TAP device and the NAT rule added
-above (with `HOST_IFACE` set as before):
+Once the microVM has shut down, remove the TAP device and the nftables table
+added above:
 
 ```bash
 sudo ip link del tap0
-sudo iptables -t nat -D POSTROUTING -o "$HOST_IFACE" -j MASQUERADE
+sudo nft delete table firecracker
 ```
 
 If no other guests are running on the host, you can also disable IP forwarding
 again with `echo 0 | sudo tee /proc/sys/net/ipv4/ip_forward`. See
-[network-setup](network-setup.md#cleaning-up) for the full cleanup of the `nft`
-or `iptables-nft` based setup.
+[network-setup](network-setup.md#cleaning-up) for the cleanup of the
+`iptables-nft` based setup.
 
 ## Next steps
 
