@@ -89,7 +89,7 @@ fn rebase(memory_path: PathBuf, diff_path: PathBuf) -> Result<(), EditMemoryErro
                 libc::sendfile64(
                     base_file.as_raw_fd(),
                     diff_file.as_raw_fd(),
-                    (&mut cursor as *mut u64).cast::<i64>(),
+                    (&raw mut cursor).cast::<i64>(),
                     u64_to_usize(block_end.saturating_sub(cursor)),
                 )
             };
@@ -115,7 +115,7 @@ mod tests {
     fn check_file_content(file: &File, expected_content: &[u8]) {
         assert_eq!(
             file.metadata().unwrap().len(),
-            expected_content.len() as u64
+            u64::try_from(expected_content.len()).unwrap()
         );
         let mut buf = vec![0u8; expected_content.len()];
         file.read_exact_at(buf.as_mut_slice(), 0).unwrap();
@@ -153,7 +153,7 @@ mod tests {
 
         // Diff file that has only holes
         diff_file
-            .set_len(initial_base_file_content.len() as u64)
+            .set_len(initial_base_file_content.len().try_into().unwrap())
             .unwrap();
         rebase(base_path, diff_path).unwrap();
         check_file_content(base_file, &initial_base_file_content);

@@ -1,6 +1,8 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![warn(clippy::as_conversions)]
+
 use std::fs::{read_to_string, write};
 use std::path::PathBuf;
 

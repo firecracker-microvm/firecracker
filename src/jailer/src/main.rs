@@ -1,6 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![warn(clippy::as_conversions)]
+
 use std::ffi::{CString, NulError, OsString};
 use std::fmt::{Debug, Display};
 use std::path::{Path, PathBuf};
