@@ -5,8 +5,9 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use kvm_bindings::{
-    KVM_CLOCK_REALTIME, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE,
-    KVM_PIT_SPEAKER_DUMMY, MsrList, kvm_clock_data, kvm_irqchip, kvm_pit_config, kvm_pit_state2,
+    KVM_CAP_EXCEPTION_PAYLOAD, KVM_CLOCK_REALTIME, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER,
+    KVM_IRQCHIP_PIC_SLAVE, KVM_PIT_SPEAKER_DUMMY, MsrList, kvm_clock_data, kvm_enable_cap,
+    kvm_irqchip, kvm_pit_config, kvm_pit_state2,
 };
 use kvm_ioctls::Cap;
 use serde::{Deserialize, Serialize};
@@ -51,6 +52,8 @@ pub enum KvmVmError {
     GetMsrsToSave(MsrError),
     /// Failed during KVM_SET_TSS_ADDRESS: {0}
     SetTssAddress(kvm_ioctls::Error),
+    /// Failed to enable KVM_CAP_EXCEPTION_PAYLOAD: {0}
+    EnableExceptionPayload(kvm_ioctls::Error),
     /// Failed to restore resource allocator: {0}
     ResourceAllocator(#[from] vm_allocator::Error),
 }
@@ -102,6 +105,27 @@ impl KvmVm {
             .fd
             .set_tss_address(u64_to_usize(crate::arch::x86_64::layout::KVM_TSS_ADDRESS))
             .map_err(KvmVmError::SetTssAddress)?;
+
+        // Without KVM_CAP_EXCEPTION_PAYLOAD, KVM_GET_VCPU_EVENTS reports a pending exception as
+        // already injected and delivers its payload (CR2 for #PF, DR6 for #DB) early. For a vCPU
+        // running a nested guest, this skips the nested hypervisor's chance to intercept the
+        // exception, so a snapshot taken at that point does not restore the same state.
+        // https://docs.kernel.org/virt/kvm/api.html#kvm-cap-exception-payload
+        if common
+            .fd
+            .check_extension_raw(u64::from(KVM_CAP_EXCEPTION_PAYLOAD))
+            > 0
+        {
+            let cap = kvm_enable_cap {
+                cap: KVM_CAP_EXCEPTION_PAYLOAD,
+                args: [1, 0, 0, 0],
+                ..Default::default()
+            };
+            common
+                .fd
+                .enable_cap(&cap)
+                .map_err(KvmVmError::EnableExceptionPayload)?;
+        }
 
         let pio_bus = Arc::new(Bus::new());
 
