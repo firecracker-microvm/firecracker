@@ -260,6 +260,41 @@ same backing file as it was configured in the first place. This means all
 `virtio-pmem` backing files should be present in the same locations during
 restore as they were during initial `virtio-pmem` configuration.
 
+## Replacing the backing file
+
+The backing file of a `virtio-pmem` device can be replaced while the microVM is
+paused, with a `PATCH` request that names a new file of the same size:
+
+```console
+curl --unix-socket $socket_location -i \
+    -X PATCH 'http://localhost/pmem/pmem0' \
+    -H 'Content-Type: application/json' \
+    -d '{
+         "id": "pmem0",
+         "path_on_host": "./other_file"
+    }'
+```
+
+Firecracker maps the new file over the current one, at the same address, so the
+device's guest memory region and its KVM memory slot do not change, and the
+guest is not notified. The guest sees the new file's contents at its next access
+to the region. A snapshot taken afterwards names the new file.
+
+This lets one snapshot serve microVMs that each need different contents on a
+device: restore the snapshot without resuming it, replace the backing file, and
+then resume. The guest should not have mounted the device before the snapshot
+was taken.
+
+> [!WARNING]
+>
+> Firecracker cannot know what the guest has already read from the old file.
+> When the guest kernel registers a `virtio-pmem` device it reads the first
+> blocks to look for a partition table, and keeps them in its page cache. Drop
+> them with `blockdev --flushbufs /dev/pmem{N}` before mounting the device after
+> a replacement. Replacing the backing file of a device the guest has mounted
+> makes its contents disagree with what the guest has cached, and can corrupt a
+> file system mounted read-write.
+
 ## Performance
 
 Even though `virtio-pmem` allows for the direct access of host pages from the
