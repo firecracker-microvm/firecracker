@@ -209,10 +209,14 @@ enum Exit {
     /// Process ran `check` action and found missing instrumentation.
     Check = 2,
 }
-#[allow(clippy::as_conversions)]
 impl std::process::Termination for Exit {
     fn report(self) -> ExitCode {
-        ExitCode::from(self as u8)
+        let code = match self {
+            Exit::Ok => 0,
+            Exit::Error => 1,
+            Exit::Check => 2,
+        };
+        ExitCode::from(code)
     }
 }
 
