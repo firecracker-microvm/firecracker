@@ -13,8 +13,11 @@ use crate::devices::virtio::generated::virtio_mem::virtio_mem_config;
 use crate::devices::virtio::mem::{MEM_NUM_QUEUES, VirtioMem, VirtioMemError};
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::persist::SnapShotStateSanityCheckError;
 use crate::snapshot::Persist;
-use crate::utils::usize_to_u64;
+use crate::utils::{u32_mib_to_bytes, u64_to_usize, usize_to_u64};
+use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
+use crate::vstate::memory::GuestMemoryRegionState;
 use crate::vstate::vm::KvmVm;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +30,48 @@ pub struct VirtioMemState {
     requested_size: u64,
     slot_size: usize,
     plugged_blocks: Vec<bool>,
+}
+
+impl VirtioMemState {
+    /// Checks the device's sizes against the memory hotplug configuration rules, and its state
+    /// against its sizes and the hotpluggable memory `region`.
+    pub fn validate_layout(
+        &self,
+        region: &GuestMemoryRegionState,
+    ) -> Result<(), SnapShotStateSanityCheckError> {
+        let to_mib = |bytes: u64| {
+            u32::try_from(bytes / u32_mib_to_bytes(1))
+                .ok()
+                .filter(|&mib| u32_mib_to_bytes(mib) == bytes)
+                .ok_or(SnapShotStateSanityCheckError::InvalidMemoryHotplugDevice)
+        };
+        MemoryHotplugConfig {
+            total_size_mib: to_mib(self.region_size)?,
+            block_size_mib: to_mib(self.block_size)?,
+            slot_size_mib: to_mib(usize_to_u64(self.slot_size))?,
+        }
+        .validate()?;
+
+        let blocks_per_slot = u64_to_usize(usize_to_u64(self.slot_size) / self.block_size);
+        if usize_to_u64(self.plugged_blocks.len()) != self.region_size / self.block_size
+            || !self.addr.is_multiple_of(self.block_size)
+            || self.usable_region_size > self.region_size
+            || !self.usable_region_size.is_multiple_of(self.block_size)
+            || self.requested_size > self.region_size
+            || !self.requested_size.is_multiple_of(self.block_size)
+            || region.base_address != self.addr
+            || usize_to_u64(region.size) != self.region_size
+            || usize_to_u64(region.plugged.len()) != self.region_size / usize_to_u64(self.slot_size)
+            || region
+                .plugged
+                .iter()
+                .zip(self.plugged_blocks.chunks(blocks_per_slot))
+                .any(|(&plugged, blocks)| !plugged && blocks.contains(&true))
+        {
+            return Err(SnapShotStateSanityCheckError::InvalidMemoryHotplugDevice);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -112,7 +157,11 @@ impl Persist<'_> for VirtioMem {
 mod tests {
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
-    use crate::devices::virtio::mem::device::test_utils::default_virtio_mem;
+    use crate::devices::virtio::mem::device::test_utils::{
+        default_hotpluggable_region, default_virtio_mem,
+    };
+    use crate::utils::mib_to_bytes;
+    use crate::vmm_config::memory_hotplug::MemoryHotplugConfigError;
     use crate::vstate::vm::tests::setup_vm_with_memory;
 
     #[test]
@@ -148,5 +197,72 @@ mod tests {
         assert_eq!(original_dev.slot_size, restored_dev.slot_size);
         assert_eq!(original_dev.avail_features(), restored_dev.avail_features());
         assert_eq!(original_dev.acked_features(), restored_dev.acked_features());
+    }
+
+    #[test]
+    fn test_validate_layout() {
+        let state = default_virtio_mem().save();
+        let region = default_hotpluggable_region();
+        state.validate_layout(&region).unwrap();
+
+        type Malform = fn(&mut VirtioMemState, &mut GuestMemoryRegionState);
+        let check = |malform: Malform| {
+            let (mut state, mut region) = (state.clone(), region.clone());
+            malform(&mut state, &mut region);
+            state.validate_layout(&region)
+        };
+
+        let config_errors: [(Malform, MemoryHotplugConfigError); 3] = [
+            (
+                |state, _| state.slot_size = mib_to_bytes(64),
+                MemoryHotplugConfigError::SlotSizeTooSmall(128),
+            ),
+            (
+                |state, _| state.block_size = 0,
+                MemoryHotplugConfigError::BlockSizeTooSmall(2),
+            ),
+            (
+                |state, _| state.slot_size = 0,
+                MemoryHotplugConfigError::SlotSizeTooSmall(128),
+            ),
+        ];
+        for (malform, err) in config_errors {
+            assert_eq!(check(malform), Err(err.into()));
+        }
+
+        const TOO_LARGE: u64 = u32_mib_to_bytes(u32::MAX) + u32_mib_to_bytes(1);
+        let invalid: [Malform; 12] = [
+            |state, region| {
+                state.region_size += 1;
+                region.size += 1;
+            },
+            |state, _| state.region_size = TOO_LARGE,
+            |state, _| state.plugged_blocks.truncate(1),
+            |state, region| {
+                state.addr += u32_mib_to_bytes(1);
+                region.base_address += u32_mib_to_bytes(1);
+            },
+            |state, _| state.usable_region_size = state.region_size + u32_mib_to_bytes(128),
+            |state, _| state.usable_region_size = state.block_size + 1,
+            |state, _| state.requested_size = state.region_size + state.block_size,
+            |state, _| state.requested_size = state.block_size + 1,
+            |_, region| region.base_address += u32_mib_to_bytes(128),
+            |_, region| region.size = mib_to_bytes(512),
+            |_, region| region.plugged = vec![false; 8192],
+            |state, _| state.plugged_blocks[64] = true,
+        ];
+        for (i, malform) in invalid.into_iter().enumerate() {
+            assert_eq!(
+                check(malform),
+                Err(SnapShotStateSanityCheckError::InvalidMemoryHotplugDevice),
+                "case {i}"
+            );
+        }
+
+        check(|state, region| {
+            state.plugged_blocks[64] = true;
+            region.plugged[1] = true;
+        })
+        .unwrap();
     }
 }
