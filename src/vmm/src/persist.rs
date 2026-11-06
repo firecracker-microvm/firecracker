@@ -37,6 +37,7 @@ use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, MachineConfigUpdate};
+use crate::vmm_config::memory_hotplug::MemoryHotplugConfigError;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, MemBackendType};
 use crate::vstate::kvm::KvmState;
 use crate::vstate::memory::{
@@ -309,6 +310,12 @@ pub enum SnapShotStateSanityCheckError {
     DramMemoryTooManySlots,
     /// DRAM memory is unplugged.
     DramMemoryUnplugged,
+    /// Hotpluggable memory needs exactly one region and a memory hotplug device.
+    HotpluggableMemoryMismatch,
+    /// Memory hotplug config error: {0}
+    MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
+    /// Memory hotplug device state is invalid or does not match its hotpluggable memory region.
+    InvalidMemoryHotplugDevice,
 }
 
 /// Performs sanity checks against the state file and returns specific errors.
@@ -316,7 +323,8 @@ pub fn snapshot_state_sanity_check(
     microvm_state: &MicrovmState,
 ) -> Result<(), SnapShotStateSanityCheckError> {
     // Check that the snapshot contains at least 1 mem region, that at least one is Dram,
-    // and that Dram region contains a single plugged slot.
+    // that Dram region contains a single plugged slot, and that a hotpluggable region matches
+    // the memory hotplug device.
     // Upper bound check will be done when creating guest memory by comparing against
     // KVM max supported value kvm_context.max_memslots().
     let regions = &microvm_state.vm_state.memory.regions;
@@ -343,6 +351,26 @@ pub fn snapshot_state_sanity_check(
         if !dram_region.plugged[0] {
             return Err(SnapShotStateSanityCheckError::DramMemoryUnplugged);
         }
+    }
+
+    let memory_device = match &microvm_state.device_states.virtio_state {
+        VirtioDevicesState::Mmio(mmio_state) => mmio_state
+            .memory_device
+            .as_ref()
+            .map(|device| &device.device_state),
+        VirtioDevicesState::Pci(pci_state) => pci_state
+            .virtio_devices
+            .memory_device
+            .as_ref()
+            .map(|device| &device.device_state),
+    };
+    let mut hotpluggable = regions
+        .iter()
+        .filter(|r| r.region_type == GuestRegionType::Hotpluggable);
+    match (hotpluggable.next(), hotpluggable.next(), memory_device) {
+        (None, _, None) => {}
+        (Some(region), None, Some(device)) => device.validate_layout(region)?,
+        _ => return Err(SnapShotStateSanityCheckError::HotpluggableMemoryMismatch),
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -699,14 +727,17 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     use crate::builder::tests::insert_vmgenid_device;
     use crate::builder::tests::{
-        CustomBlockConfig, default_kernel_cmdline, default_vmm, insert_balloon_device,
-        insert_block_devices, insert_net_device, insert_vsock_device,
+        CustomBlockConfig, default_kernel_cmdline, default_vmm, default_vmm_with_pci,
+        insert_balloon_device, insert_block_devices, insert_net_device, insert_virtio_mem_device,
+        insert_vsock_device,
     };
     #[cfg(target_arch = "aarch64")]
     use crate::construct_kvm_mpidrs;
     use crate::devices::virtio::block::CacheType;
+    use crate::devices::virtio::mem::device::test_utils::default_hotpluggable_region;
     use crate::snapshot::Persist;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
+    use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vstate::memory::{GuestMemoryRegionState, GuestRegionType};
@@ -813,6 +844,63 @@ mod tests {
             panic!("expected MMIO virtio device state");
         };
         assert_eq!(restored_mmio, mmio)
+    }
+
+    #[test]
+    fn test_snapshot_state_sanity_check_memory_hotplug() {
+        let without_device = DevicesState::default();
+        let dram = GuestMemoryRegionState {
+            base_address: 0,
+            size: 0x20000,
+            region_type: GuestRegionType::Dram,
+            plugged: vec![true],
+        };
+        let hotpluggable = default_hotpluggable_region();
+        let mut small_slots = hotpluggable.clone();
+        small_slots.plugged = vec![false; 8192];
+
+        let check = |regions: &[&GuestMemoryRegionState], device_states: &DevicesState| {
+            let mut microvm_state = MicrovmState {
+                device_states: device_states.clone(),
+                vcpu_states: vec![VcpuState::default()],
+                ..Default::default()
+            };
+            microvm_state.vm_state.memory.regions = regions.iter().copied().cloned().collect();
+            snapshot_state_sanity_check(&microvm_state)
+        };
+
+        check(&[&dram], &without_device).unwrap();
+        assert_eq!(
+            check(&[&dram, &hotpluggable], &without_device),
+            Err(SnapShotStateSanityCheckError::HotpluggableMemoryMismatch)
+        );
+        for mut vmm in [default_vmm(), default_vmm_with_pci()] {
+            insert_virtio_mem_device(
+                &mut vmm,
+                &mut default_kernel_cmdline(),
+                &mut EventManager::new().unwrap(),
+                MemoryHotplugConfig {
+                    total_size_mib: 1024,
+                    block_size_mib: 2,
+                    slot_size_mib: 128,
+                },
+            );
+            let with_device = vmm.device_manager.save();
+
+            check(&[&dram, &hotpluggable], &with_device).unwrap();
+            assert_eq!(
+                check(&[&dram], &with_device),
+                Err(SnapShotStateSanityCheckError::HotpluggableMemoryMismatch)
+            );
+            assert_eq!(
+                check(&[&dram, &hotpluggable, &hotpluggable], &with_device),
+                Err(SnapShotStateSanityCheckError::HotpluggableMemoryMismatch)
+            );
+            assert_eq!(
+                check(&[&dram, &small_slots], &with_device),
+                Err(SnapShotStateSanityCheckError::InvalidMemoryHotplugDevice)
+            );
+        }
     }
 
     #[test]
