@@ -399,6 +399,7 @@ of Firecracker processes. There are two layers:
   - `rootfs` — the rootfs disk path, composed from `guest_kernel` +
     `rootfs_mode` (Ubuntu 24.04 for 5.10, Amazon Linux 2023 otherwise).
   - `pci_enabled` — auto-parametrized over `True`/`False`.
+  - `track_dirty_pages` — `False` by default.
   - `vm_backend` — auto-parametrized over `"kvm"`, `"enclave-direct"`, and
     `"enclave-confidential"` unless the test restricts the backend explicitly.
   - `cpu_template` — `None` by default.

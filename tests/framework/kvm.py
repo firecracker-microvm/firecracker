@@ -93,6 +93,7 @@ def kvm_basic_config(
         pcie_hotplug_ports=pcie_hotplug_ports,
     )
     vm.huge_pages = huge_pages
+    vm.track_dirty_pages = track_dirty_pages
     vm.vcpus_count = vcpu_count
     vm.mem_size_bytes = mem_size_mib * 2**20
 
