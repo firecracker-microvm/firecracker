@@ -271,7 +271,15 @@ Details about the required and optional fields can be found in the
 >
 > If the files indicated by `snapshot_path` and `mem_file_path` don't exist at
 > the specified paths, then they will be created right before generating the
-> snapshot. If they exist, the files will be truncated and overwritten.
+> snapshot. If they exist, regular files will be truncated and overwritten.
+>
+> `mem_file_path` must refer to a regular file or FIFO. For `Full` snapshots, a
+> FIFO lets guest memory be streamed (e.g. to compression, encryption or upload)
+> without landing on local disk. Start the reader first: opening a FIFO blocks
+> until a reader connects. Unplugged memory slots are written as explicit zeros
+> using a lazily allocated, reusable 2 MiB buffer. Size pre-allocation and
+> `fsync` are skipped for FIFOs. `Diff` snapshots require a seekable regular
+> file and fail fast otherwise.
 
 **Prerequisites**: The microVM is `Paused`.
 
@@ -393,7 +401,8 @@ creation faster. The data stays in the host page cache, so same-host reads still
 see the full contents; only durability across a host crash is lost. This is
 useful when durability isn't required (e.g. a pipeline further transforms the
 snapshot). Block device backing files are always `fsync`'d regardless of this
-setting.
+setting. For FIFOs, `fsync` is skipped because it is meaningless and fails;
+other file types retain their existing sync behavior.
 
 ### Resuming the microVM
 
