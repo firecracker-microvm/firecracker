@@ -62,6 +62,12 @@ an acknowledgement message to the connecting end (host-side), in the form "OK
 PORT\\n", where `PORT` is the vsock port number assigned to the host end. If no
 one is listening, Firecracker will terminate the host connection.
 
+Firecracker limits the combined number of vsock connections and host sockets
+waiting for a connect command to 1023. At this limit, a new connection from
+either the host or the guest closes the oldest host socket still waiting for a
+connect command to make room. If every slot is held by an established
+connection, the new connection is rejected.
+
 Client A initiates connection to Server A in [figure below](#vsock-connections):
 
 1. Host: At VM configuration time, add a virtio-vsock device, with some path
