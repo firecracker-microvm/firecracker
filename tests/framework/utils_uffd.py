@@ -18,13 +18,25 @@ class UffdHandler:
     """Describe the UFFD page fault handler process."""
 
     def __init__(
-        self, name, socket_path, snapshot: "Snapshot", chroot_path, log_file_name
+        self,
+        name,
+        socket_path,
+        snapshot: "Snapshot",
+        chroot_path,
+        log_file_name,
+        base_layers=(),
     ):
-        """Instantiate the handler process with arguments."""
+        """Instantiate the handler process with arguments.
+
+        `base_layers` are memory files (names inside the chroot, oldest
+        first) that `snapshot.mem` is a diff over. They are passed before
+        `snapshot.mem`, which is what `uffd_layered_handler` expects.
+        """
         self._proc = None
         self._handler_name = name
         self.socket_path = socket_path
         self.snapshot = snapshot
+        self.base_layers = list(base_layers)
         self._chroot = chroot_path
         self._log_file = log_file_name
 
@@ -40,6 +52,7 @@ class UffdHandler:
                 args = [
                     f"/{self._handler_name}",
                     self.socket_path,
+                    *self.base_layers,
                     self.snapshot.mem.name,
                 ]
                 self._proc = subprocess.Popen(
@@ -109,15 +122,24 @@ class UffdHandler:
             self.kill()
 
 
-def spawn_pf_handler(vm, handler_path, jailed_snapshot):
-    """Spawn page fault handler process."""
+def spawn_pf_handler(vm, handler_path, jailed_snapshot, base_layers=()):
+    """Spawn page fault handler process.
+
+    `base_layers` are names of memory files already in the chroot, oldest
+    first, passed to the handler ahead of the snapshot's memory.
+    """
     # Copy snapshot memory file into chroot of microVM.
     # Copy the valid page fault binary into chroot of microVM.
     jailed_handler = vm.create_jailed_resource(handler_path)
     handler_name = os.path.basename(jailed_handler)
 
     uffd_handler = UffdHandler(
-        handler_name, SOCKET_PATH, jailed_snapshot, vm.chroot(), "uffd.log"
+        handler_name,
+        SOCKET_PATH,
+        jailed_snapshot,
+        vm.chroot(),
+        "uffd.log",
+        base_layers=base_layers,
     )
     uffd_handler.spawn(vm.jailer.uid, vm.jailer.gid)
 
