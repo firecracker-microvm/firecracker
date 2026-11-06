@@ -399,6 +399,8 @@ of Firecracker processes. There are two layers:
   - `rootfs` — the rootfs disk path, composed from `guest_kernel` +
     `rootfs_mode` (Ubuntu 24.04 for 5.10, Amazon Linux 2023 otherwise).
   - `pci_enabled` — auto-parametrized over `True`/`False`.
+  - `track_dirty_pages` — `False` by default. Run chosen cases with it on via
+    `pin_variant` (see below).
   - `vm_backend` — auto-parametrized over `"kvm"`.
   - `cpu_template` — `None` by default.
   - `huge_pages` — `HugePagesConfig.NONE` by default. See note below.

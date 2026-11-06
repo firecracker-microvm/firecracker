@@ -584,6 +584,12 @@ def pcie_hotplug_ports(request):
 
 
 @pytest.fixture
+def track_dirty_pages(request):
+    """Fixture that allows configuring whether a microVM will track dirty pages or not"""
+    return getattr(request, "param", False)
+
+
+@pytest.fixture
 def huge_pages(request):
     """Fixture that allows configuring whether a microVM will have huge pages enabled or not"""
     return getattr(request, "param", HugePagesConfig.NONE)
@@ -651,6 +657,7 @@ def vm_backend(request, record_property):
 #   rootfs        Path to a rootfs disk, composed from         (composed)
 #                 guest_kernel + rootfs_mode (Ubuntu for 5.10, AL2023 otherwise)
 #   pci_enabled   True / False                                 auto-multiplied
+#   track_dirty_pages   True / False                           default False
 #   vm_backend    "kvm"                                        auto-multiplied
 #   pcie_hotplug_ports  int                                    default 0
 #   cpu_template  None | static name | custom dict             default None
@@ -714,7 +721,13 @@ def uvm(microvm_factory, vm_backend, guest_kernel, rootfs, pci_enabled):
 
 @pytest.fixture
 def uvm_configured(
-    uvm, vcpu_count, mem_size_mib, huge_pages, cpu_template, pcie_hotplug_ports
+    uvm,
+    vcpu_count,
+    mem_size_mib,
+    huge_pages,
+    cpu_template,
+    pcie_hotplug_ports,
+    track_dirty_pages,
 ):
     """Spawned + basic_config + cpu_template applied. Caller adds devices and starts."""
     uvm.spawn()
@@ -724,6 +737,7 @@ def uvm_configured(
         huge_pages=huge_pages,
         cpu_template=cpu_template,
         pcie_hotplug_ports=pcie_hotplug_ports,
+        track_dirty_pages=track_dirty_pages,
     )
     return uvm
 
@@ -741,7 +755,9 @@ def uvm_restored(uvm_booted, microvm_factory):
     """Booted microVM, snapshotted, restored from the snapshot."""
     snapshot = uvm_booted.snapshot_full()
     uvm_booted.kill()
-    restored = microvm_factory.build_from_snapshot(snapshot)
+    restored = microvm_factory.build_from_snapshot(
+        snapshot, track_dirty_pages=uvm_booted.track_dirty_pages
+    )
     restored.cpu_template_name = uvm_booted.cpu_template_name
     return restored
 
@@ -771,6 +787,7 @@ def uvm_any(
     mem_size_mib,
     huge_pages,
     pcie_hotplug_ports,
+    track_dirty_pages,
 ):
     """A microVM in either the booted or restored lifecycle state.
 

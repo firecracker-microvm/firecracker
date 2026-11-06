@@ -285,6 +285,7 @@ class Microvm:
         self.disks = {}
         self.disks_vhost_user = {}
         self.huge_pages = HugePagesConfig.NONE
+        self.track_dirty_pages = False
         self.vcpus_count = None
         self.mem_size_bytes = None
         self.cpu_template_name = "None"
@@ -543,6 +544,7 @@ class Microvm:
             "vcpus": str(self.vcpus_count),
             "guest_memory": f"{self.mem_size_bytes / (1024 * 1024)}MB",
             "pci": f"{self.pci_enabled}",
+            "track_dirty_pages": f"{self.track_dirty_pages}",
         }
 
     @property
@@ -1163,6 +1165,7 @@ class Microvm:
 
         if huge_pages is not None:
             self.huge_pages = huge_pages
+        self.track_dirty_pages = track_dirty_pages
 
         if self.memory_monitor:
             response = self.api.machine_config.get()
@@ -1399,7 +1402,9 @@ class MicroVMFactory:
         booted = self.build_booted(kernel, rootfs, pci=pci, **basic_config_kwargs)
         snapshot = booted.snapshot_full()
         booted.kill()
-        restored = self.build_from_snapshot(snapshot)
+        restored = self.build_from_snapshot(
+            snapshot, track_dirty_pages=booted.track_dirty_pages
+        )
         restored.cpu_template_name = booted.cpu_template_name
         return restored
 
