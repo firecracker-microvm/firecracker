@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::device::{BlockResources, BlockRuntimeState, DiskProperties};
+use super::io::DiskImageFormat;
 use super::worker::WorkerHandle;
 use super::*;
 use crate::devices::virtio::block::persist::BlockConstructorArgs;
@@ -72,6 +73,8 @@ pub struct VirtioBlockState {
     topology: VirtioBlkTopology,
     discard_sector_alignment: u32,
     num_queues: Option<NonZeroU16>,
+    #[serde(default)]
+    disk_image_format: DiskImageFormat,
 }
 
 impl Persist<'_> for VirtioBlock {
@@ -108,6 +111,7 @@ impl Persist<'_> for VirtioBlock {
             topology: self.config_space.topology,
             discard_sector_alignment: self.config_space.discard_sector_alignment,
             num_queues: self.config.num_queues,
+            disk_image_format: self.config.image_format,
         }
     }
 
@@ -137,6 +141,7 @@ impl Persist<'_> for VirtioBlock {
             path_on_host: state.disk_path.clone(),
             rate_limiter: rate_limiter_config.into_option(),
             file_engine_type: state.file_engine_type.into(),
+            image_format: state.disk_image_format,
             blk_size: Some(state.blk_size),
             topology: Some(state.topology),
         };
@@ -160,6 +165,7 @@ impl Persist<'_> for VirtioBlock {
                     &state.disk_path,
                     is_read_only,
                     state.file_engine_type.into(),
+                    state.disk_image_format,
                 )?,
                 is_io_engine_throttled: false,
             });
@@ -218,6 +224,7 @@ mod tests {
             cache_type: CacheType::Writeback,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            image_format: DiskImageFormat::Raw,
             blk_size: None,
             topology: None,
         };
@@ -263,6 +270,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            image_format: DiskImageFormat::Raw,
             blk_size: None,
             topology: None,
         };

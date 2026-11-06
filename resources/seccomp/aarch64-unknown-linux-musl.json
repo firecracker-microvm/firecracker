@@ -30,6 +30,10 @@
                 "syscall": "read"
             },
             {
+                "syscall": "readlinkat",
+                "comment": "Used to canonicalize VMDK descriptor paths on drive patch"
+            },
+            {
                 "syscall": "write"
             },
             {
@@ -105,6 +109,10 @@
             {
                 "syscall": "lseek",
                 "comment": "Used by the block device"
+            },
+            {
+                "syscall": "preadv",
+                "comment": "Used by the imago VMDK disk image backend"
             },
             {
                 "syscall": "mremap",
@@ -1552,6 +1560,18 @@
         "default_action": "trap",
         "filter_action": "allow",
         "filter": [
+            {
+                "syscall": "newfstatat",
+                "comment": "Used to canonicalize VMDK descriptor paths during drive patch"
+            },
+            {
+                "syscall": "readlinkat",
+                "comment": "Used to canonicalize VMDK descriptor paths during drive patch"
+            },
+            {
+                "syscall": "preadv",
+                "comment": "Used by imago to read VMDK extents"
+            },
             {
                 "syscall": "epoll_ctl"
             },

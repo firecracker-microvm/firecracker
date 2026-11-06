@@ -67,7 +67,7 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
     type Error = VhostUserBlockError;
 
     fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
-        if let (Some(socket), None, None, None, None, None, None, None, None) = (
+        if let (Some(socket), None, None, None, None, None, None, None, None, None) = (
             &value.socket,
             &value.is_read_only,
             &value.discard,
@@ -75,6 +75,7 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
             &value.path_on_host,
             &value.rate_limiter,
             &value.file_engine_type,
+            &value.image_format,
             &value.blk_size,
             &value.topology,
         ) {
@@ -106,6 +107,7 @@ impl From<VhostUserBlockConfig> for BlockDeviceConfig {
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -265,14 +267,13 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
         }
     }
 
-    pub fn config_update(&mut self) -> Result<(), VhostUserBlockError> {
+    pub fn update_config(&mut self) -> Result<(), VhostUserBlockError> {
         let start_time = get_time_us(ClockType::Monotonic);
-        let interrupt = self
-            .device_state
-            .active_state()
-            .expect("Device is not initialized")
-            .interrupt
-            .clone();
+
+        let Some(device_state) = self.device_state.active_state() else {
+            return Err(VhostUserBlockError::DeviceNotActive);
+        };
+        let interrupt = device_state.interrupt.clone();
 
         // This buffer is used for config size check in vhost crate.
         let buffer = [0u8; BLOCK_CONFIG_SPACE_SIZE as usize];
@@ -427,7 +428,7 @@ mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
-    use crate::devices::virtio::block::virtio::device::FileEngineType;
+    use crate::devices::virtio::block::virtio::device::{DiskImageFormat, FileEngineType};
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
     use crate::devices::virtio::transport::mmio::VIRTIO_MMIO_INT_CONFIG;
     use crate::devices::virtio::vhost_user::tests::create_mem;
@@ -448,12 +449,24 @@ mod tests {
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
             socket: Some("sock".to_string()),
         };
         VhostUserBlockConfig::try_from(&block_config).unwrap();
+
+        for image_format in [DiskImageFormat::Raw, DiskImageFormat::Vmdk] {
+            let config = BlockDeviceConfig {
+                image_format: Some(image_format),
+                ..block_config.clone()
+            };
+            assert!(matches!(
+                VhostUserBlockConfig::try_from(&config),
+                Err(VhostUserBlockError::Config)
+            ));
+        }
 
         let block_config = BlockDeviceConfig {
             num_queues: std::num::NonZeroU16::new(1),
@@ -473,6 +486,7 @@ mod tests {
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -492,6 +506,7 @@ mod tests {
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -732,13 +747,16 @@ mod tests {
         vhost_block.write_config(0x69, &[0]);
         assert_eq!(vhost_block.config_space, vec![0x69, 0x69, 0x69]);
 
+        // Before device is active, update_config should error out
+        vhost_block.update_config().unwrap_err();
+
         // Testing [`config_update`]
         vhost_block.device_state = DeviceState::Activated(ActiveState {
             mem: default_mem(),
             interrupt: default_interrupt(),
         });
         vhost_block.config_space = vec![];
-        vhost_block.config_update().unwrap();
+        vhost_block.update_config().unwrap();
         assert_eq!(vhost_block.config_space, vec![0x69, 0x69, 0x69]);
         assert_eq!(
             vhost_block.interrupt_status().load(Ordering::SeqCst),
