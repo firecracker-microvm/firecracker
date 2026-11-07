@@ -152,12 +152,14 @@ and this project adheres to
   and the device I/O hung until the microVM was restarted. The debt is now
   computed in nanoseconds and rounded up.
 
-- [#6200](https://github.com/firecracker-microvm/firecracker/pull/6200): Fixed
+- [#6200](https://github.com/firecracker-microvm/firecracker/pull/6200),
+  [#6292](https://github.com/firecracker-microvm/firecracker/pull/6292): Fixed
   snapshot restore on x86_64 leaving vCPUs with different TSC offsets, which
   could make guest clocks using the `tsc` clocksource move backwards when a task
   migrated between vCPUs. On host kernels supporting `KVM_VCPU_TSC_CTRL` (Linux
   5.16 and later), the restored TSC offset of vCPU 0 is now applied to all vCPUs
-  before they start running.
+  before they start running, and each vCPU's TSC deadline timer is then re-armed
+  so that it fires when the guest expects.
 
 - [#6253](https://github.com/firecracker-microvm/firecracker/pull/6253),
   [#6274](https://github.com/firecracker-microvm/firecracker/pull/6274): Guest
