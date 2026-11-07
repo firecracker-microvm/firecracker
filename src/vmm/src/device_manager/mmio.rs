@@ -231,6 +231,7 @@ impl MMIOVirtioDevices {
             device.inner.clone(),
             device.resources.addr,
             device.resources.len,
+            0,
         )?;
 
         let sub_id =
@@ -404,6 +405,7 @@ impl MMIOPlatformDevices {
             device.inner.clone(),
             device.resources.addr,
             device.resources.len,
+            0,
         )?;
         self.boot_timer = Some(device);
 
@@ -451,6 +453,7 @@ impl MMIOPlatformDevices {
             device.inner.clone(),
             device.resources.addr,
             device.resources.len,
+            0,
         )?;
 
         self.serial = Some(device);
@@ -508,6 +511,7 @@ impl MMIOPlatformDevices {
             device.inner.clone(),
             device.resources.addr,
             device.resources.len,
+            0,
         )?;
         self.rtc = Some(device);
         Ok(())
@@ -554,6 +558,7 @@ impl MMIOPlatformDevices {
             device.inner.clone(),
             device.resources.addr,
             device.resources.len,
+            0,
         )?;
         self.gpio_pl061 = Some(device);
         Ok(())
