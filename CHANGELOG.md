@@ -52,6 +52,10 @@ and this project adheres to
   architecture can address (1022 GiB on aarch64, `usize::MAX` minus the MMIO
   gaps on x86_64) instead of silently clamping it and failing later with an
   out-of-memory error at boot.
+- [#6377](https://github.com/firecracker-microvm/firecracker/pull/6377): Release
+  builds are now compiled with `overflow-checks = true`, so an integer overflow
+  in Firecracker or in one of its dependencies aborts the process instead of
+  silently wrapping.
 - [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
   PL061 GPIO controller backing the new aarch64 power button is always attached
   and uses one extra GSI, which reduces the GSIs left for VirtIO devices. With
@@ -95,6 +99,12 @@ and this project adheres to
   template definitions remain available in `tests/data/custom_cpu_templates`.
 
 ### Fixed
+
+- [#6377](https://github.com/firecracker-microvm/firecracker/pull/6377): The
+  MMDS TCP stack now measures its retransmission timeout (300 ms) and idle
+  connection eviction threshold (10 s) on a monotonic clock. On x86_64 both were
+  counted in TSC cycles and therefore depended on the host CPU frequency; on
+  aarch64 they were 1.2 s and 40 s.
 
 - [#6302](https://github.com/firecracker-microvm/firecracker/issues/6302): Fixed
   AMX tile state being lost after a snapshot restore. The IA32_XFD and

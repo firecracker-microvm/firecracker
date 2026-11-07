@@ -3,11 +3,10 @@
 
 use std::convert::TryInto;
 use std::fmt;
-use std::ops::Add;
+use std::time::{Duration, Instant};
 
 use aws_lc_rs::aead::{AES_256_GCM, Aad, Nonce, RandomizedNonceKey};
 use base64::Engine;
-use utils::time::{ClockType, get_time_ms};
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 /// Length of initialization vector.
@@ -18,9 +17,6 @@ pub const KEY_LEN: usize = 32;
 pub const PAYLOAD_LEN: usize = std::mem::size_of::<u64>();
 /// Length of encryption tag.
 pub const TAG_LEN: usize = 16;
-
-/// Constant to convert seconds to milliseconds.
-pub const MILLISECONDS_PER_SECOND: u64 = 1_000;
 
 /// Minimum lifetime of token.
 pub const MIN_TOKEN_TTL_SECONDS: u32 = 1;
@@ -51,6 +47,8 @@ pub enum MmdsTokenError {
 
 pub struct TokenAuthority {
     cipher: RandomizedNonceKey,
+    // Token expiries are stored as milliseconds since this instant.
+    epoch: Instant,
     // Number of tokens encrypted under the current key.
     num_encrypted_tokens: u32,
     // Additional Authentication Data used for encryption and decryption.
@@ -72,6 +70,7 @@ impl TokenAuthority {
     pub fn try_new() -> Result<TokenAuthority, MmdsTokenError> {
         Ok(TokenAuthority {
             cipher: TokenAuthority::create_cipher()?,
+            epoch: Instant::now(),
             num_encrypted_tokens: 0,
             aad: "".to_string(),
         })
@@ -107,7 +106,7 @@ impl TokenAuthority {
         }
 
         // Compute expiration time in milliseconds from ttl.
-        let expiry = TokenAuthority::compute_expiry(ttl_seconds);
+        let expiry = self.compute_expiry(ttl_seconds);
         // Encrypt expiry (RandomizedNonceKey generates nonce automatically).
         self.encrypt_expiry(expiry)
     }
@@ -153,8 +152,7 @@ impl TokenAuthority {
             Err(_) => return false,
         };
 
-        // Compare expiry (in ms) with current time in milliseconds.
-        expiry > get_time_ms(ClockType::Monotonic)
+        Duration::from_millis(expiry) > self.epoch.elapsed()
     }
 
     /// Decrypt ciphertext composed of payload and tag to obtain the expiry value.
@@ -223,17 +221,11 @@ impl TokenAuthority {
         (MIN_TOKEN_TTL_SECONDS..=MAX_TOKEN_TTL_SECONDS).contains(&ttl_seconds)
     }
 
-    /// Compute expiry time in seconds by adding the time to live provided
-    /// to the current time measured in milliseconds.
-    fn compute_expiry(ttl_as_seconds: u32) -> u64 {
-        // Get current time in milliseconds.
-        let now_as_milliseconds = get_time_ms(ClockType::Monotonic);
-
-        // Compute expiry by adding ttl value converted to milliseconds
-        // to current time (also in milliseconds). This addition is safe
-        // because ttl is verified beforehand and can never be more than
-        // 6h (21_600_000 ms).
-        now_as_milliseconds.add(u64::from(ttl_as_seconds) * MILLISECONDS_PER_SECOND)
+    /// Compute the expiry, in milliseconds since `epoch`, of a token issued now with the given
+    /// time to live.
+    fn compute_expiry(&self, ttl_as_seconds: u32) -> u64 {
+        let expiry = self.epoch.elapsed() + Duration::from_secs(u64::from(ttl_as_seconds));
+        u64::try_from(expiry.as_millis()).expect("elapsed milliseconds fit in a u64")
     }
 }
 
@@ -320,28 +312,25 @@ mod tests {
 
     #[test]
     fn test_compute_expiry() {
-        let time_now = get_time_ms(ClockType::Monotonic);
-        let expiry = TokenAuthority::compute_expiry(1);
-        let ttl = expiry - time_now;
-        // We allow a deviation of 20ms to account for the gap
-        // between the two calls to `get_time_ms()`.
+        let token_authority = TokenAuthority::try_new().unwrap();
+        let now = token_authority.epoch.elapsed().as_millis();
+        let ttl = u128::from(token_authority.compute_expiry(1)) - now;
+        // We allow a deviation of 20ms to account for the gap between the two readings.
         let deviation = 20;
         assert!(
-            ttl >= MILLISECONDS_PER_SECOND && ttl <= MILLISECONDS_PER_SECOND + deviation,
-            "ttl={ttl} not within [{MILLISECONDS_PER_SECOND}, \
-             {MILLISECONDS_PER_SECOND}+{deviation}]",
+            (1_000..=1_000 + deviation).contains(&ttl),
+            "ttl={ttl} not within [1000, 1000+{deviation}]",
         );
 
-        let time_now = get_time_ms(ClockType::Monotonic);
-        let expiry = TokenAuthority::compute_expiry(0);
-        let ttl = expiry - time_now;
+        let now = token_authority.epoch.elapsed().as_millis();
+        let ttl = u128::from(token_authority.compute_expiry(0)) - now;
         assert!(ttl <= deviation, "ttl={ttl} is greater than {deviation}");
     }
 
     #[test]
     fn test_encrypt_decrypt() {
         let mut token_authority = TokenAuthority::try_new().unwrap();
-        let expiry = TokenAuthority::compute_expiry(10);
+        let expiry = token_authority.compute_expiry(10);
 
         // Test valid ciphertext.
         let token = token_authority.encrypt_expiry(expiry).unwrap();

@@ -479,8 +479,8 @@ impl Aml for AddressSpace<u16> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         self.push_header(
             bytes,
-            0x88,                               // Word Address Space Descriptor
-            3 + 5 * std::mem::size_of::<u16>(), // 3 bytes of header + 5 u16 fields
+            0x88,                                         // Word Address Space Descriptor
+            const { 3 + 5 * std::mem::size_of::<u16>() }, // 3 bytes of header + 5 u16 fields
         );
 
         bytes.extend_from_slice(&0u16.to_le_bytes()); // Granularity
@@ -497,8 +497,8 @@ impl Aml for AddressSpace<u32> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         self.push_header(
             bytes,
-            0x87,                               // DWord Address Space Descriptor
-            3 + 5 * std::mem::size_of::<u32>(), // 3 bytes of header + 5 u32 fields
+            0x87,                                         // DWord Address Space Descriptor
+            const { 3 + 5 * std::mem::size_of::<u32>() }, // 3 bytes of header + 5 u32 fields
         );
 
         bytes.extend_from_slice(&0u32.to_le_bytes()); // Granularity
@@ -515,8 +515,8 @@ impl Aml for AddressSpace<u64> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         self.push_header(
             bytes,
-            0x8A,                               // QWord Address Space Descriptor
-            3 + 5 * std::mem::size_of::<u64>(), // 3 bytes of header + 5 u64 fields
+            0x8A,                                         // QWord Address Space Descriptor
+            const { 3 + 5 * std::mem::size_of::<u64>() }, // 3 bytes of header + 5 u64 fields
         );
 
         bytes.extend_from_slice(&0u64.to_le_bytes()); // Granularity
