@@ -66,6 +66,15 @@ Explicit `2M` hugetlbfs pages require UFFD, so combining `2M` with file-backed
 restore returns an error. `Transparent` is accepted with UFFD, although UFFD may
 limit the effectiveness of transparent huge pages.
 
+A file-backed restore maps the memory file `MAP_PRIVATE`, and the kernel does
+not back a private file mapping with transparent huge pages. With `Transparent`,
+Firecracker therefore maps each 2MB-aligned run of holes in the memory file as
+anonymous memory advised for THP, so the guest's first write there can be backed
+by a huge page. Pages that hold data stay file-backed at 4K. This only helps if
+the memory file is sparse: a Full snapshot writes every page, zeros included,
+while a Diff snapshot leaves the pages it skips as holes, and a Full snapshot
+can be made sparse afterwards (e.g. with `fallocate --dig-holes`).
+
 When restoring snapshots via UFFD, Firecracker will send the configured page
 size (in KiB) for each memory region as part of the initial handshake, as
 described in our documentation on

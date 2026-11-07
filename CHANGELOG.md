@@ -44,6 +44,11 @@ and this project adheres to
 
 ### Changed
 
+- [#6395](https://github.com/firecracker-microvm/firecracker/issues/6395): A
+  `File` snapshot restore with `huge_pages: Transparent` now maps each 2 MiB
+  aligned run of holes in the memory file anonymously, so the guest's first
+  write there can be backed by a transparent huge page. Previously the private
+  file mapping meant `Transparent` had no effect on a `File` restore.
 - [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228): Device
   hotplug now requires `pcie_hotplug_ports` to be set in the machine
   configuration, and only devices behind a PCIe root port can be hot-unplugged.
