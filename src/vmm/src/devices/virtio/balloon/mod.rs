@@ -21,7 +21,7 @@ use crate::vstate::interrupts::InterruptError;
 /// Because Balloon is unique per-vm, this ID can be hardcoded.
 pub const BALLOON_DEV_ID: &str = "balloon";
 /// The size of the config space.
-pub const BALLOON_CONFIG_SPACE_SIZE: usize = 12;
+pub const BALLOON_CONFIG_SPACE_SIZE: usize = 16;
 /// Min number of virtio queues.
 pub const BALLOON_MIN_NUM_QUEUES: usize = 2;
 /// Virtio queue size, in number of descriptor chain heads.
@@ -51,6 +51,7 @@ pub const FREE_PAGE_HINT_DONE: u32 = 1;
 const VIRTIO_BALLOON_F_STATS_VQ: u32 = 1; // Enable statistics.
 const VIRTIO_BALLOON_F_DEFLATE_ON_OOM: u32 = 2; // Deflate balloon on OOM.
 const VIRTIO_BALLOON_F_FREE_PAGE_HINTING: u32 = 3; // Enable free page hinting
+const VIRTIO_BALLOON_F_PAGE_POISON: u32 = 4; // Guest is using page poisoning
 const VIRTIO_BALLOON_F_FREE_PAGE_REPORTING: u32 = 5; // Enable free page reporting
 
 // The statistics tags. defined in linux "include/uapi/linux/virtio_balloon.h".

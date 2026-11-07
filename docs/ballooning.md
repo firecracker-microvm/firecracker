@@ -365,6 +365,12 @@ size. With hugetlbfs, Firecracker cannot free reported ranges smaller than 2 MiB
 and zeroes them instead. With 4 KiB guest pages, order 9 is 2 MiB and each
 higher order doubles the size, so keep `page_reporting_order` at 9 or higher.
 
+Guests booted with `init_on_free=1` or `page_poison=on` only report free pages
+if the device offers `VIRTIO_BALLOON_F_PAGE_POISON`. Firecracker offers it with
+free page reporting and honours poison value 0 (`init_on_free=1`): a discarded
+range reads back as zeros. For any other value (`page_poison=on` uses `0xaa`)
+reports are acknowledged without discarding memory and a warning is logged.
+
 ## Virtio balloon free page hinting
 
 Free page hinting is a
