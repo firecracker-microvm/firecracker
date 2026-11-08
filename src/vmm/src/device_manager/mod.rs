@@ -667,6 +667,13 @@ impl DeviceManager {
                 }
 
                 if force {
+                    if let Err(err) = pci_devices.prepare_qcow2_unplug(&device_id) {
+                        // Failed preparation parks workers; the retained device must keep running.
+                        virtio_device.lock().expect("Poisoned lock").kick();
+                        return Err(VmmActionError::PciManager(PciManagerError::PrepareUnplug(
+                            err,
+                        )));
+                    }
                     pci_devices
                         .detach_pci_virtio_device(&vm, device_id, event_manager)
                         .map_err(VmmActionError::PciManager)
@@ -712,6 +719,18 @@ impl DeviceManager {
             }) else {
                 continue;
             };
+
+            if let Err(err) = pci_devices.prepare_qcow2_unplug(&device_id) {
+                // ponytail: retry on the next external event; idle retries would need a backoff
+                // timer. Signalling the eventfd here would busy-loop on persistent disk errors.
+                pci_devices
+                    .pci_segment
+                    .hotplug_completion
+                    .acked_buses
+                    .fetch_or(1 << bus, Ordering::Release);
+                warn!("Failed to prepare hot-unplug of {device_id:?}: {err}");
+                continue;
+            }
 
             info!("Completing hot-unplug of {device_id:?}");
             if let Err(err) =
@@ -787,6 +806,8 @@ pub enum DevicePersistError {
     Balloon(#[from] BalloonError),
     /// Block: {0}
     Block(#[from] BlockError),
+    /// Could not prepare device for snapshot: {0}
+    PrepareSave(#[from] crate::devices::virtio::persist::PersistError),
     /// MMIO Device manager: {0}
     MmioDeviceManager(#[from] mmio::MmioError),
     /// Mmio transport
@@ -834,6 +855,8 @@ pub enum DeviceManagerPersistError {
     Bus(#[from] BusError),
     /// Error creating DeviceManager: {0}
     DeviceManager(#[from] DeviceManagerCreateError),
+    /// Error saving devices: {0}
+    SaveDevices(#[from] DevicePersistError),
 }
 
 pub struct DeviceRestoreArgs<'a> {
@@ -863,20 +886,24 @@ impl<'a> Persist<'a> for DeviceManager {
     type Error = DeviceManagerPersistError;
 
     fn save(&self) -> Self::State {
+        self.try_save().expect("Failed to save devices")
+    }
+
+    fn try_save(&self) -> Result<Self::State, Self::Error> {
         let virtio_state = match &self.virtio_devices {
-            VirtioDevices::Mmio(mmio_devices) => VirtioDevicesState::Mmio(mmio_devices.save()),
-            VirtioDevices::Pci(pci_devices) => VirtioDevicesState::Pci(pci_devices.save()),
+            VirtioDevices::Mmio(mmio_devices) => VirtioDevicesState::Mmio(mmio_devices.try_save()?),
+            VirtioDevices::Pci(pci_devices) => VirtioDevicesState::Pci(pci_devices.try_save()?),
             // Enclaves are not snapshottable; mirror the previous behaviour of saving an
             // empty MMIO state.
             VirtioDevices::Enclave(_) => VirtioDevicesState::default(),
         };
 
-        DevicesState {
+        Ok(DevicesState {
             virtio_state,
             mmio_platform_state: self.mmio_platform_devices.save(),
             acpi_state: self.acpi_devices.save(),
             serial_state: self.serial_state(),
-        }
+        })
     }
 
     fn restore(
@@ -1516,6 +1543,91 @@ pub(crate) mod tests {
                 .virtio_devices
                 .contains_key(&device_id)
         );
+    }
+
+    #[test]
+    fn test_qcow2_unplug_retains_ack_for_retry() {
+        use std::fs::{File, TryLockError};
+
+        use crate::devices::virtio::block::virtio::device::DiskImageFormat;
+        use crate::devices::virtio::block::virtio::test_utils::{
+            create_test_qcow2, syscall_eio_filter,
+        };
+        use crate::seccomp::apply_filter;
+
+        let mut evt_manager = EventManager::new().unwrap();
+        let mut vmm = default_vmm_with_hotplug_ports(1);
+        let file = create_test_qcow2();
+        let mut config = make_hotplug_block_cfg("qcow2", &file, false);
+        config.image_format = Some(DiskImageFormat::Qcow2);
+        vmm.hotplug_device(HotplugDeviceConfig::Block(config), &mut evt_manager)
+            .unwrap();
+        let device_id = (VirtioDeviceType::Block, "qcow2".to_string());
+        let device = pci_devices(&vmm.device_manager)
+            .get_device(device_id.0, &device_id.1)
+            .unwrap();
+        vmm.hot_unplug_device(device_id.clone(), &mut evt_manager, false)
+            .unwrap();
+        pci_devices(&vmm.device_manager)
+            .pci_segment
+            .hotplug_completion
+            .acked_buses
+            .store(1 << 1, Ordering::Release);
+
+        // Keep the failure filter on a disposable thread so the original thread can retry.
+        std::thread::scope(|scope| {
+            let devices = &mut vmm.device_manager;
+            let vm = vmm.vm.as_kvm().unwrap();
+            scope
+                .spawn(move || {
+                    let mut unused_events = EventManager::new().unwrap();
+                    apply_filter(&syscall_eio_filter(libc::SYS_fsync)).unwrap();
+                    devices.complete_hotplug_removals(vm, &mut unused_events);
+                })
+                .join()
+                .unwrap();
+        });
+
+        let pci = pci_devices(&vmm.device_manager);
+        assert!(Arc::ptr_eq(
+            &device,
+            &pci.get_device(device_id.0, &device_id.1).unwrap()
+        ));
+        assert_eq!(
+            pci.pci_segment
+                .hotplug_completion
+                .acked_buses
+                .load(Ordering::Acquire),
+            1 << 1
+        );
+        assert_eq!(
+            pci.pci_segment
+                .hotplug_completion
+                .evt
+                .read()
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        let probe = File::open(file.as_path()).unwrap();
+        assert!(matches!(
+            probe.try_lock_shared(),
+            Err(TryLockError::WouldBlock)
+        ));
+        drop(device);
+
+        // A retry releases the engine without requiring a second guest acknowledgement.
+        vmm.complete_hotplug_removals(&mut evt_manager);
+        let pci = pci_devices(&vmm.device_manager);
+        assert!(!pci.virtio_devices.contains_key(&device_id));
+        assert_eq!(
+            pci.pci_segment
+                .hotplug_completion
+                .acked_buses
+                .load(Ordering::Acquire),
+            0
+        );
+        probe.try_lock().unwrap();
     }
 
     #[test]

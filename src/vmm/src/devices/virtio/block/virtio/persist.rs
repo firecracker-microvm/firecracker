@@ -130,6 +130,14 @@ impl Persist<'_> for VirtioBlock {
         if num_queues > 1 && !mq_offered {
             return Err(VirtioBlockError::Persist(PersistError::InvalidInput));
         }
+        if state.disk_image_format == DiskImageFormat::Qcow2
+            && (!is_read_only || state.file_engine_type == FileEngineTypeState::Async)
+            && num_queues > 1
+        {
+            return Err(VirtioBlockError::FileEngine(
+                super::io::BlockIoError::Qcow2(super::io::Qcow2IoError::MultiQueueNotSupported),
+            ));
+        }
         let config = VirtioBlockConfig {
             drive_id: state.id.clone(),
             partuuid: state.partuuid.clone(),
@@ -146,6 +154,15 @@ impl Persist<'_> for VirtioBlock {
             blk_size: Some(state.blk_size),
             topology: Some(state.topology),
         };
+        if config.discard && config.is_read_only {
+            return Err(VirtioBlockError::DiscardReadOnlyUnsupported);
+        }
+        if config.discard
+            && config.file_engine_type == FileEngineType::Async
+            && config.image_format != DiskImageFormat::Qcow2
+        {
+            return Err(VirtioBlockError::DiscardAsyncUnsupported);
+        }
 
         let queues = state
             .virtio_state
@@ -258,6 +275,119 @@ mod tests {
     }
 
     #[test]
+    fn test_qcow2_rejects_invalid_snapshot_config() {
+        use crate::devices::virtio::block::virtio::test_utils::create_test_qcow2;
+
+        let file = create_test_qcow2();
+        let mut config = default_config(
+            file.as_path().to_str().unwrap().to_string(),
+            FileEngineType::Sync,
+        );
+        config.image_format = DiskImageFormat::Qcow2;
+        config.is_read_only = true;
+        config.num_queues = NonZeroU16::new(2);
+        let block = VirtioBlock::new(config).unwrap();
+        let state = block.save();
+        drop(block);
+        for (engine, read_only, discard) in [
+            (FileEngineType::Sync, false, false),
+            (FileEngineType::Async, true, false),
+            (FileEngineType::Sync, true, true),
+        ] {
+            let mut invalid = state.clone();
+            invalid.file_engine_type = engine.into();
+            if !read_only {
+                invalid.virtio_state.avail_features &= !(1u64 << VIRTIO_BLK_F_RO);
+            }
+            if discard {
+                invalid.virtio_state.avail_features |= 1u64 << VIRTIO_BLK_F_DISCARD;
+            }
+            let serialized = bitcode::serialize(&invalid).unwrap();
+            let result = VirtioBlock::restore(
+                BlockConstructorArgs { mem: default_mem() },
+                &bitcode::deserialize(&serialized).unwrap(),
+            );
+            if discard {
+                assert!(matches!(
+                    result,
+                    Err(VirtioBlockError::DiscardReadOnlyUnsupported)
+                ));
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(VirtioBlockError::FileEngine(
+                        super::io::BlockIoError::Qcow2(
+                            super::io::Qcow2IoError::MultiQueueNotSupported
+                        )
+                    ))
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn test_qcow2_discard_negotiation() {
+        use crate::devices::virtio::block::virtio::test_utils::{
+            RequestDescriptorChain, create_test_qcow2, simulate_queue_event,
+        };
+        use crate::devices::virtio::generated::virtio_blk::{
+            VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP, VIRTIO_BLK_T_DISCARD,
+        };
+        use crate::devices::virtio::queue::VIRTQ_DESC_F_NEXT;
+        use crate::vstate::memory::Bytes;
+
+        let file = create_test_qcow2();
+        for negotiated in [false, true] {
+            let mut config = default_config(
+                file.as_path().to_str().unwrap().to_string(),
+                FileEngineType::Sync,
+            );
+            config.image_format = DiskImageFormat::Qcow2;
+            config.discard = true;
+            let mut block = VirtioBlock::new(config).unwrap();
+            if negotiated {
+                block.set_acked_features(1u64 << VIRTIO_BLK_F_DISCARD);
+            }
+            let state = block.save();
+            drop(block);
+            let serialized = bitcode::serialize(&state).unwrap();
+            let restored_state = bitcode::deserialize(&serialized).unwrap();
+            let mem = default_mem();
+            let mut restored =
+                VirtioBlock::restore(BlockConstructorArgs { mem: mem.clone() }, &restored_state)
+                    .unwrap();
+            assert!(restored.config().discard);
+            assert_eq!(restored.avail_features(), state.virtio_state.avail_features);
+            assert_eq!(restored.acked_features(), state.virtio_state.acked_features);
+
+            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            set_queue(&mut restored, 0, vq.create_queue());
+            let chain = RequestDescriptorChain::new(&vq);
+            chain.set_header(RequestHeader::new(VIRTIO_BLK_T_DISCARD, 0));
+            chain.data_desc.flags.set(VIRTQ_DESC_F_NEXT);
+            chain.data_desc.len.set(16);
+            let mut range = [0u8; 16];
+            range[8..12].copy_from_slice(&1u32.to_le_bytes());
+            mem.write_slice(&range, GuestAddress(chain.data_desc.addr.get()))
+                .unwrap();
+            restored.activate(mem.clone(), default_interrupt()).unwrap();
+            simulate_queue_event(&mut restored, Some(true));
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().len, 1);
+            let expected = if negotiated {
+                VIRTIO_BLK_S_OK
+            } else {
+                VIRTIO_BLK_S_UNSUPP
+            };
+            assert_eq!(
+                mem.read_obj::<u8>(GuestAddress(chain.status_desc.addr.get()))
+                    .unwrap(),
+                u8::try_from(expected).unwrap()
+            );
+        }
+    }
+
+    #[test]
     fn test_persistence() {
         // We create the backing file here so that it exists for the whole lifetime of the test.
         let f = TempFile::new().unwrap();
@@ -326,7 +456,7 @@ mod tests {
             block.set_acked_features(block.avail_features());
             block.activate(mem.clone(), default_interrupt()).unwrap();
             // Pause the worker for snapshotting
-            block.prepare_save();
+            block.prepare_save().unwrap();
 
             let state = block.save();
             let serialized = bitcode::serialize(&state).unwrap();
@@ -363,7 +493,7 @@ mod tests {
 
             // Unused queues stay idle through the worker and snapshot lifecycle.
             block.kick();
-            block.prepare_save();
+            block.prepare_save().unwrap();
             block.commit_dirty();
 
             let state = block.save();

@@ -120,6 +120,12 @@ impl AsyncFileEngine {
         &self.completion_evt
     }
 
+    /// Check whether the ring owns any accepted request.
+    #[cfg(test)]
+    pub(crate) fn has_pending_requests(&self) -> bool {
+        self.ring.num_ops() != 0
+    }
+
     pub fn push_read(
         &mut self,
         offset: u64,

@@ -3,7 +3,6 @@
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use vmm_sys_util::epoll::EventSet;
 
-use super::io::FileEngine;
 use crate::devices::virtio::block::virtio::device::VirtioBlock;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::logger::{error, warn};
@@ -24,9 +23,9 @@ impl VirtioBlock {
         )) {
             error!("Failed to register queue event: {}", err);
         }
-        if let FileEngine::Async(engine) = &resources[0].disk.file_engine
+        if let Some(event) = resources[0].disk.file_engine.completion_evt()
             && let Err(err) = ops.add(Events::with_data(
-                engine.completion_evt(),
+                event,
                 Self::PROCESS_ASYNC_COMPLETION,
                 EventSet::IN,
             ))
@@ -116,8 +115,8 @@ impl MutEventSubscriber for VirtioBlock {
                 Self::PROCESS_ASYNC_COMPLETION => {
                     let resources = self.resources();
                     assert_eq!(resources.len(), 1, "inline block must have one queue");
-                    if let FileEngine::Async(engine) = &resources[0].disk.file_engine {
-                        let _ = engine.completion_evt().read();
+                    if let Some(event) = resources[0].disk.file_engine.completion_evt() {
+                        let _ = event.read();
                     }
                 }
                 _ => (),

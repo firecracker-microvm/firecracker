@@ -215,6 +215,7 @@ class Microvm:
         numa_node=None,
         custom_cpu_template: Path = None,
         pci: bool = False,
+        time_api_requests: bool = True,
     ):
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
@@ -258,7 +259,7 @@ class Microvm:
 
         self._screen_pid = None
 
-        self.time_api_requests = True
+        self.time_api_requests = time_api_requests
         # disable the HTTP API timings as they cause a lot of false positives
         if int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", 1)) > 1:
             self.time_api_requests = False

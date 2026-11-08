@@ -32,7 +32,7 @@ impl<T: Debug> Cqe<T> {
         let res = self.res;
 
         if res < 0 {
-            Err(std::io::Error::from_raw_os_error(res))
+            Err(std::io::Error::from_raw_os_error(res.saturating_neg()))
         } else {
             Ok(u32::try_from(self.res).unwrap())
         }
@@ -58,14 +58,13 @@ mod tests {
     use super::*;
     #[test]
     fn test_result() {
-        // Check that `result()` returns an `Error` when `res` is negative.
-        {
-            let user_data = 10_u8;
-            let cqe: Cqe<u8> = Cqe::new(-22, user_data);
-
+        for errno in [libc::EINVAL, libc::EIO, libc::EINTR] {
+            let cqe = Cqe::new(-errno, 10_u8);
+            let error = cqe.result().unwrap_err();
+            assert_eq!(error.raw_os_error(), Some(errno));
             assert_eq!(
-                cqe.result().unwrap_err().kind(),
-                std::io::Error::from_raw_os_error(-22).kind()
+                error.kind(),
+                std::io::Error::from_raw_os_error(errno).kind()
             );
         }
 
