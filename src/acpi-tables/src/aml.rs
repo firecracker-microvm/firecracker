@@ -14,6 +14,8 @@ pub enum AmlError {
     NameEmpty,
     /// Invalid name part length
     InvalidPartLength,
+    /// AML MultiNamePath encodes the segment count in one byte (max 255)
+    NameTooLong,
     /// Invalid address range
     AddressRange,
 }
@@ -78,10 +80,7 @@ impl Aml for Path {
             n => {
                 bytes.push(0x2f); // MultiNamePrefix
                 // MultiNamePath encodes the segment count in one byte (max 255).
-                // Firecracker ACPI devices use at most 2 name segments, so a path
-                // with 255+ segments is not reachable in practice; a new device with
-                // that many hard-coded segments would fail deterministically.
-                bytes.push(n.try_into().unwrap());
+                bytes.push(u8::try_from(n).map_err(|_| AmlError::NameTooLong)?);
             }
         };
 
@@ -105,6 +104,11 @@ impl Path {
             let mut name_part = [0u8; 4];
             name_part.copy_from_slice(part.as_bytes());
             name_parts.push(name_part);
+        }
+
+        // AML MultiNamePath encodes the count in one byte.
+        if name_parts.len() > u8::MAX as usize {
+            return Err(AmlError::NameTooLong);
         }
 
         Ok(Path { root, name_parts })
@@ -1192,6 +1196,29 @@ impl Aml for CreateField<'_, u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_append_rejects_too_many_name_segments() {
+        // Dual/MultiNamePath uses a single byte for the segment count, so 255 is the max.
+        let name_255 = vec!["AAAA"; 255].join(".");
+        let path_255 = Path::new(&name_255).unwrap();
+        let mut out = Vec::new();
+        assert!(path_255.append_aml_bytes(&mut out).is_ok());
+
+        let name_256 = vec!["AAAA"; 256].join(".");
+        assert!(matches!(Path::new(&name_256), Err(AmlError::NameTooLong)));
+
+        // Defensive path: a Path built with more than 255 parts must not panic on encode.
+        let path_too_long = Path {
+            root: false,
+            name_parts: vec![[b'A'; 4]; 256],
+        };
+        let mut out = Vec::new();
+        assert!(matches!(
+            path_too_long.append_aml_bytes(&mut out),
+            Err(AmlError::NameTooLong)
+        ));
+    }
 
     #[test]
     fn test_device() {
