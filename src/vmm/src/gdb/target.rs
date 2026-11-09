@@ -76,25 +76,25 @@ pub enum GdbTargetError {
     GdbThreadError,
     /// VMM locking error
     VmmLockError,
-    /// Vcpu send event error
+    /// Vcpu send event error: {0}
     VcpuSendEventError(#[from] VcpuSendEventError),
-    /// Recieve error from Vcpu channel
+    /// Recieve error from Vcpu channel: {0}
     VcpuRecvError(#[from] RecvError),
     /// TID Conversion error
     TidConversionError,
-    /// KVM set guest debug error
+    /// KVM set guest debug error: {0}
     KvmIoctlsError(#[from] kvm_ioctls::Error),
     /// Gva no translation available
     GvaTranslateError,
     /// Conversion error with cpu rflags
     RegFlagConversionError,
     #[cfg(target_arch = "aarch64")]
-    /// Error retrieving registers from a Vcpu
+    /// Error retrieving registers from a Vcpu: {0}
     ReadRegisterError(#[from] AarchVcpuError),
     #[cfg(target_arch = "aarch64")]
     /// Error retrieving registers from a register vec.
     ReadRegisterVecError,
-    /// Error while reading/writing to guest memory
+    /// Error while reading/writing to guest memory: {0}
     GuestMemoryError(#[from] GuestMemoryError),
 }
 

@@ -42,7 +42,7 @@ use crate::{DeviceManager, Kvm, Vcpu, VcpuConfig, align_up};
 pub enum ConfigurationError {
     /// Failed to create a Flattened Device Tree for this aarch64 microVM: {0}
     SetupFDT(#[from] fdt::FdtError),
-    /// Failed to write to guest memory.
+    /// Failed to write to guest memory: {0}
     MemoryError(#[from] GuestMemoryError),
     /// Cannot copy kernel file fd
     KernelFile,

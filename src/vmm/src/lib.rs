@@ -251,7 +251,7 @@ pub enum VmmError {
     VcpuEvent(vstate::vcpu::VcpuError),
     /// Cannot create a vCPU handle. {0}
     VcpuHandle(vstate::vcpu::VcpuError),
-    /// Failed to start vCPUs
+    /// Failed to start vCPUs: {0}
     VcpuStart(StartVcpusError),
     /// Failed to pause the vCPUs.
     VcpuPause,

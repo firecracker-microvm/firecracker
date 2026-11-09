@@ -72,7 +72,7 @@ pub enum VirtioMemError {
     BlockCountOverflow(usize),
     /// The requested range cannot be unplugged because it's {0:?}.
     UnplugRequestBlockStateInvalid(BlockRangeState),
-    /// There was an error updating the KVM slot.
+    /// There was an error updating the KVM slot: {0}
     UpdateKvmSlot(VmError),
 }
 

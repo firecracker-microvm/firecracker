@@ -21,11 +21,11 @@ use crate::vstate::memory::GuestMemoryMmap;
 /// vhost-user error.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VhostUserError {
-    /// Invalid available address
+    /// Invalid available address: {0}
     AvailAddress(GuestMemoryError),
     /// Failed to connect to UDS Unix stream: {0}
     Connect(#[from] std::io::Error),
-    /// Invalid descriptor table address
+    /// Invalid descriptor table address: {0}
     DescriptorTableAddress(GuestMemoryError),
     /// Get features failed: {0}
     VhostUserGetFeatures(VhostError),
@@ -53,7 +53,7 @@ pub enum VhostUserError {
     VhostUserSetVringEnable(VhostError),
     /// Guest memory is not a shared file mapping, so the backend cannot map it
     VhostUserMemoryNotShareable,
-    /// Invalid used address
+    /// Invalid used address: {0}
     UsedAddress(GuestMemoryError),
 }
 
