@@ -89,22 +89,21 @@ use crate::devices::virtio::vhost_user_metrics;
 use crate::devices::virtio::vsock::metrics as vsock_metrics;
 
 /// Static instance used for handling metrics.
-pub static METRICS: Metrics<FirecrackerMetrics, FcLineWriter> =
-    Metrics::<FirecrackerMetrics, FcLineWriter>::new(FirecrackerMetrics::new());
+pub static METRICS: Metrics = Metrics::new(FirecrackerMetrics::new());
 
 /// Metrics system.
 // All member fields have types which are Sync, and exhibit interior mutability, so
 // we can call operations on metrics using a non-mut static global variable.
 #[derive(Debug)]
-pub struct Metrics<T: Serialize, M: Write + Send> {
+pub struct Metrics {
     // Metrics will get flushed here.
-    metrics_buf: OnceLock<Mutex<M>>,
-    pub app_metrics: T,
+    metrics_buf: OnceLock<Mutex<FcLineWriter>>,
+    pub app_metrics: FirecrackerMetrics,
 }
 
-impl<T: Serialize + Debug, M: Write + Send + Debug> Metrics<T, M> {
+impl Metrics {
     /// Creates a new instance of the current metrics.
-    pub const fn new(app_metrics: T) -> Metrics<T, M> {
+    pub const fn new(app_metrics: FirecrackerMetrics) -> Metrics {
         Metrics {
             metrics_buf: OnceLock::new(),
             app_metrics,
@@ -123,7 +122,7 @@ impl<T: Serialize + Debug, M: Write + Send + Debug> Metrics<T, M> {
     /// # Arguments
     ///
     /// * `metrics_dest` - Buffer for JSON formatted metrics. Needs to implement `Write` and `Send`.
-    pub fn init(&self, metrics_dest: M) -> Result<(), MetricsError> {
+    pub fn init(&self, metrics_dest: FcLineWriter) -> Result<(), MetricsError> {
         self.metrics_buf
             .set(Mutex::new(metrics_dest))
             .map_err(|_| MetricsError::AlreadyInitialized)
@@ -163,8 +162,8 @@ impl<T: Serialize + Debug, M: Write + Send + Debug> Metrics<T, M> {
     }
 }
 
-impl<T: Serialize + Debug, M: Write + Send + Debug> Deref for Metrics<T, M> {
-    type Target = T;
+impl Deref for Metrics {
+    type Target = FirecrackerMetrics;
 
     fn deref(&self) -> &Self::Target {
         &self.app_metrics
@@ -1113,7 +1112,7 @@ mod tests {
         // using METRICS specifically. So, to avoid the conflict we
         // use a local Metrics to test init() instead of the global
         // "METRICS"
-        let m = &Metrics::<_, FcLineWriter>::new(FirecrackerMetrics::new());
+        let m = &Metrics::new(FirecrackerMetrics::new());
 
         // Trying to write metrics, when metrics system is not initialized, should not throw error.
         let res = m.write();
