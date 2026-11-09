@@ -46,9 +46,9 @@ pub enum VirtioBlockError {
     DescriptorChainTooShort,
     /// Guest gave us a descriptor that was too short to use.
     DescriptorLengthTooSmall,
-    /// Getting a block's metadata fails for any reason.
+    /// Getting a block's metadata fails for any reason: {0}
     GetFileMetadata(std::io::Error),
-    /// Guest gave us bad memory addresses.
+    /// Guest gave us bad memory addresses: {0}
     GuestMemory(GuestMemoryError),
     /// The data length is invalid.
     InvalidDataLength,

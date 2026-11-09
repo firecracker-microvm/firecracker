@@ -132,7 +132,7 @@ pub enum StartMicrovmError {
     /// Error starting GDB debug session: {0}
     #[cfg(feature = "gdb")]
     GdbServer(gdb::target::GdbTargetError),
-    /// Error cloning Vcpu fds
+    /// Error cloning Vcpu fds: {0}
     #[cfg(feature = "gdb")]
     VcpuFdCloneError(#[from] crate::vstate::vcpu::CopyKvmFdError),
     /// Error with the KvmVm object: {0}

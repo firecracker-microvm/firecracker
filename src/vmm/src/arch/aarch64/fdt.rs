@@ -67,7 +67,7 @@ pub enum FdtError {
     GuestMemoryTooSmall(u64, u64),
     /// Read cache info error: {0}
     ReadCacheInfo(String),
-    /// Failure in writing FDT in memory.
+    /// Failure in writing FDT in memory: {0}
     WriteFdtToMemory(#[from] GuestMemoryError),
 }
 

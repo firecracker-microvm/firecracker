@@ -54,7 +54,7 @@ pub enum MmioError {
     /// Failed to register irqfd: {0}
     RegisterIrqFd(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
-    /// Failed to create AML code for device
+    /// Failed to create AML code for device: {0}
     AmlError(#[from] aml::AmlError),
 }
 
