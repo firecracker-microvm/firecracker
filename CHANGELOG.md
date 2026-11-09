@@ -175,7 +175,13 @@ and this project adheres to
 ### Added
 
 - [#6393](https://github.com/firecracker-microvm/firecracker/pull/6393): Added
-  enclave support.
+  support for Nitro Sandboxes. Firecracker can now launch and manage isolated
+  VMs that the Nitro Hypervisor carves out of the parent EC2 instance, as an
+  alternative to KVM. Firecracker drives the Nitro Enclaves driver
+  (`/dev/nitro_enclaves`) instead of `/dev/kvm`, and keeps its existing API,
+  jailer and virtio device model. A sandbox is configured with the new
+  `PUT /enclave` API, in confidential or direct mode. See the
+  [Nitro Sandboxes documentation](docs/nitro-sandboxes/README.md).
 
 ## [1.17.0]
 
