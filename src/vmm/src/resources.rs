@@ -167,7 +167,23 @@ impl VmResources {
         pci_enabled: bool,
     ) -> Result<Self, ResourcesError> {
         let vmm_config = serde_json::from_str::<VmmConfig>(config_json)?;
+        Self::from_config(
+            vmm_config,
+            instance_info,
+            mmds_size_limit,
+            metadata_json,
+            pci_enabled,
+        )
+    }
 
+    /// Configures Vmm resources as described by an already parsed `vmm_config`.
+    pub fn from_config(
+        vmm_config: VmmConfig,
+        instance_info: &InstanceInfo,
+        mmds_size_limit: usize,
+        metadata_json: Option<&str>,
+        pci_enabled: bool,
+    ) -> Result<Self, ResourcesError> {
         if let Some(logger_config) = vmm_config.logger {
             crate::logger::LOGGER.update(logger_config)?;
         }

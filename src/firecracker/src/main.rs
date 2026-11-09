@@ -594,8 +594,10 @@ fn build_microvm_from_json(
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
 ) -> Result<Arc<Mutex<vmm::Vmm>>, BuildFromJsonError> {
-    let mut vm_resources = VmResources::from_json(
-        &config_json,
+    let vmm_config = serde_json::from_slice(config_json.as_bytes())
+        .map_err(|err| BuildFromJsonError::ParseFromJson(err.into()))?;
+    let mut vm_resources = VmResources::from_config(
+        vmm_config,
         &instance_info,
         mmds_size_limit,
         metadata_json,
