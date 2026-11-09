@@ -69,18 +69,20 @@ impl TryFrom<&Request> for ParsedRequest {
     type Error = RequestError;
     fn try_from(request: &Request) -> Result<Self, Self::Error> {
         let request_uri = request.uri().get_abs_path().to_string();
-        let description = describe(
-            request.method(),
-            request_uri.as_str(),
-            request.body.as_ref(),
-        );
-        info_unrestricted!("The API server received a {description}.");
 
         // Split request uri by '/' by doing:
         // 1. Trim starting '/' characters
         // 2. Splitting by '/'
         let mut path_tokens = request_uri.trim_start_matches('/').split_terminator('/');
         let path = path_tokens.next().unwrap_or("");
+
+        let description = describe(
+            request.method(),
+            request_uri.as_str(),
+            path,
+            request.body.as_ref(),
+        );
+        info_unrestricted!("The API server received a {description}.");
 
         match (request.method(), path, request.body.as_ref()) {
             (Method::Get, "", None) => parse_get_instance_info(),
@@ -251,25 +253,26 @@ impl ParsedRequest {
 /// # Arguments
 ///
 /// * `method` - one of `GET`, `PATCH`, `PUT`
-/// * `path` - path of the API request
+/// * `uri` - URI of the API request
+/// * `path` - first path token of the API request, identifying the endpoint
 /// * `body` - body of the API request
-fn describe(method: Method, path: &str, body: Option<&Body>) -> String {
+fn describe(method: Method, uri: &str, path: &str, body: Option<&Body>) -> String {
     match (path, body) {
-        ("/mmds", Some(_)) | (_, None) => format!("{:?} request on {:?}", method, path),
-        ("/cpu-config", Some(payload_value)) => {
+        ("mmds", Some(_)) | (_, None) => format!("{:?} request on {:?}", method, uri),
+        ("cpu-config", Some(payload_value)) => {
             // If the log level is at Debug or higher, include the CPU template in
             // the log line.
             if log_enabled!(Level::Debug) {
-                describe_with_body(method, path, payload_value)
+                describe_with_body(method, uri, payload_value)
             } else {
                 format!(
                     "{:?} request on {:?}. To view the CPU template received by the API, \
                      configure log-level to DEBUG",
-                    method, path
+                    method, uri
                 )
             }
         }
-        (_, Some(payload_value)) => describe_with_body(method, path, payload_value),
+        (_, Some(payload_value)) => describe_with_body(method, uri, payload_value),
     }
 }
 
@@ -585,17 +588,20 @@ pub mod tests {
     #[test]
     fn test_describe() {
         assert_eq!(
-            describe(Method::Get, "path", None),
+            describe(Method::Get, "path", "path", None),
             "Get request on \"path\""
         );
         assert_eq!(
-            describe(Method::Put, "/mmds", None),
-            "Put request on \"/mmds\""
-        );
-        assert_eq!(
-            describe(Method::Put, "path", Some(&Body::new("body"))),
+            describe(Method::Put, "path", "path", Some(&Body::new("body"))),
             "Put request on \"path\" with body \"body\""
         );
+        // The MMDS body must not be logged, no matter how the path is spelled.
+        for uri in ["/mmds", "/mmds/", "//mmds", "///mmds///"] {
+            assert_eq!(
+                describe(Method::Put, uri, "mmds", Some(&Body::new("secret"))),
+                format!("Put request on {uri:?}")
+            );
+        }
     }
 
     #[test]
