@@ -16,6 +16,9 @@ pytestmark = [
 ]
 
 
+# Reports vhost-user init and config change latencies, which concurrent tests
+# on the host inflate.
+@pytest.mark.serial
 @pytest.mark.parametrize("vcpu_count", [1, 2], ids=["1vcpu", "2vcpu"])
 def test_vhost_user_block_metrics(uvm, vcpu_count, metrics):
     """
