@@ -96,6 +96,13 @@ and this project adheres to
 
 ### Fixed
 
+- [#6416](https://github.com/firecracker-microvm/firecracker/issues/6416): Fixed
+  Firecracker hanging when a metrics write raised a fatal signal, for example
+  `SIGXFSZ` once the metrics file reached the file size limit. The signal
+  handler flushed the metrics again and waited for the lock held by the
+  interrupted write. It now skips that last flush if the metrics are being
+  written.
+
 - [#6302](https://github.com/firecracker-microvm/firecracker/issues/6302): Fixed
   AMX tile state being lost after a snapshot restore. The IA32_XFD and
   IA32_XFD_ERR MSRs are now saved in snapshots. Without them a restored guest

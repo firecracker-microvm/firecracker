@@ -11,6 +11,7 @@ from signal import SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SI
 from time import sleep
 
 import pytest
+import requests
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_rootfs_mode
 from framework.http_api import Session
@@ -142,6 +143,35 @@ def test_sigxfsz_handler(uvm):
     microvm.check_log_message(msg)
     metric_line = json.loads(metrics_fd.readlines()[0])
     assert metric_line["signals"]["sigxfsz"] == 1
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_sigxfsz_from_metrics_write(uvm):
+    """
+    Test that a SIGXFSZ raised by a metrics flush makes Firecracker exit.
+
+    The handler flushes the metrics again on the thread that is still inside
+    the metrics write, so it must not wait for the metrics lock.
+    """
+    microvm = uvm
+    # Without a serial output file and with few log lines, the metrics file is
+    # the only file that reaches the file size limit.
+    microvm.spawn(serial_out_path=None, log_level="Error")
+    microvm.memory_monitor = None
+    microvm.basic_config()
+    microvm.start()
+
+    size = os.path.getsize(microvm.metrics_file)
+    res.prlimit(microvm.firecracker_pid, res.RLIMIT_FSIZE, (size, res.RLIM_INFINITY))
+
+    with pytest.raises(requests.exceptions.ConnectionError):
+        microvm.api.session.put(
+            microvm.api.endpoint + "/actions",
+            json={"action_type": "FlushMetrics"},
+            timeout=5,
+        )
+    microvm.mark_killed()
+    microvm.check_log_message("Shutting down VM after intercepting signal 25")
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
