@@ -6,8 +6,12 @@ import ipaddress
 import os
 import random
 import re
+import select
 import signal
 import string
+import subprocess
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -15,6 +19,27 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 
 from framework import utils
 from framework.utils import Timeout
+
+# e.g. `KERNEL[82.906] bind /devices/pci0000:00/0000:00:00.0/0000:01:00.0 (pci)`
+UEVENT_RE = re.compile(r"^KERNEL\[[\d.]+\]\s+(?P<action>\S+)\s+(?P<devpath>\S+)")
+
+
+def read_line(proc, deadline, what):
+    """Read one line of `proc`'s output, or raise once `deadline` passes.
+
+    `deadline` is a time.monotonic() value. The line is read a byte at a
+    time so that nothing past its newline is consumed.
+    """
+    line = b""
+    while not line.endswith(b"\n"):
+        left = max(0.0, deadline - time.monotonic())
+        if not select.select([proc.stdout], [], [], left)[0]:
+            raise TimeoutError(f"No {what} arrived in time")
+        char = proc.stdout.read(1)
+        if not char:
+            raise ChildProcessError("The guest closed the ssh session")
+        line += char
+    return line.decode(errors="replace")
 
 
 class SSHConnection:
@@ -214,6 +239,91 @@ class SSHConnection:
     def check_output(self, cmd_string, timeout=100, *, debug=False):
         """Same as `run`, but raises an exception on non-zero return code of remote command"""
         return self.run(cmd_string, timeout, check=True, debug=debug)
+
+    @contextmanager
+    def _spawn(self, remote_cmd):
+        """Run `remote_cmd` in the guest for as long as the context lasts.
+
+        Yields its Popen. The pipes are binary and unbuffered: a text
+        wrapper may read ahead, which would leave select() on the fd
+        disagreeing with what Python has already buffered.
+        """
+        cmd = ["ssh", *self.options, self.user_host, remote_cmd]
+        if self.netns is not None:
+            cmd = ["ip", "netns", "exec", self.netns] + cmd
+
+        proc = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0
+        )
+        try:
+            yield proc
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+
+    @contextmanager
+    def shell(self, timeout=10):
+        """Hold a guest shell open, and yield a callable sending it commands.
+
+        A command is sent without waiting for it to run, and its output is
+        discarded. A fresh ssh client costs tens of milliseconds, so this
+        is the way to trigger something in the guest inside a timed window.
+        """
+        loop = (
+            "echo READY; "
+            'while IFS= read -r __cmd; do eval "$__cmd" >/dev/null 2>&1; done'
+        )
+        with self._spawn(loop) as proc:
+            # Wait for the shell to come up, so that a caller does not end
+            # up timing the ssh session setup.
+            deadline = time.monotonic() + timeout
+            while read_line(proc, deadline, "shell").strip() != "READY":
+                pass
+
+            def send(cmd_string):
+                proc.stdin.write(cmd_string.encode() + b"\n")
+
+            yield send
+
+    @contextmanager
+    def uevent_monitor(self, subsystem, sync_device, timeout=10):
+        """Stream one subsystem's guest kernel uevents over an ssh session.
+
+        Yields a callable blocking until an event with the given action
+        arrives, and returning its device path.
+
+        `sync_device` is the sysfs directory of a device that is already
+        present. A synthetic event on it proves the stream is live, which
+        the monitor's own header does not: udevadm prints that before
+        binding the netlink socket, so a fast event could be missed.
+        """
+        monitor = f"udevadm monitor --kernel --subsystem-match={subsystem}"
+
+        with self._spawn(monitor) as proc:
+
+            def wait_for(action, seconds=timeout):
+                deadline = time.monotonic() + seconds
+                while True:
+                    line = read_line(proc, deadline, f"{action} uevent")
+                    match = UEVENT_RE.match(line)
+                    if match and match.group("action") == action:
+                        return match.group("devpath")
+
+            deadline = time.monotonic() + timeout
+            while True:
+                self.check_output(f"echo change > {sync_device}/uevent")
+                try:
+                    wait_for("change", 0.5)
+                    break
+                except TimeoutError:
+                    if time.monotonic() > deadline:
+                        raise
+
+            yield wait_for
 
     def _exec(self, cmd, timeout=100, check=False):
         """Private function that handles the ssh client invocation."""
