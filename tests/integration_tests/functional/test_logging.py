@@ -6,7 +6,9 @@ It checks the response of the API configuration calls and the logs that show
 up in the configured logging file.
 """
 
+import json
 import re
+import socket
 from pathlib import Path
 from time import strptime
 
@@ -137,6 +139,27 @@ def test_api_requests_logs(uvm):
 
     microvm.api.mmds.get()
     microvm.check_log_message('The API server received a Get request on "/mmds".')
+
+    # Paths not byte-equal to /mmds reach the MMDS handler too, and must be
+    # logged without the body as well. `///mmds//` is rejected because of the
+    # trailing empty token, but the log line is emitted before routing, so it
+    # must be redacted too. The API client cannot send such paths, so write
+    # the requests to the socket directly.
+    secret = "s3cr3t-ami-id"
+    body = json.dumps({"latest": {"meta-data": {"ami-id": secret}}})
+    for path, status in [("///mmds/", b"204"), ("///mmds//", b"400")]:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.connect(str(microvm.jailer.api_socket_path()))
+            sock.sendall(
+                f"PUT {path} HTTP/1.1\r\n"
+                f"Content-Type: application/json\r\n"
+                f"Content-Length: {len(body)}\r\n\r\n{body}".encode()
+            )
+            assert status in sock.recv(1024)
+
+        microvm.check_log_message(f'The API server received a Put request on "{path}".')
+
+    assert secret not in microvm.log_data
 
     # Check that the fault message return by the client is also logged in the
     # FIFO.

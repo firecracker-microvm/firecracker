@@ -170,6 +170,11 @@ and this project adheres to
   unusable for the rest of the microVM's lifetime. The reset now waits until
   every in-flight request has completed.
 
+- [#6406](https://github.com/firecracker-microvm/firecracker/pull/6406): Fixed
+  the API server logging MMDS request bodies in cleartext when the request path
+  was not exactly `/mmds`. Paths such as `/mmds/` or `//mmds` reach the MMDS
+  handler too, but were not recognized as MMDS by the log redaction.
+
 ## [1.18.0]
 
 ### Added
