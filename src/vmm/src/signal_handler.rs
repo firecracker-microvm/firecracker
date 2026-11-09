@@ -6,7 +6,7 @@ use libc::{
 };
 
 use crate::FcExitCode;
-use crate::logger::{IncMetric, METRICS, StoreMetric, error_unrestricted};
+use crate::logger::{IncMetric, LOGGER, METRICS, StoreMetric, error_unrestricted};
 use crate::utils::signal::register_signal_handler;
 
 // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
@@ -18,11 +18,23 @@ const SI_OFF_SYSCALL: isize = 6;
 
 const SYS_SECCOMP_CODE: i32 = 1;
 
+// Logs only when logging to a file. The signal may have interrupted a write to
+// std::io::Stdout on this thread (a log line or guest serial output), and
+// Stdout keeps a RefCell borrowed for the whole write, so logging to stdout
+// from the handler would panic.
+macro_rules! log_error {
+    ($($arg:tt)+) => {
+        if LOGGER.logs_to_file() {
+            error_unrestricted!($($arg)+);
+        }
+    };
+}
+
 #[inline]
 fn exit_with_code(exit_code: FcExitCode) {
     // Write the metrics before exiting.
     if let Err(err) = METRICS.write() {
-        error_unrestricted!("Failed to write metrics while stopping: {}", err);
+        log_error!("Failed to write metrics while stopping: {}", err);
     }
     // SAFETY: Safe because we're terminating the process anyway.
     unsafe { libc::_exit(exit_code as i32) };
@@ -42,7 +54,7 @@ macro_rules! generate_handler {
             }
             $signal_metric.store(1);
 
-            error_unrestricted!(
+            log_error!(
                 "Shutting down VM after intercepting signal {}, code {}.",
                 si_signo,
                 si_code
@@ -67,7 +79,7 @@ fn log_sigsys_err(si_code: c_int, info: *mut siginfo_t) {
     // SAFETY: Other signals which might do async unsafe things incompatible with the rest of this
     // function are blocked due to the sa_mask used when registering the signal handler.
     let syscall = unsafe { *(info as *const i32).offset(SI_OFF_SYSCALL) };
-    error_unrestricted!(
+    log_error!(
         "Shutting down VM after intercepting a bad syscall ({}).",
         syscall
     );
@@ -141,7 +153,7 @@ extern "C" fn sigpipe_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_
     let si_code = unsafe { (*info).si_code };
 
     if num != si_signo || num != SIGPIPE {
-        error_unrestricted!("Received invalid signal {}, code {}.", si_signo, si_code);
+        log_error!("Received invalid signal {}, code {}.", si_signo, si_code);
         return;
     }
 
