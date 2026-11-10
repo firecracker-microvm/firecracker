@@ -85,6 +85,10 @@ and this project adheres to
 - [#6354](https://github.com/firecracker-microvm/firecracker/pull/6354): Unified
   the saved virtio device state across the MMIO and PCI transports and dropped
   the redundant PCI SBDF from the saved state.
+- [#6321](https://github.com/firecracker-microvm/firecracker/pull/6321): The
+  memory hotplug configuration now rejects a `slot_size_mib` that isn't a
+  multiple of 64 host pages. This only affects hosts with pages larger than 32
+  KiB: with 64 KiB pages, slots must be a multiple of 4 MiB.
 
 ### Deprecated
 
@@ -169,6 +173,11 @@ and this project adheres to
   signal interrupted the wait for its in-flight requests, which left the device
   unusable for the rest of the microVM's lifetime. The reset now waits until
   every in-flight request has completed.
+
+- [#6321](https://github.com/firecracker-microvm/firecracker/pull/6321): Fixed
+  dirty pages being lost when syncing the memory file, or reading KVM's dirty
+  log, failed during snapshot creation, so the next Diff snapshot left them out.
+  They are now marked dirty again.
 
 ## [1.18.0]
 
