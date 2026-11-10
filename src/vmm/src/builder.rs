@@ -204,7 +204,6 @@ pub fn build_microvm_for_boot(
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm)?;
-    let mut vcpus = vm.create_vcpus(vcpu_count)?;
     vm.register_dram_memory_regions(guest_memory)?;
 
     // Allocate memory as soon as possible to make hotpluggable memory available to all consumers,
@@ -229,6 +228,9 @@ pub fn build_microvm_for_boot(
 
     let kvm_vm = Arc::new(vm);
     let vm = Vm::Kvm(kvm_vm.clone());
+
+    // All memslots are registered by now, see `create_vcpus`.
+    let mut vcpus = kvm_vm.create_vcpus(vcpu_count)?;
 
     let mut device_manager = DeviceManager::new(
         event_manager,
@@ -515,11 +517,12 @@ pub fn build_microvm_from_snapshot(
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm).map_err(StartMicrovmError::KvmVm)?;
 
-    let mut vcpus = vm
-        .create_vcpus(vcpu_count)
+    vm.restore_memory_regions(guest_memory, &microvm_state.vm_state.memory)
         .map_err(StartMicrovmError::KvmVm)?;
 
-    vm.restore_memory_regions(guest_memory, &microvm_state.vm_state.memory)
+    // All memslots are registered by now, see `create_vcpus`.
+    let mut vcpus = vm
+        .create_vcpus(vcpu_count)
         .map_err(StartMicrovmError::KvmVm)?;
 
     #[cfg(target_arch = "x86_64")]
