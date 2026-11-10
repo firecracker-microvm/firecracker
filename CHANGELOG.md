@@ -191,6 +191,12 @@ and this project adheres to
   was not exactly `/mmds`. Paths such as `/mmds/` or `//mmds` reach the MMDS
   handler too, but were not recognized as MMDS by the log redaction.
 
+- [#6388](https://github.com/firecracker-microvm/firecracker/pull/6388): Fixed
+  microVM creation and snapshot restore taking 20-50 ms longer on hosts running
+  Linux 6.18 or newer, by registering guest memory and pmem memslots before
+  creating the vCPUs and the devices. Intel hosts still pay one ~25 ms wait at
+  vCPU creation, which only a kernel fix can remove.
+
 ## [1.18.0]
 
 ### Added
