@@ -452,11 +452,7 @@ where
             // `process_rx` on an acknowledgment the guest can never send, hanging all
             // subsequent host-initiated connections.
             if self.pending_event_ack {
-                info!(
-                    "[{:?}:{}] signaling event queue",
-                    self.device_type(),
-                    self.id()
-                );
+                info!("[{}] signaling event queue", self.label());
                 self.signal_used_queue(EVQ_INDEX).unwrap();
             }
 
@@ -473,18 +469,9 @@ where
             // drains RX and re-arms `avail_event`), on a bare resume the RX queue
             // state was never disturbed, and in both cases the host pulls from the
             // backend rather than waiting on a guest RX notification.
-            info!(
-                "[{:?}:{}] notifying tx queue",
-                self.device_type(),
-                self.id()
-            );
+            info!("[{}] notifying tx queue", self.label());
             if let Err(err) = self.queue_events[TXQ_INDEX].write(1) {
-                error!(
-                    "[{:?}:{}] error notifying tx queue: {}",
-                    self.device_type(),
-                    self.id(),
-                    err
-                );
+                error!("[{}] error notifying tx queue: {}", self.label(), err);
             }
         }
     }
