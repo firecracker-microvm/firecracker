@@ -602,7 +602,7 @@ pub(crate) mod tests {
     }
 
     fn setup_vcpu(mem_size: usize) -> (KvmVm, KvmVcpu) {
-        let (mut vm, mut vcpu) = setup_vcpu_no_init(mem_size);
+        let (vm, mut vcpu) = setup_vcpu_no_init(mem_size);
         vcpu.init(&[]).unwrap();
         vm.setup_irqchip(1).unwrap();
         (vm, vcpu)
@@ -715,7 +715,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_init_vcpu() {
-        let mut vm = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
         vm.setup_irqchip(1).unwrap();
 
@@ -734,7 +734,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_pmu_v3_feature_invalid() {
-        let mut vm = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
         vm.setup_irqchip(1).unwrap();
 
@@ -754,7 +754,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_save_restore_state() {
-        let mut vm = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
         vm.setup_irqchip(1).unwrap();
 
@@ -798,7 +798,7 @@ pub(crate) mod tests {
         //
         // This should fail with ENOEXEC.
         // https://elixir.bootlin.com/linux/v5.10.176/source/arch/arm64/kvm/arm.c#L1165
-        let mut vm = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         let vcpu = KvmVcpu::new(0, &vm).unwrap();
         vm.setup_irqchip(1).unwrap();
 
@@ -808,7 +808,7 @@ pub(crate) mod tests {
     #[test]
     fn test_dump_cpu_config_after_init() {
         // Test `dump_cpu_config()` after `KVM_VCPU_INIT`.
-        let mut vm = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
         vm.setup_irqchip(1).unwrap();
         vcpu.init(&[]).unwrap();

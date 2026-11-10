@@ -939,7 +939,7 @@ pub(crate) mod tests {
             &[5_000_000_000, 5_000_000_000][..],
         ] {
             let count = u8::try_from(offsets.len()).unwrap();
-            let mut source_vm = setup_vm_with_memory(0x1000);
+            let source_vm = setup_vm_with_memory(0x1000);
             let source_vcpus = source_vm.create_vcpus(count).unwrap();
             if !source_vcpus[0].kvm_vcpu.supports_tsc_offset_attr() {
                 eprintln!("Skipping TSC offset synchronization: KVM attribute unavailable");
@@ -951,7 +951,7 @@ pub(crate) mod tests {
                 .map(|vcpu| vcpu.kvm_vcpu.save_state().unwrap())
                 .collect();
 
-            let mut vm = setup_vm_with_memory(0x1000);
+            let vm = setup_vm_with_memory(0x1000);
             let vcpus = vm.create_vcpus(count).unwrap();
             for ((vcpu, state), &offset) in vcpus.iter().zip(&states).zip(offsets) {
                 vcpu.kvm_vcpu.restore_state(state).unwrap();
@@ -996,7 +996,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_vmm() -> Vmm {
-        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
 
         let _ = vm.create_vcpus(1).unwrap();
 
@@ -1015,7 +1015,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_vmm_with_pci_ports(hotplug_ports: u8) -> Vmm {
-        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
 
         let _ = vm.create_vcpus(1).unwrap();
 
