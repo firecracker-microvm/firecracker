@@ -37,6 +37,25 @@ pipeline.add_step(
     depends_on_build=False,
 )
 
+# The fuzz targets build against Firecracker's internal APIs, so check them on
+# every change that could break them, on both architectures since some targets
+# are architecture specific.
+if not changed_files or any(
+    x.suffix in [".rs", ".toml", ".lock"]
+    or x.parts[0] == "fuzz"
+    or x.as_posix() == "tools/devtool"
+    or x.parent.name == "devctr"
+    for x in changed_files
+):
+    pipeline.build_group_per_arch(
+        "fuzzer-compat",
+        [
+            "./tools/devtool -y fuzz check",
+            "./tools/devtool -y fuzz fmt --check",
+        ],
+        depends_on_build=False,
+    )
+
 # run sanity build of devtool if Dockerfile is changed
 if any(x.parent.name == "devctr" for x in changed_files):
     pipeline.build_group_per_arch(
