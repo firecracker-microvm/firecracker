@@ -262,9 +262,8 @@ mod seed_gen {
             memory_hotplug: None,
             ..Default::default()
         };
-        let current_artifacts_path =
-            std::fs::read_to_string("firecracker/build/current_artifacts").unwrap();
-        let full_artifacts_path = format!("firecracker/{}/", current_artifacts_path.trim());
+        let current_artifacts_path = std::fs::read_to_string("../build/current_artifacts").unwrap();
+        let full_artifacts_path = format!("../{}/", current_artifacts_path.trim());
         // try and find a kernel. cant hardcode the path because the patch version might change
         let kernel_image_path = std::fs::read_dir(full_artifacts_path)
             .unwrap()

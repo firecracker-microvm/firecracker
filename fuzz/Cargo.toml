@@ -11,10 +11,10 @@ stdin_fuzz = []
 
 [dependencies]
 afl = { version = "0.15.10", optional = true }
-utils = { path = "./firecracker/src/utils" }
+utils = { path = "../src/utils" }
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
-firecracker = { path = "./firecracker/src/firecracker" }
-vmm = { path = "./firecracker/src/vmm", features = ["fuzzing"] }
+firecracker = { path = "../src/firecracker" }
+vmm = { path = "../src/vmm", features = ["fuzzing"] }
 libc = ">=0.2.39"
 serde = { version = ">=1.0.27", features = ["derive"] }
 vm-superio = ">=0.8.0"
@@ -28,3 +28,5 @@ bitvec = "1.0.1"
 
 [profile.release]
 debug = true
+
+[workspace]
