@@ -216,3 +216,77 @@ of full_key for below logic is `"vcpu.exit_io_in_agg.min_us"`
     else
         Unit is "Count"
 ```
+
+## KVM statistics
+
+Firecracker's metrics only cover the vCPU exits that reach Firecracker itself.
+For where the vCPUs spent the rest of their time (running guest code, exiting to
+KVM, halted, or halt-polling), `GET /vm/kvm-stats` returns KVM's binary
+statistics (`KVM_GET_STATS_FD`, Linux 5.14 or later) for the VM and each vCPU.
+These are the counters behind `/sys/kernel/debug/kvm`, but per vCPU rather than
+summed over the host, and with histograms such as `halt_wait_hist` (how long
+each halt waited, in nanoseconds) in full. Firecracker owns the VM and vCPU file
+descriptors, so this needs no privilege.
+
+The request is supported after the microVM starts, including after a snapshot
+is loaded. Each request reads the current values, which KVM keeps as running
+totals from when the VM and its vCPUs were created; reading them resets
+nothing. KVM statistics are not part of a snapshot, so a microVM loaded from a
+snapshot starts counting from zero. On a host kernel without binary statistics,
+the request fails with `400 Bad Request`.
+
+```bash
+curl --unix-socket /tmp/firecracker.socket -i \
+    -X GET 'http://localhost/vm/kvm-stats' \
+    -H 'Accept: application/json'
+```
+
+Each statistic is reported by its kernel name, with the kind and unit KVM
+declares for it, using the names QEMU's `query-stats` uses. The available
+statistics depend on the host kernel version and architecture.
+
+- `type`: `cumulative` (only increases), `instant`, `peak` (the highest value
+  seen), `linear-histogram` (bucket `i` counts values in
+  `[i * bucket_size, (i + 1) * bucket_size)`), or `log2-histogram` (bucket 0
+  counts zeros and bucket `i` counts values in `[2^(i-1), 2^i)`).
+- `unit`: `bytes`, `seconds`, `cycles`, or `boolean` (0 or 1). Absent for a
+  plain count.
+- `base` and `exponent`: the value is in `unit` scaled by `base^exponent`; for
+  example, nanoseconds for `seconds` with base 10 and exponent -9. Absent when
+  the exponent is 0.
+- `bucket_size`: the width of each bucket of a `linear-histogram`.
+- `value`: an integer, or a histogram's bucket counts.
+
+An abridged response:
+
+```json
+{
+    "vm": {
+        "pages_2m": {"type": "instant", "value": 60},
+        "remote_tlb_flush": {"type": "cumulative", "value": 3}
+    },
+    "vcpus": [
+        {
+            "index": 0,
+            "stats": {
+                "exits": {"type": "cumulative", "value": 18211},
+                "guest_mode": {"type": "instant", "unit": "boolean", "value": 0},
+                "halt_poll_success_ns": {
+                    "type": "cumulative",
+                    "unit": "seconds",
+                    "base": 10,
+                    "exponent": -9,
+                    "value": 81234
+                },
+                "halt_wait_hist": {
+                    "type": "log2-histogram",
+                    "unit": "seconds",
+                    "base": 10,
+                    "exponent": -9,
+                    "value": [0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 18, 40]
+                }
+            }
+        }
+    ]
+}
+```
