@@ -71,8 +71,9 @@ Firecracker is already running production workloads within AWS, but it's still
 Day 1 on the journey guided by our [mission](CHARTER.md). There's a lot more to
 build and we welcome all contributions.
 
-To contribute to Firecracker, check out the development setup section in the
-[getting started guide](docs/getting-started.md) and then the Firecracker
+To contribute to Firecracker, check out the
+[development machine setup](docs/dev-machine-setup.md) and
+[getting started](docs/getting-started.md) guides and then the Firecracker
 [contribution guidelines](CONTRIBUTING.md).
 
 ## Releases
@@ -94,7 +95,8 @@ Firecracker's overall architecture is described in
 Firecracker consists of a single micro Virtual Machine Manager process that
 exposes an API endpoint to the host once started. The API is
 [specified in OpenAPI format](src/firecracker/swagger/firecracker.yaml). Read
-more about it in the [API docs](docs/api_requests).
+more about it in the [API docs](docs/api_requests), and see the
+[device/API matrix](docs/device-api.md) for which devices each call requires.
 
 The **API endpoint** can be used to:
 
@@ -110,7 +112,7 @@ The **API endpoint** can be used to:
 - Change the backing file for a block device, before or after the guest boots.
 - Configure rate limiters for virtio devices which can limit the bandwidth,
   operations per second, or both.
-- Configure the logging and metric system.
+- Configure the [logging](docs/logger.md) and [metrics](docs/metrics.md) system.
 - `[BETA]` Configure the data tree of the guest-facing metadata service. The
   service is only available to the guest if this resource is configured.
 - Add a [vsock socket](docs/vsock.md) to the microVM.
