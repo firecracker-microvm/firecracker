@@ -86,6 +86,16 @@ While there is no security impact caused by the deadlock, we recommend that
 customers have an overwatcher process on the host, that periodically looks for
 Firecracker processes that are unresponsive, and kills them, by SIGKILL.
 
+### Snapshot files
+
+Firecracker trusts snapshot files as much as it trusts the host and the API
+client: it performs only basic sanity checks on them and does not defend against
+crafted files. Treat snapshots as privileged input: only restore snapshots your
+own infrastructure produced, protect their integrity and confidentiality in
+transit and at rest, and keep each jail limited to the resources of its own
+microVM so that a path inside a snapshot cannot name anything else. See
+[Snapshot files management](snapshotting/snapshot-support.md#snapshot-files-management).
+
 ## Jailer Configuration
 
 For assuring secure isolation in production deployments, Firecracker should be
