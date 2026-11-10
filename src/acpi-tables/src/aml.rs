@@ -294,10 +294,8 @@ impl Aml for Usize {
             TryInto::<u16>::try_into(*self)
                 .unwrap()
                 .append_aml_bytes(bytes)
-        } else if *self <= u32::MAX as usize {
-            TryInto::<u32>::try_into(*self)
-                .unwrap()
-                .append_aml_bytes(bytes)
+        } else if let Ok(value) = u32::try_from(*self) {
+            value.append_aml_bytes(bytes)
         } else {
             TryInto::<u64>::try_into(*self)
                 .unwrap()
@@ -399,18 +397,40 @@ impl Aml for Memory32Fixed {
 }
 
 #[derive(Copy, Clone)]
+#[repr(u8)]
 enum AddressSpaceType {
     Memory,
     Io,
     BusNumber,
 }
 
+impl From<AddressSpaceType> for u8 {
+    #[allow(
+        clippy::as_conversions,
+        reason = "AddressSpaceType has a u8 representation"
+    )]
+    fn from(value: AddressSpaceType) -> Self {
+        value as u8
+    }
+}
+
 #[derive(Copy, Clone)]
+#[repr(u8)]
 pub enum AddressSpaceCacheable {
     NotCacheable,
     Cacheable,
     WriteCombining,
     PreFetchable,
+}
+
+impl From<AddressSpaceCacheable> for u8 {
+    #[allow(
+        clippy::as_conversions,
+        reason = "AddressSpaceCacheable has a u8 representation"
+    )]
+    fn from(value: AddressSpaceCacheable) -> Self {
+        value as u8
+    }
 }
 
 pub struct AddressSpace<T> {
@@ -437,7 +457,7 @@ where
             r#type: AddressSpaceType::Memory,
             min,
             max,
-            type_flags: ((cacheable as u8) << 1) | u8::from(read_write),
+            type_flags: (u8::from(cacheable) << 1) | u8::from(read_write),
         })
     }
 
@@ -468,7 +488,7 @@ where
     fn push_header(&self, bytes: &mut Vec<u8>, descriptor: u8, length: usize) {
         bytes.push(descriptor); // Word Address Space Descriptor
         bytes.extend_from_slice(&(TryInto::<u16>::try_into(length).unwrap()).to_le_bytes());
-        bytes.push(self.r#type as u8); // type
+        bytes.push(u8::from(self.r#type)); // type
         let generic_flags = (1 << 2) /* Min Fixed */ | (1 << 3); // Max Fixed
         bytes.push(generic_flags);
         bytes.push(self.type_flags);
@@ -714,6 +734,7 @@ impl Aml for Return<'_> {
 }
 
 #[derive(Clone, Copy)]
+#[repr(u8)]
 pub enum FieldAccessType {
     Any,
     Byte,
@@ -723,11 +744,32 @@ pub enum FieldAccessType {
     Buffer,
 }
 
+impl From<FieldAccessType> for u8 {
+    #[allow(
+        clippy::as_conversions,
+        reason = "FieldAccessType has a u8 representation"
+    )]
+    fn from(value: FieldAccessType) -> Self {
+        value as u8
+    }
+}
+
 #[derive(Clone, Copy)]
+#[repr(u8)]
 pub enum FieldUpdateRule {
     Preserve = 0,
     WriteAsOnes = 1,
     WriteAsZeroes = 2,
+}
+
+impl From<FieldUpdateRule> for u8 {
+    #[allow(
+        clippy::as_conversions,
+        reason = "FieldUpdateRule has a u8 representation"
+    )]
+    fn from(value: FieldUpdateRule) -> Self {
+        value as u8
+    }
 }
 
 pub enum FieldEntry {
@@ -764,7 +806,7 @@ impl Aml for Field {
         let mut tmp = Vec::new();
         self.path.append_aml_bytes(&mut tmp)?;
 
-        let flags: u8 = self.access_type as u8 | ((self.update_rule as u8) << 5);
+        let flags = u8::from(self.access_type) | (u8::from(self.update_rule) << 5);
         tmp.push(flags);
 
         for field in self.fields.iter() {
@@ -791,6 +833,7 @@ impl Aml for Field {
 }
 
 #[derive(Clone, Copy)]
+#[repr(u8)]
 pub enum OpRegionSpace {
     SystemMemory,
     SystemIo,
@@ -802,6 +845,16 @@ pub enum OpRegionSpace {
     Ipmi,
     GeneralPurposeIo,
     GenericSerialBus,
+}
+
+impl From<OpRegionSpace> for u8 {
+    #[allow(
+        clippy::as_conversions,
+        reason = "OpRegionSpace has a u8 representation"
+    )]
+    fn from(value: OpRegionSpace) -> Self {
+        value as u8
+    }
 }
 
 pub struct OpRegion {
@@ -827,7 +880,7 @@ impl Aml for OpRegion {
         bytes.push(0x5b); // ExtOpPrefix
         bytes.push(0x80); // OpRegionOp
         self.path.append_aml_bytes(bytes)?;
-        bytes.push(self.space as u8);
+        bytes.push(u8::from(self.space));
         self.offset.append_aml_bytes(bytes)?; // RegionOffset
         self.length.append_aml_bytes(bytes)?; // RegionLen
         Ok(())
@@ -1489,6 +1542,66 @@ mod tests {
     }
 
     #[test]
+    fn test_enum_encodings() {
+        assert_eq!(
+            [
+                AddressSpaceType::Memory,
+                AddressSpaceType::Io,
+                AddressSpaceType::BusNumber
+            ]
+            .map(u8::from),
+            [0, 1, 2]
+        );
+        assert_eq!(
+            [
+                AddressSpaceCacheable::NotCacheable,
+                AddressSpaceCacheable::Cacheable,
+                AddressSpaceCacheable::WriteCombining,
+                AddressSpaceCacheable::PreFetchable,
+            ]
+            .map(u8::from),
+            [0, 1, 2, 3]
+        );
+        assert_eq!(
+            [
+                FieldAccessType::Any,
+                FieldAccessType::Byte,
+                FieldAccessType::Word,
+                FieldAccessType::DWord,
+                FieldAccessType::QWord,
+                FieldAccessType::Buffer,
+            ]
+            .map(u8::from),
+            [0, 1, 2, 3, 4, 5]
+        );
+        assert_eq!(
+            [
+                FieldUpdateRule::Preserve,
+                FieldUpdateRule::WriteAsOnes,
+                FieldUpdateRule::WriteAsZeroes
+            ]
+            .map(u8::from),
+            [0, 1, 2]
+        );
+        assert_eq!(
+            [
+                OpRegionSpace::SystemMemory,
+                OpRegionSpace::SystemIo,
+                OpRegionSpace::PConfig,
+                OpRegionSpace::EmbeddedControl,
+                OpRegionSpace::Smbus,
+                OpRegionSpace::SystemCmos,
+                OpRegionSpace::PciBarTarget,
+                OpRegionSpace::Ipmi,
+                OpRegionSpace::GeneralPurposeIo,
+                OpRegionSpace::GenericSerialBus,
+            ]
+            .map(u8::from),
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        );
+    }
+
+    #[test]
     fn test_pkg_length() {
         assert_eq!(create_pkg_length(&[0u8; 62], true), vec![63]);
         assert_eq!(
@@ -1498,7 +1611,7 @@ mod tests {
         assert_eq!(
             create_pkg_length(&[0u8; 4096], true),
             vec![
-                (2 << 6) | (4099 & 0xf) as u8,
+                (2 << 6) | u8::try_from(4099 & 0xf).unwrap(),
                 ((4099 >> 4) & 0xff).try_into().unwrap(),
                 ((4099 >> 12) & 0xff).try_into().unwrap()
             ]
@@ -1534,25 +1647,20 @@ mod tests {
     #[test]
     fn test_name_path() {
         assert_eq!(
-            (&"_SB_".try_into().unwrap() as &Path)
-                .to_aml_bytes()
-                .unwrap(),
+            Path::try_from("_SB_").unwrap().to_aml_bytes().unwrap(),
             [0x5Fu8, 0x53, 0x42, 0x5F]
         );
         assert_eq!(
-            (&"\\_SB_".try_into().unwrap() as &Path)
-                .to_aml_bytes()
-                .unwrap(),
+            Path::try_from("\\_SB_").unwrap().to_aml_bytes().unwrap(),
             [0x5C, 0x5F, 0x53, 0x42, 0x5F]
         );
         assert_eq!(
-            (&"_SB_.COM1".try_into().unwrap() as &Path)
-                .to_aml_bytes()
-                .unwrap(),
+            Path::try_from("_SB_.COM1").unwrap().to_aml_bytes().unwrap(),
             [0x2E, 0x5F, 0x53, 0x42, 0x5F, 0x43, 0x4F, 0x4D, 0x31]
         );
         assert_eq!(
-            (&"_SB_.PCI0._HID".try_into().unwrap() as &Path)
+            Path::try_from("_SB_.PCI0._HID")
+                .unwrap()
                 .to_aml_bytes()
                 .unwrap(),
             [
@@ -1572,6 +1680,18 @@ mod tests {
         assert_eq!(
             0xdeca_fbad_deca_fbadu64.to_aml_bytes().unwrap(),
             [0x0e, 0xad, 0xfb, 0xca, 0xde, 0xad, 0xfb, 0xca, 0xde]
+        );
+    }
+
+    #[test]
+    fn test_usize_dword_boundary() {
+        assert_eq!(
+            0xffff_ffff_usize.to_aml_bytes().unwrap(),
+            [0x0c, 0xff, 0xff, 0xff, 0xff]
+        );
+        assert_eq!(
+            0x1_0000_0000_usize.to_aml_bytes().unwrap(),
+            [0x0e, 0, 0, 0, 0, 1, 0, 0, 0]
         );
     }
 
@@ -1598,7 +1718,7 @@ mod tests {
     #[test]
     fn test_string() {
         assert_eq!(
-            (&"ACPI" as &dyn Aml).to_aml_bytes().unwrap(),
+            "ACPI".to_aml_bytes().unwrap(),
             [0x0d, b'A', b'C', b'P', b'I', 0]
         );
         assert_eq!(
