@@ -173,6 +173,37 @@ Here are some recommendations on how to limit the process's resources:
   - `cpuacct.usage_percpu` - limits the CPU time, in ns, consumed by the process
     in the group, separated by CPU
 
+### NUMA placement
+
+Firecracker does not expose a NUMA topology to a KVM microVM: the guest always
+sees a single node, and there is no API to choose which host node backs a
+microVM. vCPUs are ordinary host threads and guest memory is ordinary host
+memory, so on a multi-socket host the scheduler is free to run a vCPU on one
+node while the memory it touches was faulted in on another. The result is higher
+and less predictable memory latency, and noisy neighbours across the socket
+interconnect. A [Nitro Sandbox](nitro-sandboxes/README.md) is different: its
+`numa_nodes` configuration places vCPUs and memory on chosen parent nodes
+without pinning the Firecracker process; see
+[NUMA placement](nitro-sandboxes/features.md#numa-placement).
+
+We recommend keeping each KVM microVM on a single node. Any mechanism that
+constrains both the CPUs and the memory nodes of the Firecracker process works,
+for example `numactl --cpunodebind=0 --membind=0`, or the `cpuset` cgroup, which
+the jailer can set up before Firecracker starts (see the
+[jailer example](jailer.md#example-run-and-notes)):
+
+```bash
+--cgroup cpuset.mems=0 --cgroup cpuset.cpus=$(cat /sys/devices/system/node/node0/cpulist)
+```
+
+Whichever mechanism you use, the memory node restriction also selects the node
+whose huge page pool backs a microVM that uses [huge pages](hugepages.md), so
+reserve huge pages per node (`/sys/devices/system/node/node<N>/hugepages/`)
+rather than only globally. The same applies when restoring a snapshot: guest
+memory is faulted in on the nodes allowed for the process that populates it,
+which is Firecracker for a file-backed restore and the UFFD handler for a UFFD
+restore, so give that process the placement the memory should end up with.
+
 Additional details of Jailer features can be found in the
 [Jailer documentation](jailer.md).
 
