@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use kvm_bindings::{
     KVM_CLOCK_REALTIME, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE,
@@ -114,13 +114,13 @@ impl KvmVm {
     }
 
     /// Pre-vCPU creation setup.
-    pub fn arch_pre_create_vcpus(&mut self, _: u8) -> Result<(), KvmVmError> {
+    pub fn arch_pre_create_vcpus(&self, _: u8) -> Result<(), KvmVmError> {
         // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
         self.setup_irqchip()
     }
 
     /// Post-vCPU creation setup.
-    pub fn arch_post_create_vcpus(&mut self, _: u8) -> Result<(), KvmVmError> {
+    pub fn arch_post_create_vcpus(&self, _: u8) -> Result<(), KvmVmError> {
         Ok(())
     }
 
@@ -134,11 +134,7 @@ impl KvmVm {
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
-    pub fn restore_state(
-        &mut self,
-        state: &VmState,
-        clock_realtime: bool,
-    ) -> Result<(), KvmVmError> {
+    pub fn restore_state(&self, state: &VmState, clock_realtime: bool) -> Result<(), KvmVmError> {
         self.fd()
             .set_pit2(&state.pitstate)
             .map_err(KvmVmError::SetPit2)?;
@@ -162,8 +158,7 @@ impl KvmVm {
         self.fd()
             .set_irqchip(&state.ioapic)
             .map_err(KvmVmError::SetIrqChipIoAPIC)?;
-        self.common.resource_allocator =
-            Mutex::new(ResourceAllocator::restore((), &state.resource_allocator)?);
+        *self.resource_allocator() = ResourceAllocator::restore((), &state.resource_allocator)?;
         Ok(())
     }
 
@@ -295,7 +290,7 @@ mod tests {
         assert_eq!(vm_state.pic_slave.chip_id, KVM_IRQCHIP_PIC_SLAVE);
         assert_eq!(vm_state.ioapic.chip_id, KVM_IRQCHIP_IOAPIC);
 
-        let mut vm = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
         vm.restore_state(&vm_state, false).unwrap();
@@ -319,7 +314,7 @@ mod tests {
         let mut vm_state = vm.save_state().unwrap();
         vm_state.clock.flags &= !KVM_CLOCK_REALTIME;
 
-        let mut vm = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
         let res = vm.restore_state(&vm_state, true);
@@ -334,7 +329,7 @@ mod tests {
             .try_into()
             .unwrap();
 
-        let mut vm = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
         let res = vm.restore_state(&vm_state, true);
@@ -354,7 +349,7 @@ mod tests {
         vm.setup_irqchip().unwrap();
         let mut vm_state = vm.save_state().unwrap();
 
-        let mut vm = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
         // Try to restore an invalid PIC Master chip ID
@@ -377,7 +372,7 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_vmstate_serde() {
-        let mut vm = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
         let state = vm.save_state().unwrap();
 
