@@ -56,6 +56,11 @@ distro installed, you can grant Read+Write access with:
 sudo setfacl -m u:${USER}:rw /dev/kvm
 ```
 
+Where udev manages `/dev/kvm` with its `uaccess` tag and no user has an active
+seat session, as on WSL2, udev rewrites the device's ACL each time a VM is
+created, and the entry added with `setfacl` is gone after the first microVM. Use
+the `kvm` group there instead.
+
 If access is managed via the `kvm` group, check that the KVM group exists:
 
 ```bash
