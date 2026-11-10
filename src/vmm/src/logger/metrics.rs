@@ -139,15 +139,6 @@ impl<T: Serialize + Debug, M: Write + Send + Debug> Metrics<T, M> {
     /// is not meant to be used in a multithreaded scenario. The reason
     /// `metrics_buf` is enclosed in a `Mutex` is that `lazy_static` enforces
     /// thread-safety on all its members.
-    /// The only exception is for signal handlers that result in process exit, which may be run on
-    /// any thread. To prevent the race condition present in the serialisation step of
-    /// SharedIncMetrics, deadly signals use SharedStoreMetrics instead (which have a thread-safe
-    /// serialise implementation).
-    /// The only known caveat is that other metrics may not be properly written before exiting from
-    /// a signal handler. We make this compromise since the process will be killed anyway and the
-    /// important metric in this case is the signal one.
-    /// The alternative is to hold a Mutex over the entire function call, but this increases the
-    /// known deadlock potential.
     pub fn write(&self) -> Result<bool, MetricsError> {
         if let Some(lock) = self.metrics_buf.get() {
             let mut writer = lock.lock().expect("poisoned lock");

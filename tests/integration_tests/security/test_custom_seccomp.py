@@ -132,17 +132,6 @@ def test_failing_filter(uvm, seccompiler):
         f"Shutting down VM after intercepting a bad syscall ({ioctl_num})"
     )
 
-    # Check the metrics
-    datapoints = test_microvm.get_metrics()
-    num_faults = 0
-    for datapoint in datapoints:
-        num_faults += datapoint["seccomp"]["num_faults"]
-        # exit early to avoid potentially broken JSON entries in the logs
-        if num_faults > 0:
-            break
-
-    assert num_faults == 1
-
     test_microvm.mark_killed()
 
 

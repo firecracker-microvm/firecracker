@@ -88,6 +88,27 @@ impl Logger {
 
         Ok(())
     }
+
+    /// Writes a line to the log file for a signal handler: without the usual
+    /// prefix or level filter, without allocating and without waiting for a
+    /// lock, since the interrupted frame may hold the allocator's or the
+    /// logger's. Does nothing when logs go to stdout, which the interrupted
+    /// frame may be writing to.
+    pub fn log_from_signal_handler(&self, args: std::fmt::Arguments) {
+        let Ok(config) = self.0.try_read() else {
+            return;
+        };
+        let Some(mut file) = config.target.as_ref() else {
+            return;
+        };
+        let mut buf = [0u8; 128];
+        let mut line = &mut buf[..];
+        if writeln!(line, "{args}").is_err() {
+            return;
+        }
+        let unused = line.len();
+        let _ = file.write_all(&buf[..buf.len() - unused]);
+    }
 }
 
 #[derive(Debug)]
@@ -408,6 +429,28 @@ mod tests {
         );
 
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_log_from_signal_handler() {
+        let file = vmm_sys_util::tempfile::TempFile::new().unwrap();
+        let logger = Logger(RwLock::new(LoggerConfiguration {
+            target: Some(file.as_file().try_clone().unwrap()),
+            filter: LogFilter { module: None },
+            format: LogFormat {
+                show_level: false,
+                show_log_origin: false,
+            },
+        }));
+        logger.log_from_signal_handler(format_args!("signal {}, code {}.", 25, 0));
+
+        // The handler can run on the thread that is in update().
+        let guard = logger.0.write().unwrap();
+        logger.log_from_signal_handler(format_args!("dropped"));
+        drop(guard);
+
+        let contents = std::fs::read_to_string(file.as_path()).unwrap();
+        assert_eq!(contents, "signal 25, code 0.\n");
     }
 
     #[test]

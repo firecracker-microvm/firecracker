@@ -6,7 +6,7 @@ use libc::{
 };
 
 use crate::FcExitCode;
-use crate::logger::{IncMetric, METRICS, StoreMetric, error_unrestricted};
+use crate::logger::{IncMetric, LOGGER, METRICS, StoreMetric};
 use crate::utils::signal::register_signal_handler;
 
 // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
@@ -20,10 +20,6 @@ const SYS_SECCOMP_CODE: i32 = 1;
 
 #[inline]
 fn exit_with_code(exit_code: FcExitCode) {
-    // Write the metrics before exiting.
-    if let Err(err) = METRICS.write() {
-        error_unrestricted!("Failed to write metrics while stopping: {}", err);
-    }
     // SAFETY: Safe because we're terminating the process anyway.
     unsafe { libc::_exit(exit_code as i32) };
 }
@@ -42,11 +38,10 @@ macro_rules! generate_handler {
             }
             $signal_metric.store(1);
 
-            error_unrestricted!(
+            LOGGER.log_from_signal_handler(format_args!(
                 "Shutting down VM after intercepting signal {}, code {}.",
-                si_signo,
-                si_code
-            );
+                si_signo, si_code
+            ));
 
             $body(si_code, info);
 
@@ -67,10 +62,10 @@ fn log_sigsys_err(si_code: c_int, info: *mut siginfo_t) {
     // SAFETY: Other signals which might do async unsafe things incompatible with the rest of this
     // function are blocked due to the sa_mask used when registering the signal handler.
     let syscall = unsafe { *(info as *const i32).offset(SI_OFF_SYSCALL) };
-    error_unrestricted!(
+    LOGGER.log_from_signal_handler(format_args!(
         "Shutting down VM after intercepting a bad syscall ({}).",
         syscall
-    );
+    ));
 }
 
 fn empty_fn(_si_code: c_int, _info: *mut siginfo_t) {}
@@ -141,7 +136,10 @@ extern "C" fn sigpipe_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_
     let si_code = unsafe { (*info).si_code };
 
     if num != si_signo || num != SIGPIPE {
-        error_unrestricted!("Received invalid signal {}, code {}.", si_signo, si_code);
+        LOGGER.log_from_signal_handler(format_args!(
+            "Received invalid signal {}, code {}.",
+            si_signo, si_code
+        ));
         return;
     }
 
