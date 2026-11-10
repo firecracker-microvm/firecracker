@@ -115,6 +115,12 @@ To set up the jailer correctly, you'll need to:
   recommended that each runs with its unique `uid` and `gid` to provide an extra
   layer of security for their individually owned resources in the unlikely case
   where any one of the jails is broken out of.
+- We recommend giving every microVM its own network namespace and passing it to
+  the jailer with `--netns`: it limits what the Firecracker process can reach on
+  the host network and keeps each microVM's TAP device, routes and firewall
+  rules separate; see [network-setup](network-setup.md),
+  [Network Connectivity for Clones](snapshotting/network-for-clones.md) and
+  [Filtering Guest Egress Network Traffic](#filtering-guest-egress-network-traffic).
 
 Firecracker's customers are strongly advised to use the provided
 `resource-limits` and `cgroup` functionalities encapsulated within jailer, in
