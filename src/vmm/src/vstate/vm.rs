@@ -230,6 +230,13 @@ impl KvmVm {
     /// Creates the specified number of [`Vcpu`]s.
     ///
     /// Each vCPU gets a clone of the `vcpus_exit_evt` EventFd stored on this KvmVm.
+    ///
+    /// This also creates the irqchip, which KVM registers on its io bus. Since Linux 6.18 (commit
+    /// 7d9a0273c459, "KVM: Avoid synchronize_srcu() in kvm_io_bus_register_dev()") that
+    /// registration starts an SRCU grace period, and a memslot update issued right after it waits
+    /// for the grace period to end (tens of ms), so register every memslot before calling this.
+    /// Intel hosts still wait once: KVM adds its own APIC access page memslot while creating the
+    /// first vCPU.
     pub fn create_vcpus(&self, vcpu_count: u8) -> Result<Vec<Vcpu>, VmError> {
         self.arch_pre_create_vcpus(vcpu_count)?;
 
