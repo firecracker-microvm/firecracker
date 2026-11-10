@@ -10,6 +10,9 @@ and this project adheres to
 
 ### Added
 
+- [#6030](https://github.com/firecracker-microvm/firecracker/issues/6030): Full
+  snapshot memory can be streamed to FIFOs; unplugged slots are written as
+  zeros. Diff snapshots still require a seekable file.
 - [#6226](https://github.com/firecracker-microvm/firecracker/pull/6226),
   [#6227](https://github.com/firecracker-microvm/firecracker/pull/6227),
   [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228),
