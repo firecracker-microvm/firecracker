@@ -461,5 +461,5 @@ virtio patches, or use direct mode.
 
 A guest driver that does not negotiate `VIRTIO_F_IOMMU_PLATFORM` at all is
 refused outright, and Firecracker logs
-`Device uid=<N> did not negotiate VIRTIO_F_IOMMU_PLATFORM while its DMA targets a DMB; not activating`
+`[<type>:<id>] device uid=<N> did not negotiate VIRTIO_F_IOMMU_PLATFORM while its DMA targets a DMB; not activating`
 followed by the negotiated features.
