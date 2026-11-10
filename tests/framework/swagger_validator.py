@@ -98,6 +98,10 @@ class SwaggerValidator:
             }
         if "items" in resolved and isinstance(resolved["items"], dict):
             resolved["items"] = self._resolve_schema(resolved["items"], definitions)
+        if isinstance(resolved.get("additionalProperties"), dict):
+            resolved["additionalProperties"] = self._resolve_schema(
+                resolved["additionalProperties"], definitions
+            )
 
         if not "additionalProperties" in resolved:
             resolved["additionalProperties"] = False
