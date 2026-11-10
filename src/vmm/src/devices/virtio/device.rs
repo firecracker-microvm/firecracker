@@ -75,6 +75,20 @@ pub enum VirtioDeviceType {
 /// Unique identifier for a virtio device: its type and string ID.
 pub type VirtioDeviceId = (VirtioDeviceType, String);
 
+/// Identifies a virtio device in log lines. Displays as `<type>:<id>`, e.g.
+/// `Block:rootfs`; use it as `"[{}] ..."`.
+#[derive(Debug, Clone, Copy)]
+pub struct VirtioDeviceLabel<'a> {
+    device_type: VirtioDeviceType,
+    id: &'a str,
+}
+
+impl fmt::Display for VirtioDeviceLabel<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}:{}", self.device_type, self.id)
+    }
+}
+
 /// Trait for virtio devices to be driven by a virtio transport.
 ///
 /// The lifecycle of a virtio device is to be moved to a virtio transport, which will then query the
@@ -109,6 +123,14 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
 
     /// Returns unique device id
     fn id(&self) -> &str;
+
+    /// Tag identifying this device in log lines, see [`VirtioDeviceLabel`].
+    fn label(&self) -> VirtioDeviceLabel<'_> {
+        VirtioDeviceLabel {
+            device_type: self.device_type(),
+            id: self.id(),
+        }
+    }
 
     /// Returns the device's DMB size. Successful attachment resolves an omitted size.
     fn dmb_size_mib(&self) -> Option<DmbSizeMib> {
@@ -254,19 +276,13 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
 
     /// Notify all queues by writing to the eventfds.
     fn notify_queue_events(&mut self) {
-        info!("[{:?}:{}] notifying queues", self.device_type(), self.id());
+        info!("[{}] notifying queues", self.label());
         for i in 0..self.num_queues() {
             let eventfd = self
                 .queue_event(i)
                 .expect("queue event must exist for each advertised queue");
             if let Err(err) = eventfd.write(1) {
-                error!(
-                    "[{:?}:{}] error notifying queue {}: {}",
-                    self.device_type(),
-                    self.id(),
-                    i,
-                    err
-                );
+                error!("[{}] error notifying queue {}: {}", self.label(), i, err);
             }
         }
     }
@@ -406,6 +422,16 @@ pub(crate) mod tests {
         fn commit_dirty(&self) {
             todo!()
         }
+    }
+
+    #[test]
+    fn test_label() {
+        let device = MockVirtioDevice {
+            avail_features: 0,
+            acked_features: 0,
+            config: vec![],
+        };
+        assert_eq!(device.label().to_string(), "Net:mock");
     }
 
     #[test]
