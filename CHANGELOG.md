@@ -85,6 +85,12 @@ and this project adheres to
 - [#6354](https://github.com/firecracker-microvm/firecracker/pull/6354): Unified
   the saved virtio device state across the MMIO and PCI transports and dropped
   the redundant PCI SBDF from the saved state.
+- [#6413](https://github.com/firecracker-microvm/firecracker/pull/6413):
+  Firecracker now prints the error that makes it exit, and logs API request
+  parsing errors, using their human-readable message instead of the Rust debug
+  representation. Together with the other changes in this pull request, this
+  reduces the size of the `firecracker` binary's code by about 10% (297 KiB on
+  x86_64, 247 KiB on aarch64).
 
 ### Deprecated
 
