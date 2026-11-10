@@ -364,6 +364,20 @@ impl NeTransport {
         // The guest driver must have fully initialized the device.
         // (copy out of the packed mirror struct before referencing)
         let device_status = mirror.common.device_status;
+        // FAILED is terminal: the guest driver gave up on the device (e.g. its
+        // probe failed) and will not retry, so the device will never become
+        // ready. Surface it above the debug level, as it is the only parent-side
+        // trace of a device that is present in the guest but unusable.
+        if device_status & device_status::FAILED != 0 {
+            let device = self.device.lock().expect("Poisoned lock");
+            warn!(
+                "[{}] guest marked virtio device uid={} as FAILED \
+                 (status {device_status:#x}); not activating",
+                device.label(),
+                self.device_uid
+            );
+            return;
+        }
         if (device_status & VIRTIO_STATUS_DRIVER_OK) != VIRTIO_STATUS_DRIVER_OK {
             debug!(
                 "device uid={} not yet DRIVER_OK (status={device_status:#04x})",
@@ -608,6 +622,26 @@ mod tests {
         let device = transport.device.lock().unwrap();
         assert!(device.is_activated());
         assert_eq!(device.acked_features(), PLAIN_FEATURE);
+    }
+
+    #[test]
+    fn test_activate_if_ready_failed_device_not_activated() {
+        // The guest set FAILED, either after a failed probe (ACKNOWLEDGE |
+        // DRIVER | FAILED) or after DRIVER_OK. Neither must activate the device.
+        for status in [
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FAILED,
+            VIRTIO_STATUS_DRIVER_OK | device_status::FAILED,
+        ] {
+            let mut mirror = driver_ok_mirror(1, PLAIN_FEATURE);
+            mirror.common.device_status = status;
+            let mut transport = ne_transport(page_with(mirror), 1);
+
+            transport.activate_if_ready();
+
+            let device = transport.device.lock().unwrap();
+            assert!(!device.is_activated());
+            assert_eq!(device.acked_features(), 0);
+        }
     }
 
     #[test]
