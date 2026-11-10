@@ -66,14 +66,14 @@ pub const SCMP_ACT_TRAP: u32 = 0x00030000;
 pub const SCMP_ACT_ERRNO_MASK: u32 = 0x00050000;
 /// Return the specified error code
 #[must_use]
-pub const fn SCMP_ACT_ERRNO(x: u16) -> u32 {
-    SCMP_ACT_ERRNO_MASK | x as u32
+pub fn SCMP_ACT_ERRNO(x: u16) -> u32 {
+    SCMP_ACT_ERRNO_MASK | u32::from(x)
 }
 pub const SCMP_ACT_TRACE_MASK: u32 = 0x7ff00000;
 /// Notify a tracing process with the specified value
 #[must_use]
-pub const fn SCMP_ACT_TRACE(x: u16) -> u32 {
-    SCMP_ACT_TRACE_MASK | x as u32
+pub fn SCMP_ACT_TRACE(x: u16) -> u32 {
+    SCMP_ACT_TRACE_MASK | u32::from(x)
 }
 /// Allow the syscall to be executed after the action has been logged
 pub const SCMP_ACT_LOG: u32 = 0x7ffc0000;
