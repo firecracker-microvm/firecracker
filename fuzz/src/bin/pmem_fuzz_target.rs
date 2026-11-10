@@ -1,3 +1,6 @@
+// Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 #[cfg(feature = "afl_fuzz")]
 #[macro_use]
 extern crate afl;
