@@ -54,7 +54,6 @@ use crate::vmm_config::boot_source::{
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError};
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
-use crate::vmm_config::pmem::PmemConfig;
 use crate::vstate::kvm::{Kvm, KvmError};
 use crate::vstate::memory::GuestRegionMmap;
 #[cfg(target_arch = "aarch64")]
@@ -229,6 +228,13 @@ pub fn build_microvm_for_boot(
     let kvm_vm = Arc::new(vm);
     let vm = Vm::Kvm(kvm_vm.clone());
 
+    let pmem_devices = vm_resources
+        .pmem
+        .configs
+        .iter()
+        .map(|config| Pmem::new(kvm_vm.clone(), config.clone()))
+        .collect::<Result<Vec<_>, _>>()?;
+
     // All memslots are registered by now, see `create_vcpus`.
     let mut vcpus = kvm_vm.create_vcpus(vcpu_count)?;
 
@@ -286,7 +292,7 @@ pub fn build_microvm_for_boot(
         &mut device_manager,
         &vm,
         &mut boot_cmdline,
-        &vm_resources.pmem.configs,
+        pmem_devices,
         event_manager,
     )?;
 
@@ -519,9 +525,15 @@ pub fn build_microvm_from_snapshot(
 
     vm.restore_memory_regions(guest_memory, &microvm_state.vm_state.memory)
         .map_err(StartMicrovmError::KvmVm)?;
+    vm.set_uffd(uffd);
+
+    let kvm_vm = Arc::new(vm);
+    let pmem_devices = microvm_state
+        .device_states
+        .restore_pmem_devices(&kvm_vm, kvm_vm.guest_memory())?;
 
     // All memslots are registered by now, see `create_vcpus`.
-    let mut vcpus = vm
+    let mut vcpus = kvm_vm
         .create_vcpus(vcpu_count)
         .map_err(StartMicrovmError::KvmVm)?;
 
@@ -560,19 +572,16 @@ pub fn build_microvm_from_snapshot(
         }
         let mpidrs = construct_kvm_mpidrs(&microvm_state.vcpu_states);
         // Restore kvm vm state.
-        vm.restore_state(&mpidrs, &microvm_state.vm_state)?;
+        kvm_vm.restore_state(&mpidrs, &microvm_state.vm_state)?;
     }
 
     // Restore kvm vm state.
     #[cfg(target_arch = "x86_64")]
-    vm.restore_state(&microvm_state.vm_state, clock_realtime)?;
+    kvm_vm.restore_state(&microvm_state.vm_state, clock_realtime)?;
 
     // Restore the boot source config paths.
     vm_resources.boot_source.config = microvm_state.vm_info.boot_source;
 
-    vm.set_uffd(uffd);
-
-    let kvm_vm = Arc::new(vm);
     let vm = Vm::Kvm(kvm_vm.clone());
 
     // Restore devices states.
@@ -587,6 +596,7 @@ pub fn build_microvm_from_snapshot(
         instance_id: &instance_info.id,
         vcpus_exit_evt: kvm_vm.vcpus_exit_evt(),
         blk_worker_filter: seccomp_filters.get("blk_worker").cloned(),
+        pmem_devices,
     };
     #[allow(unused_mut)]
     let mut device_manager =
@@ -803,20 +813,18 @@ fn attach_pmem_devices(
     device_manager: &mut DeviceManager,
     vm: &Vm,
     cmdline: &mut LoaderKernelCmdline,
-    configs: &[PmemConfig],
+    devices: Vec<Pmem>,
     event_manager: &mut EventManager,
 ) -> Result<(), StartMicrovmError> {
-    let kvm_vm = vm.as_kvm().ok_or(AttachDeviceError::NotSupported)?;
-    for (i, config) in configs.iter().enumerate() {
-        if config.root_device {
+    for (i, pmem) in devices.into_iter().enumerate() {
+        if pmem.config.root_device {
             cmdline.insert_str(format!("root=/dev/pmem{i}"))?;
-            match config.read_only {
+            match pmem.config.read_only {
                 true => cmdline.insert_str("ro")?,
                 false => cmdline.insert_str("rw")?,
             }
         }
-        let id = config.id.clone();
-        let pmem = Pmem::new(kvm_vm.clone(), config.clone())?;
+        let id = pmem.config.id.clone();
         let device = Arc::new(Mutex::new(pmem));
 
         device_manager.attach_boot_virtio_device(vm, id, device, cmdline, event_manager, false)?;
@@ -1214,11 +1222,17 @@ pub(crate) mod tests {
             builder.build(config, false).unwrap();
         }
 
+        let kvm_vm = vmm.vm.as_kvm().unwrap();
+        let devices = builder
+            .configs
+            .iter()
+            .map(|config| Pmem::new(kvm_vm.clone(), config.clone()).unwrap())
+            .collect();
         attach_pmem_devices(
             &mut vmm.device_manager,
             &vmm.vm,
             cmdline,
-            &builder.configs,
+            devices,
             event_manager,
         )
         .unwrap();
