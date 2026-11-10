@@ -84,8 +84,8 @@ impl NeDevices {
             let size_mib = dmb_size_mib.unwrap_or_default().get();
             let dmb = enclave_vm.create_dmb(mib_to_bytes(u64_to_usize(size_mib)))?;
             info!(
-                "Allocated {size_mib} MiB DMB for {:?} id={}",
-                device_id.0, device_id.1
+                "[{}] allocated {size_mib} MiB DMB",
+                device.lock().expect("Poisoned lock").label()
             );
             DeviceDmaMemory::Dmb(dmb)
         };
