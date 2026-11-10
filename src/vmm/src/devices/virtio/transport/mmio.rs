@@ -174,6 +174,17 @@ impl MmioTransport {
         ];
 
         if (status & FAILED) != 0 {
+            // The guest gave up on the device (e.g. its probe failed) and will not
+            // retry until it resets it.
+            if self.device_status & FAILED == 0 {
+                let device = self.locked_device();
+                warn!(
+                    "[{}] guest marked virtio device as FAILED (status {:#x} -> {:#x})",
+                    device.label(),
+                    self.device_status,
+                    status
+                );
+            }
             self.device_status |= FAILED;
         } else if status == INIT {
             if self.device_status != INIT {
