@@ -7,6 +7,8 @@ pub mod bus;
 pub mod interrupts;
 /// Module with Kvm implementation.
 pub mod kvm;
+/// KVM's binary statistics for the VM and its vCPUs.
+pub mod kvm_stats;
 /// Module with GuestMemory implementation.
 pub mod memory;
 /// Resolved ranges of guest memory.
