@@ -209,6 +209,12 @@ Additional details of Jailer features can be found in the
 
 ## Host Security Configuration
 
+### Nested virtualization
+
+Firecracker does not need nested virtualization. To reduce the attack surface,
+disable it on Firecracker hosts: load KVM with `kvm_intel.nested=0` or
+`kvm_amd.nested=0`, and do not boot arm64 hosts with `kvm-arm.mode=nested`.
+
 ### Constrain CPU overhead caused by kvm-pit kernel threads
 
 The current implementation results in host CPU usage increase on x86 CPUs when a
