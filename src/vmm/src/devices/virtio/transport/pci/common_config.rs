@@ -117,7 +117,7 @@ impl VirtioPciCommonConfig {
         let queue_index = self.queue_select as usize;
 
         match data.len() {
-            1 => self.write_common_config_byte(offset, data[0], device_activated),
+            1 => self.write_common_config_byte(offset, data[0], &device, device_activated),
             2 => {
                 let mut locked_device = device.lock().unwrap();
                 self.write_common_config_word(
@@ -146,16 +146,27 @@ impl VirtioPciCommonConfig {
         }
     }
 
-    fn write_common_config_byte(&mut self, offset: u64, value: u8, device_activated: bool) {
+    fn write_common_config_byte(
+        &mut self,
+        offset: u64,
+        value: u8,
+        device: &Mutex<dyn VirtioDevice>,
+        device_activated: bool,
+    ) {
         match offset {
-            DEVICE_STATUS => self.set_device_status(value, device_activated),
+            DEVICE_STATUS => self.set_device_status(value, device, device_activated),
             _ => {
                 warn!("pci: invalid virtio config byte write: 0x{:x}", offset);
             }
         }
     }
 
-    fn set_device_status(&mut self, status: u8, device_activated: bool) {
+    fn set_device_status(
+        &mut self,
+        status: u8,
+        device: &Mutex<dyn VirtioDevice>,
+        device_activated: bool,
+    ) {
         /// Enforce the device status state machine per the virtio spec:
         ///   INIT -> ACKNOWLEDGE -> DRIVER -> FEATURES_OK -> DRIVER_OK
         /// https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-1220001
@@ -178,6 +189,15 @@ impl VirtioPciCommonConfig {
             // > FAILED (128)
             // >     Indicates that something went wrong in the guest, and it has given up on the
             // >     device.
+            if self.driver_status & FAILED == 0 {
+                let device = device.lock().expect("Poisoned lock");
+                warn!(
+                    "[{}] guest marked virtio device as FAILED (status {:#x} -> {:#x})",
+                    device.label(),
+                    self.driver_status,
+                    status
+                );
+            }
             self.driver_status |= FAILED;
         } else if status == INIT {
             // Reset requested by the driver.
@@ -560,8 +580,8 @@ mod tests {
             .set_avail_features(0x0000_1312_0000_1110);
 
         // Feature negotiation requires DRIVER state (ACKNOWLEDGE | DRIVER).
-        config.set_device_status(ACKNOWLEDGE, false);
-        config.set_device_status(ACKNOWLEDGE | DRIVER, false);
+        config.set_device_status(ACKNOWLEDGE, &*device, false);
+        config.set_device_status(ACKNOWLEDGE | DRIVER, &*device, false);
 
         // ACK some features of the first page
         config.write(DRIVER_FEATURE, 0x1100u32.as_slice(), device.clone(), false);
@@ -585,7 +605,7 @@ mod tests {
         );
 
         // After FEATURES_OK, further feature writes should be rejected.
-        config.set_device_status(ACKNOWLEDGE | DRIVER | FEATURES_OK, false);
+        config.set_device_status(ACKNOWLEDGE | DRIVER | FEATURES_OK, &*device, false);
         config.write(
             DRIVER_FEATURE_SELECT,
             0u32.as_slice(),
