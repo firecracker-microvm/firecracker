@@ -512,4 +512,28 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn test_reads_a_real_vm() {
+        use crate::vstate::vm::tests::setup_vm_with_memory;
+
+        let mut vm = setup_vm_with_memory(0x1000);
+        let _vcpus = vm.create_vcpus(2).unwrap();
+        let stats = match vm.kvm_stats() {
+            Err(KvmStatsError::Unsupported) => return,
+            res => res.unwrap(),
+        };
+        assert_eq!(
+            stats.vcpus.iter().map(|v| v.index).collect::<Vec<_>>(),
+            vec![0, 1]
+        );
+        let vcpu = &stats.vcpus[0].stats;
+        assert_eq!(vcpu["exits"].kind, KvmStatType::Cumulative);
+        let halt_wait = &vcpu["halt_wait_hist"];
+        assert_eq!(halt_wait.kind, KvmStatType::Log2Histogram);
+        assert_eq!(
+            (halt_wait.unit, halt_wait.base, halt_wait.exponent),
+            (Some(KvmStatUnit::Seconds), Some(10), -9)
+        );
+    }
 }
