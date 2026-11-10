@@ -79,7 +79,7 @@
 //! accessible from signal handlers to flush metrics and block::metrics::METRICS is.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, TryLockError};
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
@@ -122,7 +122,17 @@ static METRICS: RwLock<BlockMetricsPerDevice> = RwLock::new(BlockMetricsPerDevic
 /// This function facilitates aggregation and serialization of
 /// per block device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
-    let block_metrics = METRICS.read().unwrap();
+    let block_metrics = match METRICS.try_read() {
+        Ok(block_metrics) => block_metrics,
+        // A signal can interrupt `alloc` while it holds the write lock.
+        // Skip these devices instead of waiting; a fatal exit loses their metrics.
+        Err(TryLockError::WouldBlock) => {
+            let mut seq = serializer.serialize_map(Some(1))?;
+            seq.serialize_entry("block", &BlockDeviceMetrics::default())?;
+            return seq.end();
+        }
+        Err(TryLockError::Poisoned(_)) => panic!("poisoned lock"),
+    };
     let metrics_len = block_metrics.metrics.len();
     // +1 to accommodate aggregate block metrics
     let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
@@ -236,6 +246,17 @@ impl BlockDeviceMetrics {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+
+    #[test]
+    fn test_flush_metrics_while_allocating() {
+        // The thread holding the write lock in `alloc` can run a signal
+        // handler that flushes the metrics.
+        let _guard = METRICS.write().unwrap();
+        let mut buf = Vec::new();
+        flush_metrics(&mut serde_json::Serializer::new(&mut buf)).unwrap();
+        let aggregate = serde_json::to_string(&BlockDeviceMetrics::default()).unwrap();
+        assert_eq!(buf, format!(r#"{{"block":{aggregate}}}"#).as_bytes());
+    }
 
     #[test]
     fn test_max_block_dev_metrics() {
