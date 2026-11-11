@@ -9,6 +9,7 @@ use crate::arch::MAX_GUEST_MEM_SIZE;
 use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
 use crate::pci::bus::MAX_PCI_BUSES;
 use crate::utils::checked_mib_to_bytes;
+use crate::vmm_config::pci_mmio::{PciMmio64Config, PciMmio64Error};
 
 /// The default memory size of the VM, in MiB.
 pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
@@ -20,6 +21,10 @@ pub const MAX_PCIE_HOTPLUG_PORTS: u8 = MAX_PCI_BUSES - 1;
 #[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum MachineConfigError {
+    /// Invalid PCI MMIO64 configuration: {0}
+    PciMmio64(#[from] PciMmio64Error),
+    /// PCI MMIO64 configuration requires `--enable-pci`.
+    PciMmio64RequiresPci,
     /// The memory size (MiB) is smaller than the previously set balloon device target size.
     IncompatibleBalloonSize,
     /// The memory size (MiB) is either 0, not a multiple of the configured page size, or exceeds the architectural maximum.
@@ -116,6 +121,9 @@ impl From<HugePageConfig> for Option<memfd::HugetlbSize> {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MachineConfig {
+    /// Optional PCI MMIO64 aperture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pci_mmio64: Option<PciMmio64Config>,
     /// Number of vcpu to start.
     pub vcpu_count: u16,
     /// The memory size in MiB.
@@ -177,6 +185,7 @@ where
 impl Default for MachineConfig {
     fn default() -> Self {
         Self {
+            pci_mmio64: None,
             vcpu_count: 1,
             mem_size_mib: DEFAULT_MEM_SIZE_MIB,
             smt: false,
@@ -199,6 +208,9 @@ impl Default for MachineConfig {
 #[derive(Clone, Default, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MachineConfigUpdate {
+    /// Optional PCI MMIO64 aperture.
+    #[serde(default)]
+    pub pci_mmio64: Option<PciMmio64Config>,
     /// Number of vcpu to start.
     #[serde(default)]
     pub vcpu_count: Option<u16>,
@@ -238,6 +250,7 @@ impl MachineConfigUpdate {
 impl From<MachineConfig> for MachineConfigUpdate {
     fn from(cfg: MachineConfig) -> Self {
         MachineConfigUpdate {
+            pci_mmio64: cfg.pci_mmio64,
             vcpu_count: Some(cfg.vcpu_count),
             mem_size_mib: Some(cfg.mem_size_mib),
             smt: Some(cfg.smt),
@@ -273,6 +286,10 @@ impl MachineConfig {
         &self,
         update: &MachineConfigUpdate,
     ) -> Result<MachineConfig, MachineConfigError> {
+        let pci_mmio64 = update.pci_mmio64.or(self.pci_mmio64);
+        if let Some(config) = pci_mmio64 {
+            config.validate()?;
+        }
         let vcpu_count = update.vcpu_count.unwrap_or(self.vcpu_count);
 
         let smt = update.smt.unwrap_or(self.smt);
@@ -314,6 +331,7 @@ impl MachineConfig {
         };
 
         Ok(MachineConfig {
+            pci_mmio64,
             vcpu_count,
             mem_size_mib,
             smt,
@@ -364,6 +382,55 @@ mod tests {
             MachineConfig::default().update(&update),
             Err(MachineConfigError::InvalidMemorySize)
         );
+    }
+
+    #[test]
+    fn test_pci_mmio64_machine_config_updates() {
+        use super::MachineConfigUpdate;
+        use crate::vmm_config::pci_mmio::PciMmio64Config;
+
+        let original = MachineConfig::default();
+        assert!(
+            serde_json::to_value(&original)
+                .unwrap()
+                .get("pci_mmio64")
+                .is_none()
+        );
+        let update: MachineConfigUpdate =
+            serde_json::from_str(r#"{"pci_mmio64":{"base_gib":2048,"size_gib":2048}}"#).unwrap();
+        let updated = original.update(&update).unwrap();
+        assert_eq!(
+            updated.pci_mmio64,
+            Some(PciMmio64Config {
+                base_gib: 2048,
+                size_gib: 2048
+            })
+        );
+        let unrelated = MachineConfigUpdate {
+            vcpu_count: Some(2),
+            ..Default::default()
+        };
+        assert_eq!(
+            updated.update(&unrelated).unwrap().pci_mmio64,
+            updated.pci_mmio64
+        );
+        let config: MachineConfig =
+            serde_json::from_value(serde_json::to_value(&updated).unwrap()).unwrap();
+        assert_eq!(config, updated);
+        for json in [
+            r#"{"pci_mmio64":{"base_gib":3,"size_gib":1}}"#,
+            r#"{"pci_mmio64":{"base_gib":4,"size_gib":0}}"#,
+        ] {
+            let invalid: MachineConfigUpdate = serde_json::from_str(json).unwrap();
+            original.update(&invalid).unwrap_err();
+        }
+        for json in [
+            r#"{"pci_mmio64":{"base_gib":4}}"#,
+            r#"{"pci_mmio64":{"base_gib":-1,"size_gib":1}}"#,
+            r#"{"pci_mmio64":{"base_gib":4,"size_gib":1,"extra":1}}"#,
+        ] {
+            serde_json::from_str::<MachineConfigUpdate>(json).unwrap_err();
+        }
     }
 
     // Ensure the special (de)serialization logic for the cpu_template field works:

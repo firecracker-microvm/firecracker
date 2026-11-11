@@ -31,6 +31,8 @@ pub mod metrics;
 pub mod mmds;
 /// Wrapper for configuring the network devices attached to the microVM.
 pub mod net;
+/// PCI MMIO64 configuration.
+pub mod pci_mmio;
 /// Wrapper for configuring the pmem devises attached to the microVM.
 pub mod pmem;
 /// Wrapper for configuring microVM snapshots and the microVM state.
