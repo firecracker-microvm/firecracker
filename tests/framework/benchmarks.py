@@ -206,6 +206,7 @@ class SnapshotRestoreTest:
     blocks: int = 3
     all_devices: bool = False
     huge_pages: HugePagesConfig = HugePagesConfig.NONE
+    track_dirty_pages: bool = False
 
     @property
     def id(self):
@@ -240,6 +241,7 @@ class SnapshotRestoreTest:
             mem_size_mib=self.mem,
             rootfs_io_engine="Sync",
             huge_pages=self.huge_pages,
+            track_dirty_pages=self.track_dirty_pages,
         )
 
         for _ in range(self.nets):
