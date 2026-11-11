@@ -12,6 +12,7 @@ import pytest
 from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_fixed
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.benchmarks import MEMHP_BOOTARGS, timed_memory_hotplug
 from framework.guest_stats import MeminfoGuest
 from framework.microvm import SnapshotType
 from framework.properties import global_props
@@ -19,7 +20,6 @@ from framework.utils import get_resident_memory, make_guest_dirty_memory
 from framework.utils_hugepages import HugePagesConfig, supports_hugetlbfs_discard
 from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
-MEMHP_BOOTARGS = "console=ttyS0 reboot=k panic=1 memhp_default_state=online_movable"
 DEFAULT_CONFIG = {"total_size_mib": 1024, "slot_size_mib": 128, "block_size_mib": 2}
 
 pytestmark = pin_guest_kernel(GUEST_KERNEL_DEFAULT)
@@ -476,33 +476,6 @@ def test_snapshot_restore_incremental(uvm, microvm_factory, snapshot_type):
         )
 
         validate_metrics(vm)
-
-
-def timed_memory_hotplug(uvm, size, metrics, metric_prefix, fc_metric_name):
-    """Wait for all memory hotplug events to be processed"""
-
-    uvm.flush_metrics()
-
-    # poll every 5ms to check completion as the fastest hotplug is around 30ms
-    api_time, total_time = uvm.hotplug_memory(size, poll=0.005)
-
-    fc_metrics = uvm.flush_metrics()
-
-    metrics.put_metric(
-        f"{metric_prefix}_api_time",
-        api_time,
-        unit="Seconds",
-    )
-    metrics.put_metric(
-        f"{metric_prefix}_total_time",
-        total_time,
-        unit="Seconds",
-    )
-    metrics.put_metric(
-        f"{metric_prefix}_fc_time",
-        fc_metrics["memory_hotplug"][fc_metric_name]["sum_us"],
-        unit="Microseconds",
-    )
 
 
 @pytest.mark.nonci

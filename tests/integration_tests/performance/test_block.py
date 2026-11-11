@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Performance benchmark for block device emulation."""
 
-import concurrent
 import os
 
 import pytest
@@ -10,117 +9,13 @@ import pytest
 import framework.utils_fio as fio
 import host_tools.drive as drive_tools
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
-from framework.utils import check_output, track_cpu_utilization
+from framework.benchmarks import BLOCK_DEVICE_SIZE_MB, emit_fio_metrics, run_fio
 from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
 
-# size of the block device used in the test, in MB
-BLOCK_DEVICE_SIZE_MB = 2048
-
-# Time (in seconds) for which fio "warms up" before measurements are taken.
-# The bandwidth ramp is direction-dependent: reads reach steady state almost
-# immediately, while writes take a few seconds to settle. These values were
-# derived from per-second fio bandwidth logs: the worst-case (libaio randwrite)
-# transient clears by ~6-7s (10s rounding up), while reads are within noise
-# from the first second, so they need no ramp.
-WARMUP_SEC_READ = 0
-WARMUP_SEC_WRITE = 10
-
-
-def warmup_sec_for(mode: fio.Mode) -> int:
-    """Return the fio warmup (ramp) time appropriate for the given mode."""
-    write_modes = {fio.Mode.WRITE, fio.Mode.RANDWRITE, fio.Mode.TRIM, fio.Mode.RANDTRIM}
-    return WARMUP_SEC_WRITE if mode in write_modes else WARMUP_SEC_READ
-
-
-# Time (in seconds) for which fio runs after warmup is done
-RUNTIME_SEC = 15
-
 # VM guest memory size
 GUEST_MEM_MIB = 1024
-
-
-def prepare_microvm_for_test(microvm):
-    """Prepares the microvm for running a fio-based performance test by tweaking
-    various performance related parameters."""
-    _, _, stderr = microvm.ssh.check_output(
-        "echo 'none' > /sys/block/vdb/queue/scheduler"
-    )
-    assert stderr == ""
-
-    # First, flush all guest cached data to host, then drop guest FS caches.
-    _, _, stderr = microvm.ssh.check_output("sync")
-    assert stderr == ""
-    _, _, stderr = microvm.ssh.check_output("echo 3 > /proc/sys/vm/drop_caches")
-    assert stderr == ""
-
-    # Then, flush all host cached data to hardware, also drop host FS caches.
-    check_output("sync")
-    check_output("echo 3 > /proc/sys/vm/drop_caches")
-
-
-def run_fio(
-    microvm,
-    mode: fio.Mode,
-    block_size: int,
-    test_output_dir,
-    fio_engine: fio.Engine,
-    readonly: bool = False,
-):
-    """Run a fio test in the specified mode with block size bs."""
-    warmup_sec = warmup_sec_for(mode)
-    cmd = fio.build_cmd(
-        "/dev/vdb",
-        BLOCK_DEVICE_SIZE_MB,
-        block_size,
-        mode,
-        microvm.vcpus_count,
-        fio_engine,
-        RUNTIME_SEC,
-        warmup_sec,
-        readonly=readonly,
-    )
-
-    prepare_microvm_for_test(microvm)
-
-    # Start the CPU load monitor.
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        cpu_load_future = executor.submit(
-            track_cpu_utilization,
-            microvm.firecracker_pid,
-            RUNTIME_SEC,
-            omit=warmup_sec,
-        )
-
-        # Print the fio command in the log and run it
-        rc, _, stderr = microvm.ssh.run(f"cd /tmp; {cmd}")
-        assert rc == 0, stderr
-        assert stderr == ""
-
-        microvm.ssh.scp_get("/tmp/fio.json", test_output_dir)
-        microvm.ssh.scp_get("/tmp/*.log", test_output_dir)
-
-        return cpu_load_future.result()
-
-
-def emit_fio_metrics(logs_dir, metrics):
-    """Parses the fio logs in `logs_dir` and emits their contents as CloudWatch metrics"""
-    bw_reads, bw_writes = fio.process_log_files(logs_dir, fio.LogType.BW)
-    for tup in zip(*bw_reads):
-        metrics.put_metric("bw_read", sum(tup), "Kilobytes/Second")
-    for tup in zip(*bw_writes):
-        metrics.put_metric("bw_write", sum(tup), "Kilobytes/Second")
-
-    clat_reads, clat_writes = fio.process_log_files(logs_dir, fio.LogType.CLAT)
-    # latency values in fio logs are in nanoseconds, but cloudwatch only supports
-    # microseconds as the more granular unit, so need to divide by 1000.
-    for tup in zip(*clat_reads):
-        for value in tup:
-            metrics.put_metric("clat_read", value / 1000, "Microseconds")
-    for tup in zip(*clat_writes):
-        for value in tup:
-            metrics.put_metric("clat_write", value / 1000, "Microseconds")
 
 
 @pytest.mark.nonci

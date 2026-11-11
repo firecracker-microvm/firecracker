@@ -11,7 +11,8 @@ from pathlib import Path
 import pytest
 
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
-from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
+from framework.benchmarks import VsockIPerf3Test
+from framework.utils_iperf import emit_iperf3_metrics
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -37,63 +38,6 @@ def vsock_uvm(uvm, request):
         emit_metrics=True,
         pin_threads=True,
     )
-
-
-class VsockIPerf3Test(IPerf3Test):
-    """IPerf3 runner for the vsock throughput performance test"""
-
-    BASE_PORT = 5201
-
-    # How many clients/servers should be spawned per vcpu
-    LOAD_FACTOR = 1
-
-    # Time (in seconds) for which iperf "warms up"
-    WARMUP_SEC = 3
-
-    # Time (in seconds) for which iperf runs after warmup is done
-    RUNTIME_SEC = 10
-
-    # VM guest memory size
-    GUEST_MEM_MIB = 1024
-
-    def __init__(self, microvm, mode, payload_length):
-        super().__init__(
-            microvm,
-            self.BASE_PORT,
-            self.RUNTIME_SEC,
-            self.WARMUP_SEC,
-            mode,
-            self.LOAD_FACTOR * microvm.vcpus_count,
-            2,
-            iperf="/usr/local/bin/iperf3-vsock",
-            payload_length=payload_length,
-        )
-        # The rootfs does not have iperf3-vsock
-        iperf3_guest = "/tmp/iperf3-vsock"
-
-        self._microvm.ssh.scp_put(self._iperf, iperf3_guest)
-        self._guest_iperf = iperf3_guest
-
-    def host_command(self, port_offset):
-        return (
-            super()
-            .host_command(port_offset)
-            .with_arg("--vsock")
-            .with_arg("-B", os.path.join(self._microvm.path, VSOCK_UDS_PATH))
-        )
-
-    def wait_for_server(self, port_offset):
-        # The server listens on a Unix socket; link it into the jail so the
-        # guest can reach it.
-        uds_path = os.path.join(
-            self._microvm.path,
-            make_host_port_path(VSOCK_UDS_PATH, self._base_port + port_offset),
-        )
-        wait_for_unix_socket_on_host(self._microvm.netns.cmd_prefix(), uds_path)
-        self._microvm.create_jailed_resource(uds_path)
-
-    def guest_command(self, port_offset):
-        return super().guest_command(port_offset).with_arg("--vsock")
 
 
 def consume_vsock_ping_output(ping_output):

@@ -14,17 +14,11 @@ the process lifetime.
 The memory overhead of the jailer is not important as it is short-lived.
 """
 
-from collections import defaultdict
-from pathlib import Path
-
-import psutil
 import pytest
 
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
+from framework.benchmarks import emit_memory_overhead_metrics
 from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
-
-# If guest memory is >3072MB, it is split in a 2nd region
-X86_MEMORY_GAP_START = 3072 * 2**20
 
 
 @pytest.mark.parametrize(
@@ -64,36 +58,4 @@ def test_memory_overhead(
         microvm.kill()
         microvm2 = microvm_factory.build_from_snapshot(snapshot)
 
-        guest_mem_bytes = mem_size_mib * 2**20
-        guest_mem_splits = {
-            guest_mem_bytes,
-            X86_MEMORY_GAP_START,
-        }
-        if guest_mem_bytes > X86_MEMORY_GAP_START:
-            guest_mem_splits.add(guest_mem_bytes - X86_MEMORY_GAP_START)
-
-        mem_stats = defaultdict(int)
-        ps = psutil.Process(microvm2.firecracker_pid)
-
-        for pmmap in ps.memory_maps(grouped=False):
-            # We publish 'size' and 'rss' (resident). size would be the worst case,
-            # whereas rss is the current paged-in memory.
-
-            mem_stats["total_size"] += pmmap.size
-            mem_stats["total_rss"] += pmmap.rss
-            pmmap_path = Path(pmmap.path)
-            if pmmap_path.exists() and pmmap_path.name.startswith("firecracker"):
-                mem_stats["binary_size"] += pmmap.size
-                mem_stats["binary_rss"] += pmmap.rss
-
-            if pmmap.size not in guest_mem_splits:
-                mem_stats["overhead_size"] += pmmap.size
-                mem_stats["overhead_rss"] += pmmap.rss
-
-        for key, value in mem_stats.items():
-            metrics.put_metric(key, value, unit="Bytes")
-
-        mem_info = ps.memory_full_info()
-        for metric in ["uss", "text"]:
-            val = getattr(mem_info, metric)
-            metrics.put_metric(metric, val, unit="Bytes")
+        emit_memory_overhead_metrics(microvm2.firecracker_pid, mem_size_mib, metrics)
