@@ -62,6 +62,41 @@ impl Default for ResourceAllocator {
 }
 
 impl ResourceAllocator {
+    /// Create the MMIO64 aperture and following pmem/hotplug pool.
+    /// The caller validates the layout.
+    pub fn with_mmio64_range(base: u64, size: u64) -> Result<Self, vm_allocator::Error> {
+        let mut allocator = Self::new();
+        allocator.mmio64_memory = AddressAllocator::new(base, size)?;
+        allocator.past_mmio64_memory = AddressAllocator::new(
+            base.checked_add(size)
+                .ok_or(vm_allocator::Error::Overflow)?,
+            arch::PAST_64BITS_MMIO_SIZE,
+        )?;
+        Ok(allocator)
+    }
+
+    /// Reserve RAM in the following pmem/hotplug pool.
+    pub fn reserve_past_mmio64_ram(
+        &mut self,
+        regions: impl IntoIterator<Item = (vm_memory::GuestAddress, usize)>,
+    ) -> Result<(), vm_allocator::Error> {
+        let pool_base = self.past_mmio64_memory.base();
+        let pool_end = self.past_mmio64_memory.end() + 1;
+        for (base, size) in regions {
+            let start = base.0.max(pool_base);
+            let end = base
+                .0
+                .checked_add(size as u64)
+                .ok_or(vm_allocator::Error::Overflow)?
+                .min(pool_end);
+            if start < end {
+                self.past_mmio64_memory
+                    .allocate(end - start, 1, AllocPolicy::ExactMatch(start))?;
+            }
+        }
+        Ok(())
+    }
+
     /// Create a new resource allocator for Firecracker devices
     pub fn new() -> Self {
         // It is fine for us to unwrap the following since we know we are passing valid ranges for
