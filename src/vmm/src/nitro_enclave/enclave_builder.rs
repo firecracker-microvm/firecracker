@@ -191,6 +191,7 @@ fn validate_supported_features(machine_config: &MachineConfig) -> Result<(), Enc
         track_dirty_pages,
         huge_pages,
         pcie_hotplug_ports,
+        mem_backend,
         #[cfg(feature = "gdb")]
         gdb_socket_path,
     } = machine_config;
@@ -206,6 +207,7 @@ fn validate_supported_features(machine_config: &MachineConfig) -> Result<(), Enc
         (*track_dirty_pages, "track_dirty_pages"),
         (*huge_pages != HugePageConfig::None, "huge_pages"),
         (*pcie_hotplug_ports != 0, "pcie_hotplug_ports"),
+        (mem_backend.is_some(), "mem_backend"),
     ] {
         if present {
             return Err(EnclaveBuilderError::UnsupportedFeature(name));
@@ -677,6 +679,7 @@ mod tests {
     #[test]
     fn test_validate_supported_features() {
         use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
+        use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
 
         #[cfg(target_arch = "x86_64")]
         const STATIC_TEMPLATE: StaticCpuTemplate = StaticCpuTemplate::T2;
@@ -728,6 +731,16 @@ mod tests {
                 "pcie_hotplug_ports",
                 MachineConfig {
                     pcie_hotplug_ports: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "mem_backend",
+                MachineConfig {
+                    mem_backend: Some(MemBackendConfig {
+                        backend_type: MemBackendType::SharedMemfd,
+                        backend_path: "/x".into(),
+                    }),
                     ..Default::default()
                 },
             ),
