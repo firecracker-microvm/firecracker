@@ -4,16 +4,13 @@
 
 import re
 import signal
-import tempfile
-from dataclasses import dataclass
-from functools import lru_cache
 
 import pytest
 from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_fixed
 
-import host_tools.drive as drive_tools
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
-from framework.microvm import Microvm, SnapshotType
+from framework.benchmarks import ITERATIONS, SnapshotRestoreTest
+from framework.microvm import SnapshotType
 from framework.utils import (
     start_fast_page_fault_helper,
     wait_for_fast_page_fault_helper_output,
@@ -23,75 +20,12 @@ from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 USEC_IN_MSEC = 1000
 NS_IN_MSEC = 1_000_000
-ITERATIONS = 30
 POPULATION_ITERATIONS = 15
 
 pytestmark = [
     pin_guest_kernel(GUEST_KERNEL_DEFAULT),
     pin_vm_backend(VM_BACKEND_KVM),
 ]
-
-
-@lru_cache
-def get_scratch_drives():
-    """Create an array of scratch disks."""
-    scratchdisks = ["vdb", "vdc", "vdd", "vde"]
-    return [
-        (drive, drive_tools.FilesystemFile(tempfile.mktemp(), size=64))
-        for drive in scratchdisks
-    ]
-
-
-@dataclass
-class SnapshotRestoreTest:
-    """Dataclass encapsulating properties of snapshot restore tests"""
-
-    vcpus: int = 1
-    mem: int = 128
-    nets: int = 3
-    blocks: int = 3
-    all_devices: bool = False
-    huge_pages: HugePagesConfig = HugePagesConfig.NONE
-
-    @property
-    def id(self):
-        """Computes a unique id for this test instance"""
-        return "all_dev" if self.all_devices else f"{self.vcpus}vcpu_{self.mem}mb"
-
-    def boot_vm(self, microvm_factory, guest_kernel, rootfs, pci_enabled) -> Microvm:
-        """Creates the initial snapshot that will be loaded repeatedly to sample latencies"""
-        vm = microvm_factory.build(
-            guest_kernel,
-            rootfs,
-            monitor_memory=False,
-            pci=pci_enabled,
-        )
-        vm.spawn(log_level="Info", emit_metrics=True)
-        vm.time_api_requests = False
-        vm.basic_config(
-            vcpu_count=self.vcpus,
-            mem_size_mib=self.mem,
-            rootfs_io_engine="Sync",
-            huge_pages=self.huge_pages,
-        )
-
-        for _ in range(self.nets):
-            vm.add_net_iface()
-
-        if self.blocks > 1:
-            scratch_drives = get_scratch_drives()
-            for name, diskfile in scratch_drives[: (self.blocks - 1)]:
-                vm.add_drive(name, diskfile.path, io_engine="Sync")
-
-        if self.all_devices:
-            vm.api.balloon.put(
-                amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
-            )
-            vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/v.sock")
-
-        vm.start()
-
-        return vm
 
 
 @pytest.mark.nonci
@@ -122,18 +56,7 @@ def test_restore_latency(
     """
     vm = test_setup.boot_vm(microvm_factory, guest_kernel, rootfs, pci_enabled)
 
-    metrics.set_dimensions(
-        {
-            "net_devices": str(test_setup.nets),
-            "block_devices": str(test_setup.blocks),
-            "vsock_devices": str(int(test_setup.all_devices)),
-            "balloon_devices": str(int(test_setup.all_devices)),
-            "huge_pages_config": str(test_setup.huge_pages),
-            "performance_test": "test_restore_latency",
-            "uffd_handler": "None",
-            **vm.dimensions,
-        }
-    )
+    metrics.set_dimensions(test_setup.dimensions(vm, "test_restore_latency", None))
 
     snapshot = vm.snapshot_full()
     vm.kill()
@@ -181,16 +104,7 @@ def test_post_restore_latency(
     vm = test_setup.boot_vm(microvm_factory, guest_kernel, rootfs, pci_enabled)
 
     metrics.set_dimensions(
-        {
-            "net_devices": str(test_setup.nets),
-            "block_devices": str(test_setup.blocks),
-            "vsock_devices": str(int(test_setup.all_devices)),
-            "balloon_devices": str(int(test_setup.all_devices)),
-            "huge_pages_config": str(test_setup.huge_pages),
-            "performance_test": "test_post_restore_latency",
-            "uffd_handler": str(uffd_handler),
-            **vm.dimensions,
-        }
+        test_setup.dimensions(vm, "test_post_restore_latency", uffd_handler)
     )
 
     # Starts the helper and blocks until it has touched its memory and is
@@ -235,16 +149,7 @@ def test_population_latency(
     vm = test_setup.boot_vm(microvm_factory, guest_kernel, rootfs, pci_enabled)
 
     metrics.set_dimensions(
-        {
-            "net_devices": str(test_setup.nets),
-            "block_devices": str(test_setup.blocks),
-            "vsock_devices": str(int(test_setup.all_devices)),
-            "balloon_devices": str(int(test_setup.all_devices)),
-            "huge_pages_config": str(test_setup.huge_pages),
-            "performance_test": "test_population_latency",
-            "uffd_handler": "fault_all",
-            **vm.dimensions,
-        }
+        test_setup.dimensions(vm, "test_population_latency", "fault_all")
     )
 
     snapshot = vm.snapshot_full()

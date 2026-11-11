@@ -10,6 +10,12 @@ import os
 
 from common import BKPipeline
 
+# The memory hotplug test requires polling (5 ms), so any change smaller than that is not significant.
+# Additionally, unplugging memory is dependent on how exactly it's being used, so some volatility is expected.
+MEMORY_HOTPLUG_AB_OPTS = (
+    "--absolute-strength 0.005 --noise-threshold hotunplug_total_time=0.1"
+)
+
 # In `devtool_opts`, we restrict both the set of CPUs on which the docker container's threads can run,
 # and its memory node. For the cpuset, we pick a continuous set of CPUs from a single NUMA node
 # that is large enough so that every firecracker thread can get its own core. We exclude core #0, as
@@ -55,9 +61,7 @@ perf_test = {
         "label": "memory-hotplug",
         "tests": "integration_tests/performance/test_hotplug_memory.py",
         "devtool_opts": "-c 1-10 -m 0",
-        # The test require polling (5 ms), so any change smaller than that is not significant.
-        # Additionally, unplugging memory is dependent on how exactly it's being used, so some volatility is expected.
-        "ab_opts": "--absolute-strength 0.005 --noise-threshold hotunplug_total_time=0.1",
+        "ab_opts": MEMORY_HOTPLUG_AB_OPTS,
     },
     "snapshot-latency": {
         "label": "snapshot-latency",
@@ -72,6 +76,29 @@ perf_test = {
     "memory-overhead": {
         "label": "memory-overhead",
         "tests": "integration_tests/performance/test_memory_overhead.py",
+        "devtool_opts": "-c 1-10 -m 0",
+    },
+    "dirty-tracking": {
+        "label": "dirty-tracking",
+        "tests": "integration_tests/performance/test_dirty_tracking.py::test_restore_latency_dirty_tracking integration_tests/performance/test_dirty_tracking.py::test_post_restore_latency_dirty_tracking integration_tests/performance/test_dirty_tracking.py::test_network_tcp_throughput_dirty_tracking integration_tests/performance/test_dirty_tracking.py::test_memory_overhead_dirty_tracking integration_tests/performance/test_dirty_tracking.py::test_memory_hotplug_latency_dirty_tracking",
+        "devtool_opts": "-c 1-12 -m 0",
+        # The absolute strength is in each metric's unit, so it only matters for the
+        # memory hotplug times, which are in seconds.
+        "ab_opts": MEMORY_HOTPLUG_AB_OPTS,
+    },
+    "dirty-tracking-vsock": {
+        "label": "dirty-tracking-vsock",
+        "tests": "integration_tests/performance/test_dirty_tracking.py::test_vsock_throughput_dirty_tracking",
+        "devtool_opts": "-c 1-10 -m 0",
+    },
+    "dirty-tracking-block-sync": {
+        "label": "dirty-tracking-block-sync",
+        "tests": "integration_tests/performance/test_dirty_tracking.py::test_block_performance_dirty_tracking -k 'not Async'",
+        "devtool_opts": "-c 1-10 -m 0",
+    },
+    "dirty-tracking-block-async": {
+        "label": "dirty-tracking-block-async",
+        "tests": "integration_tests/performance/test_dirty_tracking.py::test_block_performance_dirty_tracking -k Async",
         "devtool_opts": "-c 1-10 -m 0",
     },
     "boottime": {

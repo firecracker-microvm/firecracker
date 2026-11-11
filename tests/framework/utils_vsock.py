@@ -111,6 +111,7 @@ def boot_vsock_vm(
     log_level=None,
     emit_metrics=False,
     pin_threads=False,
+    track_dirty_pages=False,
 ):
     """Spawn, configure and start a microVM with a vsock device attached."""
     spawn_kwargs = {}
@@ -125,7 +126,7 @@ def boot_vsock_vm(
         config_kwargs["vcpu_count"] = vcpu_count
     if mem_size_mib is not None:
         config_kwargs["mem_size_mib"] = mem_size_mib
-    vm.basic_config(**config_kwargs)
+    vm.basic_config(**config_kwargs, track_dirty_pages=track_dirty_pages)
 
     vm.add_net_iface()
     vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
