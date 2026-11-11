@@ -56,18 +56,7 @@ def test_restore_latency(
     """
     vm = test_setup.boot_vm(microvm_factory, guest_kernel, rootfs, pci_enabled)
 
-    metrics.set_dimensions(
-        {
-            "net_devices": str(test_setup.nets),
-            "block_devices": str(test_setup.blocks),
-            "vsock_devices": str(int(test_setup.all_devices)),
-            "balloon_devices": str(int(test_setup.all_devices)),
-            "huge_pages_config": str(test_setup.huge_pages),
-            "performance_test": "test_restore_latency",
-            "uffd_handler": "None",
-            **vm.dimensions,
-        }
-    )
+    metrics.set_dimensions(test_setup.dimensions(vm, "test_restore_latency", None))
 
     snapshot = vm.snapshot_full()
     vm.kill()
@@ -115,16 +104,7 @@ def test_post_restore_latency(
     vm = test_setup.boot_vm(microvm_factory, guest_kernel, rootfs, pci_enabled)
 
     metrics.set_dimensions(
-        {
-            "net_devices": str(test_setup.nets),
-            "block_devices": str(test_setup.blocks),
-            "vsock_devices": str(int(test_setup.all_devices)),
-            "balloon_devices": str(int(test_setup.all_devices)),
-            "huge_pages_config": str(test_setup.huge_pages),
-            "performance_test": "test_post_restore_latency",
-            "uffd_handler": str(uffd_handler),
-            **vm.dimensions,
-        }
+        test_setup.dimensions(vm, "test_post_restore_latency", uffd_handler)
     )
 
     # Starts the helper and blocks until it has touched its memory and is
@@ -169,16 +149,7 @@ def test_population_latency(
     vm = test_setup.boot_vm(microvm_factory, guest_kernel, rootfs, pci_enabled)
 
     metrics.set_dimensions(
-        {
-            "net_devices": str(test_setup.nets),
-            "block_devices": str(test_setup.blocks),
-            "vsock_devices": str(int(test_setup.all_devices)),
-            "balloon_devices": str(int(test_setup.all_devices)),
-            "huge_pages_config": str(test_setup.huge_pages),
-            "performance_test": "test_population_latency",
-            "uffd_handler": "fault_all",
-            **vm.dimensions,
-        }
+        test_setup.dimensions(vm, "test_population_latency", "fault_all")
     )
 
     snapshot = vm.snapshot_full()

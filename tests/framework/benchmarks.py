@@ -212,6 +212,19 @@ class SnapshotRestoreTest:
         """Computes a unique id for this test instance"""
         return "all_dev" if self.all_devices else f"{self.vcpus}vcpu_{self.mem}mb"
 
+    def dimensions(self, vm, performance_test, uffd_handler):
+        """Metric dimensions describing this test setup and the given microVM"""
+        return {
+            "net_devices": str(self.nets),
+            "block_devices": str(self.blocks),
+            "vsock_devices": str(int(self.all_devices)),
+            "balloon_devices": str(int(self.all_devices)),
+            "huge_pages_config": str(self.huge_pages),
+            "performance_test": performance_test,
+            "uffd_handler": str(uffd_handler),
+            **vm.dimensions,
+        }
+
     def boot_vm(self, microvm_factory, guest_kernel, rootfs, pci_enabled) -> Microvm:
         """Creates the initial snapshot that will be loaded repeatedly to sample latencies"""
         vm = microvm_factory.build(
