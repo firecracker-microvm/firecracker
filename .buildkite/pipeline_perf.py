@@ -200,7 +200,7 @@ for test in tests:
             f"{test['label']}-enclave",
             build_command(artifacts, enclave_devtool_opts, test_script_opts),
             platforms=[("al2023", "enclave")],
-            instances=["c8i.8xlarge", "m8g.8xlarge"],
+            instances=["c8i.8xlarge", "m8g.8xlarge", "c7a.8xlarge"],
         )
 
 # Stores the info about pinning tests to agents with particular kernel versions.

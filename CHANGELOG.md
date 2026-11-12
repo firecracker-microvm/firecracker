@@ -85,6 +85,12 @@ and this project adheres to
 - [#6354](https://github.com/firecracker-microvm/firecracker/pull/6354): Unified
   the saved virtio device state across the MMIO and PCI transports and dropped
   the redundant PCI SBDF from the saved state.
+- [#6413](https://github.com/firecracker-microvm/firecracker/pull/6413):
+  Firecracker now prints the error that makes it exit, and logs API request
+  parsing errors, using their human-readable message instead of the Rust debug
+  representation. Together with the other changes in this pull request, this
+  reduces the size of the `firecracker` binary's code by about 10% (297 KiB on
+  x86_64, 247 KiB on aarch64).
 
 ### Deprecated
 
@@ -169,6 +175,11 @@ and this project adheres to
   signal interrupted the wait for its in-flight requests, which left the device
   unusable for the rest of the microVM's lifetime. The reset now waits until
   every in-flight request has completed.
+
+- [#6406](https://github.com/firecracker-microvm/firecracker/pull/6406): Fixed
+  the API server logging MMDS request bodies in cleartext when the request path
+  was not exactly `/mmds`. Paths such as `/mmds/` or `//mmds` reach the MMDS
+  handler too, but were not recognized as MMDS by the log redaction.
 
 ## [1.18.0]
 

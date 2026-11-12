@@ -94,6 +94,12 @@ pub fn get_format_version<R: Read>(reader: &mut R) -> Result<Version, SnapshotEr
         ));
     }
 
+    format_version_from_buf(&buf)
+}
+
+/// Returns the version of the snapshot in `buf`, the contents of a snapshot file including its
+/// trailing CRC. Not generic, so it is compiled only once.
+fn format_version_from_buf(buf: &[u8]) -> Result<Version, SnapshotError> {
     // The last 8 bytes are the CRC, so we need to separate them for deserialization
     if buf.len() < 8 {
         return Err(SnapshotError::Io(std::io::Error::new(
