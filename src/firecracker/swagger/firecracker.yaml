@@ -2006,6 +2006,43 @@ definitions:
         type: string
         description:
           The new path for the backing Unix Domain Socket.
+  DriveOverride:
+    type: object
+    description:
+      Allows for changing the backing file of a block device during snapshot
+      restore.
+    required:
+      - drive_id
+      - path_on_host
+    properties:
+      drive_id:
+        type: string
+        description:
+          The ID of the drive to modify
+      path_on_host:
+        type: string
+        description:
+          The new path of the drive's backing file. The file must have the same
+          contents as the drive's backing file when the snapshot was created.
+  PmemOverride:
+    type: object
+    description:
+      Allows for changing the backing file of a pmem device during snapshot
+      restore.
+    required:
+      - id
+      - path_on_host
+    properties:
+      id:
+        type: string
+        description:
+          The ID of the pmem device to modify
+      path_on_host:
+        type: string
+        description:
+          The new path of the pmem device's backing file. The file must have the
+          same contents as the device's backing file when the snapshot was
+          created.
 
   SnapshotLoadParams:
     type: object
@@ -2054,6 +2091,18 @@ definitions:
           for restoring a snapshot with a different socket path than the one used
           when the snapshot was created. For example, when the original socket path
           is no longer available or when deploying to a different environment.
+      drive_overrides:
+        type: array
+        description:
+          Block device backing files to override. vhost-user block devices do
+          not support snapshots, so they cannot be overridden.
+        items:
+          $ref: "#/definitions/DriveOverride"
+      pmem_overrides:
+        type: array
+        description: Pmem device backing files to override
+        items:
+          $ref: "#/definitions/PmemOverride"
       clock_realtime:
         type: boolean
         description:

@@ -111,6 +111,8 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
         resume_vm: snapshot_config.resume_vm,
         network_overrides: snapshot_config.network_overrides,
         vsock_override: snapshot_config.vsock_override,
+        drive_overrides: snapshot_config.drive_overrides,
+        pmem_overrides: snapshot_config.pmem_overrides,
         clock_realtime: snapshot_config.clock_realtime,
         huge_pages: snapshot_config.huge_pages,
     };
@@ -129,7 +131,8 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
 #[cfg(test)]
 mod tests {
     use vmm::vmm_config::snapshot::{
-        MemBackendConfig, MemBackendType, NetworkOverride, SnapshotLoadHugePageConfig,
+        DriveOverride, MemBackendConfig, MemBackendType, NetworkOverride, PmemOverride,
+        SnapshotLoadHugePageConfig,
     };
 
     use super::*;
@@ -213,6 +216,8 @@ mod tests {
             resume_vm: false,
             network_overrides: vec![],
             vsock_override: None,
+            drive_overrides: vec![],
+            pmem_overrides: vec![],
             clock_realtime: false,
             huge_pages: SnapshotLoadHugePageConfig::Hugetlbfs2M,
         };
@@ -246,6 +251,8 @@ mod tests {
             resume_vm: false,
             network_overrides: vec![],
             vsock_override: None,
+            drive_overrides: vec![],
+            pmem_overrides: vec![],
             clock_realtime: false,
             huge_pages: SnapshotLoadHugePageConfig::Snapshot,
         };
@@ -280,6 +287,8 @@ mod tests {
             resume_vm: true,
             network_overrides: vec![],
             vsock_override: None,
+            drive_overrides: vec![],
+            pmem_overrides: vec![],
             clock_realtime: false,
             huge_pages: SnapshotLoadHugePageConfig::Snapshot,
         };
@@ -322,6 +331,8 @@ mod tests {
                 host_dev_name: String::from("vmtap2"),
             }],
             vsock_override: None,
+            drive_overrides: vec![],
+            pmem_overrides: vec![],
             clock_realtime: false,
             huge_pages: SnapshotLoadHugePageConfig::Snapshot,
         };
@@ -332,6 +343,62 @@ mod tests {
                 .take_deprecation_message()
                 .is_none()
         );
+        assert_eq!(
+            vmm_action_from_request(parsed_request),
+            VmmAction::LoadSnapshot(expected_config)
+        );
+
+        let body = r#"{
+            "snapshot_path": "foo",
+            "mem_backend": {
+                "backend_path": "bar",
+                "backend_type": "File"
+            },
+            "drive_overrides": [
+                {
+                    "drive_id": "rootfs",
+                    "path_on_host": "/new/rootfs.ext4"
+                },
+                {
+                    "drive_id": "scratch",
+                    "path_on_host": "/new/scratch.ext4"
+                }
+            ],
+            "pmem_overrides": [
+                {
+                    "id": "pmem0",
+                    "path_on_host": "/new/pmem0.img"
+                }
+            ]
+        }"#;
+        let expected_config = LoadSnapshotParams {
+            snapshot_path: PathBuf::from("foo"),
+            mem_backend: MemBackendConfig {
+                backend_path: PathBuf::from("bar"),
+                backend_type: MemBackendType::File,
+            },
+            track_dirty_pages: false,
+            resume_vm: false,
+            network_overrides: vec![],
+            vsock_override: None,
+            drive_overrides: vec![
+                DriveOverride {
+                    drive_id: String::from("rootfs"),
+                    path_on_host: String::from("/new/rootfs.ext4"),
+                },
+                DriveOverride {
+                    drive_id: String::from("scratch"),
+                    path_on_host: String::from("/new/scratch.ext4"),
+                },
+            ],
+            pmem_overrides: vec![PmemOverride {
+                id: String::from("pmem0"),
+                path_on_host: String::from("/new/pmem0.img"),
+            }],
+            clock_realtime: false,
+            huge_pages: SnapshotLoadHugePageConfig::Snapshot,
+        };
+        let parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert_eq!(
             vmm_action_from_request(parsed_request),
             VmmAction::LoadSnapshot(expected_config)
@@ -352,6 +419,8 @@ mod tests {
             resume_vm: true,
             network_overrides: vec![],
             vsock_override: None,
+            drive_overrides: vec![],
+            pmem_overrides: vec![],
             clock_realtime: false,
             huge_pages: SnapshotLoadHugePageConfig::Snapshot,
         };
@@ -391,6 +460,27 @@ mod tests {
                 .contains(
                     "unknown variant `1M`, expected one of `Snapshot`, `None`, `Transparent`, `2M`"
                 )
+        );
+
+        // vhost-user-block devices cannot be snapshotted, so their socket cannot be overridden.
+        let body = r#"{
+            "snapshot_path": "foo",
+            "mem_backend": {
+                "backend_path": "bar",
+                "backend_type": "File"
+            },
+            "drive_overrides": [
+                {
+                    "drive_id": "rootfs",
+                    "socket": "/new/vhost-user.sock"
+                }
+            ]
+        }"#;
+        assert!(
+            parse_put_snapshot(&Body::new(body), Some("load"))
+                .unwrap_err()
+                .to_string()
+                .contains("unknown field `socket`")
         );
 
         let body = r#"{
