@@ -59,8 +59,8 @@ addresses: `/30`. For this VM, let's use the `172.16.0.1` `tap` IP and the
 `172.16.0.2` guest IP.
 
 ```bash
-# Create the tap device.
-sudo ip tuntap add tap0 mode tap
+# Create the tap device, owned by the user that runs Firecracker.
+sudo ip tuntap add tap0 mode tap user "$(id -u)" group "$(id -g)"
 # Assign it the tap IP and start up the device.
 sudo ip addr add 172.16.0.1/30 dev tap0
 sudo ip link set tap0 up
@@ -300,7 +300,7 @@ The next /30 subnet in the 172.16.0.0/16 range will give us these two IPs:
 Our new `tap` device will, sequentially, have the name `tap1`:
 
 ```bash
-sudo ip tuntap add tap1 mode tap
+sudo ip tuntap add tap1 mode tap user "$(id -u)" group "$(id -g)"
 sudo ip addr add 172.16.0.5/30 dev tap1
 sudo ip link set tap1 up
 ```
