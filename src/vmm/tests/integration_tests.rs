@@ -561,6 +561,7 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
         rate_limiter: None,
         file_engine_type: None,
         image_format: None,
+        backing_path_on_host: None,
         blk_size: None,
         topology: None,
 

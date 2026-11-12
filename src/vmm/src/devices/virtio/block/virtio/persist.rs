@@ -75,6 +75,8 @@ pub struct VirtioBlockState {
     num_queues: Option<NonZeroU16>,
     #[serde(default)]
     disk_image_format: DiskImageFormat,
+    #[serde(default)]
+    backing_path_on_host: Option<String>,
 }
 
 impl Persist<'_> for VirtioBlock {
@@ -112,6 +114,7 @@ impl Persist<'_> for VirtioBlock {
             discard_sector_alignment: self.config_space.discard_sector_alignment,
             num_queues: self.config.num_queues,
             disk_image_format: self.config.image_format,
+            backing_path_on_host: self.config.backing_path_on_host.clone(),
         }
     }
 
@@ -151,6 +154,7 @@ impl Persist<'_> for VirtioBlock {
             rate_limiter: rate_limiter_config.into_option(),
             file_engine_type: state.file_engine_type.into(),
             image_format: state.disk_image_format,
+            backing_path_on_host: state.backing_path_on_host.clone(),
             blk_size: Some(state.blk_size),
             topology: Some(state.topology),
         };
@@ -184,6 +188,7 @@ impl Persist<'_> for VirtioBlock {
                     is_read_only,
                     state.file_engine_type.into(),
                     state.disk_image_format,
+                    state.backing_path_on_host.as_deref(),
                 )?,
                 is_io_engine_throttled: false,
             });
@@ -246,6 +251,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
             image_format: DiskImageFormat::Raw,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
         };
@@ -272,6 +278,63 @@ mod tests {
         assert_eq!(FileEngineType::Sync, FileEngineTypeState::Sync.into());
         // Test default impl.
         assert_eq!(FileEngineTypeState::default(), FileEngineTypeState::Sync);
+    }
+
+    #[test]
+    fn test_qcow2_explicit_backing_restore_and_update() {
+        use crate::devices::virtio::block::virtio::io::FileEngine;
+        use crate::devices::virtio::block::virtio::test_utils::create_test_qcow2;
+        use crate::vstate::memory::{Bytes, GuestAddress};
+        use std::os::unix::fs::FileExt;
+
+        let backing = TempFile::new().unwrap();
+        backing.as_file().set_len(2 * 1024 * 1024).unwrap();
+        backing.as_file().write_at(&[0x5a; 4096], 0).unwrap();
+        let file = create_test_qcow2();
+        let mut config = default_config(
+            file.as_path().to_str().unwrap().to_owned(),
+            FileEngineType::Sync,
+        );
+        config.image_format = DiskImageFormat::Qcow2;
+        config.backing_path_on_host = Some(backing.as_path().to_str().unwrap().to_owned());
+        let mut block = VirtioBlock::new(config).unwrap();
+        let mem = default_mem();
+        let FileEngine::Qcow2(engine) = &mut block.resources_mut()[0].disk.file_engine else {
+            panic!("QCOW2 engine expected")
+        };
+        let mut bytes = [0; 4096];
+        mem.write_slice(&[0xa6; 512], GuestAddress(0)).unwrap();
+        engine.write(512, &mem, GuestAddress(0), 512).unwrap();
+        engine.flush().unwrap();
+        let state = bitcode::serialize(&block.save()).unwrap();
+        drop(block);
+        let mut restored = VirtioBlock::restore(
+            BlockConstructorArgs { mem: mem.clone() },
+            &bitcode::deserialize(&state).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            restored.config().backing_path_on_host.as_deref(),
+            backing.as_path().to_str()
+        );
+        let FileEngine::Qcow2(engine) = &mut restored.resources_mut()[0].disk.file_engine else {
+            panic!("QCOW2 engine expected")
+        };
+        engine.read(0, &mem, GuestAddress(0), 4096).unwrap();
+        mem.read_slice(&mut bytes, GuestAddress(0)).unwrap();
+        assert_eq!(&bytes[..512], &[0x5a; 512]);
+        assert_eq!(&bytes[512..1024], &[0xa6; 512]);
+        assert_eq!(&bytes[1024..], &[0x5a; 3072]);
+        let replacement = create_test_qcow2();
+        restored
+            .update_disk_image(replacement.as_path().to_str().unwrap().to_owned())
+            .unwrap();
+        let FileEngine::Qcow2(engine) = &mut restored.resources_mut()[0].disk.file_engine else {
+            panic!("QCOW2 engine expected")
+        };
+        engine.read(0, &mem, GuestAddress(0), 4096).unwrap();
+        mem.read_slice(&mut bytes, GuestAddress(0)).unwrap();
+        assert_eq!(bytes, [0x5a; 4096]);
     }
 
     #[test]
@@ -406,6 +469,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
             image_format: DiskImageFormat::Raw,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
         };

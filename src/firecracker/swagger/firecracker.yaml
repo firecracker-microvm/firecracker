@@ -1445,6 +1445,13 @@ definitions:
           This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
         enum: ["Raw", "Vmdk", "Qcow2"]
         default: "Raw"
+      backing_path_on_host:
+        type: string
+        description:
+          Explicit immutable raw backing for a Qcow2 drive using the Sync IO engine.
+          Accepts a regular file or a read-only block device with the same virtual capacity.
+          Paths embedded in the Qcow2 header remain disabled.
+          This field must be omitted for Raw, Vmdk and vhost-user-block drives.
       blk_size:
         type: integer
         description:

@@ -64,6 +64,7 @@ pub struct DiskProperties {
     pub file_engine: FileEngine,
     pub nsectors: u64,
     pub image_id: [u8; VIRTIO_BLK_ID_BYTES as usize],
+    backing_path_on_host: Option<String>,
 }
 
 impl DiskProperties {
@@ -110,6 +111,7 @@ impl DiskProperties {
         file_engine_type: FileEngineType,
         image_format: DiskImageFormat,
         completion_evt: Option<EventFd>,
+        backing_path_on_host: Option<&str>,
     ) -> Result<(FileEngine, u64), VirtioBlockError> {
         match image_format {
             DiskImageFormat::Vmdk => {
@@ -138,6 +140,7 @@ impl DiskProperties {
                     is_disk_read_only,
                     file_engine_type,
                     completion_evt,
+                    backing_path_on_host,
                 )
                 .map_err(|e| VirtioBlockError::FileEngine(block_io::BlockIoError::Qcow2(e)))?;
                 let disk_size = qcow2_engine.disk_size();
@@ -166,7 +169,11 @@ impl DiskProperties {
         is_disk_read_only: bool,
         file_engine_type: FileEngineType,
         image_format: DiskImageFormat,
+        backing_path_on_host: Option<&str>,
     ) -> Result<Self, VirtioBlockError> {
+        if backing_path_on_host.is_some() && image_format != DiskImageFormat::Qcow2 {
+            return Err(VirtioBlockError::Config);
+        }
         let disk_image = Self::open_file(disk_image_path, is_disk_read_only, image_format)?;
         let image_id = Self::build_disk_image_id(&disk_image);
         let (file_engine, disk_size) = Self::from_disk_image(
@@ -176,12 +183,14 @@ impl DiskProperties {
             file_engine_type,
             image_format,
             None,
+            backing_path_on_host,
         )?;
 
         Ok(Self {
             file_engine,
             nsectors: disk_size >> SECTOR_SHIFT,
             image_id,
+            backing_path_on_host: backing_path_on_host.map(str::to_owned),
         })
     }
 
@@ -236,6 +245,7 @@ impl DiskProperties {
                 file_engine_type,
                 image_format,
                 completion_evt,
+                self.backing_path_on_host.as_deref(),
             )?;
             if let (FileEngine::Qcow2(old), FileEngine::Qcow2(new)) =
                 (&mut self.file_engine, &mut file_engine)
@@ -458,6 +468,9 @@ pub struct VirtioBlockConfig {
     /// The disk image format of the backing file.
     #[serde(default)]
     pub image_format: DiskImageFormat,
+    /// Explicit immutable raw backing, retained when replacing the QCOW2 overlay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backing_path_on_host: Option<String>,
     /// Logical block size.
     pub blk_size: Option<u32>,
     /// Block topology settings
@@ -483,6 +496,7 @@ impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
                 rate_limiter: value.rate_limiter,
                 file_engine_type: value.file_engine_type.unwrap_or_default(),
                 image_format: value.image_format.unwrap_or_default(),
+                backing_path_on_host: value.backing_path_on_host.clone(),
                 blk_size: value.blk_size,
                 topology: value.topology,
             })
@@ -509,6 +523,7 @@ impl From<VirtioBlockConfig> for BlockDeviceConfig {
             file_engine_type: Some(value.file_engine_type),
             image_format: (value.image_format != DiskImageFormat::Raw)
                 .then_some(value.image_format),
+            backing_path_on_host: value.backing_path_on_host,
             blk_size: value.blk_size,
             topology: value.topology,
 
@@ -624,6 +639,7 @@ impl VirtioBlock {
                     config.is_read_only,
                     config.file_engine_type,
                     config.image_format,
+                    config.backing_path_on_host.as_deref(),
                 )?,
                 is_io_engine_throttled: false,
             });
@@ -1314,6 +1330,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: Default::default(),
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -1335,6 +1352,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: Default::default(),
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -1356,6 +1374,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: Default::default(),
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -1377,6 +1396,7 @@ mod tests {
                 true,
                 engine,
                 DiskImageFormat::Raw,
+                None,
             )
             .unwrap();
 
@@ -1385,7 +1405,13 @@ mod tests {
             // Testing `backing_file.virtio_block_disk_image_id()` implies
             // duplicating that logic in tests, so skipping it.
 
-            let res = DiskProperties::new("invalid-disk-path", true, engine, DiskImageFormat::Raw);
+            let res = DiskProperties::new(
+                "invalid-disk-path",
+                true,
+                engine,
+                DiskImageFormat::Raw,
+                None,
+            );
             assert!(
                 matches!(res, Err(VirtioBlockError::BackingFile(_, _))),
                 "{:?}",
@@ -1400,20 +1426,38 @@ mod tests {
         let path = descriptor.to_string_lossy().into_owned();
 
         assert!(matches!(
-            DiskProperties::new(&path, false, FileEngineType::Sync, DiskImageFormat::Vmdk),
+            DiskProperties::new(
+                &path,
+                false,
+                FileEngineType::Sync,
+                DiskImageFormat::Vmdk,
+                None
+            ),
             Err(VirtioBlockError::FileEngine(block_io::BlockIoError::Vmdk(
                 block_io::VmdkIoError::RequiresReadOnly
             )))
         ));
         assert!(matches!(
-            DiskProperties::new(&path, true, FileEngineType::Async, DiskImageFormat::Vmdk),
+            DiskProperties::new(
+                &path,
+                true,
+                FileEngineType::Async,
+                DiskImageFormat::Vmdk,
+                None
+            ),
             Err(VirtioBlockError::FileEngine(block_io::BlockIoError::Vmdk(
                 block_io::VmdkIoError::AsyncNotSupported
             )))
         ));
 
-        let mut disk =
-            DiskProperties::new(&path, true, FileEngineType::Sync, DiskImageFormat::Vmdk).unwrap();
+        let mut disk = DiskProperties::new(
+            &path,
+            true,
+            FileEngineType::Sync,
+            DiskImageFormat::Vmdk,
+            None,
+        )
+        .unwrap();
         assert!(matches!(disk.file_engine, FileEngine::Vmdk(_)));
         assert_eq!(disk.nsectors, 2048);
 
@@ -1431,6 +1475,7 @@ mod tests {
             true,
             FileEngineType::Sync,
             DiskImageFormat::Vmdk,
+            None,
         )
         .unwrap();
         let original_image_id = disk.image_id;
@@ -1528,6 +1573,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: FileEngineType::Sync,
             image_format: DiskImageFormat::Raw,
+            backing_path_on_host: None,
             blk_size: Some(4096),
             topology: None,
         };
@@ -1559,6 +1605,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: FileEngineType::Async,
             image_format: DiskImageFormat::Raw,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
         };
@@ -1582,6 +1629,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: FileEngineType::Sync,
             image_format: DiskImageFormat::Raw,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
         };
@@ -1608,6 +1656,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: FileEngineType::Sync,
             image_format: DiskImageFormat::Raw,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
         };
@@ -3270,6 +3319,7 @@ mod tests {
                 true,
                 FileEngineType::Sync,
                 DiskImageFormat::Qcow2,
+                None,
             ),
             Err(VirtioBlockError::FileEngine(block_io::BlockIoError::Qcow2(
                 block_io::Qcow2IoError::Open(err)

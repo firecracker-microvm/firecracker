@@ -788,6 +788,7 @@ mod tests {
                     false,
                     FileEngineType::Sync,
                     DiskImageFormat::Qcow2,
+                    None,
                 )
                 .unwrap();
                 let mut worker = BlockWorker {
@@ -818,6 +819,7 @@ mod tests {
                     true,
                     FileEngineType::Sync,
                     DiskImageFormat::Qcow2,
+                    None,
                 )
                 .unwrap();
                 let FileEngine::Qcow2(read_only_engine) = &read_only_disk.file_engine else {
@@ -856,6 +858,7 @@ mod tests {
                 false,
                 FileEngineType::Sync,
                 DiskImageFormat::Qcow2,
+                None,
             )
             .unwrap();
             let FileEngine::Qcow2(engine) = &mut disk.file_engine else {

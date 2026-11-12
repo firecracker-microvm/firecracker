@@ -78,6 +78,9 @@ pub struct BlockDeviceConfig {
     /// The disk image format of the backing file.
     #[serde(rename = "image_format", skip_serializing_if = "Option::is_none")]
     pub image_format: Option<DiskImageFormat>,
+    /// Explicit immutable raw backing for a QCOW2 drive using the Sync engine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backing_path_on_host: Option<String>,
     /// Logical block size.
     pub blk_size: Option<u32>,
     /// Block topology settings
@@ -246,6 +249,7 @@ mod tests {
                 rate_limiter: self.rate_limiter,
                 file_engine_type: self.file_engine_type,
                 image_format: self.image_format,
+                backing_path_on_host: self.backing_path_on_host.clone(),
                 blk_size: self.blk_size,
                 topology: self.topology,
 
@@ -294,6 +298,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -334,6 +339,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -372,6 +378,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -407,6 +414,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -429,6 +437,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -462,6 +471,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -484,6 +494,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -506,6 +517,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -553,6 +565,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -575,6 +588,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -597,6 +611,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -645,6 +660,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -669,6 +685,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -764,6 +781,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -786,6 +804,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 
@@ -818,6 +837,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
             image_format: None,
+            backing_path_on_host: None,
             blk_size: Some(512),
             topology: Some(VirtioBlkTopology {
                 physical_block_exp: 0,
@@ -859,6 +879,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             image_format: None,
+            backing_path_on_host: None,
             blk_size: None,
             topology: None,
 

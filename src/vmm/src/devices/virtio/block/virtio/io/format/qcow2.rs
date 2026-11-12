@@ -3,21 +3,25 @@
 
 use std::any::Any;
 use std::fmt;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::fd::AsRawFd;
-use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::path::Path;
 
 use imago::file::File as ImagoFile;
 use imago::format::access::FormatAccess;
 use imago::format::drivers::PreparedDataMapping;
 use imago::qcow2::Qcow2;
+use imago::raw::Raw;
 use imago::{
     DenyImplicitOpenGate, FormatDriverBuilder, Mapping, Storage, StorageExt, StorageOpenOptions,
 };
 use vm_memory::{GuestMemoryBackend, GuestMemoryError};
 use vmm_sys_util::eventfd::EventFd;
+use vmm_sys_util::ioctl::ioctl_with_mut_ref;
+
+vmm_sys_util::ioctl_io_nr!(BLKROGET, 0x12, 94);
 
 use crate::devices::virtio::block::virtio::PendingRequest;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
@@ -41,6 +45,8 @@ pub enum Qcow2IoError {
     MultiQueueNotSupported,
     /// QCOW2 images with multiple queues do not support disk replacement.
     MultiQueuePatchNotSupported,
+    /// Explicit QCOW2 backing requires the Sync engine.
+    BackingRequiresSync,
     /// QCOW2 read error after {completed} bytes: {source}
     Read { source: io::Error, completed: u32 },
     /// QCOW2 write error: {0}
@@ -117,7 +123,7 @@ impl Qcow2FileEngine {
     /// Writable images must be flushed before releasing the engine.
     #[cfg(test)]
     pub fn from_file(file: File, path: &Path, read_only: bool) -> Result<Self, Qcow2IoError> {
-        Self::from_file_with_engine(file, path, read_only, FileEngineType::Sync, None)
+        Self::from_file_with_engine(file, path, read_only, FileEngineType::Sync, None, None)
     }
 
     /// Open an image with synchronous metadata and optional io_uring payload transfers.
@@ -128,7 +134,11 @@ impl Qcow2FileEngine {
         read_only: bool,
         engine: FileEngineType,
         completion_evt: Option<EventFd>,
+        backing_path_on_host: Option<&str>,
     ) -> Result<Self, Qcow2IoError> {
+        if backing_path_on_host.is_some() && engine == FileEngineType::Async {
+            return Err(Qcow2IoError::BackingRequiresSync);
+        }
         let metadata = file.metadata().map_err(Qcow2IoError::Open)?;
         if !metadata.is_file() {
             return Err(Qcow2IoError::Open(io::Error::new(
@@ -176,15 +186,63 @@ impl Qcow2FileEngine {
                 .direct(false),
         )
         .map_err(Qcow2IoError::Open)?;
+        let backing = backing_path_on_host
+            .map(|backing_path| {
+                let file = OpenOptions::new()
+                    .read(true)
+                    .custom_flags(libc::O_NONBLOCK)
+                    .open(backing_path)?;
+                let meta = file.metadata()?;
+                if (!meta.is_file() && !meta.file_type().is_block_device())
+                    || (meta.dev(), meta.ino()) == (metadata.dev(), metadata.ino())
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Backing must be a separate immutable raw file or read-only block device",
+                    ));
+                }
+                if meta.file_type().is_block_device() {
+                    let mut read_only: libc::c_int = 0;
+                    // SAFETY: BLKROGET writes one c_int into a valid pointer for this open FD.
+                    if unsafe { ioctl_with_mut_ref(&file, BLKROGET(), &mut read_only) } < 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    if read_only != 1 {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "QCOW2 block backing must be read-only",
+                        ));
+                    }
+                }
+                file.try_lock_shared().map_err(io::Error::from)?;
+                let storage = ImagoFile::from_open_file(
+                    file,
+                    StorageOpenOptions::new()
+                        .filename(backing_path)
+                        .direct(false),
+                )?;
+                Ok(FormatAccess::new(Raw::open_image(storage, false)?))
+            })
+            .transpose()
+            .map_err(Qcow2IoError::Open)?;
+        let backing_size = backing.as_ref().map(FormatAccess::size);
         let qcow2 = Qcow2::<ImagoFile>::builder(storage)
             .require_self_contained(true)
+            .backing(backing)
             .write(!read_only)
             .open(DenyImplicitOpenGate::default())
             .map_err(Qcow2IoError::Open)?;
+        let access = FormatAccess::new(qcow2);
+        if backing_size.is_some_and(|size| size != access.size() || size % 512 != 0) {
+            return Err(Qcow2IoError::Open(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Raw backing size must equal the QCOW2 virtual size and be sector aligned",
+            )));
+        }
 
         log_dev_preview_warning("QCOW2 disk images", None);
         Ok(Self {
-            access: FormatAccess::new(qcow2),
+            access,
             io_buffer: vec![0; IO_BUFFER_SIZE].into_boxed_slice(),
             file_id: (metadata.dev(), metadata.ino()),
             async_io,
@@ -617,6 +675,42 @@ mod tests {
     use crate::vstate::memory::{Bitmap, Bytes, GuestMemoryExtension};
 
     #[test]
+    fn test_qcow2_explicit_backing_validation() {
+        use vmm_sys_util::tempfile::TempFile;
+
+        let image = create_test_qcow2();
+        let backing = TempFile::new().unwrap();
+        let image_path = image.as_path().to_str().unwrap();
+        let backing_path = backing.as_path().to_str().unwrap();
+        for (path, engine) in [
+            (image_path, FileEngineType::Sync),
+            (backing_path, FileEngineType::Sync),
+            (backing_path, FileEngineType::Async),
+            ("/dev/null", FileEngineType::Sync),
+        ] {
+            let result = Qcow2FileEngine::from_file_with_engine(
+                OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(image_path)
+                    .unwrap(),
+                image.as_path(),
+                false,
+                engine,
+                None,
+                Some(path),
+            );
+            if engine == FileEngineType::Async {
+                assert!(matches!(result, Err(Qcow2IoError::BackingRequiresSync)));
+            } else {
+                assert!(
+                    matches!(result, Err(Qcow2IoError::Open(err)) if err.kind() == io::ErrorKind::InvalidInput)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn test_qcow2_async_failed_registration_releases_lock() {
         use std::os::unix::fs::FileExt;
 
@@ -669,6 +763,7 @@ mod tests {
                             false,
                             FileEngineType::Async,
                             None,
+                            None,
                         );
                         if invalid {
                             assert!(matches!(result, Err(Qcow2IoError::Open(_))));
@@ -713,6 +808,7 @@ mod tests {
                     file.as_path(),
                     false,
                     FileEngineType::Async,
+                    None,
                     None,
                 )
                 .unwrap();
@@ -782,6 +878,7 @@ mod tests {
             file.as_path(),
             false,
             FileEngineType::Async,
+            None,
             None,
         )
         .unwrap();
@@ -898,6 +995,7 @@ mod tests {
             file.as_path(),
             false,
             FileEngineType::Async,
+            None,
             None,
         )
         .unwrap();

@@ -694,6 +694,7 @@ mod tests {
                 rate_limiter: Some(RateLimiterConfig::default()),
                 file_engine_type: None,
                 image_format: None,
+                backing_path_on_host: None,
                 blk_size: None,
                 topology: None,
 
