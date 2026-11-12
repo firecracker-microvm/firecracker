@@ -248,6 +248,8 @@ class Microvm:
             new_pid_ns=True,
             **jailer_kwargs,
         )
+        self.netns.tap_uid = self.jailer.uid
+        self.netns.tap_gid = self.jailer.gid
 
         self.pci_enabled = pci
         if pci:

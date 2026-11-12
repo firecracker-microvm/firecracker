@@ -274,8 +274,14 @@ class Tap:
         self._name = name
         self._netns = netns
         # Create the tap device tap0 directly in the network namespace to avoid
-        # conflicts
-        self.netns.check_output(f"ip tuntap add mode tap name {name}")
+        # conflicts. Owning it by the jailed Firecracker user lets that user
+        # attach to it without CAP_NET_ADMIN.
+        owner = ""
+        if netns.tap_uid is not None:
+            owner += f" user {netns.tap_uid}"
+        if netns.tap_gid is not None:
+            owner += f" group {netns.tap_gid}"
+        self.netns.check_output(f"ip tuntap add mode tap name {name}{owner}")
         if ip:
             self.netns.check_output(f"ifconfig {name} {ip} up")
 
@@ -335,6 +341,9 @@ class NetNs:
 
     id: str
     taps: dict[str, Tap] = field(init=False, default_factory=dict)
+    # Owner of the taps created in this namespace, if any.
+    tap_uid: int | None = None
+    tap_gid: int | None = None
 
     @property
     def path(self):
