@@ -523,3 +523,54 @@ mod tests {
     assert_eq!(output.stderr, []);
     check_file(GIVEN, &path);
 }
+
+#[test]
+fn fix_trait_default_method() {
+    const GIVEN: &str = "trait Foo {\n    fn provided(&self) -> u32 {\n        0\n    }\n    fn required(&self);\n}";
+    const EXPECTED: &str = "trait Foo {\n    #[log_instrument::instrument]\n    fn provided(&self) -> u32 {\n        0\n    }\n    fn required(&self);\n}";
+    fix(GIVEN, EXPECTED, None);
+}
+
+#[test]
+fn strip_trait_default_method() {
+    const GIVEN: &str = "trait Foo {\n    #[log_instrument::instrument]\n    fn provided(&self) -> u32 {\n        0\n    }\n    fn required(&self);\n}";
+    const EXPECTED: &str = "trait Foo {\n    fn provided(&self) -> u32 {\n        0\n    }\n    fn required(&self);\n}";
+    strip(GIVEN, EXPECTED);
+}
+
+#[test]
+fn check_trait_default_method() {
+    const GIVEN: &str = "trait Foo {\n    fn provided(&self) -> u32 {\n        0\n    }\n}";
+    let path = setup(GIVEN);
+    let output = Command::new(BINARY)
+        .args(["--action", "check", "--path", &path])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let missing = format!("Missing instrumentation at {path}:2:4.\n");
+    assert_eq!(std::str::from_utf8(&output.stdout).unwrap(), missing);
+    assert_eq!(output.stderr, []);
+    remove_file(path).unwrap();
+}
+
+#[test]
+fn check_skips_required_trait_method() {
+    // A trait method without a default body cannot be instrumented, so it must not be flagged.
+    const GIVEN: &str = "trait Bar {\n    fn required(&self) -> u32;\n}";
+    let path = setup(GIVEN);
+    let output = Command::new(BINARY)
+        .args(["--action", "check", "--path", &path])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, []);
+    assert_eq!(output.stderr, []);
+    remove_file(path).unwrap();
+}
+
+#[test]
+fn fix_skips_required_trait_method() {
+    // Fixing a trait with only a required method must leave the file unchanged.
+    const GIVEN: &str = "trait Bar {\n    fn required(&self) -> u32;\n}";
+    fix(GIVEN, GIVEN, None);
+}
