@@ -85,6 +85,22 @@ if not pipeline.args.no_kani and (
         depends_on_build=False,
     )
 
+
+def build_suite(label, tests, devtool_opts=None, enclave=False, **kwargs):
+    """Build a test suite group on metal and, if `enclave`, on enclave hosts.
+
+    The `<label>-enclave` group runs the same tests, without the metal devtool
+    options. KVM-pinned tests are deselected at collection on enclave hosts.
+    """
+    pipeline.build_group(
+        label,
+        pipeline.devtool_test(devtool_opts=devtool_opts, pytest_opts=tests),
+        **kwargs,
+    )
+    if enclave:
+        pipeline.build_group_enclave(label, tests, **kwargs)
+
+
 if run_all_tests(changed_files):
     pipeline.build_group(
         "build",
@@ -92,11 +108,10 @@ if run_all_tests(changed_files):
         depends_on_build=False,
     )
 
-    pipeline.build_group(
+    build_suite(
         "functional-and-security",
-        pipeline.devtool_test(
-            pytest_opts="-n 32 --dist worksteal integration_tests/{{functional,security}}",
-        ),
+        "-n 32 --dist worksteal integration_tests/{{functional,security}}",
+        enclave=True,
     )
 
     # Tests marked `serial` need the host to themselves (timing assertions,
@@ -105,51 +120,20 @@ if run_all_tests(changed_files):
     # `--huge-pages` sets up once per host. `-m` on the command line replaces
     # the one in pytest.ini, so repeat its exclusions.
     PR_MARKERS = "not nonci and not no_block_pr"
-    pipeline.build_group(
+    build_suite(
         "performance",
-        pipeline.devtool_test(
-            devtool_opts="--performance -c 1-10 -m 0",
-            pytest_opts=f"-m 'serial and {PR_MARKERS}' ../tests/integration_tests/performance/",
-        ),
+        f"-m 'serial and {PR_MARKERS}' ../tests/integration_tests/performance/",
+        devtool_opts="--performance -c 1-10 -m 0",
+        enclave=True,
         **DEFAULTS_PERF,
     )
 
-    pipeline.build_group(
+    # No enclave hosts: none of the parallel PR performance tests supports the
+    # enclave backend, so they would collect no tests.
+    build_suite(
         "performance-parallel",
-        pipeline.devtool_test(
-            devtool_opts="--huge-pages",
-            pytest_opts=f"-m 'not serial and {PR_MARKERS}' -n 12 --dist worksteal ../tests/integration_tests/performance/",
-        ),
-    )
-
-    pipeline.build_group(
-        "enclave",
-        pipeline.devtool_test(
-            devtool_opts="--no-kvm-check",
-            pytest_opts="integration_tests/functional -n 8 --dist worksteal",
-        ),
-        platforms=[("al2023", "enclave")],
-        instances=["c8i.8xlarge", "m8g.8xlarge", "c7a.8xlarge", "c8i.48xlarge"],
-    )
-
-    pipeline.build_group(
-        "enclave-performance",
-        pipeline.devtool_test(
-            # No --performance: its CPU tuning targets metal hosts (no
-            # intel_pstate interface on virtual instances) and it force-sizes
-            # a 48GiB huge-page pool that only feeds KVM-pinned huge-page
-            # tests; enclave guest memory comes from the NE CMA carve-out.
-            devtool_opts="--no-kvm-check",
-            # No -n: run serially to avoid distorting measurements, matching
-            # the KVM performance group. The default marker filter excludes
-            # the nonci benchmarks; KVM-pinned tests are deselected at
-            # collection on enclave hosts.
-            pytest_opts="../tests/integration_tests/performance/",
-        ),
-        platforms=[("al2023", "enclave")],
-        instances=["c8i.8xlarge", "m8g.8xlarge", "c7a.8xlarge"],
-        timeout_in_minutes=180,
-        **DEFAULTS_PERF,
+        f"-m 'not serial and {PR_MARKERS}' -n 12 --dist worksteal ../tests/integration_tests/performance/",
+        devtool_opts="--huge-pages",
     )
 
 print(pipeline.to_json())
