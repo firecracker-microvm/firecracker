@@ -133,8 +133,9 @@ configurations for the guest kernel are:
 
 > [!NOTE]
 >
-> Firecracker does not support PCI devices. The `CONFIG_PCI` option is needed
-> for ACPI initialization inside the guest.
+> The `CONFIG_PCI` option is needed for ACPI initialization inside the guest,
+> even when Firecracker runs without [PCI support](#booting-with-pci) and
+> creates VirtIO devices using the MMIO transport.
 
 ACPI supersedes the legacy way of booting a microVM, i.e. via MPTable and
 command line parameters for VirtIO devices.
