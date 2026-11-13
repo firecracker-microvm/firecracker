@@ -454,8 +454,17 @@ pub fn restore_from_snapshot(
     }
     vm_resources.pci_enabled = pci_enabled;
 
+    // Recover the aperture from saved allocator bounds.
+    vm_resources.machine_config.pci_mmio64 =
+        crate::vmm_config::pci_mmio::PciMmio64Config::from_allocator(
+            &microvm_state.vm_state.resource_allocator,
+        )
+        .map_err(MachineConfigError::from)
+        .map_err(BuildMicrovmFromSnapshotError::VmUpdateConfig)?;
+
     vm_resources
         .update_machine_config(&MachineConfigUpdate {
+            pci_mmio64: vm_resources.machine_config.pci_mmio64,
             vcpu_count: Some(vcpu_count),
             mem_size_mib: Some(u64_to_usize(microvm_state.vm_info.mem_size_mib)),
             smt: Some(microvm_state.vm_info.smt),

@@ -33,6 +33,8 @@ ORACLE_COPYRIGHT = "Copyright © 2020, Oracle and/or its affiliates."
 ORACLE_LICENSE = "SPDX-License-Identifier: Apache-2.0"
 TENCENT_COPYRIGHT = "Copyright (c) 2026 Tencent. All Rights Reserved."
 TENCENT_LICENSE = "SPDX-License-Identifier: Apache-2.0"
+COREWEAVE_COPYRIGHT = "Copyright 2026 CoreWeave, Inc."
+COREWEAVE_LICENSE = "SPDX-License-Identifier: Apache-2.0"
 
 EXCLUDE = ["build", ".kernel", ".git"]
 
@@ -105,8 +107,14 @@ def _validate_license(filename):
             and _look_for_license(file, TENCENT_LICENSE)
         )
 
+        has_coreweave_copyright = (
+            COREWEAVE_COPYRIGHT in copyright_info
+            and _look_for_license(file, COREWEAVE_LICENSE)
+        )
+
         return (
             has_amazon_copyright
+            or has_coreweave_copyright
             or has_chromium_copyright
             or has_tuntap_copyright
             or has_alibaba_copyright

@@ -299,6 +299,10 @@ impl VmResources {
     ) -> Result<(), MachineConfigError> {
         let updated = self.machine_config.update(update)?;
 
+        if updated.pci_mmio64.is_some() && !self.pci_enabled {
+            return Err(MachineConfigError::PciMmio64RequiresPci);
+        }
+
         if updated.pcie_hotplug_ports > 0 && !self.pci_enabled {
             return Err(MachineConfigError::PcieHotplugPortsRequirePci);
         }
@@ -564,9 +568,16 @@ impl VmResources {
         &self,
         memfd: bool,
     ) -> Result<(Vec<GuestRegionMmap>, Option<MemfdBacking>), MemoryError> {
-        let regions =
-            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib))?;
-
+        let regions = match self.machine_config.pci_mmio64 {
+            Some(config) => crate::arch::arch_memory_regions_with_mmio64(
+                mib_to_bytes(self.machine_config.mem_size_mib),
+                config.base(),
+                config.size(),
+            ),
+            None => {
+                crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib))
+            }
+        }?;
         if memfd {
             let mut backing = MemfdBacking::new(
                 self.guest_memory_size(&regions)?,
@@ -637,6 +648,66 @@ impl From<&VmResources> for VmmConfig {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_pci_mmio64_requires_pci() {
+        use crate::vmm_config::pci_mmio::PciMmio64Config;
+        let update = MachineConfigUpdate {
+            pci_mmio64: Some(PciMmio64Config {
+                base_gib: 2048,
+                size_gib: 2048,
+            }),
+            ..Default::default()
+        };
+        let mut resources = VmResources::default();
+        assert_eq!(
+            resources.update_machine_config(&update).unwrap_err(),
+            MachineConfigError::PciMmio64RequiresPci
+        );
+        assert_eq!(resources.machine_config.pci_mmio64, None);
+        resources.pci_enabled = true;
+        resources.update_machine_config(&update).unwrap();
+        resources.pci_enabled = false;
+        assert_eq!(
+            resources
+                .update_machine_config(&MachineConfigUpdate::default())
+                .unwrap_err(),
+            MachineConfigError::PciMmio64RequiresPci,
+        );
+    }
+
+    #[test]
+    fn test_pci_mmio64_from_json() {
+        let kernel = TempFile::new().unwrap();
+        let json = serde_json::json!({
+            "boot-source": { "kernel_image_path": kernel.as_path() },
+            "drives": [],
+            "machine-config": {
+                "vcpu_count": 1, "mem_size_mib": 128,
+                "pci_mmio64": { "base_gib": 2048, "size_gib": 2048 }
+            }
+        })
+        .to_string();
+        let resources = VmResources::from_json(
+            &json,
+            &InstanceInfo::default(),
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+            true,
+        )
+        .unwrap();
+        let config = resources.machine_config.pci_mmio64.unwrap();
+        assert_eq!(config.base(), 2 << 40);
+        assert_eq!(config.size(), 2 << 40);
+        VmResources::from_json(
+            &json,
+            &InstanceInfo::default(),
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+            false,
+        )
+        .unwrap_err();
+    }
+
     use std::fs::File;
     use std::io::Write;
     use std::os::fd::AsRawFd;
@@ -1628,6 +1699,7 @@ mod tests {
     fn test_update_machine_config() {
         let mut vm_resources = default_vm_resources();
         let mut aux_vm_config = MachineConfigUpdate {
+            pci_mmio64: None,
             vcpu_count: Some(32),
             mem_size_mib: Some(512),
             smt: Some(false),

@@ -1769,6 +1769,27 @@ definitions:
           hot-plugged device, so this is the maximum number of devices that
           can be hot-plugged into the VM. Requires PCI to be enabled with the
           --enable-pci command line flag.
+      pci_mmio64:
+        type: object
+        additionalProperties: false
+        required:
+          - base_gib
+          - size_gib
+        description: >-
+          PCI MMIO64 aperture on x86_64 and aarch64, in GiB. Requires
+          --enable-pci and preboot configuration. Base and size default to
+          256 GiB each. Snapshot restore uses saved bounds. The aperture and
+          following 512 GiB pool must fit KVM and guest CPU address widths
+          (KVM IPA width on aarch64).
+        properties:
+          base_gib:
+            type: integer
+            minimum: 4
+            description: Guest physical base (GiB).
+          size_gib:
+            type: integer
+            minimum: 1
+            description: Size in GiB; allow for BAR alignment.
 
   MemoryBackend:
     type: object

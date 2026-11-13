@@ -14,7 +14,7 @@ use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 use vm_allocator::AllocPolicy;
-use vm_memory::GuestAddress;
+use vm_memory::{GuestAddress, GuestMemoryRegion};
 
 #[cfg(target_arch = "aarch64")]
 use crate::Vcpu;
@@ -57,7 +57,6 @@ use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::pmem::PmemConfig;
 use crate::vstate::kvm::{Kvm, KvmError};
 use crate::vstate::memory::GuestRegionMmap;
-#[cfg(target_arch = "aarch64")]
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
 use crate::vstate::vm::{KvmVm, MAX_SUPPORTED_KVM_VCPUS, Vm, VmError};
@@ -160,6 +159,30 @@ fn kvm_vcpu_count(machine_config: &MachineConfig) -> Result<u8, StartMicrovmErro
         .expect("vcpu_count validated <= MAX_SUPPORTED_KVM_VCPUS"))
 }
 
+fn validate_pci_mmio64(vm_resources: &VmResources, kvm: &Kvm) -> Result<(), MachineConfigError> {
+    if let Some(config) = vm_resources.machine_config.pci_mmio64 {
+        if !vm_resources.pci_enabled {
+            return Err(MachineConfigError::PciMmio64RequiresPci);
+        }
+        #[cfg(target_arch = "x86_64")]
+        let bits = kvm
+            .supported_cpuid
+            .as_slice()
+            .iter()
+            .find(|entry| entry.function == 0x8000_0008 && entry.index == 0)
+            .map(|entry| entry.eax & 0xff)
+            .unwrap_or(0);
+        // kvm-ioctls uses the host IPA width, falling back to 40 bits.
+        #[cfg(target_arch = "aarch64")]
+        let bits = match kvm.fd.get_host_ipa_limit() {
+            0 => 40,
+            bits => u32::try_from(bits).unwrap_or(0),
+        };
+        config.validate_memory_layout(bits, vm_resources.machine_config.mem_size_mib)?;
+    }
+    Ok(())
+}
+
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
 ///
 /// The built microVM and all the created vCPUs start off in the paused state.
@@ -183,6 +206,13 @@ pub fn build_microvm_for_boot(
         .as_ref()
         .ok_or(StartMicrovmError::MissingKernelConfig)?;
 
+    let cpu_template = vm_resources
+        .machine_config
+        .cpu_template
+        .get_cpu_template()?;
+    let kvm = Kvm::new(cpu_template.kvm_capabilities.clone())?;
+    validate_pci_mmio64(vm_resources, &kvm).map_err(StartMicrovmError::SetVmResources)?;
+
     let (guest_memory, mut memfd_backing) = vm_resources
         .allocate_guest_memory()
         .map_err(StartMicrovmError::GuestMemory)?;
@@ -195,15 +225,18 @@ pub fn build_microvm_for_boot(
         None => build_cmdline(DEFAULT_KERNEL_CMDLINE)?,
     };
 
-    let cpu_template = vm_resources
-        .machine_config
-        .cpu_template
-        .get_cpu_template()?;
-
-    let kvm = Kvm::new(cpu_template.kvm_capabilities.clone())?;
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm)?;
+    if let Some(config) = vm_resources.machine_config.pci_mmio64 {
+        let mut allocator = ResourceAllocator::with_mmio64_range(config.base(), config.size())?;
+        allocator.reserve_past_mmio64_ram(
+            guest_memory
+                .iter()
+                .map(|region| (region.start_addr(), u64_to_usize(region.len()))),
+        )?;
+        *vm.resource_allocator() = allocator;
+    }
     let mut vcpus = vm.create_vcpus(vcpu_count)?;
     vm.register_dram_memory_regions(guest_memory)?;
 
@@ -347,7 +380,7 @@ pub fn build_microvm_for_boot(
         &mut device_manager,
         vcpus.as_mut(),
         vcpu_count,
-        vm_resources.machine_config.smt,
+        &vm_resources.machine_config,
         &cpu_template,
         entry_point,
         &initrd,
@@ -511,6 +544,7 @@ pub fn build_microvm_from_snapshot(
 
     let kvm = Kvm::new(microvm_state.kvm_state.kvm_cap_modifiers.clone())
         .map_err(StartMicrovmError::Kvm)?;
+    validate_pci_mmio64(vm_resources, &kvm)?;
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm).map_err(StartMicrovmError::KvmVm)?;

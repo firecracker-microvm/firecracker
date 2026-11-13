@@ -184,6 +184,7 @@ fn validate_supported_features(machine_config: &MachineConfig) -> Result<(), Enc
     // Destructured exhaustively so that a new MachineConfig field does not
     // silently join the set of settings this path drops.
     let MachineConfig {
+        pci_mmio64,
         vcpu_count: _,
         mem_size_mib: _,
         smt,
@@ -201,6 +202,7 @@ fn validate_supported_features(machine_config: &MachineConfig) -> Result<(), Enc
     }
 
     for (present, name) in [
+        (pci_mmio64.is_some(), "pci_mmio64"),
         (*smt, "smt"),
         (cpu_template.is_some(), "cpu_template"),
         (*track_dirty_pages, "track_dirty_pages"),
@@ -687,6 +689,16 @@ mod tests {
         validate_supported_features(&MachineConfig::default()).unwrap();
 
         let cases = [
+            (
+                "pci_mmio64",
+                MachineConfig {
+                    pci_mmio64: Some(crate::vmm_config::pci_mmio::PciMmio64Config {
+                        base_gib: 2048,
+                        size_gib: 2048,
+                    }),
+                    ..Default::default()
+                },
+            ),
             (
                 "smt",
                 MachineConfig {

@@ -14,10 +14,6 @@ use vm_memory::{GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion};
 
 use super::cache_info::{CacheEntry, read_cache_config};
 use super::gic::GICDevice;
-use crate::arch::{
-    MEM_32BIT_DEVICES_SIZE, MEM_32BIT_DEVICES_START, MEM_64BIT_DEVICES_SIZE,
-    MEM_64BIT_DEVICES_START,
-};
 use crate::device_manager::DeviceManager;
 use crate::device_manager::mmio::MMIODeviceInfo;
 use crate::devices::acpi::vmclock::{VMCLOCK_SIZE, VmClock};
@@ -550,8 +546,7 @@ fn create_devices_node(
     Ok(())
 }
 
-fn create_pci_nodes(fdt: &mut FdtWriter, segment: &PciSegment) -> Result<(), FdtError> {
-    let pci_node_name = format!("pci@{:x}", segment.mmio_config_address);
+fn pci_mmio_ranges(mem32: (u64, u64), mem64: (u64, u64)) -> [u32; 14] {
     // Each range here is a thruple of `(PCI address, CPU address, PCI size)`.
     //
     // The first cell encodes the address space: bits 25-24 hold the space code
@@ -560,27 +555,39 @@ fn create_pci_nodes(fdt: &mut FdtWriter, segment: &PciSegment) -> Result<(), Fdt
     //
     // More info about the format can be found here:
     // https://elinux.org/Device_Tree_Usage#PCI_Address_Translation
-    let ranges = [
+    let (mem32_base, mem32_end) = mem32;
+    let (mem64_base, mem64_end) = mem64;
+    let mem32_size = mem32_end - mem32_base + 1;
+    let mem64_size = mem64_end - mem64_base + 1;
+    [
         // 32 bit memory space, non-prefetchable
         0b0000_0010_0000_0000_0000_0000_0000_0000u32,
-        (MEM_32BIT_DEVICES_START >> 32) as u32, // PCI address
-        (MEM_32BIT_DEVICES_START & 0xffff_ffff) as u32,
-        (MEM_32BIT_DEVICES_START >> 32) as u32, // CPU address
-        (MEM_32BIT_DEVICES_START & 0xffff_ffff) as u32,
-        (MEM_32BIT_DEVICES_SIZE >> 32) as u32, // Range size
-        (MEM_32BIT_DEVICES_SIZE & 0xffff_ffff) as u32,
+        (mem32_base >> 32) as u32, // PCI address
+        (mem32_base & 0xffff_ffff) as u32,
+        (mem32_base >> 32) as u32, // CPU address
+        (mem32_base & 0xffff_ffff) as u32,
+        (mem32_size >> 32) as u32, // Range size
+        (mem32_size & 0xffff_ffff) as u32,
         // 64 bit memory space, prefetchable
         0b0100_0011_0000_0000_0000_0000_0000_0000u32,
         // PCI address
-        (MEM_64BIT_DEVICES_START >> 32) as u32, // PCI address
-        (MEM_64BIT_DEVICES_START & 0xffff_ffff) as u32,
+        (mem64_base >> 32) as u32, // PCI address
+        (mem64_base & 0xffff_ffff) as u32,
         // CPU address
-        (MEM_64BIT_DEVICES_START >> 32) as u32, // CPU address
-        (MEM_64BIT_DEVICES_START & 0xffff_ffff) as u32,
+        (mem64_base >> 32) as u32, // CPU address
+        (mem64_base & 0xffff_ffff) as u32,
         // Range size
-        (MEM_64BIT_DEVICES_SIZE >> 32) as u32, // Range size
-        (MEM_64BIT_DEVICES_SIZE & 0xffff_ffff) as u32,
-    ];
+        (mem64_size >> 32) as u32, // Range size
+        (mem64_size & 0xffff_ffff) as u32,
+    ]
+}
+
+fn create_pci_nodes(fdt: &mut FdtWriter, segment: &PciSegment) -> Result<(), FdtError> {
+    let pci_node_name = format!("pci@{:x}", segment.mmio_config_address);
+    let ranges = pci_mmio_ranges(
+        (segment.start_of_mem32_area, segment.end_of_mem32_area),
+        (segment.start_of_mem64_area, segment.end_of_mem64_area),
+    );
 
     // See kernel document Documentation/devicetree/bindings/pci/pci-msi.txt
     let msi_map = [
@@ -647,6 +654,34 @@ mod tests {
             create_memory_node(&mut fdt, &mem),
             Err(FdtError::GuestMemoryTooSmall(..))
         ));
+    }
+
+    #[test]
+    fn test_pci_mmio64_fdt_ranges() {
+        // Both address and size need high cells for a 2 TiB aperture.
+        assert_eq!(
+            pci_mmio_ranges((0x4000_4000, 0x6fff_ffff), (2 << 40, (4 << 40) - 1)),
+            [
+                0x0200_0000,
+                0,
+                0x4000_4000,
+                0,
+                0x4000_4000,
+                0,
+                0x2fff_c000,
+                0x4300_0000,
+                0x200,
+                0,
+                0x200,
+                0,
+                0x200,
+                0,
+            ]
+        );
+        assert_eq!(
+            pci_mmio_ranges((0x4000_4000, 0x6fff_ffff), (5 << 30, (8 << 30) - 1))[7..],
+            [0x4300_0000, 1, 0x4000_0000, 1, 0x4000_0000, 0, 0xc000_0000]
+        );
     }
 
     #[test]
