@@ -28,6 +28,13 @@ We exclusively use `.metal` instance types, because EC2 only supports KVM on
 > Nitro Enclaves. See its
 > [requirements](nitro-sandboxes/getting-started.md#requirements).
 
+The commands in this guide use `curl`, `wget`, `jq`, `ssh` and `ssh-keygen`,
+`unsquashfs` (from `squashfs-tools`), `mkfs.ext4` and `e2fsck` (from
+`e2fsprogs`) and `ip` (from `iproute2`). Building Firecracker from source
+additionally requires `docker`. On Amazon Linux 2023,
+`sudo dnf install -y squashfs-tools docker` installs the ones that are not part
+of the base image.
+
 ### Architecture & OS
 
 Firecracker supports **x86_64** and **aarch64** Linux, see
@@ -102,7 +109,10 @@ drops privileges. This is how our
 itself should be configured following the
 [production host setup recommendations](prod-host-setup.md).
 
-For simplicity, this guide will not use the `jailer`.
+For simplicity, this guide will not use the `jailer` and runs the microVM in the
+host's network namespace; see
+[Isolating the microVM network](#isolating-the-microvm-network) for how to
+change that.
 
 ### Getting a rootfs and Guest Kernel Image
 
@@ -110,6 +120,13 @@ To successfully start a microVM, you will need an uncompressed Linux kernel
 binary, and an ext4 file system image (to use as rootfs). This guide uses the
 latest kernel image and Ubuntu rootfs available in our CI for the latest
 release.
+
+The Ubuntu rootfs from our CI runs `fcnet-setup.sh` at boot, which assigns each
+network interface whose MAC address starts with `06:00:` the IP address encoded
+in its last four bytes (`06:00:AC:10:00:02` becomes `172.16.0.2`). The MAC
+address and TAP IP used later in this guide depend on that. If you bring your
+own rootfs, configure the guest network as described in
+[network-setup](network-setup.md#in-the-guest) instead.
 
 ```bash
 ARCH="$(uname -m)"
@@ -148,6 +165,8 @@ mv -v id_rsa ./ubuntu-$ubuntu_version.id_rsa
 sudo chown -R root:root squashfs-root
 truncate -s 1G ubuntu-$ubuntu_version.ext4
 sudo mkfs.ext4 -d squashfs-root -F ubuntu-$ubuntu_version.ext4
+# The extracted tree is owned by root now and no longer needed
+sudo rm -rf squashfs-root
 
 # Verify everything was correctly set up and print versions
 echo
@@ -286,6 +305,15 @@ sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/logger"
 
+# Set the number of vCPUs and the memory size. If this request is skipped, the
+# microVM boots with 1 vCPU and 128 MiB.
+sudo curl -X PUT --unix-socket "${API_SOCKET}" \
+    --data "{
+        \"vcpu_count\": 2,
+        \"mem_size_mib\": 1024
+    }" \
+    "http://localhost/machine-config"
+
 KERNEL="./$(ls vmlinux* | tail -1)"
 KERNEL_BOOT_ARGS="console=ttyS0 reboot=k panic=1"
 
@@ -357,6 +385,34 @@ Issuing a `reboot` command inside the guest will gracefully shutdown
 Firecracker. This is due to the fact that Firecracker doesn't implement guest
 power management.
 
+### Isolating the microVM network
+
+The setup above creates the TAP device in the host's network namespace. We
+recommend giving each microVM its own network namespace: it keeps per-VM
+firewall rules, routes and TAP devices separate, it is required when several
+snapshots of the same microVM (which restore with the same TAP device name and
+IP address) are restored on the same host, and it is what the jailer's `--netns`
+flag and our integration tests use.
+
+The outline is: create a namespace, create the TAP device inside it, connect the
+namespace to the host with a `veth` pair, and NAT inside the namespace:
+
+```bash
+sudo ip netns add fc0
+sudo ip netns exec fc0 ip tuntap add dev tap0 mode tap
+sudo ip netns exec fc0 ip addr add 172.16.0.1/30 dev tap0
+sudo ip netns exec fc0 ip link set tap0 up
+sudo ip link add name veth1 type veth peer name veth0 netns fc0
+# ... assign addresses to veth1/veth0, add a default route and a NAT rule inside
+# fc0, and enable forwarding on the host
+```
+
+Then either start Firecracker with `sudo ip netns exec fc0 ./firecracker ...`,
+or pass `--netns /var/run/netns/fc0` to the jailer. The full recipe, including
+the `veth` addressing and the host-side rules, is in
+[Network Connectivity for Clones](snapshotting/network-for-clones.md); the
+jailer flags are described in [jailer.md](jailer.md#jailer-usage).
+
 ### Configuring the microVM without sending API requests
 
 You can boot a guest without sending API requests by passing the parameter
@@ -385,6 +441,34 @@ to bring up the network in the guest machine.
 If you omit `--no-api` and pass `--api-sock` as before, you can still use the
 socket to send API requests for post-boot operations after the microVM has
 started.
+
+### Cleaning up
+
+Once the microVM has shut down, remove the TAP device and the NAT rule added
+above (with `HOST_IFACE` set as before):
+
+```bash
+sudo ip link del tap0
+sudo iptables -t nat -D POSTROUTING -o "$HOST_IFACE" -j MASQUERADE
+```
+
+If no other guests are running on the host, you can also disable IP forwarding
+again with `echo 0 | sudo tee /proc/sys/net/ipv4/ip_forward`. See
+[network-setup](network-setup.md#cleaning-up) for the full cleanup of the `nft`
+or `iptables-nft` based setup.
+
+## Next steps
+
+- [Production host setup](prod-host-setup.md) and the [jailer](jailer.md): what
+  to change before running untrusted workloads.
+- [Network setup](network-setup.md): `nft` rules, multiple guests, bridged
+  networking and cleanup.
+- [Custom rootfs and kernel images](rootfs-and-kernel-setup.md).
+- [Snapshotting](snapshotting/snapshot-support.md) and
+  [networking for restored clones](snapshotting/network-for-clones.md).
+- Rate limiting [block](api_requests/patch-block.md) and
+  [network](api_requests/patch-network-interface.md) devices.
+- [MMDS](mmds/mmds-user-guide.md), [vsock](vsock.md) and [seccomp](seccomp.md).
 
 ## Running the Integration Test Suite
 
