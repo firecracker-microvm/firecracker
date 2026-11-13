@@ -128,6 +128,20 @@ mod tests {
         let expected_config = PmemDeviceUpdateConfig {
             id: "1000".to_string(),
             rate_limiter: Some(Default::default()),
+            path_on_host: None,
+        };
+        assert_eq!(r, VmmAction::UpdatePmemDevice(expected_config));
+
+        let body = r#"{
+            "id": "1000",
+            "path_on_host": "dummy"
+        }"#;
+        let r = vmm_action_from_request(parse_patch_pmem(&Body::new(body), Some("1000")).unwrap());
+
+        let expected_config = PmemDeviceUpdateConfig {
+            id: "1000".to_string(),
+            rate_limiter: None,
+            path_on_host: Some("dummy".to_string()),
         };
         assert_eq!(r, VmmAction::UpdatePmemDevice(expected_config));
     }

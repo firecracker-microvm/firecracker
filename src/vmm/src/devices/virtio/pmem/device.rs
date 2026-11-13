@@ -43,6 +43,8 @@ pub enum PmemError {
     BackingFileZeroSize,
     /// Restored pmem size {0} does not match backing file mapping size {1}
     RestoredSizeMismatch(u64, u64),
+    /// New backing file size {0} does not match current backing file size {1}
+    BackingFileSizeMismatch(u64, u64),
     /// Error with EventFd: {0}
     EventFd(std::io::Error),
     /// Unexpected read-only descriptor
@@ -254,6 +256,44 @@ impl PmemMmap {
             mmap_ptr: mmap_ptr as u64,
             mmap_len,
         })
+    }
+
+    /// Maps the file at `path` over the current file mapping, at the same address. The new
+    /// file must have the same size as the current one, so the guest memory region and the KVM
+    /// memory slot, which both point at this address, stay valid.
+    pub fn replace_file(&mut self, path: &str, read_only: bool) -> Result<(), PmemError> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(!read_only)
+            .open(path)
+            .map_err(PmemError::BackingFile)?;
+        let file_len = file.metadata().map_err(PmemError::BackingFile)?.len();
+        if file_len != self.file_len {
+            return Err(PmemError::BackingFileSizeMismatch(file_len, self.file_len));
+        }
+
+        let mut prot = libc::PROT_READ;
+        if !read_only {
+            prot |= libc::PROT_WRITE;
+        }
+
+        // SAFETY: `mmap_ptr` and `file_len` describe the file mapping made by `new()`, so
+        // `MAP_FIXED` replaces only that mapping, with one of the same length. Any gap up to
+        // `mmap_len` keeps its anonymous mapping. We check the returned value.
+        let r = unsafe {
+            libc::mmap(
+                self.mmap_ptr as *mut libc::c_void,
+                u64_to_usize(file_len),
+                prot,
+                libc::MAP_SHARED | libc::MAP_NORESERVE | libc::MAP_FIXED,
+                file.as_raw_fd(),
+                0,
+            )
+        };
+        if r == libc::MAP_FAILED {
+            return Err(PmemError::BackingFile(std::io::Error::last_os_error()));
+        }
+        Ok(())
     }
 }
 
@@ -474,6 +514,15 @@ impl Pmem {
         Ok(())
     }
 
+    /// Maps the file at `path` in place of the current backing file. The new file must have the
+    /// same size as the current one. The guest sees the new file's contents at its next access to
+    /// the device's memory region.
+    pub fn update_backing_file(&mut self, path: String) -> Result<(), PmemError> {
+        self.mmap.replace_file(&path, self.config.read_only)?;
+        self.config.path_on_host = path;
+        Ok(())
+    }
+
     /// Updates the parameters for the rate limiter.
     pub fn update_rate_limiter(&mut self, bytes: BucketUpdate, ops: BucketUpdate) {
         self.rate_limiter.update_buckets(bytes, ops);
@@ -623,6 +672,8 @@ impl VirtioDevice for Pmem {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
     use vm_memory::GuestAddress;
     use vmm_sys_util::tempfile::TempFile;
 
@@ -688,6 +739,66 @@ mod tests {
             ..Default::default()
         };
         Pmem::new(vm.clone(), config).unwrap();
+    }
+
+    fn mapped_bytes(pmem: &Pmem) -> &[u8] {
+        // SAFETY: `mmap_ptr` points at a mapping of `mmap_len` bytes, which lives as long as
+        // `pmem`.
+        unsafe {
+            std::slice::from_raw_parts(
+                pmem.mmap.mmap_ptr as *const u8,
+                u64_to_usize(pmem.mmap.mmap_len),
+            )
+        }
+    }
+
+    #[test]
+    fn test_update_backing_file() {
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = Arc::new(KvmVm::new(kvm).unwrap());
+
+        // A size that is not 2MB aligned, so the mapping has an anonymous gap after the file.
+        let size = 0x10_0000;
+        let file_with = |byte: u8, len: usize| {
+            let file = TempFile::new().unwrap();
+            file.as_file().write_all(&vec![byte; len]).unwrap();
+            file
+        };
+        let old_file = file_with(0xaa, size);
+        let new_file = file_with(0xbb, size);
+        let longer_file = file_with(0xcc, size + 4096);
+        let path = |file: &TempFile| file.as_path().to_str().unwrap().to_string();
+
+        let config = PmemConfig {
+            id: "1".into(),
+            path_on_host: path(&old_file),
+            root_device: false,
+            read_only: true,
+            ..Default::default()
+        };
+        let mut pmem = Pmem::new(vm, config).unwrap();
+        let (mmap_ptr, mmap_len) = (pmem.mmap.mmap_ptr, pmem.mmap.mmap_len);
+        assert!(mapped_bytes(&pmem)[..size].iter().all(|b| *b == 0xaa));
+
+        pmem.update_backing_file(path(&new_file)).unwrap();
+        assert_eq!(pmem.config.path_on_host, path(&new_file));
+        assert_eq!(
+            (pmem.mmap.mmap_ptr, pmem.mmap.mmap_len),
+            (mmap_ptr, mmap_len)
+        );
+        assert!(mapped_bytes(&pmem)[..size].iter().all(|b| *b == 0xbb));
+        assert!(mapped_bytes(&pmem)[size..].iter().all(|b| *b == 0));
+
+        assert!(matches!(
+            pmem.update_backing_file(path(&longer_file)).unwrap_err(),
+            PmemError::BackingFileSizeMismatch(l, s) if l == size as u64 + 4096 && s == size as u64,
+        ));
+        assert!(matches!(
+            pmem.update_backing_file("not_a_path".into()).unwrap_err(),
+            PmemError::BackingFile(_),
+        ));
+        assert_eq!(pmem.config.path_on_host, path(&new_file));
+        assert!(mapped_bytes(&pmem)[..size].iter().all(|b| *b == 0xbb));
     }
 
     #[test]
