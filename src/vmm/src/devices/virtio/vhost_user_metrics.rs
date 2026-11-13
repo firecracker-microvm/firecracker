@@ -81,46 +81,19 @@ use serde::{Serialize, Serializer};
 
 use crate::logger::{SharedIncMetric, SharedStoreMetric};
 
-/// map of vhost_user drive id and metrics
-/// this should be protected by a lock before accessing.
-#[allow(missing_debug_implementations)]
-pub struct VhostUserMetricsPerDevice {
-    /// used to access per vhost_user device metrics
-    pub metrics: BTreeMap<String, Arc<VhostUserDeviceMetrics>>,
-}
-
-impl VhostUserMetricsPerDevice {
-    /// Allocate `VhostUserDeviceMetrics` for vhost_user device having
-    /// id `drive_id`. Also, allocate only if it doesn't
-    /// exist to avoid overwriting previously allocated data.
-    /// lock is always initialized so it is safe the unwrap
-    /// the lock without a check.
-    pub fn alloc(drive_id: String) -> Arc<VhostUserDeviceMetrics> {
-        Arc::clone(
-            METRICS
-                .write()
-                .unwrap()
-                .metrics
-                .entry(drive_id)
-                .or_insert_with(|| Arc::new(VhostUserDeviceMetrics::default())),
-        )
-    }
-}
-
 /// Pool of vhost_user-related metrics per device behind a lock to
 /// keep things thread safe. Since the lock is initialized here
 /// it is safe to unwrap it without any check.
-static METRICS: RwLock<VhostUserMetricsPerDevice> = RwLock::new(VhostUserMetricsPerDevice {
-    metrics: BTreeMap::new(),
-});
+pub(crate) static METRICS: RwLock<BTreeMap<String, Arc<VhostUserDeviceMetrics>>> =
+    RwLock::new(BTreeMap::new());
 
 /// This function facilitates serialization of vhost_user device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let vhost_user_metrics = METRICS.read().unwrap();
-    let metrics_len = vhost_user_metrics.metrics.len();
+    let metrics_len = vhost_user_metrics.len();
     let mut seq = serializer.serialize_map(Some(metrics_len))?;
 
-    for (name, metrics) in vhost_user_metrics.metrics.iter() {
+    for (name, metrics) in vhost_user_metrics.iter() {
         let devn = format!("vhost_user_{}", name);
         seq.serialize_entry(&devn, metrics)?;
     }
@@ -144,26 +117,16 @@ pub struct VhostUserDeviceMetrics {
 
 #[cfg(test)]
 pub mod tests {
+    use crate::logger::{IncMetric, StoreMetric};
     use utils::time::{ClockType, get_time_us};
 
     use super::*;
-    use crate::logger::{IncMetric, StoreMetric};
 
-    // vhost-user metrics has both SharedIncMetrics and SharedStoreMetrics
-    // In this test we try to test one field for each type by creating a
-    // dummy vhost_user_block metric named `vhost_user_block_drvN`.
-    // There is no specific reason to storing the measured time taken vs a
-    // random number in `init_time_us`.
-    // We add an additional test to confirm that `vhost_user_metrics::METRICS`
-    // actually has an entry for `vhost_user_block_drvN` and compare it.
-    // We chose serde_json to compare because that seemed easiest to compare
-    // the entire struct format and serialization of VhostUserDeviceMetrics.
     #[test]
     fn test_vhost_user_basic_metrics() {
-        let vhost_user_dev_name: String = String::from("vhost_user_block_drvN");
         let start_time = get_time_us(ClockType::Monotonic);
-        let vhost_user_metrics: Arc<VhostUserDeviceMetrics> =
-            VhostUserMetricsPerDevice::alloc(vhost_user_dev_name.clone());
+        let vhost_user_metrics = VhostUserDeviceMetrics::default();
+
         let delta_us = get_time_us(ClockType::Monotonic) - start_time;
         vhost_user_metrics.activate_fails.inc();
         assert_eq!(vhost_user_metrics.activate_fails.count(), 1);
@@ -171,19 +134,18 @@ pub mod tests {
         vhost_user_metrics.init_time_us.store(delta_us);
         assert_eq!(vhost_user_metrics.init_time_us.fetch(), delta_us);
 
-        // fill another local variable with the same data and use it to compare with the METRICS
-        // entry
+        // create an empty instance to assert json structure
         let vhost_user_metrics_backup: VhostUserDeviceMetrics = VhostUserDeviceMetrics::default();
-        vhost_user_metrics_backup.activate_fails.inc();
-        vhost_user_metrics_backup.init_time_us.store(delta_us);
 
-        // serializing METRICS also flushes the SharedIncMetric data so we have to use _backup
-        // variable for comparison.
-        let vhost_user_metrics_global: String =
-            serde_json::to_string(&METRICS.read().unwrap().metrics.get(&vhost_user_dev_name))
-                .unwrap();
-        let vhost_user_metrics_local: String =
-            serde_json::to_string(&vhost_user_metrics_backup).unwrap();
-        assert_eq!(vhost_user_metrics_local, vhost_user_metrics_global);
+        let vu_metrics_1 = serde_json::to_string(&vhost_user_metrics).unwrap();
+        let json_val1: serde_json::Value = serde_json::from_str(&vu_metrics_1).unwrap();
+        let obj1 = json_val1.as_object().unwrap();
+
+        let vu_metrics_2 = serde_json::to_string(&vhost_user_metrics_backup).unwrap();
+        let json_val2: serde_json::Value = serde_json::from_str(&vu_metrics_2).unwrap();
+        let obj2 = json_val2.as_object().unwrap();
+
+        assert!(obj1.len() == obj2.len());
+        assert!(obj1.keys().all(|key| obj2.contains_key(key)));
     }
 }

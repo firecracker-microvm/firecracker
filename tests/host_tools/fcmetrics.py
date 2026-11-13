@@ -378,10 +378,18 @@ def validate_fc_metrics(metrics):
                 "config_change_time_us",
             ]
             vhost_user_devices.append(metrics_name)
-        if metrics_name.startswith("block_"):
-            firecracker_metrics[metrics_name] = block_metrics
-        if metrics_name.startswith("net_"):
-            firecracker_metrics[metrics_name] = net_metrics
+        # devices emit per-instance "<dev>_<id>" entries.
+        # add their keys the expected schema.
+        for prefix, dev in (
+            ("block_", "block"),
+            ("net_", "net"),
+            ("balloon_", "balloon"),
+            ("vsock_", "vsock"),
+            ("entropy_", "entropy"),
+            ("mem_", "memory_hotplug"),
+        ):
+            if metrics_name.startswith(prefix):
+                firecracker_metrics[metrics_name] = firecracker_metrics[dev]
 
     firecracker_metrics_schema = create_metrics_schema_objects(firecracker_metrics)
 
@@ -556,7 +564,8 @@ def flush_fc_metrics_to_cw(fc_metrics, metrics):
         or "panic" in key.split(".")[-1]
         or "num_faults" in key.split(".")[-1]
         if value
-        if key not in ignored_failure_metrics
+        if re.sub(r"^fc_metrics\.vsock_[^.]+\.", "fc_metrics.vsock.", key)
+        not in ignored_failure_metrics
     }
     assert not failure_metrics, json.dumps(failure_metrics, indent=1)
 

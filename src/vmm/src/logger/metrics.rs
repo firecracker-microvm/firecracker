@@ -824,6 +824,44 @@ impl LatencyAggregateMetrics {
     }
 }
 
+/// Used for folding the metrics of one device instance into an aggregate of all instances.
+pub trait Aggregate {
+    /// Adds the unflushed part of `other` to `self`.
+    fn aggregate(&self, other: &Self);
+}
+
+/// The aggregate's counters always start at 0, we want to record into them the change
+/// that happened in that interval to the target. which is other.0 - other.1, or in other
+/// words.. fetch_diff()
+impl Aggregate for SharedIncMetric {
+    fn aggregate(&self, other: &Self) {
+        self.add(other.fetch_diff());
+    }
+}
+
+/// Only `sum_us` is aggregated, `min_us` and `max_us` report the minimum and maximum
+/// latency seen for that device in an interval. It doesn't make sense to aggregate them.
+impl Aggregate for LatencyAggregateMetrics {
+    fn aggregate(&self, other: &Self) {
+        self.sum_us.aggregate(&other.sum_us);
+    }
+}
+
+/// Implements `aggregate(&mut self, other: &Self)` on a device metrics struct by calling
+/// [`Aggregate::aggregate`] on each of the listed fields.
+#[macro_export]
+macro_rules! impl_aggregate {
+    ($ty:ty { $($field:ident),* $(,)? }) => {
+        impl $ty {
+            /// Adds the unflushed part of each metric in `other` to `self`.
+            pub fn aggregate(&mut self, other: &Self) {
+                use $crate::logger::Aggregate;
+                $( self.$field.aggregate(&other.$field); )*
+            }
+        }
+    };
+}
+
 /// Structure provides Metrics specific to VCPUs' mode of functioning.
 /// Sample_count or number of kvm exits for IO and MMIO VM exits are covered by:
 /// `exit_io_in`, `exit_io_out`, `exit_mmio_read` and , `exit_mmio_write`.
