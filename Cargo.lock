@@ -418,6 +418,7 @@ version = "1.19.0-dev"
 dependencies = [
  "clap",
  "displaydoc",
+ "kvm-bindings",
  "libc",
  "log-instrument",
  "serde",
