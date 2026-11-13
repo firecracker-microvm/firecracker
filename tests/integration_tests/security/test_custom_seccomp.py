@@ -10,6 +10,7 @@ import pytest
 
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 
 def install_filter(microvm, bpf_path):
@@ -92,6 +93,9 @@ def test_working_filter(uvm, seccompiler):
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+# The filter traps a syscall of the vCPU threads, and enclave vCPUs do not run
+# as Firecracker threads.
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_failing_filter(uvm, seccompiler):
     """Test --seccomp-filter, denying some needed syscalls."""
 

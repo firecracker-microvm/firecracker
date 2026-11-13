@@ -640,6 +640,8 @@ def test_positive_file_size_limit(uvm):
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+# Enclave VMs cannot be paused or snapshotted.
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_negative_file_size_limit(uvm):
     """
     Test creating snapshot file fails when size exceeds `fsize` limit.

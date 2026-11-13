@@ -150,13 +150,16 @@ else:
     tests = perf_test.values()
 
 
+def download_command(artifacts):
+    """The artifact download, when there is one, to run before devtool."""
+    return [pipeline.devtool_download_artifacts(artifacts)] if artifacts else []
+
+
 def build_command(artifacts, devtool_opts, test_script_opts):
     """Prefix the artifact download, when there is one, to a devtool run."""
-    command = []
-    if artifacts:
-        command.append(pipeline.devtool_download_artifacts(artifacts))
-    command.extend(pipeline.devtool_test(devtool_opts, test_script_opts))
-    return command
+    return download_command(artifacts) + pipeline.devtool_test(
+        devtool_opts, test_script_opts
+    )
 
 
 for test in tests:
@@ -189,18 +192,12 @@ for test in tests:
     )
 
     if enclave:
-        # `devtool_opts` cannot be reused: `-c/-m` pin to metal CPU/NUMA layouts,
-        # `--performance` needs intel_pstate and sizes a huge-page pool only KVM
-        # tests consume, and NE hosts have no /dev/kvm.
-        enclave_devtool_opts = "--no-kvm-check"
-        if REVISION_A:
-            enclave_devtool_opts += " --ab"
-
-        pipeline.build_group(
-            f"{test['label']}-enclave",
-            build_command(artifacts, enclave_devtool_opts, test_script_opts),
-            platforms=[("al2023", "enclave")],
-            instances=["c8i.8xlarge", "m8g.8xlarge", "c7a.8xlarge"],
+        # `devtool_opts` has the metal tuning options, so only keep --ab.
+        pipeline.build_group_enclave(
+            test["label"],
+            test_script_opts,
+            devtool_opts="--ab" if REVISION_A else None,
+            pre_commands=download_command(artifacts),
         )
 
 # Stores the info about pinning tests to agents with particular kernel versions.

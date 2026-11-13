@@ -38,6 +38,21 @@ DEFAULT_PLATFORMS = [
     ("al2023", "linux_6.18"),
 ]
 
+# Virtual instances with Nitro Enclaves enabled, for the `<label>-enclave`
+# groups. They run the enclave AMI, tagged with the platform below.
+# fmt: off
+DEFAULT_ENCLAVE_INSTANCES = [
+    "c8i.8xlarge",  # Intel Granite Rapids
+    "m8g.8xlarge",  # Graviton4
+    "c7a.8xlarge",  # AMD Genoa
+    "c8i.48xlarge", # Intel Granite Rapids, 3 NUMA nodes
+]
+# fmt: on
+ENCLAVE_PLATFORMS = [("al2023", "enclave")]
+# Enclave instances with no ag=1 fleet, which groups that need a host to
+# themselves (`agents: {"ag": 1}`) therefore cannot use.
+ENCLAVE_SHARED_ONLY_INSTANCES = {"c8i.48xlarge"}
+
 
 def get_arch_for_instance(instance):
     """Return instance architecture"""
@@ -214,6 +229,12 @@ COMMON_PARSER.add_argument(
     nargs="+",
     default=DEFAULT_PLATFORMS,
     type=lambda arg: tuple(arg.split("-", maxsplit=1)),
+)
+COMMON_PARSER.add_argument(
+    "--enclave-instances",
+    required=False,
+    nargs="+",
+    default=DEFAULT_ENCLAVE_INSTANCES,
 )
 COMMON_PARSER.add_argument(
     "--step-param",
@@ -415,6 +436,33 @@ class BKPipeline:
         return self.add_step(
             group(*args, **combined), depends_on_build=depends_on_build
         )
+
+    def build_group_enclave(
+        self, label, pytest_opts, devtool_opts=None, pre_commands=(), **kwargs
+    ):
+        """
+        Build a `<label>-enclave` group running `devtool test` on the enclave
+        instances, after `pre_commands`.
+
+        Enclave hosts have no /dev/kvm, so the KVM check is always skipped.
+        `devtool_opts` must not carry the metal tuning options: -c/-m pin to
+        metal CPU/NUMA layouts, and --performance and --huge-pages tune the
+        CPUs through intel_pstate and size a hugetlbfs pool that only the
+        KVM-pinned tests use, while enclave memory comes from the Nitro
+        Enclaves carve-out.
+
+        Groups that need a host to themselves skip the instances without an
+        ag=1 fleet.
+        """
+        enclave_devtool_opts = "--no-kvm-check"
+        if devtool_opts:
+            enclave_devtool_opts += f" {devtool_opts}"
+        command = [*pre_commands, *self.devtool_test(enclave_devtool_opts, pytest_opts)]
+        instances = self.args.enclave_instances
+        if overlay_dict(self.per_instance, kwargs).get("agents", {}).get("ag") == 1:
+            instances = [i for i in instances if i not in ENCLAVE_SHARED_ONLY_INSTANCES]
+        kwargs = {"instances": instances, "platforms": ENCLAVE_PLATFORMS, **kwargs}
+        return self.build_group(f"{label}-enclave", command, **kwargs)
 
     def build_key(self, key, arch):
         """Return the Buildkite key for the build step, for the specified arch"""
