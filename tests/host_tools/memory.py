@@ -4,6 +4,7 @@
 """Utilities for measuring memory utilization for a process."""
 
 import time
+from pathlib import Path
 from threading import Thread
 
 import psutil
@@ -100,12 +101,19 @@ class MemoryMonitor(Thread):
         except (psutil.NoSuchProcess, FileNotFoundError, ProcessLookupError):
             return
 
+        guest_ranges = set()
+
         def skip(start, end):
-            return self.is_guest_mem(end - start, guest_mem_bytes)
+            return self.is_guest_mem(end - start, guest_mem_bytes) or any(
+                lo <= start and end <= hi for lo, hi in guest_ranges
+            )
 
         try:
             while not self._should_stop:
                 try:
+                    guest_ranges = self.file_backed_guest_ranges(
+                        ps.pid, guest_mem_bytes
+                    )
                     # Nitro Enclave device mappings (donated guest RAM, device
                     # memory buffers, info page) are enclave memory, not VMM
                     # overhead.
@@ -125,6 +133,56 @@ class MemoryMonitor(Thread):
                 time.sleep(self._period_s)
         finally:
             rss.close()
+
+    def guest_regions(self, guest_mem_bytes):
+        """Return the (file offset, size) of each guest memory region."""
+        if global_props.cpu_architecture == "x86_64":
+            limits = [
+                self.X86_32BIT_MEMORY_GAP_START,
+                self.X86_64BIT_MEMORY_GAP_START
+                - self.X86_32BIT_MEMORY_GAP_START
+                - self.X86_32BIT_MEMORY_GAP_SIZE,
+            ]
+        else:
+            limits = [self.ARM64_64BIT_MEMORY_GAP_START - self.ARM64_MEMORY_START]
+        regions = []
+        offset = 0
+        for limit in limits + [guest_mem_bytes]:
+            size = min(limit, guest_mem_bytes - offset)
+            if size <= 0:
+                break
+            regions.append((offset, size))
+            offset += size
+        return regions
+
+    def file_backed_guest_ranges(self, pid, guest_mem_bytes):
+        """Return the host address ranges of guest memory restored from a file.
+
+        With `huge_pages: Transparent` a file restore maps the file's holes
+        anonymously, which splits each guest region into several mappings.
+        Any mapping of the memory file still gives away where its region
+        starts, since its file offset says how far into guest memory it is.
+        """
+        mem_file = self._vm.restored_mem_file
+        if mem_file is None:
+            return set()
+        try:
+            inode = mem_file.stat().st_ino
+            maps = Path(f"/proc/{pid}/maps").read_text(encoding="ascii")
+        except (FileNotFoundError, ProcessLookupError):
+            return set()
+        ranges = set()
+        for line in maps.splitlines():
+            fields = line.split()
+            if len(fields) < 6 or int(fields[4]) != inode:
+                continue
+            start = int(fields[0].split("-")[0], 16)
+            offset = int(fields[2], 16)
+            for region_offset, region_size in self.guest_regions(guest_mem_bytes):
+                if region_offset <= offset < region_offset + region_size:
+                    base = start - (offset - region_offset)
+                    ranges.add((base, base + region_size))
+        return ranges
 
     def is_guest_mem_x86(self, size, guest_mem_bytes):
         """
