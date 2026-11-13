@@ -5,12 +5,18 @@
 import json
 import os
 import re
+from pathlib import Path
 
 import pytest
 
 import host_tools.drive as drive_tools
 from framework import utils, utils_wait
-from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_rootfs_mode
+from framework.artifacts import (
+    ACPI_GUEST_KERNELS,
+    GUEST_KERNEL_DEFAULT,
+    pin_guest_kernel,
+    pin_rootfs_mode,
+)
 from framework.utils_hugepages import HugePagesConfig
 from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
@@ -282,3 +288,62 @@ def test_device_reset(uvm, huge_pages):
     ret = vm.ssh.check_output("cat /tmp/testfile")
     assert "reset_test" in ret.stdout
     vm.ssh.check_output("umount /tmp")
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_pmem_override_on_restore(uvm_configured, microvm_factory):
+    """
+    Test that we can restore a snapshot and point its pmem device to a
+    different backing file.
+    """
+    pmem_size = 2 << 20
+    vm = uvm_configured
+    pmem = Path(vm.path) / "pmem"
+    pmem.write_bytes(bytes(pmem_size))
+    vm.add_pmem("pmem", pmem)
+    vm.add_net_iface()
+    vm.start()
+    snapshot = vm.snapshot_full()
+    vm.kill()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+
+    # Only the new backing file holds the marker, so the guest reads it only if
+    # the override applies.
+    marker = b"pmem_override_marker"
+    pmem_copy = Path(restored_vm.path) / "pmem_moved"
+    pmem_copy.write_bytes(marker.ljust(pmem_size, b"\0"))
+
+    restored_vm.restore_from_snapshot(
+        snapshot, resume=True, pmem_overrides={"pmem": pmem_copy}
+    )
+
+    # Bypass the guest page cache, which may hold the old contents of the device.
+    _, stdout, _ = restored_vm.ssh.check_output(
+        f"dd if=/dev/pmem0 bs=4096 count=1 iflag=direct status=none | head -c {len(marker)}"
+    )
+    assert stdout == marker.decode()
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_pmem_override_unknown_device(uvm_configured, microvm_factory):
+    """
+    Test that restoring a snapshot fails if a pmem override targets a pmem
+    device that the snapshot does not contain.
+    """
+    vm = uvm_configured
+    vm.start()
+    snapshot = vm.snapshot_full()
+    vm.kill()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+
+    # The failed snapshot load causes Firecracker to exit.
+    with pytest.raises(RuntimeError, match="Unknown Pmem Device"):
+        restored_vm.restore_from_snapshot(
+            snapshot, pmem_overrides={"pmem": snapshot.disks["rootfs"]}
+        )
+
+    restored_vm.mark_killed()

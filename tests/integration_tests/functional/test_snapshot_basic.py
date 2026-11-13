@@ -787,6 +787,69 @@ def test_snapshot_rename_vsock(
     restored_vm.restore_from_snapshot(snapshot, vsock_override="/v.sock2", resume=True)
 
 
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_snapshot_override_drives(uvm_configured, microvm_factory):
+    """
+    Test that we can restore a snapshot and point each of its drives to a
+    different backing file.
+    """
+    vm = uvm_configured
+    scratch = Path(vm.path) / "scratch"
+    scratch.write_bytes(bytes(4096))
+    vm.add_drive("scratch", scratch)
+    vm.add_net_iface()
+    vm.start()
+    snapshot = vm.snapshot_full()
+    vm.kill()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+
+    # Back the drives with copies under new names. Only the copy of the scratch
+    # drive holds the marker, so the guest reads it only if each override
+    # applies to the right drive.
+    marker = b"drive_override_marker"
+    rootfs_copy = Path(restored_vm.path) / "rootfs_moved"
+    shutil.copyfile(snapshot.disks["rootfs"], rootfs_copy)
+    scratch_copy = Path(restored_vm.path) / "scratch_moved"
+    scratch_copy.write_bytes(marker.ljust(4096, b"\0"))
+
+    restored_vm.restore_from_snapshot(
+        snapshot,
+        resume=True,
+        drive_overrides={"rootfs": rootfs_copy, "scratch": scratch_copy},
+    )
+
+    # Bypass the guest page cache, which may hold the old contents of the drive.
+    _, stdout, _ = restored_vm.ssh.check_output(
+        f"dd if=/dev/vdb bs=4096 count=1 iflag=direct status=none | head -c {len(marker)}"
+    )
+    assert stdout == marker.decode()
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_snapshot_override_unknown_drive(uvm_configured, microvm_factory):
+    """
+    Test that restoring a snapshot fails if a drive override targets a drive
+    that the snapshot does not contain.
+    """
+    vm = uvm_configured
+    vm.start()
+    snapshot = vm.snapshot_full()
+    vm.kill()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+
+    # The failed snapshot load causes Firecracker to exit.
+    with pytest.raises(RuntimeError, match="Unknown Block Device"):
+        restored_vm.restore_from_snapshot(
+            snapshot, drive_overrides={"scratch": snapshot.disks["rootfs"]}
+        )
+
+    restored_vm.mark_killed()
+
+
 SLEEP_SECONDS = 30
 
 CLOCK_SOURCES = {"x86_64": ["tsc", "kvm-clock"], "aarch64": ["arch_sys_counter"]}[

@@ -1108,10 +1108,17 @@ class Microvm:
         vsock_override: str = None,
         clock_realtime: bool = False,
         *,
+        drive_overrides: Optional[dict] = None,
+        pmem_overrides: Optional[dict] = None,
         huge_pages: Optional[HugePagesConfig] = None,
         uffd_handler_name: str = None,
     ):
-        """Restore a snapshot"""
+        """Restore a snapshot
+
+        `drive_overrides` and `pmem_overrides` map drive and pmem device IDs to
+        the host paths of the files that back them instead of the files recorded
+        in the snapshot.
+        """
         self.backend.require_restore_support()
 
         jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
@@ -1126,12 +1133,16 @@ class Microvm:
         jailed_mem = Path("/") / jailed_snapshot.mem.name
         jailed_vmstate = Path("/") / jailed_snapshot.vmstate.name
 
-        snapshot_disks = [v for k, v in jailed_snapshot.disks.items()]
-        assert len(snapshot_disks) > 0, "Snapshot requires at least one disk."
-        jailed_disks = []
-        for disk in snapshot_disks:
-            jailed_disks.append(self.create_jailed_resource(disk))
-        self.disks = jailed_snapshot.disks
+        # Jail overridden disks only from their new paths, so that the restored
+        # microVM cannot fall back on the paths recorded in the snapshot.
+        drive_overrides = drive_overrides or {}
+        pmem_overrides = pmem_overrides or {}
+        self.disks = jailed_snapshot.disks | drive_overrides | pmem_overrides
+        assert len(self.disks) > 0, "Snapshot requires at least one disk."
+        jailed_disks = {
+            disk_id: self.create_jailed_resource(path)
+            for disk_id, path in self.disks.items()
+        }
         self.ssh_key = jailed_snapshot.ssh_key
 
         # Create network interfaces.
@@ -1178,6 +1189,18 @@ class Microvm:
 
         if vsock_override is not None:
             optional_kwargs["vsock_override"] = {"uds_path": vsock_override}
+
+        if drive_overrides:
+            optional_kwargs["drive_overrides"] = [
+                {"drive_id": drive_id, "path_on_host": jailed_disks[drive_id]}
+                for drive_id in drive_overrides
+            ]
+
+        if pmem_overrides:
+            optional_kwargs["pmem_overrides"] = [
+                {"id": pmem_id, "path_on_host": jailed_disks[pmem_id]}
+                for pmem_id in pmem_overrides
+            ]
 
         if clock_realtime:
             optional_kwargs["clock_realtime"] = clock_realtime

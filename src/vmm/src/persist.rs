@@ -25,10 +25,12 @@ use crate::cpu_config::templates::StaticCpuTemplate;
 use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 #[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
+use crate::device_manager::persist::{DeviceStates, VirtioDeviceState};
 use crate::device_manager::{DevicePersistError, DevicesState};
 // Re-exported so external crates inspecting a `MicrovmState` snapshot can match on the
 // serialised virtio transport variant.
 pub use crate::device_manager::VirtioDevicesState;
+use crate::devices::virtio::block::persist::BlockState;
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
@@ -422,47 +424,9 @@ pub fn restore_from_snapshot(
     vm_resources: &mut VmResources,
 ) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
     let mut microvm_state = snapshot_state_from_file(&params.snapshot_path)?;
-    for entry in &params.network_overrides {
-        // Only the active transport carries virtio device state, so we look at whichever
-        // variant this snapshot was saved with and map down to the shared inner `NetState`.
-        let device_state = match &mut microvm_state.device_states.virtio_state {
-            VirtioDevicesState::Mmio(mmio_state) => mmio_state
-                .net_devices
-                .iter_mut()
-                .map(|device| &mut device.device_state)
-                .find(|x| x.id == entry.iface_id),
-            VirtioDevicesState::Pci(pci_state) => pci_state
-                .virtio_devices
-                .net_devices
-                .iter_mut()
-                .map(|device| &mut device.device_state)
-                .find(|x| x.id == entry.iface_id),
-        };
-        device_state
-            .map(|device_state| device_state.tap_if_name.clone_from(&entry.host_dev_name))
-            .ok_or(SnapshotStateFromFileError::UnknownNetworkDevice)?;
-    }
-
-    if let Some(vsock_override) = &params.vsock_override {
-        // There should only ever be at most one vsock device, therefore this
-        // should correctly find it and modify the path if such a device exists.
-        let device_state = match &mut microvm_state.device_states.virtio_state {
-            VirtioDevicesState::Mmio(mmio_state) => mmio_state
-                .vsock_device
-                .as_mut()
-                .map(|device| &mut device.device_state),
-            VirtioDevicesState::Pci(pci_state) => pci_state
-                .virtio_devices
-                .vsock_device
-                .as_mut()
-                .map(|device| &mut device.device_state),
-        }
-        .ok_or(SnapshotStateFromFileError::UnknownVsockDevice)?;
-
-        device_state
-            .backend
-            .uds_path
-            .clone_from(&vsock_override.uds_path);
+    match &mut microvm_state.device_states.virtio_state {
+        VirtioDevicesState::Mmio(devices) => apply_device_overrides(devices, params)?,
+        VirtioDevicesState::Pci(pci) => apply_device_overrides(&mut pci.virtio_devices, params)?,
     }
 
     let track_dirty_pages = params.track_dirty_pages;
@@ -550,6 +514,58 @@ pub fn restore_from_snapshot(
     .map_err(RestoreFromSnapshotError::Build)
 }
 
+/// Points the saved state of each device named in `params` at its new host resource, so that the
+/// snapshot can be restored where that resource is at a different location.
+fn apply_device_overrides<Tr>(
+    devices: &mut DeviceStates<Tr>,
+    params: &LoadSnapshotParams,
+) -> Result<(), SnapshotStateFromFileError> {
+    for entry in &params.network_overrides {
+        device_state_mut(&mut devices.net_devices, &entry.iface_id)
+            .ok_or(SnapshotStateFromFileError::UnknownNetworkDevice)?
+            .tap_if_name
+            .clone_from(&entry.host_dev_name);
+    }
+    if let Some(entry) = &params.vsock_override {
+        devices
+            .vsock_device
+            .as_mut()
+            .ok_or(SnapshotStateFromFileError::UnknownVsockDevice)?
+            .device_state
+            .backend
+            .uds_path
+            .clone_from(&entry.uds_path);
+    }
+    for entry in &params.drive_overrides {
+        match device_state_mut(&mut devices.block_devices, &entry.drive_id)
+            .ok_or(SnapshotStateFromFileError::UnknownBlockDevice)?
+        {
+            BlockState::Virtio(state) => state.disk_path.clone_from(&entry.path_on_host),
+            // vhost-user-block devices cannot be snapshotted; only a crafted snapshot gets here.
+            BlockState::VhostUser(_) => return Err(SnapshotStateFromFileError::VhostUserDrive),
+        }
+    }
+    for entry in &params.pmem_overrides {
+        device_state_mut(&mut devices.pmem_devices, &entry.id)
+            .ok_or(SnapshotStateFromFileError::UnknownPmemDevice)?
+            .config
+            .path_on_host
+            .clone_from(&entry.path_on_host);
+    }
+    Ok(())
+}
+
+/// Returns the saved state of the device with ID `device_id`.
+fn device_state_mut<'a, T, Tr>(
+    devices: &'a mut [VirtioDeviceState<T, Tr>],
+    device_id: &str,
+) -> Option<&'a mut T> {
+    devices
+        .iter_mut()
+        .find(|dev| dev.device_id == device_id)
+        .map(|dev| &mut dev.device_state)
+}
+
 /// Error type for [`snapshot_state_from_file`]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum SnapshotStateFromFileError {
@@ -561,6 +577,12 @@ pub enum SnapshotStateFromFileError {
     UnknownNetworkDevice,
     /// Unknown Vsock Device.
     UnknownVsockDevice,
+    /// Unknown Block Device.
+    UnknownBlockDevice,
+    /// Cannot override the backing file of a vhost-user block device.
+    VhostUserDrive,
+    /// Unknown Pmem Device.
+    UnknownPmemDevice,
 }
 
 fn snapshot_state_from_file(
@@ -727,6 +749,7 @@ fn send_uffd_handshake(
 #[cfg(test)]
 mod tests {
     use std::os::unix::net::UnixListener;
+    use std::path::PathBuf;
 
     use vmm_sys_util::tempfile::TempFile;
 
@@ -738,8 +761,8 @@ mod tests {
     use crate::builder::tests::insert_vmgenid_device;
     use crate::builder::tests::{
         CustomBlockConfig, default_kernel_cmdline, default_vmm, default_vmm_with_pci,
-        insert_balloon_device, insert_block_devices, insert_net_device, insert_virtio_mem_device,
-        insert_vsock_device,
+        insert_balloon_device, insert_block_devices, insert_net_device, insert_pmem_devices,
+        insert_virtio_mem_device, insert_vsock_device,
     };
     #[cfg(target_arch = "aarch64")]
     use crate::construct_kvm_mpidrs;
@@ -749,12 +772,16 @@ mod tests {
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
+    use crate::vmm_config::pmem::PmemConfig;
+    use crate::vmm_config::snapshot::{
+        DriveOverride, MemBackendConfig, NetworkOverride, PmemOverride, SnapshotLoadHugePageConfig,
+        VsockOverride,
+    };
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vstate::memory::{GuestMemoryRegionState, GuestRegionType};
 
-    fn default_vmm_with_devices() -> Vmm {
+    fn vmm_with_devices(mut vmm: Vmm) -> Vmm {
         let mut event_manager = EventManager::new().expect("Cannot create EventManager");
-        let mut vmm = default_vmm();
         let mut cmdline = default_kernel_cmdline();
 
         // Add a balloon device.
@@ -802,6 +829,22 @@ mod tests {
 
         insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
 
+        // Add pmem device. Its saved state only records the backing file path, so the file
+        // does not need to outlive this function.
+        let pmem_config = PmemConfig {
+            id: String::from("pmem"),
+            path_on_host: String::new(),
+            root_device: false,
+            read_only: false,
+            rate_limiter: None,
+        };
+        insert_pmem_devices(
+            &mut vmm,
+            &mut cmdline,
+            &mut event_manager,
+            vec![pmem_config],
+        );
+
         #[cfg(target_arch = "x86_64")]
         insert_vmgenid_device(&mut vmm);
         #[cfg(target_arch = "x86_64")]
@@ -812,7 +855,7 @@ mod tests {
 
     #[test]
     fn test_microvm_state_snapshot() {
-        let vmm = default_vmm_with_devices();
+        let vmm = vmm_with_devices(default_vmm());
         let states = vmm.device_manager.save();
 
         // Only checking that all devices are saved, actual device state
@@ -854,6 +897,125 @@ mod tests {
             panic!("expected MMIO virtio device state");
         };
         assert_eq!(restored_mmio, mmio)
+    }
+
+    fn default_load_snapshot_params() -> LoadSnapshotParams {
+        LoadSnapshotParams {
+            snapshot_path: PathBuf::new(),
+            mem_backend: MemBackendConfig {
+                backend_path: PathBuf::new(),
+                backend_type: MemBackendType::File,
+            },
+            track_dirty_pages: false,
+            resume_vm: false,
+            network_overrides: vec![],
+            vsock_override: None,
+            drive_overrides: vec![],
+            pmem_overrides: vec![],
+            clock_realtime: false,
+            huge_pages: SnapshotLoadHugePageConfig::Snapshot,
+        }
+    }
+
+    #[test]
+    fn test_apply_device_overrides() {
+        fn check<Tr>(devices: &mut DeviceStates<Tr>) {
+            let params = LoadSnapshotParams {
+                network_overrides: vec![NetworkOverride {
+                    iface_id: String::from("netif"),
+                    host_dev_name: String::from("tap_override"),
+                }],
+                vsock_override: Some(VsockOverride {
+                    uds_path: String::from("/vsock_override"),
+                }),
+                drive_overrides: vec![DriveOverride {
+                    drive_id: String::from("root"),
+                    path_on_host: String::from("/root_override"),
+                }],
+                pmem_overrides: vec![PmemOverride {
+                    id: String::from("pmem"),
+                    path_on_host: String::from("/pmem_override"),
+                }],
+                ..default_load_snapshot_params()
+            };
+            apply_device_overrides(devices, &params).unwrap();
+
+            let net = device_state_mut(&mut devices.net_devices, "netif").unwrap();
+            assert_eq!(net.tap_if_name, "tap_override");
+            let vsock = &devices.vsock_device.as_ref().unwrap().device_state;
+            assert_eq!(vsock.backend.uds_path, "/vsock_override");
+            let Some(BlockState::Virtio(block)) =
+                device_state_mut(&mut devices.block_devices, "root")
+            else {
+                panic!("expected virtio-block device state");
+            };
+            assert_eq!(block.disk_path, "/root_override");
+            let pmem = device_state_mut(&mut devices.pmem_devices, "pmem").unwrap();
+            assert_eq!(pmem.config.path_on_host, "/pmem_override");
+        }
+
+        for (vmm, is_pci) in [(default_vmm(), false), (default_vmm_with_pci(), true)] {
+            let mut states = vmm_with_devices(vmm).device_manager.save().virtio_state;
+            assert_eq!(matches!(states, VirtioDevicesState::Pci(_)), is_pci);
+            match &mut states {
+                VirtioDevicesState::Mmio(devices) => check(devices),
+                VirtioDevicesState::Pci(pci) => check(&mut pci.virtio_devices),
+            }
+        }
+    }
+
+    #[test]
+    fn test_apply_device_overrides_unknown_device() {
+        fn check<Tr>(devices: &mut DeviceStates<Tr>) {
+            // "root" belongs to a block device, so it must not match a network override.
+            let mut params = LoadSnapshotParams {
+                network_overrides: vec![NetworkOverride {
+                    iface_id: String::from("root"),
+                    host_dev_name: String::from("tap_override"),
+                }],
+                ..default_load_snapshot_params()
+            };
+            assert!(matches!(
+                apply_device_overrides(devices, &params),
+                Err(SnapshotStateFromFileError::UnknownNetworkDevice)
+            ));
+
+            params.network_overrides.clear();
+            params.drive_overrides = vec![DriveOverride {
+                drive_id: String::from("netif"),
+                path_on_host: String::from("/netif_override"),
+            }];
+            assert!(matches!(
+                apply_device_overrides(devices, &params),
+                Err(SnapshotStateFromFileError::UnknownBlockDevice)
+            ));
+            params.drive_overrides.clear();
+            params.pmem_overrides = vec![PmemOverride {
+                id: String::from("root"),
+                path_on_host: String::from("/root_override"),
+            }];
+            assert!(matches!(
+                apply_device_overrides(devices, &params),
+                Err(SnapshotStateFromFileError::UnknownPmemDevice)
+            ));
+            params.pmem_overrides.clear();
+            params.vsock_override = Some(VsockOverride {
+                uds_path: String::from("/vsock_override"),
+            });
+            devices.vsock_device = None;
+            assert!(matches!(
+                apply_device_overrides(devices, &params),
+                Err(SnapshotStateFromFileError::UnknownVsockDevice)
+            ));
+        }
+
+        for vmm in [default_vmm(), default_vmm_with_pci()] {
+            let mut states = vmm_with_devices(vmm).device_manager.save().virtio_state;
+            match &mut states {
+                VirtioDevicesState::Mmio(devices) => check(devices),
+                VirtioDevicesState::Pci(pci) => check(&mut pci.virtio_devices),
+            }
+        }
     }
 
     #[test]
