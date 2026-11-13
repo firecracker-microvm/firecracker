@@ -75,6 +75,13 @@ correctly compiles on all supported architectures, and that it passes Rust
 clippy rules defined for the project. `--no-clippy` skips the clippy runs that
 the second command covers too; drop it if you run `checkstyle` on its own.
 
+While working on a change you may also find these useful:
+[debugging the guest with GDB](docs/gdb-debugging.md),
+[tracing](docs/tracing.md), [fuzzing](docs/fuzzing.md) and
+[formal verification](docs/formal-verification.md). When changing the HTTP API
+or the command line, the [API change runbook](docs/api-change-runbook.md)
+describes how we version and deprecate them.
+
 Your contribution needs to meet the following standards:
 
 - Separate each **logical change** into its own commit.
