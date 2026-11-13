@@ -1132,6 +1132,37 @@ pub fn snapshot_file(
     )
 }
 
+/// RFC: maps `regions` `MAP_SHARED` from a caller-provided read-only `file`, laid out like a guest
+/// memory snapshot file (region *n* at its snapshot offset). N VMMs mapping the **same inode** this
+/// way share one page-cache copy, so a UFFD registered `MODE_MINOR` on these regions can resolve a
+/// fault with `UFFDIO_CONTINUE` against that single shared copy — untouched pages stay shared
+/// copy-on-write across all microVMs resumed from the same snapshot.
+///
+/// The backing is the snapshot's guest-memory contents (e.g. the memory file on shared storage, or
+/// a preloaded memfd). Like [`snapshot_file`], this maps a file instead of anonymous memory; the
+/// only difference is `MAP_SHARED` rather than `MAP_PRIVATE`, so the mapping is shareable across
+/// processes. `memory_regions_from_ranges_file_backed` enforces that the file covers all regions.
+///
+/// Note on the write path: divergence on a guest write is the backend's responsibility (register
+/// `MODE_MINOR | MODE_WP` and privatise the page on the WP fault). This helper only establishes the
+/// shared mapping and does not by itself prevent a write from reaching the shared backing; a
+/// production design must resolve the WP fault into a per-VM private page. See
+/// `docs/snapshotting/uffd-minor-shared-backing.md` and `firecracker#6269`.
+pub fn shared_file_backed(
+    file: File,
+    regions: &[(GuestAddress, usize)],
+    track_dirty_pages: bool,
+    huge_pages: HugePageConfig,
+) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+    memory_regions_from_ranges_file_backed(
+        regions,
+        libc::MAP_SHARED | huge_pages.mmap_flags(),
+        FileOffset::new(file, 0),
+        track_dirty_pages,
+        huge_pages.madvise_flags(),
+    )
+}
+
 /// Marks as dirty the `len` bytes of guest memory mapped at host address `ptr`.
 ///
 /// `[ptr, ptr + len)` must lie within a single region of `mem`, as ranges resolved with

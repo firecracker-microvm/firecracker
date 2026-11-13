@@ -39,6 +39,24 @@ pub struct GuestRegionUffdMapping {
     pub offset: u64,
     /// The configured page size for this memory region.
     pub page_size: usize,
+    /// How Firecracker registered this region, so the handler resolves faults the matching way:
+    /// `UFFDIO_COPY` for `missing`, `UFFDIO_CONTINUE` for `minor`/`minor_wp`.
+    #[serde(default)]
+    pub registration_mode: UffdRegistrationMode,
+}
+
+/// Mirror of Firecracker's `persist::UffdRegistrationMode` carried in the handshake.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UffdRegistrationMode {
+    /// `UFFDIO_COPY` — the region is private/anonymous.
+    #[default]
+    Missing,
+    /// `UFFDIO_CONTINUE` — the region is a shared read-only mapping; the page cache already holds
+    /// the content, so a minor fault is resolved without a memcpy.
+    Minor,
+    /// As `Minor`, plus write-protect: a guest write faults so the handler can diverge per-VM.
+    MinorWp,
 }
 
 impl GuestRegionUffdMapping {
@@ -151,6 +169,18 @@ impl UffdHandler {
 
         for region in self.mem_regions.iter() {
             if region.contains(fault_page_addr) {
+                // RFC: a minor-registered region is backed by a shared read-only mapping whose
+                // page-cache page already holds the content. Resolve it with `UFFDIO_CONTINUE`
+                // (no memcpy) instead of `UFFDIO_COPY`; pages stay shared copy-on-write across
+                // every VM mapping the same backing. (MinorWp additionally takes a WP fault on a
+                // guest write; diverging the page per-VM is a design question tracked in
+                // firecracker#6269 and is out of scope for this example resolver.)
+                if matches!(
+                    region.registration_mode,
+                    UffdRegistrationMode::Minor | UffdRegistrationMode::MinorWp
+                ) {
+                    return self.continue_into(fault_page_addr, len);
+                }
                 return self.populate_from_file(region, fault_page_addr, len);
             }
         }
@@ -159,6 +189,31 @@ impl UffdHandler {
             "Could not find addr: {:?} within guest region mappings.",
             addr
         );
+    }
+
+    /// RFC: `UFFDIO_CONTINUE` of the faulting page at `dst` — maps the existing page-cache page of
+    /// the shared read-only backing into the guest, no memcpy. Returns `false` on `EAGAIN` (a
+    /// `remove` event is pending; retry later). `EEXIST` (already mapped) is treated as success.
+    fn continue_into(&self, dst: u64, len: usize) -> bool {
+        // TODO(rfc): needs a `userfaultfd` crate exposing `Uffd::continue_` (UFFDIO_CONTINUE).
+        // Confirm the symbol/version on a networked Linux host.
+        unsafe {
+            match self.uffd.continue_(dst as *mut _, len, true) {
+                Ok(value) => assert!(value > 0),
+                Err(Error::PartiallyCopied(bytes))
+                    if bytes == 0 || bytes == (-libc::EAGAIN) as usize =>
+                {
+                    return false;
+                }
+                Err(Error::CopyFailed(errno))
+                    if std::io::Error::from(errno).raw_os_error().unwrap() == libc::EEXIST => {}
+                Err(e) => {
+                    panic!("Uffd continue failed: {e:?}");
+                }
+            }
+        };
+
+        true
     }
 
     fn populate_from_file(&self, region: &GuestRegionUffdMapping, dst: u64, len: usize) -> bool {
@@ -375,6 +430,7 @@ mod tests {
             size: 0x1000,
             offset: 0,
             page_size: 4096,
+            registration_mode: UffdRegistrationMode::Missing,
         }];
         let dummy_memory_region_json = serde_json::to_string(&dummy_memory_region).unwrap();
 
@@ -408,6 +464,7 @@ mod tests {
             size: 0,
             offset: 0,
             page_size: 4096,
+            registration_mode: UffdRegistrationMode::Missing,
         }];
         let error_memory_region_json = serde_json::to_string(&error_memory_region).unwrap();
         stream

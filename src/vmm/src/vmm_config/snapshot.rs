@@ -202,6 +202,20 @@ pub struct MemBackendConfig {
     pub backend_path: PathBuf,
     /// Specifies the guest memory backend type.
     pub backend_type: MemBackendType,
+    /// RFC (opt-in): a read-only backing shared across VMMs restored from the *same* snapshot
+    /// (the snapshot memory file on shared storage, or a preloaded `/proc/self/fd/<n>`). When set
+    /// with `backend_type = Uffd`, Firecracker maps it `MAP_SHARED` read-only and registers guest
+    /// memory in UFFD minor-fault mode (`UFFDIO_REGISTER_MODE_MINOR`) instead of backing it with
+    /// private anonymous memory, so untouched pages stay shared copy-on-write across all VMs. The
+    /// external handler resolves minor faults with `UFFDIO_CONTINUE`. `None` keeps today's
+    /// behaviour (private anonymous, MISSING, `UFFDIO_COPY`). See `firecracker#6269`.
+    #[serde(default)]
+    pub shared_backing_path: Option<PathBuf>,
+    /// RFC (opt-in): register the shared minor-fault mapping write-protected
+    /// (`MODE_MINOR | MODE_WP`) so a guest write takes a WP fault and the handler can diverge the
+    /// page per-VM. Ignored unless `shared_backing_path` is set.
+    #[serde(default)]
+    pub shared_backing_wp: bool,
 }
 
 /// The microVM state options.

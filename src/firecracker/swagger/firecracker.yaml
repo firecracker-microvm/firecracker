@@ -1788,6 +1788,20 @@ definitions:
           2) Path to the UDS where a process is listening for a UFFD initialization
           control payload and open file descriptor that it can use to serve this
           process's guest memory page faults
+      shared_backing_path:
+        type: string
+        description: RFC (opt-in, Uffd only). Path to a read-only backing shared across
+          microVMs restored from the same snapshot (the snapshot memory file on shared
+          storage, or a preloaded /proc/self/fd/<n>). When set, guest memory is mapped
+          MAP_SHARED read-only and registered in UFFD minor-fault mode
+          (UFFDIO_REGISTER_MODE_MINOR) instead of private anonymous memory, so untouched
+          pages stay shared copy-on-write across all VMs and the handler resolves faults
+          with UFFDIO_CONTINUE. Omitted keeps the default behaviour.
+      shared_backing_wp:
+        type: boolean
+        description: RFC (opt-in). Register the shared minor-fault mapping write-protected
+          (MODE_MINOR | MODE_WP) so a guest write faults and the handler can diverge the
+          page per-VM. Ignored unless 'shared_backing_path' is set.
 
   Metrics:
     type: object

@@ -51,6 +51,18 @@ and this project adheres to
   files of pmem devices when loading a snapshot. See
   [Overriding host resources](docs/snapshotting/snapshot-support.md#overriding-host-resources)
   for more information.
+- [RFC] `PUT /snapshot/load` accepts two optional fields on a `Uffd` memory
+  backend, `shared_backing_path` and `shared_backing_wp`. When
+  `shared_backing_path` is set, Firecracker maps a caller-provided read-only
+  backing `MAP_SHARED` and registers guest memory in UFFD minor-fault mode
+  (`UFFDIO_REGISTER_MODE_MINOR[ | MODE_WP]`) instead of private anonymous
+  memory, and carries the mode in the handshake
+  (`GuestRegionUffdMapping.registration_mode`) so the handler resolves faults
+  with `UFFDIO_CONTINUE`. This lets microVMs restored from the same snapshot
+  share untouched pages copy-on-write. Opt-in; omitting the field keeps the
+  current behaviour. See
+  [docs](docs/snapshotting/uffd-minor-shared-backing.md) and
+  [discussion #6269](https://github.com/firecracker-microvm/firecracker/discussions/6269).
 
 ### Changed
 
