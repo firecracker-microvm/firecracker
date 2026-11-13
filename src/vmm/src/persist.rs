@@ -141,6 +141,8 @@ pub enum MicrovmStateError {
     NotAllowed(String),
     /// Cannot restore devices: {0}
     RestoreDevices(#[from] DevicePersistError),
+    /// Cannot save devices: {0}
+    SaveDevices(#[from] crate::device_manager::DeviceManagerPersistError),
     /// Cannot save Vcpu state: {0}
     SaveVcpuState(vstate::vcpu::VcpuError),
     /// Cannot save KvmVm state: {0}
@@ -170,7 +172,7 @@ pub enum CreateSnapshotError {
 }
 
 /// Snapshot version
-pub const SNAPSHOT_VERSION: Version = Version::new(13, 0, 0);
+pub const SNAPSHOT_VERSION: Version = Version::new(15, 0, 0);
 
 /// Creates a Microvm snapshot.
 pub fn create_snapshot(

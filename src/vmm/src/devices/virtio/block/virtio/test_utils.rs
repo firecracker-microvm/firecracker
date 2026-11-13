@@ -4,11 +4,11 @@
 #![doc(hidden)]
 
 #[cfg(test)]
+use std::os::fd::AsRawFd;
+#[cfg(test)]
 use std::sync::Arc;
 #[cfg(test)]
-use std::thread;
-#[cfg(test)]
-use std::time::Duration;
+use vmm_sys_util::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 
 use vmm_sys_util::tempfile::TempFile;
 
@@ -28,6 +28,58 @@ use crate::devices::virtio::transport::VirtioInterruptType;
 use crate::rate_limiter::RateLimiter;
 use crate::vmm_config::{RateLimiterConfig, TokenBucketConfig};
 use crate::vstate::memory::{Bytes, GuestAddress};
+
+/// Create an empty 2 MiB QCOW2 image for block tests.
+#[cfg(test)]
+pub fn create_test_qcow2() -> TempFile {
+    use imago::file::File as ImagoFile;
+    use imago::qcow2::Qcow2;
+    use imago::{FormatCreateBuilder, StorageOpenOptions};
+
+    let file = TempFile::new().unwrap();
+    let storage = ImagoFile::from_open_file(
+        file.as_file().try_clone().unwrap(),
+        StorageOpenOptions::new()
+            .filename(file.as_path())
+            .write(true)
+            .direct(false),
+    )
+    .unwrap();
+    Qcow2::<ImagoFile>::create_builder(storage)
+        .size(2 * 1024 * 1024)
+        .create()
+        .unwrap();
+    file
+}
+
+/// Return an EIO filter for fault-injection tests. Install only on a disposable thread.
+#[cfg(test)]
+pub fn syscall_eio_filter(syscall: libc::c_long) -> crate::seccomp::BpfProgram {
+    let instructions = [
+        (libc::BPF_LD | libc::BPF_W | libc::BPF_ABS, 0, 0, 0),
+        (
+            libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K,
+            0,
+            1,
+            u32::try_from(syscall).unwrap(),
+        ),
+        (
+            libc::BPF_RET | libc::BPF_K,
+            0,
+            0,
+            libc::SECCOMP_RET_ERRNO | u32::try_from(libc::EIO).unwrap(),
+        ),
+        (libc::BPF_RET | libc::BPF_K, 0, 0, libc::SECCOMP_RET_ALLOW),
+    ];
+    instructions
+        .into_iter()
+        .map(|(code, jt, jf, k)| {
+            let code = u16::try_from(code).unwrap().to_ne_bytes();
+            let k = k.to_ne_bytes();
+            u64::from_ne_bytes([code[0], code[1], jt, jf, k[0], k[1], k[2], k[3]])
+        })
+        .collect()
+}
 
 /// Create a default Block instance to be used in tests.
 pub fn default_block(file_engine_type: FileEngineType) -> VirtioBlock {
@@ -88,6 +140,7 @@ pub fn default_config(path: String, file_engine_type: FileEngineType) -> VirtioB
         }),
         file_engine_type,
         image_format: DiskImageFormat::Raw,
+        backing_path_on_host: None,
         blk_size: None,
         topology: None,
     }
@@ -120,16 +173,22 @@ pub fn simulate_queue_event(b: &mut VirtioBlock, maybe_expected_irq: Option<bool
 
 #[cfg(test)]
 pub fn simulate_async_completion_event(b: &mut VirtioBlock, expected_irq: bool) {
-    if let FileEngine::Async(engine) = &mut b.resources_mut()[0].disk.file_engine {
-        // Wait for all the async operations to complete.
+    if let FileEngine::Async(engine) = &mut b.resources_mut()[0].disk.file_engine
+        && engine.has_pending_requests()
+    {
         engine.drain(false).unwrap();
-        // Wait for the async completion event to be sent.
-        thread::sleep(Duration::from_millis(150));
-        // Handle event.
+        let epoll = Epoll::new().unwrap();
+        epoll
+            .ctl(
+                ControlOperation::Add,
+                engine.completion_evt().as_raw_fd(),
+                EpollEvent::new(EventSet::IN, 0),
+            )
+            .unwrap();
+        assert_eq!(epoll.wait(-1, &mut [EpollEvent::default()]).unwrap(), 1);
         b.process_async_completion_event();
     }
 
-    // Validate if there are pending IRQs.
     assert_eq!(
         b.interrupt_trigger()
             .has_pending_interrupt(VirtioInterruptType::Queue(0)),
@@ -144,7 +203,7 @@ pub fn simulate_queue_and_async_completion_events(b: &mut VirtioBlock, expected_
             simulate_queue_event(b, None);
             simulate_async_completion_event(b, expected_irq);
         }
-        FileEngine::Sync(_) | FileEngine::Vmdk(_) => {
+        FileEngine::Sync(_) | FileEngine::Vmdk(_) | FileEngine::Qcow2(_) => {
             simulate_queue_event(b, Some(expected_irq));
         }
     }

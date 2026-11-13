@@ -24,6 +24,8 @@ pub enum Restriction {
     AllowOpCode(OpCode),
     /// Only allow operations on pre-registered fds.
     RequireFixedFds,
+    /// Allow releasing registered files after all operations complete.
+    AllowUnregisterFiles,
 }
 
 impl From<&Restriction> for io_uring_restriction {
@@ -47,6 +49,15 @@ impl From<&Restriction> for io_uring_restriction {
                 .unwrap();
                 instance.__bindgen_anon_1.sqe_flags =
                     1 << io_uring_sqe_flags_bit::IOSQE_FIXED_FILE_BIT;
+            }
+            AllowUnregisterFiles => {
+                instance.opcode =
+                    u16::try_from(io_uring_register_restriction_op::IORING_RESTRICTION_REGISTER_OP)
+                        .unwrap();
+                instance.__bindgen_anon_1.register_op = u8::try_from(
+                    crate::io_uring::generated::io_uring_register_op::IORING_UNREGISTER_FILES,
+                )
+                .unwrap();
             }
         };
 

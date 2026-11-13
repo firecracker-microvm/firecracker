@@ -4,6 +4,30 @@
         "filter_action": "allow",
         "filter": [
             {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4702,
+                        "comment": "BLKROGET"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 2148012658,
+                        "comment": "BLKGETSIZE64"
+                    }
+                ]
+            },
+            {
                 "syscall": "newfstatat",
                 "comment": "Used when creating snapshots in vmm:persist::snapshot_memory_to_file through std::fs::File::metadata"
             },
@@ -49,6 +73,30 @@
             },
             {
                 "syscall": "fsync"
+            },
+            {
+                "syscall": "flock",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 5,
+                        "comment": "LOCK_SH | LOCK_NB for read-only QCOW2 images"
+                    }
+                ]
+            },
+            {
+                "syscall": "flock",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 6,
+                        "comment": "LOCK_EX | LOCK_NB for writable QCOW2 images"
+                    }
+                ]
             },
             {
                 "syscall": "fallocate",
@@ -112,7 +160,11 @@
             },
             {
                 "syscall": "preadv",
-                "comment": "Used by the imago VMDK disk image backend"
+                "comment": "Used by the imago disk image backends"
+            },
+            {
+                "syscall": "pwritev",
+                "comment": "Used by the writable imago QCOW2 disk image backend"
             },
             {
                 "syscall": "mremap",
@@ -1646,6 +1698,30 @@
         "filter_action": "allow",
         "filter": [
             {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4702,
+                        "comment": "BLKROGET"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 2148012658,
+                        "comment": "BLKGETSIZE64"
+                    }
+                ]
+            },
+            {
                 "syscall": "newfstatat",
                 "comment": "Used to canonicalize VMDK descriptor paths during drive patch"
             },
@@ -1655,7 +1731,11 @@
             },
             {
                 "syscall": "preadv",
-                "comment": "Used by imago to read VMDK extents"
+                "comment": "Used by the imago disk image backends"
+            },
+            {
+                "syscall": "pwritev",
+                "comment": "Used by the writable imago QCOW2 disk image backend"
             },
             {
                 "syscall": "epoll_ctl"
@@ -1812,6 +1892,30 @@
                 "syscall": "fsync"
             },
             {
+                "syscall": "flock",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 5,
+                        "comment": "LOCK_SH | LOCK_NB for read-only QCOW2 images"
+                    }
+                ]
+            },
+            {
+                "syscall": "flock",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 6,
+                        "comment": "LOCK_EX | LOCK_NB for writable QCOW2 images"
+                    }
+                ]
+            },
+            {
                 "syscall": "fallocate",
                 "comment": "Used by the VirtIO block device to punch holes for discard on regular backing files",
                 "args": [
@@ -1893,6 +1997,19 @@
                         "op": "eq",
                         "val": 1,
                         "comment": "FCNTL_FD_CLOEXEC"
+                    }
+                ]
+            },
+            {
+                "syscall": "fcntl",
+                "comment": "Preserve the io_uring completion event during QCOW2 drive patch",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1030,
+                        "comment": "F_DUPFD_CLOEXEC"
                     }
                 ]
             },

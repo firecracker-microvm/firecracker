@@ -17,6 +17,10 @@ where
 
     /// Returns the current state of the component.
     fn save(&self) -> Self::State;
+    /// Returns the current state, propagating errors from snapshot preparation.
+    fn try_save(&self) -> Result<Self::State, Self::Error> {
+        Ok(self.save())
+    }
     /// Constructs a component from a specified state.
     fn restore(
         constructor_args: Self::ConstructorArgs,

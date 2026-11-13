@@ -291,7 +291,9 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     }
 
     /// Prepare the device for saving its state
-    fn prepare_save(&mut self) {}
+    fn prepare_save(&mut self) -> Result<(), super::persist::PersistError> {
+        Ok(())
+    }
 }
 
 impl fmt::Debug for dyn VirtioDevice {

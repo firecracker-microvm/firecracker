@@ -159,7 +159,14 @@ impl<T: Debug> IoUring<T> {
 
         instance.register_files(files)?;
 
-        instance.enable()?;
+        if let Err(err) = instance.enable() {
+            // A disabled ring has no operations and its restrictions are not active yet.
+            // Release fixed files synchronously, including locks, before returning the error.
+            if instance.registered_fds_count > 0 {
+                instance.unregister_files()?;
+            }
+            return Err(err);
+        }
 
         Ok(instance)
     }
@@ -253,6 +260,34 @@ impl<T: Debug> IoUring<T> {
     /// in-flight ops.
     pub fn num_ops(&self) -> u32 {
         self.num_ops
+    }
+
+    /// Release fixed file references after every operation has been consumed.
+    pub fn unregister_files(&mut self) -> Result<(), IoUringError> {
+        assert_eq!(self.num_ops, 0);
+        loop {
+            // JUSTIFICATION: libc exposes io_uring registration only through syscall.
+            // SAFETY: The ring owns a valid fd and unregistering files takes no argument.
+            let result = SyscallReturnCode(unsafe {
+                libc::syscall(
+                    libc::SYS_io_uring_register,
+                    self.fd.as_raw_fd(),
+                    io_uring_register_op::IORING_UNREGISTER_FILES,
+                    std::ptr::null::<libc::c_void>(),
+                    0,
+                )
+            })
+            .into_empty_result();
+            match result {
+                Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+                result => {
+                    result.map_err(IoUringError::RegisterFile)?;
+                    break;
+                }
+            }
+        }
+        self.registered_fds_count = 0;
+        Ok(())
     }
 
     fn enable(&mut self) -> Result<(), IoUringError> {

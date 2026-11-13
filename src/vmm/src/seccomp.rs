@@ -148,6 +148,63 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_qcow2_policy() {
+        for policy in [
+            include_str!("../../../resources/seccomp/x86_64-unknown-linux-musl.json"),
+            include_str!("../../../resources/seccomp/aarch64-unknown-linux-musl.json"),
+        ] {
+            let filters: serde_json::Value = serde_json::from_str(policy).unwrap();
+            for thread in ["vmm", "blk_worker"] {
+                let filter = &filters[thread];
+                assert_eq!(filter["filter_action"], "allow");
+                let rules = filter["filter"].as_array().unwrap();
+                for syscall in ["preadv", "pwritev", "fsync"] {
+                    assert!(
+                        rules
+                            .iter()
+                            .any(|rule| rule["syscall"] == syscall && rule.get("args").is_none())
+                    );
+                }
+                assert!(rules.iter().all(|rule| rule["syscall"] != "fstatfs"));
+                assert_eq!(
+                    rules.iter().any(|rule| rule["syscall"] == "ftruncate"),
+                    thread == "vmm"
+                );
+                for syscall in ["flock", "fcntl"] {
+                    assert!(
+                        rules
+                            .iter()
+                            .filter(|rule| rule["syscall"] == syscall)
+                            .all(|rule| rule.get("args").is_some())
+                    );
+                }
+                assert_eq!(
+                    rules
+                        .iter()
+                        .filter(|rule| rule["syscall"] == "flock")
+                        .count(),
+                    2
+                );
+                for (syscall, value) in [
+                    ("flock", libc::LOCK_SH | libc::LOCK_NB),
+                    ("flock", libc::LOCK_EX | libc::LOCK_NB),
+                    ("fcntl", libc::F_DUPFD_CLOEXEC),
+                ] {
+                    assert!(rules.iter().any(|rule| {
+                        let args = &rule["args"];
+                        rule["syscall"] == syscall
+                            && args.as_array().is_some_and(|args| args.len() == 1)
+                            && args[0]["index"] == 1
+                            && args[0]["type"] == "dword"
+                            && args[0]["op"] == "eq"
+                            && args[0]["val"] == value
+                    }));
+                }
+            }
+        }
+    }
+
+    #[test]
     fn test_deserialize_binary() {
         // Malformed bitcode binary.
         let data = "adassafvc".to_string();

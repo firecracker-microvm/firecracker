@@ -28,6 +28,8 @@ pub enum PersistError {
     QueueConstruction(QueueError),
     /// {0}
     InvalidAvailIdx(#[from] InvalidAvailIdx),
+    /// Could not prepare block IO for snapshot: {0}
+    BlockIo(#[from] super::block::virtio::BlockIoError),
 }
 
 /// Queue information saved in snapshot.
