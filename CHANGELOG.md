@@ -112,6 +112,13 @@ and this project adheres to
 
 ### Fixed
 
+- [#6417](https://github.com/firecracker-microvm/firecracker/issues/6417): Fixed
+  Firecracker aborting with a panic when a fatal signal, for example `SIGXFSZ`,
+  interrupted a write to stdout and no log file was configured. The signal
+  handlers now only log when a log file is configured, so with logs on stdout
+  they no longer print the `Shutting down VM after intercepting signal` line.
+  The exit code and the metrics still record the signal.
+
 - [#6302](https://github.com/firecracker-microvm/firecracker/issues/6302): Fixed
   AMX tile state being lost after a snapshot restore. The IA32_XFD and
   IA32_XFD_ERR MSRs are now saved in snapshots. Without them a restored guest
