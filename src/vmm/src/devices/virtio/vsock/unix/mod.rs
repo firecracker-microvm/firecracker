@@ -16,7 +16,7 @@ pub use muxer::VsockMuxer as VsockUnixBackend;
 use crate::devices::virtio::vsock::csm::VsockConnectionBackend;
 
 mod defs {
-    /// Maximum number of established connections that we can handle.
+    /// Maximum combined number of vsock connections and host sockets waiting for CONNECT.
     pub const MAX_CONNECTIONS: usize = 1023;
 
     /// Size of the muxer RX packet queue.
