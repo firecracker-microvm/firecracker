@@ -1010,16 +1010,11 @@ impl VirtioDevice for Balloon {
     fn kick(&mut self) {
         if self.is_activated() {
             if self.free_page_hinting() {
-                info!(
-                    "[{:?}:{}] resetting free page hinting to DONE",
-                    self.device_type(),
-                    self.id()
-                );
+                info!("[{}] resetting free page hinting to DONE", self.label());
                 if let Err(err) = self.update_free_page_hint_cmd(FREE_PAGE_HINT_DONE) {
                     error!(
-                        "[{:?}:{}] failed to reset free page hinting: {err}",
-                        self.device_type(),
-                        self.id()
+                        "[{}] failed to reset free page hinting: {err}",
+                        self.label()
                     );
                 }
             }

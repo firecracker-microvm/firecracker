@@ -263,11 +263,16 @@ impl NeTransport {
             .map_err(NeTransportError::AddDevice)?;
 
         self.device_uid = req.device_uid;
+        let label = self
+            .device
+            .lock()
+            .expect("Poisoned lock")
+            .label()
+            .to_string();
 
         info!(
-            "NE_ADD_DEVICE: devid={:?} uid={} num_vqs={} config_size={} \
+            "[{label}] NE_ADD_DEVICE: uid={} num_vqs={} config_size={} \
              shm_regions={} info_event_vector={}",
-            self.virtio_devid,
             self.device_uid,
             self.num_vqs,
             req.config_size,
@@ -297,7 +302,8 @@ impl NeTransport {
                 .map_err(NeTransportError::SetVringCall)?;
 
             debug!(
-                "  vq[{i}]: KICK fd={kick_fd} msix_entry={} CALL bar4_doorbell_offset={}",
+                "[{label}] vq[{i}]: KICK fd={kick_fd} msix_entry={} CALL \
+                 bar4_doorbell_offset={}",
                 vq_info.msix_entry, vq_info.bar4_doorbell_offset,
             );
         }
@@ -338,7 +344,8 @@ impl NeTransport {
             .map_err(NeTransportError::UpdateDeviceConfig)?;
 
         debug!(
-            "pushed {}-byte config update for device uid={}",
+            "[{}] pushed {}-byte config update for device uid={}",
+            device.label(),
             config.len(),
             self.device_uid
         );
@@ -352,9 +359,12 @@ impl NeTransport {
         // the info page; a matching, valid device entry may not be published yet
         // (or ever). Treat a missing entry as "not ready" and wait, rather than
         // panicking the parent VMM event loop on enclave-controlled input.
+        let mut locked_device = self.device.lock().expect("Poisoned lock");
         let Some(entry) = self.info_page.find_device_entry(self.device_uid) else {
             error!(
-                "info-event for uid={} but no matching device entry yet; ignoring",
+                "[{}] info-event for uid={} but no matching device entry yet; \
+                 ignoring",
+                locked_device.label(),
                 self.device_uid
             );
             return;
@@ -364,29 +374,44 @@ impl NeTransport {
         // The guest driver must have fully initialized the device.
         // (copy out of the packed mirror struct before referencing)
         let device_status = mirror.common.device_status;
-        if (device_status & VIRTIO_STATUS_DRIVER_OK) != VIRTIO_STATUS_DRIVER_OK {
-            debug!(
-                "device uid={} not yet DRIVER_OK (status={device_status:#04x})",
+        // FAILED is terminal: the guest driver gave up on the device (e.g. its
+        // probe failed) and will not retry, so the device will never become
+        // ready. Surface it above the debug level, as it is the only parent-side
+        // trace of a device that is present in the guest but unusable.
+        if device_status & device_status::FAILED != 0 {
+            warn!(
+                "[{}] guest marked virtio device uid={} as FAILED \
+                 (status {device_status:#x}); not activating",
+                locked_device.label(),
                 self.device_uid
             );
             return;
         }
-
-        let mut locked_device = self.device.lock().expect("Poisoned lock");
+        if (device_status & VIRTIO_STATUS_DRIVER_OK) != VIRTIO_STATUS_DRIVER_OK {
+            debug!(
+                "[{}] device uid={} not yet DRIVER_OK (status {device_status:#x})",
+                locked_device.label(),
+                self.device_uid
+            );
+            return;
+        }
 
         let driver_features = mirror.driver_features;
         if matches!(self.dma_memory, DeviceDmaMemory::Dmb(_))
             && (driver_features & IOMMU_PLATFORM_FEATURE) == 0
         {
             error!(
-                "Device uid={} did not negotiate VIRTIO_F_IOMMU_PLATFORM while its DMA \
-                 targets a DMB; not activating (driver_features={driver_features:#x})",
+                "[{}] device uid={} did not negotiate VIRTIO_F_IOMMU_PLATFORM \
+                 while its DMA targets a DMB; not activating \
+                 (driver_features={driver_features:#x})",
+                locked_device.label(),
                 self.device_uid
             );
             return;
         }
         info!(
-            "DRIVER_OK detected for device uid={}, activating",
+            "[{}] DRIVER_OK detected for device uid={}, activating",
+            locked_device.label(),
             self.device_uid
         );
 
@@ -423,7 +448,11 @@ impl NeTransport {
         // Activate the device.
         match locked_device.activate(self.dma_memory.memory().clone(), self.interrupt.clone()) {
             Ok(()) => {
-                info!("Device uid={} activated successfully", self.device_uid);
+                info!(
+                    "[{}] device uid={} activated successfully",
+                    locked_device.label(),
+                    self.device_uid
+                );
 
                 // Kick all queues in case the device sent any notifications to
                 // us before we wired up the eventfds on our end. We must not
@@ -435,7 +464,11 @@ impl NeTransport {
                 }
             }
             Err(e) => {
-                error!("Failed to activate device uid={}: {e:?}", self.device_uid);
+                error!(
+                    "[{}] failed to activate device uid={}: {e:?}",
+                    locked_device.label(),
+                    self.device_uid
+                );
             }
         }
     }
@@ -445,14 +478,19 @@ impl MutEventSubscriber for NeTransport {
     fn process(&mut self, events: Events, _ops: &mut EventOps) {
         if events.fd() == self.info_event_fd.as_raw_fd() {
             let _ = self.info_event_fd.read();
-            if self.device.lock().expect("Poisoned lock").is_activated() {
-                // The device is already activated; the info-event should not
-                // fire again for it. Log and ignore.
-                warn!(
-                    "info-event fired for already-activated device uid={}",
-                    self.device_uid
-                );
-                return;
+            {
+                let device = self.device.lock().expect("Poisoned lock");
+                if device.is_activated() {
+                    // The device is already activated; the info-event should not
+                    // fire again for it. Log and ignore.
+                    warn!(
+                        "[{}] info-event fired for already-activated device \
+                         uid={}",
+                        device.label(),
+                        self.device_uid
+                    );
+                    return;
+                }
             }
             self.activate_if_ready();
         }
@@ -463,8 +501,10 @@ impl MutEventSubscriber for NeTransport {
             &self.info_event_fd,
             event_manager::EventSet::IN,
         )) {
+            let device = self.device.lock().expect("Poisoned lock");
             error!(
-                "Failed to register info-event fd for device uid={}: {e}",
+                "[{}] failed to register info-event fd for device uid={}: {e}",
+                device.label(),
                 self.device_uid
             );
         }
@@ -608,6 +648,26 @@ mod tests {
         let device = transport.device.lock().unwrap();
         assert!(device.is_activated());
         assert_eq!(device.acked_features(), PLAIN_FEATURE);
+    }
+
+    #[test]
+    fn test_activate_if_ready_failed_device_not_activated() {
+        // The guest set FAILED, either after a failed probe (ACKNOWLEDGE |
+        // DRIVER | FAILED) or after DRIVER_OK. Neither must activate the device.
+        for status in [
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FAILED,
+            VIRTIO_STATUS_DRIVER_OK | device_status::FAILED,
+        ] {
+            let mut mirror = driver_ok_mirror(1, PLAIN_FEATURE);
+            mirror.common.device_status = status;
+            let mut transport = ne_transport(page_with(mirror), 1);
+
+            transport.activate_if_ready();
+
+            let device = transport.device.lock().unwrap();
+            assert!(!device.is_activated());
+            assert_eq!(device.acked_features(), 0);
+        }
     }
 
     #[test]
