@@ -119,6 +119,20 @@ macro_rules! create_strip_visitor_function {
 impl syn::visit::Visit<'_> for StripVisitor {
     create_strip_visitor_function!(visit_impl_item_fn, ImplItemFn);
     create_strip_visitor_function!(visit_item_fn, ItemFn);
+
+    fn visit_trait_item_fn(&mut self, i: &syn::TraitItemFn) {
+        if let Some(instrument) = find_instrumented(&i.attrs) {
+            let start = instrument.span().start().line - 1;
+            let end = instrument.span().end().line;
+            for line in start..end {
+                self.0.remove(&line);
+            }
+        }
+        // Only trait methods with a default body have a block to recurse into.
+        if let Some(block) = &i.default {
+            self.visit_block(block);
+        }
+    }
 }
 
 /// Visitor for the `check` action.
@@ -141,6 +155,19 @@ macro_rules! create_check_visitor_function {
 impl syn::visit::Visit<'_> for CheckVisitor {
     create_check_visitor_function!(visit_impl_item_fn, ImplItemFn);
     create_check_visitor_function!(visit_item_fn, ItemFn);
+
+    fn visit_trait_item_fn(&mut self, i: &syn::TraitItemFn) {
+        // A trait method without a default body cannot be instrumented, so skip it.
+        let Some(block) = &i.default else {
+            return;
+        };
+        let attr = check_attributes(&i.attrs);
+        if !attr.instrumented && !attr.test && i.sig.constness.is_none() && i.sig.abi.is_none() {
+            self.0 = Some(i.span());
+        } else {
+            self.visit_block(block);
+        }
+    }
 }
 
 /// Visitor for the `fix` action.
@@ -180,6 +207,23 @@ macro_rules! create_fix_visitor_function {
 impl syn::visit::Visit<'_> for FixVisitor<'_> {
     create_fix_visitor_function!(visit_impl_item_fn, ImplItemFn);
     create_fix_visitor_function!(visit_item_fn, ItemFn);
+
+    fn visit_trait_item_fn(&mut self, i: &syn::TraitItemFn) {
+        // A trait method without a default body cannot be instrumented, so skip it.
+        let Some(block) = &i.default else {
+            return;
+        };
+        let attr = check_attributes(&i.attrs);
+        if !attr.instrumented && !attr.test && i.sig.constness.is_none() && i.sig.abi.is_none() {
+            let line = i.span().start().line;
+
+            let attr_string = instrument(&i.sig, self.suffix, self.cfg_attr);
+            let indent = i.span().start().column;
+            let indent_attr = format!("{}{attr_string}", " ".repeat(indent));
+            self.list.set_before(line - 1, indent_attr);
+        }
+        self.visit_block(block);
+    }
 }
 
 fn instrument(sig: &syn::Signature, suffix: &Option<String>, cfg_attr: &Option<String>) -> String {
