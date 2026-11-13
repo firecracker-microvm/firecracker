@@ -72,10 +72,11 @@ use std::io::Write;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
-use utils::time::{ClockType, get_time_ns, get_time_us};
+use utils::time::{ClockType, elapsed_us, get_time_ns, get_time_us};
 
 use super::{DEFAULT_INSTANCE_ID, FcLineWriter, INSTANCE_ID};
 use crate::devices::legacy;
@@ -761,7 +762,7 @@ impl SignalMetrics {
 /// Provides efficient way to record LatencyAggregateMetrics
 #[derive(Debug)]
 pub struct LatencyMetricsRecorder<'a> {
-    start_time: u64,
+    start_time: Instant,
     metric: &'a LatencyAggregateMetrics,
 }
 
@@ -769,7 +770,7 @@ impl<'a> LatencyMetricsRecorder<'a> {
     /// Const default construction.
     fn new(metric: &'a LatencyAggregateMetrics) -> Self {
         Self {
-            start_time: get_time_us(ClockType::Monotonic),
+            start_time: Instant::now(),
             metric,
         }
     }
@@ -780,7 +781,7 @@ impl Drop for LatencyMetricsRecorder<'_> {
     /// and updates min/max/sum metrics.
     ///  self.start_time is recorded in new() and metrics are updated in drop
     fn drop(&mut self) {
-        let delta_us = get_time_us(ClockType::Monotonic) - self.start_time;
+        let delta_us = elapsed_us(self.start_time);
         self.metric.sum_us.add(delta_us);
         let min_us = self.metric.min_us.fetch();
         let max_us = self.metric.max_us.fetch();
@@ -813,12 +814,9 @@ impl LatencyAggregateMetrics {
         }
     }
 
-    /// returns a latency recorder which captures stores start_time
-    /// and updates the actual metrics at the end of recorders lifetime.
-    /// in short instead of below 2 lines :
-    /// 1st for start_time_us = get_time_us()
-    /// 2nd for delta_time_us = get_time_us() - start_time; and metrics.store(delta_time_us)
-    /// we have just `_m = metrics.record_latency_metrics()`
+    /// Returns a recorder that notes the current time and updates the min/max/sum metrics with
+    /// the elapsed time when it is dropped, so `let _m = metrics.record_latency_metrics();`
+    /// measures the rest of the enclosing scope.
     pub fn record_latency_metrics(&self) -> LatencyMetricsRecorder<'_> {
         LatencyMetricsRecorder::new(self)
     }

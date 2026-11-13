@@ -9,8 +9,6 @@ use std::{fmt, ptr};
 
 /// Constant to convert seconds to nanoseconds.
 pub const NANOS_PER_SECOND: u64 = 1_000_000_000;
-/// Constant to convert milliseconds to nanoseconds.
-pub const NANOS_PER_MILLISECOND: u64 = 1_000_000;
 
 /// Wrapper over `libc::clockid_t` to specify Linux Kernel clock source.
 #[derive(Debug)]
@@ -128,21 +126,6 @@ impl Default for TimestampUs {
     }
 }
 
-/// Returns a timestamp in nanoseconds from a monotonic clock.
-///
-/// Uses `_rdstc` on `x86_64` and [`get_time`](fn.get_time.html) on other architectures.
-pub fn timestamp_cycles() -> u64 {
-    #[cfg(target_arch = "x86_64")]
-    // SAFETY: Safe because there's nothing that can go wrong with this call.
-    unsafe {
-        std::arch::x86_64::_rdtsc()
-    }
-    #[cfg(not(target_arch = "x86_64"))]
-    {
-        get_time_ns(ClockType::Monotonic)
-    }
-}
-
 /// Returns a timestamp in nanoseconds based on the provided clock type.
 ///
 /// # Arguments
@@ -169,13 +152,10 @@ pub fn get_time_us(clock_type: ClockType) -> u64 {
     get_time_ns(clock_type) / 1000
 }
 
-/// Returns a timestamp in milliseconds based on the provided clock type.
-///
-/// # Arguments
-///
-/// * `clock_type` - Identifier of the Linux Kernel clock on which to act.
-pub fn get_time_ms(clock_type: ClockType) -> u64 {
-    get_time_ns(clock_type) / NANOS_PER_MILLISECOND
+/// Returns the time elapsed since `start` in microseconds.
+pub fn elapsed_us(start: Instant) -> u64 {
+    // `u64` holds over 500,000 years of microseconds.
+    u64::try_from(start.elapsed().as_micros()).unwrap()
 }
 
 /// Converts a timestamp in seconds to an equivalent one in nanoseconds.
@@ -489,9 +469,6 @@ mod tests {
         assert_ne!(get_time_ns(ClockType::Real), 0);
         assert_ne!(get_time_us(ClockType::Real), 0);
         assert!(get_time_ns(ClockType::Real) / 1000 <= get_time_us(ClockType::Real));
-        assert!(
-            get_time_ns(ClockType::Real) / NANOS_PER_MILLISECOND <= get_time_ms(ClockType::Real)
-        );
     }
 
     #[test]
