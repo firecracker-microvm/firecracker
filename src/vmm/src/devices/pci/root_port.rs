@@ -9,7 +9,6 @@ use std::sync::{Arc, Barrier, Mutex};
 use serde::{Deserialize, Serialize};
 use vm_allocator::RangeInclusive;
 use vmm_sys_util::eventfd::EventFd;
-
 use zerocopy::IntoBytes;
 
 use crate::logger::{error, warn};
@@ -425,7 +424,7 @@ impl PciDevice for PciRootPort {
         }
     }
 
-    fn read_bar(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
+    fn read_bar(&mut self, _tag: u8, offset: u64, data: &mut [u8]) {
         let table_end = u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)
             + u64::from(ROOT_PORT_MSIX_VECTORS) * MSIX_TABLE_ENTRY_SIZE;
         if (u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)..table_end).contains(&offset) {
@@ -441,7 +440,7 @@ impl PciDevice for PciRootPort {
         }
     }
 
-    fn write_bar(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write_bar(&mut self, _tag: u8, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
         let table_end = u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)
             + u64::from(ROOT_PORT_MSIX_VECTORS) * MSIX_TABLE_ENTRY_SIZE;
         if (u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)..table_end).contains(&offset) {
@@ -460,12 +459,12 @@ impl PciDevice for PciRootPort {
 }
 
 impl BusDevice for PciRootPort {
-    fn read(&mut self, base: u64, offset: u64, data: &mut [u8]) {
-        self.read_bar(base, offset, data)
+    fn read(&mut self, tag: u8, offset: u64, data: &mut [u8]) {
+        self.read_bar(tag, offset, data)
     }
 
-    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
-        self.write_bar(base, offset, data)
+    fn write(&mut self, tag: u8, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+        self.write_bar(tag, offset, data)
     }
 }
 

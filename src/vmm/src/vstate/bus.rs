@@ -17,14 +17,14 @@ use crate::utils::usize_to_u64;
 
 /// Trait for devices that respond to reads or writes in an arbitrary address space.
 ///
-/// The device does not care where it exists in address space as each method is only given an offset
-/// into its allocated portion of address space.
+/// The device does not care where it exists in address space as each method is only given the
+/// tag of the accessed range and an offset into it.
 #[allow(unused_variables)]
 pub trait BusDevice: Send {
-    /// Reads at `offset` from this device
-    fn read(&mut self, base: u64, offset: u64, data: &mut [u8]) {}
-    /// Writes at `offset` into this device
-    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+    /// Reads at `offset` from the range `tag` of this device
+    fn read(&mut self, tag: u8, offset: u64, data: &mut [u8]) {}
+    /// Writes at `offset` into the range `tag` of this device
+    fn write(&mut self, tag: u8, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
         None
     }
 }
@@ -98,6 +98,14 @@ impl PartialOrd for BusRange {
     }
 }
 
+/// A device handle and the tag of its range.
+#[derive(Debug)]
+struct BusSlot {
+    device: Weak<Mutex<dyn BusDevice>>,
+    // Identifier of the range registered with the Bus
+    tag: u8,
+}
+
 /// A device container for routing reads and writes over some address space.
 ///
 /// This doesn't have any restrictions on what kind of device or address space this applies to. The
@@ -121,7 +129,7 @@ pub struct Bus {
     /// the device has finished.
     ///
     /// Lock ordering: acquire this *before* `ranges`.
-    devices: RwLock<Slab<Weak<Mutex<dyn BusDevice>>>>,
+    devices: RwLock<Slab<BusSlot>>,
 
     /// Maps each occupied address range to the slot in `devices` holding the
     /// owning device.
@@ -140,11 +148,13 @@ impl Bus {
     }
 
     /// Insert a device into the [`Bus`] in the range [`addr`, `addr` + `len`].
+    /// Accesses to the range are passed to the device with `tag`.
     pub fn insert(
         &self,
         device: Arc<Mutex<dyn BusDevice>>,
         base: u64,
         len: u64,
+        tag: u8,
     ) -> Result<(), BusError> {
         let new_range = BusRange::new(base, len)?;
 
@@ -158,7 +168,8 @@ impl Bus {
             return Err(BusError::Overlap);
         }
 
-        let slot = devices.insert(Arc::downgrade(&device));
+        let device = Arc::downgrade(&device);
+        let slot = devices.insert(BusSlot { device, tag });
         ranges.insert(new_range, slot);
 
         Ok(())
@@ -188,7 +199,7 @@ impl Bus {
         &self,
         addr: u64,
         len: u64,
-        f: impl FnOnce(&mut dyn BusDevice, u64, u64) -> T,
+        f: impl FnOnce(&mut dyn BusDevice, u8, u64) -> T,
     ) -> Result<T, BusError> {
         let access = BusRange::new(addr, len)?;
 
@@ -202,7 +213,7 @@ impl Bus {
             }
         };
 
-        let device = devices
+        let BusSlot { device, tag } = devices
             .get(slot)
             .expect("Bus ranges and devices out of sync");
 
@@ -212,7 +223,7 @@ impl Bus {
 
         let mut locked = device.lock().unwrap();
         let offset = addr - base;
-        Ok(f(&mut *locked, base, offset))
+        Ok(f(&mut *locked, *tag, offset))
     }
 
     /// Relocate an existing device mapping from `old_base` to `new_base`.
@@ -247,15 +258,15 @@ impl Bus {
 
     /// Reads data from the device that owns the range containing `addr` and puts it into `data`.
     pub fn read(&self, addr: u64, data: &mut [u8]) -> Result<(), BusError> {
-        self.with_device(addr, usize_to_u64(data.len()), |dev, base, offset| {
-            dev.read(base, offset, data)
+        self.with_device(addr, usize_to_u64(data.len()), |dev, tag, offset| {
+            dev.read(tag, offset, data)
         })
     }
 
     /// Writes `data` to the device that owns the range containing `addr`.
     pub fn write(&self, addr: u64, data: &[u8]) -> Result<Option<Arc<Barrier>>, BusError> {
-        self.with_device(addr, usize_to_u64(data.len()), |dev, base, offset| {
-            dev.write(base, offset, data)
+        self.with_device(addr, usize_to_u64(data.len()), |dev, tag, offset| {
+            dev.write(tag, offset, data)
         })
     }
 }
@@ -270,14 +281,14 @@ mod tests {
     struct ConstantDevice;
     impl BusDevice for ConstantDevice {
         #[allow(clippy::cast_possible_truncation)]
-        fn read(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
+        fn read(&mut self, _tag: u8, offset: u64, data: &mut [u8]) {
             for (i, v) in data.iter_mut().enumerate() {
                 *v = (offset as u8) + (i as u8);
             }
         }
 
         #[allow(clippy::cast_possible_truncation)]
-        fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+        fn write(&mut self, _tag: u8, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
             for (i, v) in data.iter().enumerate() {
                 assert_eq!(*v, (offset as u8) + (i as u8))
             }
@@ -333,7 +344,7 @@ mod tests {
     /// tell which device an access was routed to.
     struct IdDevice(u8);
     impl BusDevice for IdDevice {
-        fn read(&mut self, _base: u64, _offset: u64, data: &mut [u8]) {
+        fn read(&mut self, _tag: u8, _offset: u64, data: &mut [u8]) {
             data.fill(self.0);
         }
     }
@@ -360,9 +371,9 @@ mod tests {
                 .unwrap()
         };
 
-        bus.insert(dev_a.clone(), 0x1000, 0x100).unwrap();
-        bus.insert(dev_b.clone(), 0x2000, 0x100).unwrap();
-        bus.insert(dev_c.clone(), 0x3000, 0x100).unwrap();
+        bus.insert(dev_a.clone(), 0x1000, 0x100, 0).unwrap();
+        bus.insert(dev_b.clone(), 0x2000, 0x100, 0).unwrap();
+        bus.insert(dev_c.clone(), 0x3000, 0x100, 0).unwrap();
 
         // Every range decodes to the device that owns it, at both ends.
         assert_eq!(read(0x1000), 0xa);
@@ -383,7 +394,7 @@ mod tests {
         // The next insertion recycles the slot freed above. The new device
         // must only answer within its own range, and the removed range must
         // stay dead.
-        bus.insert(dev_d.clone(), 0x4000, 0x100).unwrap();
+        bus.insert(dev_d.clone(), 0x4000, 0x100, 0).unwrap();
         assert_eq!(slot_of(0x4000), slot_b);
         assert_eq!(read(0x4000), 0xd);
         bus.read(0x2000, &mut [0; 1]).unwrap_err();
@@ -391,14 +402,14 @@ mod tests {
         assert_eq!(read(0x3000), 0xc);
 
         // Reusing the freed range rebinds it to the new device
-        bus.insert(dev_e.clone(), 0x2000, 0x100).unwrap();
+        bus.insert(dev_e.clone(), 0x2000, 0x100, 0).unwrap();
         assert_eq!(read(0x2000), 0xe);
 
         // Accesses must be fully contained in a single device's range. Add a
         // device right after `dev_e` and one at the very top of the address
         // space to exercise the boundaries.
-        bus.insert(dev_a.clone(), 0x2100, 0x100).unwrap();
-        bus.insert(dev_a.clone(), u64::MAX, 1).unwrap();
+        bus.insert(dev_a.clone(), 0x2100, 0x100, 0).unwrap();
+        bus.insert(dev_a.clone(), u64::MAX, 1, 0).unwrap();
 
         // An access ending on the last byte of a range is served, while one
         // crossing into the adjacent device is served by neither.
@@ -424,24 +435,61 @@ mod tests {
         ));
     }
 
+    /// A device that answers every read with its id and the accessed tag
+    /// and offset.
+    struct TagDevice(u8);
+    impl BusDevice for TagDevice {
+        #[allow(clippy::cast_possible_truncation)]
+        fn read(&mut self, tag: u8, offset: u64, data: &mut [u8]) {
+            data.copy_from_slice(&[self.0, tag, offset as u8]);
+        }
+    }
+
+    #[test]
+    fn bus_access_racing_move_range() {
+        let bus = Bus::new();
+        let dev_a = Arc::new(Mutex::new(TagDevice(0xa)));
+        let dev_b = Arc::new(Mutex::new(TagDevice(0xb)));
+        bus.insert(dev_a.clone(), 0x1000, 0x100, 1).unwrap();
+        bus.insert(dev_b.clone(), 0x2000, 0x100, 2).unwrap();
+
+        // Hold the device lock like a config space write relocating a BAR
+        // would, while another access to the old base waits for it.
+        let locked = dev_a.lock().unwrap();
+        std::thread::scope(|s| {
+            let reader = s.spawn(|| {
+                let mut data = [0u8; 3];
+                bus.read(0x1004, &mut data).map(|()| data)
+            });
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            bus.move_range(0x1000, 0x3000, 0x100).unwrap();
+            bus.move_range(0x2000, 0x1000, 0x100).unwrap();
+            drop(locked);
+            // The access finishes on the range it was resolved to, or on
+            // the range moved in if it resolved late.
+            let data = reader.join().unwrap().unwrap();
+            assert!(data == [0xa, 1, 4] || data == [0xb, 2, 4], "{data:?}");
+        });
+    }
+
     #[test]
     fn bus_insert() {
         let bus = Bus::new();
         let dummy = Arc::new(Mutex::new(DummyDevice));
-        bus.insert(dummy.clone(), 0x10, 0).unwrap_err();
-        bus.insert(dummy.clone(), 0x10, 0x10).unwrap();
+        bus.insert(dummy.clone(), 0x10, 0, 0).unwrap_err();
+        bus.insert(dummy.clone(), 0x10, 0x10, 0).unwrap();
 
-        let result = bus.insert(dummy.clone(), 0x0f, 0x10);
+        let result = bus.insert(dummy.clone(), 0x0f, 0x10, 0);
         assert_eq!(format!("{result:?}"), "Err(Overlap)");
 
-        bus.insert(dummy.clone(), 0x10, 0x10).unwrap_err();
-        bus.insert(dummy.clone(), 0x10, 0x15).unwrap_err();
-        bus.insert(dummy.clone(), 0x12, 0x15).unwrap_err();
-        bus.insert(dummy.clone(), 0x12, 0x01).unwrap_err();
-        bus.insert(dummy.clone(), 0x0, 0x20).unwrap_err();
-        bus.insert(dummy.clone(), 0x20, 0x05).unwrap();
-        bus.insert(dummy.clone(), 0x25, 0x05).unwrap();
-        bus.insert(dummy, 0x0, 0x10).unwrap();
+        bus.insert(dummy.clone(), 0x10, 0x10, 0).unwrap_err();
+        bus.insert(dummy.clone(), 0x10, 0x15, 0).unwrap_err();
+        bus.insert(dummy.clone(), 0x12, 0x15, 0).unwrap_err();
+        bus.insert(dummy.clone(), 0x12, 0x01, 0).unwrap_err();
+        bus.insert(dummy.clone(), 0x0, 0x20, 0).unwrap_err();
+        bus.insert(dummy.clone(), 0x20, 0x05, 0).unwrap();
+        bus.insert(dummy.clone(), 0x25, 0x05, 0).unwrap();
+        bus.insert(dummy, 0x0, 0x10, 0).unwrap();
     }
 
     #[test]
@@ -453,7 +501,7 @@ mod tests {
 
         bus.remove(0x13, 0x12).unwrap_err();
 
-        bus.insert(dummy.clone(), 0x13, 0x12).unwrap();
+        bus.insert(dummy.clone(), 0x13, 0x12, 0).unwrap();
         bus.remove(0x42, 0x42).unwrap_err();
         bus.remove(0x13, 0x12).unwrap();
     }
@@ -462,7 +510,7 @@ mod tests {
     fn bus_move_range() {
         let bus = Bus::new();
         let dev = Arc::new(Mutex::new(ConstantDevice));
-        bus.insert(dev.clone(), 0x10, 0x10).unwrap();
+        bus.insert(dev.clone(), 0x10, 0x10, 0).unwrap();
 
         // A zero length is rejected before the mapping is touched.
         assert!(matches!(
@@ -502,7 +550,7 @@ mod tests {
 
         // A move onto a range occupied by another device is rejected, and the
         // source mapping is left in place so nothing is lost.
-        bus.insert(dev.clone(), 0x10, 0x10).unwrap();
+        bus.insert(dev.clone(), 0x10, 0x10, 0).unwrap();
         assert!(matches!(
             bus.move_range(0x38, 0x18, 0x10),
             Err(BusError::Overlap)
@@ -516,7 +564,7 @@ mod tests {
     fn bus_move_range_wrong_len() {
         let bus = Bus::new();
         let dev = Arc::new(Mutex::new(DummyDevice));
-        bus.insert(dev, 0x10, 0x10).unwrap();
+        bus.insert(dev, 0x10, 0x10, 0).unwrap();
         let _ = bus.move_range(0x10, 0x30, 0x20);
     }
 
@@ -525,7 +573,7 @@ mod tests {
     fn bus_read_write() {
         let bus = Bus::new();
         let dummy = Arc::new(Mutex::new(DummyDevice));
-        bus.insert(dummy.clone(), 0x10, 0x10).unwrap();
+        bus.insert(dummy.clone(), 0x10, 0x10, 0).unwrap();
         bus.read(0x10, &mut [0, 0, 0, 0]).unwrap();
         bus.write(0x10, &[0, 0, 0, 0]).unwrap();
         bus.read(0x11, &mut [0, 0, 0, 0]).unwrap();
@@ -547,7 +595,7 @@ mod tests {
     fn bus_read_write_values() {
         let bus = Bus::new();
         let dummy = Arc::new(Mutex::new(ConstantDevice));
-        bus.insert(dummy.clone(), 0x10, 0x10).unwrap();
+        bus.insert(dummy.clone(), 0x10, 0x10, 0).unwrap();
 
         let mut values = [0, 1, 2, 3];
         bus.read(0x10, &mut values).unwrap();
@@ -573,7 +621,7 @@ mod tests {
         let bus = Bus::new();
         let mut data = [1, 2, 3, 4];
         let device = Arc::new(Mutex::new(DummyDevice));
-        bus.insert(device.clone(), 0x10, 0x10).unwrap();
+        bus.insert(device.clone(), 0x10, 0x10, 0).unwrap();
         bus.write(0x10, &data).unwrap();
         bus.read(0x10, &mut data).unwrap();
         assert_eq!(data, [1, 2, 3, 4]);
