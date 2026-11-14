@@ -75,16 +75,14 @@ host kernel logs, which were very slow to write.
 Firecracker installs custom signal handlers for some of the POSIX signals, such
 as SIGSEGV, SIGSYS, etc.
 
-The custom signal handlers used by Firecracker are not async-signal-safe, since
-they write logs and flush the metrics, which use locks for synchronization.
-While very unlikely, it is possible that the handler will intercept a signal on
-a thread which is already holding a lock to the log or metrics buffer. This can
-result in a deadlock, where the specific Firecracker thread becomes
-unresponsive.
+The custom signal handlers used by Firecracker for fatal signals record the
+signal in the metrics, write one line to the log file (none when logging to
+stdout) and exit. They do not flush the metrics before exiting.
 
-While there is no security impact caused by the deadlock, we recommend that
-customers have an overwatcher process on the host, that periodically looks for
-Firecracker processes that are unresponsive, and kills them, by SIGKILL.
+Since a Firecracker thread may become unresponsive for various reasons, we
+recommend that customers have an overwatcher process on the host, that
+periodically looks for Firecracker processes that are unresponsive, and kills
+them, by SIGKILL.
 
 ## Jailer Configuration
 

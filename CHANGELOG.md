@@ -112,6 +112,15 @@ and this project adheres to
 
 ### Fixed
 
+- [#6419](https://github.com/firecracker-microvm/firecracker/issues/6419): Fixed
+  Firecracker hanging when a fatal signal arrived while the thread held a libc
+  lock, for example inside `malloc`. The fatal signal handlers now only store
+  the signal metric, write the shutdown line and exit. The line goes to the log
+  file without the usual prefix and regardless of the log level and module
+  filter, and nothing is written when logging to stdout. The metrics are no
+  longer flushed on this path, so the final metrics line, with the `signals` and
+  `seccomp` counters for that signal, is not written.
+
 - [#6302](https://github.com/firecracker-microvm/firecracker/issues/6302): Fixed
   AMX tile state being lost after a snapshot restore. The IA32_XFD and
   IA32_XFD_ERR MSRs are now saved in snapshots. Without them a restored guest
