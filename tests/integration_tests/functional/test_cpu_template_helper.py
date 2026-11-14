@@ -3,7 +3,10 @@
 """Tests that verify the cpu-template-helper's behavior."""
 
 import json
+import os
 import platform
+import random
+import shutil
 from pathlib import Path
 
 import pytest
@@ -33,29 +36,52 @@ class CpuTemplateHelper:
     # Class constants
     BINARY_NAME = "cpu-template-helper"
 
-    def __init__(self):
-        """Build CPU template helper tool binary"""
-        self.binary = cargo_build.get_binary(self.BINARY_NAME)
+    def __init__(self, cpu_id):
+        """Initialise helper commands pinned to host logical CPU `cpu_id`."""
+
+        # heterogeneous CPU cache topology
+
+        self.cpu_id = cpu_id
+
+        binary = cargo_build.get_binary(self.BINARY_NAME)
+
+        # Systems with heterogeneous CPU cache topologies can report
+        # different CPUID cache information per CPU, so start each
+        # helper under "taskset(1)" so its threads inherit the same
+        # CPU affinity and consecutive dumps do not depend on scheduler
+        # placement.
+        #
+        # Without this, tests using "cpu-template-helper" may fail as
+        # they would be attempting to compare the CPU template
+        # generated on one particular CPU with the actual features of
+        # a different (type) of CPU. For example, a set of CPUs on
+        # some systems may have more L2/L3 cache than another set of
+        # CPUs on the same system.
+        self.command = f"taskset -c {cpu_id} {binary}"
 
     def template_dump(self, output_path):
         """Dump guest CPU config in the JSON custom CPU template format"""
-        cmd = f"{self.binary} template dump --output {output_path}"
+
+        cmd = f"{self.command} template dump --output {output_path}"
         utils.check_output(cmd)
 
     def template_strip(self, paths, suffix=""):
         """Strip entries shared between multiple CPU template files"""
+
         paths = " ".join([str(path) for path in paths])
-        cmd = f"{self.binary} template strip --paths {paths} --suffix '{suffix}'"
+        cmd = f"{self.command} template strip --paths {paths} --suffix '{suffix}'"
         utils.check_output(cmd)
 
     def template_verify(self, template_path):
         """Verify the specified CPU template"""
-        cmd = f"{self.binary} template verify --template {template_path}"
+
+        cmd = f"{self.command} template verify --template {template_path}"
         utils.check_output(cmd)
 
     def fingerprint_dump(self, output_path):
         """Dump a fingerprint"""
-        cmd = f"{self.binary} fingerprint dump --output {output_path}"
+
+        cmd = f"{self.command} fingerprint dump --output {output_path}"
         utils.check_output(cmd)
 
     def fingerprint_compare(
@@ -65,8 +91,9 @@ class CpuTemplateHelper:
         filters,
     ):
         """Compare two fingerprint files"""
+
         cmd = (
-            f"{self.binary} fingerprint compare"
+            f"{self.command} fingerprint compare"
             f" --prev {prev_path} --curr {curr_path}"
         )
         if filters:
@@ -74,10 +101,21 @@ class CpuTemplateHelper:
         utils.check_output(cmd)
 
 
-@pytest.fixture(scope="session", name="cpu_template_helper")
-def cpu_template_helper_fixture():
-    """Fixture of CPU template helper tool"""
-    return CpuTemplateHelper()
+@pytest.fixture(name="cpu_template_helper")
+def cpu_template_helper_fixture(record_property):
+    """Pin each test's helper commands to one available host CPU."""
+
+    if shutil.which("taskset") is None:
+        pytest.fail(
+            'Required command "taskset" was not found in PATH; install util-linux.',
+            pytrace=False,
+        )
+
+    # CPU 0 may be excluded by a container's CPU set. Pick from the worker's
+    # allowed CPUs and reuse this choice for all comparisons within the test.
+    cpu_id = random.choice(sorted(os.sched_getaffinity(0)))
+    record_property("host_cpu", cpu_id)
+    return CpuTemplateHelper(cpu_id)
 
 
 def build_cpu_config_dict(cpu_config_path):
@@ -298,6 +336,12 @@ def test_cpu_config_dump_vs_actual(
 
     # Retrieve actual CPU config from guest
     microvm = uvm
+
+    # Firecracker copies host CPUID data while initialising the VM. Launch it
+    # under "taskset" on the helper's CPU so both sample the same cache data.
+    # Pinning a vCPU after initialisation would leave the copied data unchanged.
+    microvm.add_pre_cmd(["taskset", "-c", str(cpu_template_helper.cpu_id)])
+
     microvm.spawn()
     microvm.basic_config(vcpu_count=1)
     microvm.add_net_iface()
