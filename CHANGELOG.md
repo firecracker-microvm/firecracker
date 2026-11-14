@@ -112,6 +112,13 @@ and this project adheres to
 
 ### Fixed
 
+- [#6418](https://github.com/firecracker-microvm/firecracker/issues/6418): Fixed
+  Firecracker hanging when a fatal signal arrived on the thread that was
+  creating a block, net, pmem or vhost-user device. The signal handler flushed
+  the metrics and waited for the per-device metrics lock held by the interrupted
+  thread. The flush now skips the devices of a locked table, and their metrics
+  since the previous flush are lost when it is the last one before exiting.
+
 - [#6302](https://github.com/firecracker-microvm/firecracker/issues/6302): Fixed
   AMX tile state being lost after a snapshot restore. The IA32_XFD and
   IA32_XFD_ERR MSRs are now saved in snapshots. Without them a restored guest
