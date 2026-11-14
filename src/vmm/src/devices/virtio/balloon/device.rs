@@ -19,12 +19,13 @@ use super::{
     FREE_PAGE_HINT_STOP, INFLATE_INDEX, MAX_PAGE_COMPACT_BUFFER, MAX_PAGES_IN_DESC,
     MIB_TO_4K_PAGES, STATS_INDEX, VIRTIO_BALLOON_F_DEFLATE_ON_OOM,
     VIRTIO_BALLOON_F_FREE_PAGE_HINTING, VIRTIO_BALLOON_F_FREE_PAGE_REPORTING,
-    VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT, VIRTIO_BALLOON_S_ALLOC_STALL,
-    VIRTIO_BALLOON_S_ASYNC_RECLAIM, VIRTIO_BALLOON_S_ASYNC_SCAN, VIRTIO_BALLOON_S_AVAIL,
-    VIRTIO_BALLOON_S_CACHES, VIRTIO_BALLOON_S_DIRECT_RECLAIM, VIRTIO_BALLOON_S_DIRECT_SCAN,
-    VIRTIO_BALLOON_S_HTLB_PGALLOC, VIRTIO_BALLOON_S_HTLB_PGFAIL, VIRTIO_BALLOON_S_MAJFLT,
-    VIRTIO_BALLOON_S_MEMFREE, VIRTIO_BALLOON_S_MEMTOT, VIRTIO_BALLOON_S_MINFLT,
-    VIRTIO_BALLOON_S_OOM_KILL, VIRTIO_BALLOON_S_SWAP_IN, VIRTIO_BALLOON_S_SWAP_OUT,
+    VIRTIO_BALLOON_F_PAGE_POISON, VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT,
+    VIRTIO_BALLOON_S_ALLOC_STALL, VIRTIO_BALLOON_S_ASYNC_RECLAIM, VIRTIO_BALLOON_S_ASYNC_SCAN,
+    VIRTIO_BALLOON_S_AVAIL, VIRTIO_BALLOON_S_CACHES, VIRTIO_BALLOON_S_DIRECT_RECLAIM,
+    VIRTIO_BALLOON_S_DIRECT_SCAN, VIRTIO_BALLOON_S_HTLB_PGALLOC, VIRTIO_BALLOON_S_HTLB_PGFAIL,
+    VIRTIO_BALLOON_S_MAJFLT, VIRTIO_BALLOON_S_MEMFREE, VIRTIO_BALLOON_S_MEMTOT,
+    VIRTIO_BALLOON_S_MINFLT, VIRTIO_BALLOON_S_OOM_KILL, VIRTIO_BALLOON_S_SWAP_IN,
+    VIRTIO_BALLOON_S_SWAP_OUT,
 };
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::device::{ActiveState, VirtioDeviceType};
@@ -68,6 +69,7 @@ pub(crate) struct ConfigSpace {
     pub num_pages: u32,
     pub actual_pages: u32,
     pub free_page_hint_cmd_id: u32,
+    pub poison_val: u32,
 }
 
 // SAFETY: Safe because ConfigSpace only contains plain data.
@@ -300,6 +302,7 @@ impl Balloon {
 
         if free_page_reporting {
             avail_features |= 1u64 << VIRTIO_BALLOON_F_FREE_PAGE_REPORTING;
+            avail_features |= 1u64 << VIRTIO_BALLOON_F_PAGE_POISON;
             queue_count += 1;
         }
 
@@ -319,6 +322,7 @@ impl Balloon {
                 num_pages: mib_to_pages(amount_mib)?,
                 actual_pages: 0,
                 free_page_hint_cmd_id: FREE_PAGE_HINT_STOP,
+                poison_val: 0,
             },
             queue_evts,
             queues,
@@ -623,6 +627,8 @@ impl Balloon {
             .mem;
 
         let idx = self.free_page_reporting_idx();
+        // Discarded pages read back as zeros, so only poison value 0 can be honoured.
+        let discard = self.config_space.poison_val == 0;
         let queue = &mut self.queues[idx];
         let mut needs_interrupt = false;
 
@@ -630,6 +636,10 @@ impl Balloon {
             let mut last_desc = Some(head);
             while let Some(desc) = last_desc {
                 METRICS.free_page_report_count.inc();
+                if !discard {
+                    last_desc = desc.next_descriptor();
+                    continue;
+                }
                 if let Err(err) = mem.discard_range(desc.addr, desc.len as usize) {
                     METRICS.free_page_report_fails.inc();
                     error!("balloon: failed to remove range: {err:?}");
@@ -951,6 +961,14 @@ impl VirtioDevice for Balloon {
         };
 
         dst.copy_from_slice(data);
+
+        if self.config_space.poison_val != 0 {
+            warn!(
+                "virtio-balloon: unsupported poison value {:#x}, reported pages will not be \
+                 discarded",
+                self.config_space.poison_val
+            );
+        }
     }
 
     fn activate(
@@ -990,6 +1008,7 @@ impl VirtioDevice for Balloon {
     fn _reset(&mut self) -> bool {
         self.config_space.actual_pages = 0;
         self.config_space.free_page_hint_cmd_id = FREE_PAGE_HINT_STOP;
+        self.config_space.poison_val = 0;
         self.stats_timer.arm(Duration::ZERO, None);
         self.stats_desc_index = None;
         self.latest_stats = BalloonStats::default();
@@ -1200,6 +1219,7 @@ pub(crate) mod tests {
             let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
                 | (u64::from(*deflate_on_oom) << VIRTIO_BALLOON_F_DEFLATE_ON_OOM)
                 | ((u64::from(*reporting)) << VIRTIO_BALLOON_F_FREE_PAGE_REPORTING)
+                | ((u64::from(*reporting)) << VIRTIO_BALLOON_F_PAGE_POISON)
                 | ((u64::from(*hinting)) << VIRTIO_BALLOON_F_FREE_PAGE_HINTING)
                 | ((u64::from(*stats_interval)) << VIRTIO_BALLOON_F_STATS_VQ);
 
@@ -1238,7 +1258,8 @@ pub(crate) mod tests {
         // The first 4 bytes are num_pages (LE), the last 4 bytes are actual_pages.
         // 0x10 MB = 0x1000 pages.
         let expected: [u8; BALLOON_CONFIG_SPACE_SIZE] = [
-            0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
         ];
         assert_eq!(config, expected);
     }
@@ -1248,7 +1269,8 @@ pub(crate) mod tests {
         let mut balloon = Balloon::new(0, true, 0, false, false).unwrap();
 
         let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] = [
-            0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
         ];
         balloon.write_config(0, &expected_config_space);
 
@@ -1284,7 +1306,8 @@ pub(crate) mod tests {
         balloon.activate(mem.clone(), interrupt).unwrap();
 
         let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] = [
-            0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
         ];
         balloon.write_config(0, &expected_config_space);
 
@@ -1296,7 +1319,8 @@ pub(crate) mod tests {
         balloon.start_hinting(Default::default()).unwrap();
 
         let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] = [
-            0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+            0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
         ];
         let mut actual_config_space = [0u8; BALLOON_CONFIG_SPACE_SIZE];
         balloon.read_config(0, &mut actual_config_space);
@@ -1306,7 +1330,8 @@ pub(crate) mod tests {
         balloon.stop_hinting().unwrap();
 
         let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] = [
-            0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
         ];
         let mut actual_config_space = [0u8; BALLOON_CONFIG_SPACE_SIZE];
         balloon.read_config(0, &mut actual_config_space);
@@ -1316,7 +1341,8 @@ pub(crate) mod tests {
         balloon.start_hinting(Default::default()).unwrap();
 
         let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] = [
-            0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
+            0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
         ];
         let mut actual_config_space = [0u8; BALLOON_CONFIG_SPACE_SIZE];
         balloon.read_config(0, &mut actual_config_space);
@@ -1644,6 +1670,40 @@ pub(crate) mod tests {
         check_metric_after_block!(
             METRICS.free_page_report_fails,
             1,
+            invoke_handler_for_queue_event(&mut th.device(), reporting_idx)
+        );
+    }
+
+    #[test]
+    fn test_process_reporting_nonzero_poison() {
+        let mem = create_virtio_mem();
+        let mut th =
+            VirtioTestHelper::<Balloon>::new(&mem, Balloon::new(0, true, 0, false, true).unwrap());
+
+        th.activate_device(&mem);
+
+        let page_size = host_page_size() as u64;
+        #[allow(clippy::cast_possible_truncation)]
+        let page_size_chain = page_size as u32;
+        let reporting_idx = th.device().free_page_reporting_idx();
+        let safe_addr = align_up!(th.data_address(), page_size);
+
+        th.device().write_config(12, &0xaaaa_aaaau32.to_le_bytes());
+        assert_eq!(th.device().config_space.poison_val, 0xaaaa_aaaa);
+
+        th.add_scatter_gather(reporting_idx, &[(0, safe_addr, page_size_chain, 0)]);
+        check_metric_after_block!(
+            METRICS.free_page_report_freed,
+            0,
+            invoke_handler_for_queue_event(&mut th.device(), reporting_idx)
+        );
+        assert_eq!(th.device().queues[reporting_idx].next_used.0, 1);
+
+        th.device().write_config(12, &0u32.to_le_bytes());
+        th.add_scatter_gather(reporting_idx, &[(0, safe_addr, page_size_chain, 0)]);
+        check_metric_after_block!(
+            METRICS.free_page_report_freed,
+            page_size,
             invoke_handler_for_queue_event(&mut th.device(), reporting_idx)
         );
     }
@@ -2010,7 +2070,9 @@ pub(crate) mod tests {
         balloon.read_config(0, &mut actual_config);
         assert_eq!(
             actual_config,
-            vec![0x0, 0x10, 0x0, 0x0, 0x34, 0x12, 0, 0, 0, 0, 0, 0]
+            vec![
+                0x0, 0x10, 0x0, 0x0, 0x34, 0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+            ]
         );
         assert_eq!(balloon.num_pages(), 0x1000);
         assert_eq!(balloon.actual_pages(), 0x1234);
