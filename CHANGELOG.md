@@ -51,6 +51,12 @@ and this project adheres to
   files of pmem devices when loading a snapshot. See
   [Overriding host resources](docs/snapshotting/snapshot-support.md#overriding-host-resources)
   for more information.
+- [#5771](https://github.com/firecracker-microvm/firecracker/pull/5771): Add
+  opt-in `--landlock-restrict-fs` flag to the jailer that uses the Linux
+  Landlock LSM as a defense-in-depth mechanism. When enabled, the jailed
+  Firecracker process is restricted to only accessing files within the jail
+  directory, even if it escapes the `pivot_root` chroot via a kernel exploit.
+  Best-effort: silently ignored on kernels without Landlock support (< 5.13).
 
 ### Changed
 
