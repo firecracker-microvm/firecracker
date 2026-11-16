@@ -241,27 +241,37 @@ fn create_memory_node(fdt: &mut FdtWriter, guest_mem: &GuestMemoryMmap) -> Resul
     // remap, kernel drivers cannot get virtual addresses to read data from device memory. Leaving
     // this memory region out allows Linux kernel modules to remap and thus read this region.
 
-    // Pick the first (and only) memory region
-    let dram_region = guest_mem
+    // Guest DRAM is split in more than one region when it extends past the 64-bit MMIO gap (see
+    // `arch_memory_regions`), so describe every DRAM region. The system memory region sits at the
+    // start of the first DRAM region.
+    let mut mem_reg_prop = Vec::new();
+    for (index, dram_region) in guest_mem
         .iter()
-        .find(|region| region.region_type == GuestRegionType::Dram)
-        .unwrap();
-    // Find the start of memory after the system memory region
-    let start_addr = dram_region
-        .start_addr()
-        .unchecked_add(super::layout::SYSTEM_MEM_SIZE);
-    // Size of the memory is the region size minus the system memory size
-    let mem_size = dram_region
-        .len()
-        .checked_sub(super::layout::SYSTEM_MEM_SIZE)
-        .ok_or_else(|| {
-            FdtError::GuestMemoryTooSmall(dram_region.len(), super::layout::SYSTEM_MEM_SIZE)
-        })?;
+        .filter(|region| region.region_type == GuestRegionType::Dram)
+        .enumerate()
+    {
+        let (start_addr, mem_size) = if index == 0 {
+            // Find the start of memory after the system memory region
+            let start_addr = dram_region
+                .start_addr()
+                .unchecked_add(super::layout::SYSTEM_MEM_SIZE);
+            // Size of the memory is the region size minus the system memory size
+            let mem_size = dram_region
+                .len()
+                .checked_sub(super::layout::SYSTEM_MEM_SIZE)
+                .ok_or_else(|| {
+                    FdtError::GuestMemoryTooSmall(dram_region.len(), super::layout::SYSTEM_MEM_SIZE)
+                })?;
+            (start_addr, mem_size)
+        } else {
+            (dram_region.start_addr(), dram_region.len())
+        };
+        mem_reg_prop.extend_from_slice(&[start_addr.raw_value(), mem_size]);
+    }
 
-    let mem_reg_prop = &[start_addr.raw_value(), mem_size];
     let mem = fdt.begin_node("memory@ram")?;
     fdt.property_string("device_type", "memory")?;
-    fdt.property_array_u64("reg", mem_reg_prop)?;
+    fdt.property_array_u64("reg", &mem_reg_prop)?;
     fdt.end_node(mem)?;
 
     Ok(())
@@ -631,10 +641,11 @@ mod tests {
 
     use super::*;
     use crate::arch::aarch64::gic::create_gic;
-    use crate::arch::{FDT_MAX_SIZE, KvmVm};
+    use crate::arch::aarch64::layout::{DRAM_MEM_START, SYSTEM_MEM_SIZE};
+    use crate::arch::{FDT_MAX_SIZE, FIRST_ADDR_PAST_64BITS_MMIO, KvmVm};
     use crate::device_manager::mmio::tests::DummyDevice;
     use crate::device_manager::tests::{default_device_manager, mmio_devices_mut};
-    use crate::test_utils::arch_mem;
+    use crate::test_utils::{arch_mem, multi_region_mem};
     use crate::utils::u64_to_usize;
     use crate::vstate::memory::GuestAddress;
     use crate::{EventManager, Kvm};
@@ -647,6 +658,66 @@ mod tests {
             create_memory_node(&mut fdt, &mem),
             Err(FdtError::GuestMemoryTooSmall(..))
         ));
+    }
+
+    // Builds a DTB holding only the memory node for `mem` and returns its `reg` property as
+    // (address, size) pairs.
+    fn memory_node_reg(mem: &GuestMemoryMmap) -> Vec<(u64, u64)> {
+        let mut fdt = FdtWriter::new().unwrap();
+        let root = fdt.begin_node("").unwrap();
+        fdt.property_u32("#address-cells", ADDRESS_CELLS).unwrap();
+        fdt.property_u32("#size-cells", SIZE_CELLS).unwrap();
+        create_memory_node(&mut fdt, mem).unwrap();
+        fdt.end_node(root).unwrap();
+        let dtb = fdt.finish().unwrap();
+
+        let tree = device_tree::DeviceTree::load(&dtb).unwrap();
+        let reg = tree.find("/memory@ram").unwrap().prop_raw("reg").unwrap();
+        let (pairs, rest) = reg.as_chunks::<16>();
+        assert!(rest.is_empty());
+        pairs
+            .iter()
+            .map(|pair| {
+                (
+                    u64::from_be_bytes(pair[..8].try_into().unwrap()),
+                    u64::from_be_bytes(pair[8..].try_into().unwrap()),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_memory_node_single_dram_region() {
+        let mem = arch_mem(u64_to_usize(SYSTEM_MEM_SIZE) + 0x10_0000);
+        assert_eq!(
+            memory_node_reg(&mem),
+            vec![(DRAM_MEM_START + SYSTEM_MEM_SIZE, 0x10_0000)]
+        );
+    }
+
+    #[test]
+    fn test_memory_node_covers_all_dram_regions() {
+        // Guest memory larger than the space below the 64-bit MMIO gap is split in two DRAM
+        // regions by `arch_memory_regions`. Both must be described to the guest.
+        let regions = crate::arch::arch_memory_regions(300 << 30).unwrap();
+        assert_eq!(regions.len(), 2);
+        assert_eq!(regions[1].0, GuestAddress(FIRST_ADDR_PAST_64BITS_MMIO));
+
+        // Use the same layout with small sizes so the test does not map hundreds of GiB.
+        let mem = multi_region_mem(&[
+            (
+                GuestAddress(DRAM_MEM_START),
+                u64_to_usize(SYSTEM_MEM_SIZE) + 0x10_0000,
+            ),
+            (GuestAddress(FIRST_ADDR_PAST_64BITS_MMIO), 0x20_0000),
+        ]);
+        assert_eq!(
+            memory_node_reg(&mem),
+            vec![
+                (DRAM_MEM_START + SYSTEM_MEM_SIZE, 0x10_0000),
+                (FIRST_ADDR_PAST_64BITS_MMIO, 0x20_0000),
+            ]
+        );
     }
 
     #[test]
