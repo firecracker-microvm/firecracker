@@ -361,7 +361,9 @@ impl DeviceManager {
         config: DevicePassthroughConfig,
     ) -> Result<(), AttachDeviceError> {
         match &mut self.virtio_devices {
-            VirtioDevices::Mmio(_) | VirtioDevices::Enclave(_) => Err(AttachDeviceError::NotSupported),
+            VirtioDevices::Mmio(_) | VirtioDevices::Enclave(_) => {
+                Err(AttachDeviceError::NotSupported)
+            }
             VirtioDevices::Pci(devices) => {
                 _ = devices.attach_vfio_device(vm, config, PciPlacement::PrimaryBus)?;
                 Ok(())
@@ -537,18 +539,18 @@ impl DeviceManager {
         event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
         let dev_type = config.device_type();
-        if let Some(err) = device_passthrough_incompatibility_error(dev_type)
-            && let Some(pci_devices) = self.pci_devices()
-            && !pci_devices.vfio_devices.is_empty()
-        {
-            return Err(VmmActionError::IncompatibleDeviceConfiguration(err));
-        }
 
         let dev_id = config.device_id().to_string();
         let device_id = (dev_type, dev_id.clone());
 
         match &self.virtio_devices {
             VirtioDevices::Pci(pci_devices) => {
+                if let Some(err) = device_passthrough_incompatibility_error(dev_type)
+                    && !pci_devices.vfio_devices.is_empty()
+                {
+                    return Err(VmmActionError::IncompatibleDeviceConfiguration(err));
+                }
+
                 if pci_devices.contains_virtio_device(&device_id) {
                     return Err(PciManagerError::DeviceIdDuplicate(device_id.1).into());
                 }
