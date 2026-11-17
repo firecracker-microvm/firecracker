@@ -543,91 +543,71 @@ impl DeviceManager {
         let dev_id = config.device_id().to_string();
         let device_id = (dev_type, dev_id.clone());
 
-        match &self.virtio_devices {
-            VirtioDevices::Pci(pci_devices) => {
+        match (vm, &mut self.virtio_devices) {
+            (Vm::Kvm(kvm_vm), VirtioDevices::Pci(pci_devices)) => {
+                if config.is_vhost_user() && !kvm_vm.vhost_user_memory_shareable() {
+                    return Err(VmmActionError::NotSupported(
+                        "vhost-user hotplug requires guest memory that a backend can map shared, \
+                         for example a microVM booted with a vhost-user device"
+                            .to_string(),
+                    ));
+                }
                 if let Some(err) = device_passthrough_incompatibility_error(dev_type)
                     && !pci_devices.vfio_devices.is_empty()
                 {
                     return Err(VmmActionError::IncompatibleDeviceConfiguration(err));
                 }
-
                 if pci_devices.contains_virtio_device(&device_id) {
                     return Err(PciManagerError::DeviceIdDuplicate(device_id.1).into());
                 }
-            }
-            VirtioDevices::Enclave(enclave_devices) => {
-                let enclave_vm = vm
-                    .as_enclave()
-                    .expect("Enclave virtio transport requires enclave VM");
 
+                let device = match config {
+                    HotplugDeviceConfig::Block(cfg) => {
+                        Self::hotplug_make_block(cfg, self.blk_worker_filter.clone())?
+                    }
+                    HotplugDeviceConfig::Pmem(cfg) => Self::hotplug_make_pmem(kvm_vm.clone(), cfg)?,
+                    HotplugDeviceConfig::Net(cfg) => {
+                        let devices = pci_devices.virtio_devices.values();
+                        let devices =
+                            devices.map(|d| d.lock().expect("Poisoned lock").virtio_device());
+                        Self::hotplug_make_net(cfg, devices)?
+                    }
+                };
+                pci_devices.hotplug_pci_virtio_device(kvm_vm, dev_id, device, event_manager)?;
+            }
+            (Vm::Enclave(enclave_vm), VirtioDevices::Enclave(ne_devices)) => {
                 if !enclave_vm.hotplug_enabled() {
                     return Err(VmmActionError::NotSupported(
                         "Device hotplug requires the enclave to be started with hotplug_mode"
                             .to_string(),
                     ));
                 }
-                if enclave_devices.contains_virtio_device(&device_id) {
+                if ne_devices.contains_virtio_device(&device_id) {
                     return Err(VmmActionError::DeviceIdInUse);
                 }
-            }
-            VirtioDevices::Mmio(_) => return Err(VmmActionError::PciNotEnabled),
-        }
 
-        if let Some(kvm_vm) = vm.as_kvm()
-            && config.is_vhost_user()
-            && !kvm_vm.vhost_user_memory_shareable()
-        {
-            return Err(VmmActionError::NotSupported(
-                "vhost-user hotplug requires guest memory that a backend can map shared, for \
-                 example a microVM booted with a vhost-user device"
-                    .to_string(),
-            ));
+                let device = match config {
+                    HotplugDeviceConfig::Block(cfg) => {
+                        Self::hotplug_make_block(cfg, self.blk_worker_filter.clone())?
+                    }
+                    HotplugDeviceConfig::Pmem(_) => {
+                        return Err(VmmActionError::NotSupported(
+                            "pmem hot-add is not supported for enclaves".to_string(),
+                        ));
+                    }
+                    HotplugDeviceConfig::Net(cfg) => {
+                        let devices = ne_devices.devices.values();
+                        let devices =
+                            devices.map(|d| d.lock().expect("Poisoned lock").device().clone());
+                        Self::hotplug_make_net(cfg, devices)?
+                    }
+                };
+                ne_devices.attach_ne_virtio_device(device, enclave_vm, event_manager)?;
+            }
+            (_, VirtioDevices::Mmio(_)) => return Err(VmmActionError::PciNotEnabled),
+            _ => unreachable!("VM type and virtio transport mismatch"),
         }
-
-        let device = match config {
-            HotplugDeviceConfig::Block(cfg) => {
-                Self::hotplug_make_block(cfg, self.blk_worker_filter.clone())?
-            }
-            HotplugDeviceConfig::Pmem(cfg) => {
-                let kvm_vm = vm.as_kvm().ok_or_else(|| {
-                    VmmActionError::NotSupported(
-                        "pmem hot-add is not supported for enclaves".to_string(),
-                    )
-                })?;
-                Self::hotplug_make_pmem(kvm_vm.clone(), cfg)?
-            }
-            HotplugDeviceConfig::Net(cfg) => match &self.virtio_devices {
-                VirtioDevices::Pci(pci_devices) => {
-                    let devices = pci_devices.virtio_devices.values();
-                    let devices = devices.map(|d| d.lock().expect("Poisoned lock").virtio_device());
-                    Self::hotplug_make_net(cfg, devices)?
-                }
-                VirtioDevices::Enclave(ne_devices) => {
-                    let devices = ne_devices.devices.values();
-                    let devices =
-                        devices.map(|d| d.lock().expect("Poisoned lock").device().clone());
-                    Self::hotplug_make_net(cfg, devices)?
-                }
-                VirtioDevices::Mmio(_) => unreachable!("MMIO is rejected above"),
-            },
-        };
-
-        match &mut self.virtio_devices {
-            VirtioDevices::Pci(pci_devices) => {
-                let kvm_vm = vm.as_kvm().expect("PCI virtio transport requires KVM VM");
-                pci_devices.hotplug_pci_virtio_device(kvm_vm, dev_id, device, event_manager)?;
-                Ok(())
-            }
-            VirtioDevices::Enclave(ne_devices) => {
-                let enclave_vm = vm
-                    .as_enclave()
-                    .expect("Enclave virtio transport requires enclave VM");
-                ne_devices
-                    .attach_ne_virtio_device(device, enclave_vm, event_manager)
-                    .map_err(VmmActionError::NeDevice)
-            }
-            VirtioDevices::Mmio(_) => Err(VmmActionError::PciNotEnabled),
-        }
+        Ok(())
     }
 
     /// Attaches a passthrough device after VM start
