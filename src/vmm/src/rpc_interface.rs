@@ -683,6 +683,8 @@ impl<'a> PrebootApiController<'a> {
     }
 
     fn set_enclave_config(&mut self, cfg: EnclaveConfig) -> Result<VmmData, VmmActionError> {
+        self.vm_resources.compatible_with_enclave()?;
+
         self.boot_path = true;
         self.vm_resources.set_enclave_config(cfg);
         Ok(VmmData::Empty)

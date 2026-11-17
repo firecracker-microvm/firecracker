@@ -149,6 +149,22 @@ def test_api_device_passthrough_enclave(uvm):
 
 @pin_pci(True)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKENDS_ENCLAVE)
+def test_api_enclave_after_device_passthrough(uvm):
+    """
+    Test that setting the enclave config after adding a passthrough device fails.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+    vm.api.device_passthrough.put(id="nvme0", sbdf="0000:01:02.0")
+
+    with pytest.raises(RuntimeError, match="not compatible with Enclave"):
+        vm.start()
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pin_vm_backend(VM_BACKEND_KVM)
 def test_device_passthrough_missing_host_device(uvm):
     """

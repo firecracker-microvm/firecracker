@@ -348,6 +348,14 @@ impl VmResources {
         Ok(())
     }
 
+    /// Check if current config is compatible with using Enclave backend
+    pub fn compatible_with_enclave(&self) -> Result<(), ResourcesError> {
+        if !self.device_passthrough.configs.is_empty() {
+            return Err(ResourcesError::DevicePassthroughWithEnclave);
+        }
+        Ok(())
+    }
+
     /// If not initialised, create the mmds data store with the default config.
     pub fn mmds_or_default(&mut self) -> Result<&Arc<Mutex<Mmds>>, MmdsConfigError> {
         Ok(self
