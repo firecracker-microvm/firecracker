@@ -19,7 +19,7 @@ from framework.artifacts import (
     pin_hotplug_ports,
     pin_pci,
 )
-from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
+from framework.vm_backend import VM_BACKEND_KVM, VM_BACKENDS_ENCLAVE, pin_vm_backend
 
 # Flags of /sys/bus/pci/devices/*/resource entries
 IORESOURCE_MEM = 0x200
@@ -79,7 +79,7 @@ def uvm_booted(uvm_configured, vfio_nvme, request):
 @pin_pci(True)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pin_vm_backend(VM_BACKEND_KVM)
-def test_api_device_passthrough(uvm):
+def test_api_device_passthrough_kvm(uvm):
     """
     Test device passthrough API commands.
     """
@@ -133,6 +133,22 @@ def test_api_device_passthrough(uvm):
 
 @pin_pci(True)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKENDS_ENCLAVE)
+def test_api_device_passthrough_enclave(uvm):
+    """
+    Test that adding a passthrough device after the enclave config fails.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+    vm.backend.prepare_start(vm)
+
+    with pytest.raises(RuntimeError, match="not compatible with Enclave"):
+        vm.api.device_passthrough.put(id="nvme0", sbdf="0000:01:02.0")
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pin_vm_backend(VM_BACKEND_KVM)
 def test_device_passthrough_missing_host_device(uvm):
     """
@@ -167,7 +183,7 @@ def test_api_device_passthrough_runtime_no_pci(uvm):
 @pin_pci(True)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pin_vm_backend(VM_BACKEND_KVM)
-def test_api_device_passthrough_runtime(uvm):
+def test_api_device_passthrough_runtime_kvm(uvm):
     """
     Test failures of passthrough device hot-plug which do not need a host
     device. Failed requests leave no device behind.
@@ -191,6 +207,22 @@ def test_api_device_passthrough_runtime(uvm):
         is_read_only=False,
     )
     with pytest.raises(RuntimeError, match="No PCIe root port is free"):
+        vm.api.device_passthrough.put(id="nvme0", sbdf="0000:ff:1f.7")
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKENDS_ENCLAVE)
+def test_api_device_passthrough_runtime_enclave(uvm):
+    """
+    Test that hot-plugging a passthrough device into an enclave fails.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config(pcie_hotplug_ports=1)
+    vm.start()
+
+    with pytest.raises(RuntimeError, match="Operation requires KVM"):
         vm.api.device_passthrough.put(id="nvme0", sbdf="0000:ff:1f.7")
 
 

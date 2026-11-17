@@ -76,6 +76,8 @@ pub enum ResourcesError {
     DevicePassthroughConfig(#[from] DevicePassthroughConfigError),
     /// Passthrough devices attached, but PCI disabled
     DevicePassthroughWithoutPci,
+    /// Passthrough devices are not compatible with Enclave mode
+    DevicePassthroughWithEnclave,
     /// Passthrough devices are not compatible with memory hot-plugging device
     DevicePassthroughWithMemHotplug,
     /// Passthrough devices are not compatible with memory balloon device
@@ -328,6 +330,9 @@ impl VmResources {
 
     /// Check if current config is compatible with adding a passthrough device
     pub fn compatible_with_passthrough_device(&self) -> Result<(), ResourcesError> {
+        if self.enclave.is_some() {
+            return Err(ResourcesError::DevicePassthroughWithEnclave);
+        }
         if !self.pci_enabled {
             return Err(ResourcesError::DevicePassthroughWithoutPci);
         }
