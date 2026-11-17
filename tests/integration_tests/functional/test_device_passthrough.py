@@ -19,6 +19,7 @@ from framework.artifacts import (
     pin_hotplug_ports,
     pin_pci,
 )
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 # Flags of /sys/bus/pci/devices/*/resource entries
 IORESOURCE_MEM = 0x200
@@ -45,6 +46,7 @@ def vfio_device_test(test):
         pytest.mark.usefixtures("vfio_nvme"),
         pin_pci(True),
         pin_hotplug_ports(1),
+        pin_vm_backend(VM_BACKEND_KVM),
     ]:
         test = mark(test)
     return test
@@ -76,6 +78,7 @@ def uvm_booted(uvm_configured, vfio_nvme, request):
 
 @pin_pci(True)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_api_device_passthrough(uvm):
     """
     Test device passthrough API commands.
@@ -130,6 +133,7 @@ def test_api_device_passthrough(uvm):
 
 @pin_pci(True)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_device_passthrough_missing_host_device(uvm):
     """
     Test that starting a VM with a passthrough device absent on the host fails.
@@ -146,6 +150,7 @@ def test_device_passthrough_missing_host_device(uvm):
 
 @pin_pci(False)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_api_device_passthrough_runtime_no_pci(uvm):
     """
     Test that hot-plugging a passthrough device without PCI fails.
@@ -161,6 +166,7 @@ def test_api_device_passthrough_runtime_no_pci(uvm):
 
 @pin_pci(True)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_api_device_passthrough_runtime(uvm):
     """
     Test failures of passthrough device hot-plug which do not need a host
@@ -190,6 +196,7 @@ def test_api_device_passthrough_runtime(uvm):
 
 @pin_pci(False)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_device_passthrough_incompatible_devices_no_pci(uvm):
     """
     Test that adding a passthrough device without PCI enabled fails at API level.
@@ -205,6 +212,7 @@ def test_device_passthrough_incompatible_devices_no_pci(uvm):
 
 @pin_pci(True)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 @pytest.mark.parametrize(
     "sbdf",
     ["", "aaaaaaaaaaa", "01:02", "0000:01:20.0", "0000:01:02.8", "0000:100:02.0"],
@@ -224,6 +232,7 @@ def test_device_passthrough_incompatible_devices_invalid_sbdf(uvm, sbdf):
 
 @pin_pci(True)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_device_passthrough_incompatible_devices_dp_then_balloon(uvm):
     """
     Test that adding balloon after passthrough device fails at API level.
@@ -244,6 +253,7 @@ def test_device_passthrough_incompatible_devices_dp_then_balloon(uvm):
 
 @pin_pci(True)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_device_passthrough_incompatible_devices_balloon_then_dp(uvm):
     """
     Test that adding a passthrough device after balloon fails at API level.
@@ -262,6 +272,7 @@ def test_device_passthrough_incompatible_devices_balloon_then_dp(uvm):
 
 @pin_pci(True)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_device_passthrough_incompatible_devices_dp_then_mem_hot_plug(uvm):
     """
     Test that adding memory hotplug after passthrough device fails at API level.
@@ -282,6 +293,7 @@ def test_device_passthrough_incompatible_devices_dp_then_mem_hot_plug(uvm):
 
 @pin_pci(True)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_device_passthrough_incompatible_devices_mem_hot_plug_then_dp(uvm):
     """
     Test that adding a passthrough device after memory hotplug fails at API level.
@@ -300,6 +312,7 @@ def test_device_passthrough_incompatible_devices_mem_hot_plug_then_dp(uvm):
 
 @pin_pci(True)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_device_passthrough_incompatible_devices_dp_then_pmem(uvm):
     """
     Test that adding pmem after passthrough device fails at API level.
@@ -316,6 +329,7 @@ def test_device_passthrough_incompatible_devices_dp_then_pmem(uvm):
 
 @pin_pci(True)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_device_passthrough_incompatible_devices_pmem_then_dp(uvm):
     """
     Test that adding a passthrough device after pmem fails at API level.
@@ -332,6 +346,7 @@ def test_device_passthrough_incompatible_devices_pmem_then_dp(uvm):
 
 @pin_pci(True)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_vfio_nvme_not_present_without_config(uvm):
     """NVMe device does NOT appear when no VFIO device is configured."""
     vm = uvm
