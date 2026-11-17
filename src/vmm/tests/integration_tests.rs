@@ -249,15 +249,16 @@ fn test_disallow_snapshots_without_pausing() {
         ..Default::default()
     };
 
-    // Verify saving state while running is not allowed.
+    // Verify snapshotting while running is not allowed.
     assert!(matches!(
-        vmm.lock().unwrap().save_state(&vm_info),
+        vmm.lock().unwrap().can_snapshot(),
         Err(MicrovmStateError::NotAllowed(_))
     ));
 
     // Pause microVM.
     vmm.lock().unwrap().pause_vm().unwrap();
     // It is now allowed.
+    vmm.lock().unwrap().can_snapshot().unwrap();
     vmm.lock().unwrap().save_state(&vm_info).unwrap();
     // Stop.
     vmm.lock().unwrap().stop(FcExitCode::Ok);

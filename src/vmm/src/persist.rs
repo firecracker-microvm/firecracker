@@ -178,6 +178,9 @@ pub fn create_snapshot(
     vm_info: &VmInfo,
     params: &CreateSnapshotParams,
 ) -> Result<(), CreateSnapshotError> {
+    vmm.can_snapshot()
+        .map_err(CreateSnapshotError::MicrovmState)?;
+
     let microvm_state = vmm
         .save_state(vm_info)
         .map_err(CreateSnapshotError::MicrovmState)?;

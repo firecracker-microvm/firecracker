@@ -462,8 +462,14 @@ impl Vmm {
         self.vm.as_enclave().map(EnclaveVm::config)
     }
 
-    /// Check if the VM has any devices without snapshot support
-    pub fn check_unsnapshottable_devices(&self) -> Result<(), MicrovmStateError> {
+    /// Check if the VMM can be snapshotted
+    pub fn can_snapshot(&self) -> Result<(), MicrovmStateError> {
+        if self.vm.as_kvm().is_none() {
+            return Err(MicrovmStateError::NotAllowed(
+                "snapshot requires KVM".into(),
+            ));
+        }
+
         let mut tuples = Vec::new();
         self.device_manager
             .for_each_virtio_device(|device_type, device| {
@@ -482,18 +488,24 @@ impl Vmm {
                 ));
             }
         }
-        if tuples.is_empty() {
-            Ok(())
-        } else {
+        if !tuples.is_empty() {
             let msg = tuples
                 .iter()
                 .map(|(t, id)| format!("{t}(id: {id})"))
                 .collect::<Vec<_>>()
                 .join(",");
-            Err(MicrovmStateError::NotAllowed(format!(
+            return Err(MicrovmStateError::NotAllowed(format!(
                 "Devices without snapshot support are present: {msg}"
-            )))
+            )));
         }
+
+        if self.instance_info.state != VmState::Paused {
+            return Err(MicrovmStateError::NotAllowed(
+                "snapshot requires a paused microVM".into(),
+            ));
+        }
+
+        Ok(())
     }
 
     /// Sends a resume command to the vCPUs.
@@ -564,14 +576,6 @@ impl Vmm {
 
     /// Saves the state of a paused Microvm.
     pub fn save_state(&mut self, vm_info: &VmInfo) -> Result<MicrovmState, MicrovmStateError> {
-        self.check_unsnapshottable_devices()?;
-
-        if self.instance_info.state != VmState::Paused {
-            return Err(MicrovmStateError::NotAllowed(
-                "snapshot requires a paused microVM".into(),
-            ));
-        }
-
         // We need to save device state before saving KVM state.
         // Some devices, (at the time of writing this comment block device with async engine)
         // might modify the VirtIO transport and send an interrupt to the guest. If we save KVM
