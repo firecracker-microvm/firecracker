@@ -124,8 +124,8 @@ pub enum VmmAction {
     /// Set the entropy device using `EntropyDeviceConfig` as input. This action can only be called
     /// before the microVM has booted.
     SetEntropyDevice(EntropyDeviceConfig),
-    /// Add a passthrough device using `DevicePassthroughConfig` as input. This action can only be called
-    /// before the microVM has booted.
+    /// Add a passthrough device using `DevicePassthroughConfig` as input. After the microVM has
+    /// booted, this hot-plugs the device.
     InsertPassthroughDevice(DevicePassthroughConfig),
     /// Get the memory hotplug device configuration and status.
     GetMemoryHotplugStatus,
@@ -166,6 +166,8 @@ pub enum VmmAction {
     UpdateMachineConfiguration(MachineConfigUpdate),
     /// Hot-unplug a device.
     HotUnplugDevice(VirtioDeviceId, bool),
+    /// Hot-unplug a passthrough device.
+    HotUnplugPassthroughDevice(String, bool),
 }
 
 /// Wrapper for all errors associated with VMM actions.
@@ -225,12 +227,6 @@ pub enum VmmActionError {
     EnclaveConfig(#[from] EnclaveConfigError),
     /// Device ID in use
     DeviceIdInUse,
-    /// Device not found
-    DeviceNotFound,
-    /// Cannot unplug root device
-    CannotUnplugRootDevice,
-    /// Device '{0}' is not removable because it's not plugged to a PCIe root port.
-    DeviceNotRemovable(String),
     /// PCI is not enabled
     PciNotEnabled,
     /// PCI manager error: {0}
@@ -551,6 +547,7 @@ impl<'a> PrebootApiController<'a> {
             | GetFreePageHintingStatus
             | StopFreePageHinting
             | HotUnplugDevice(..)
+            | HotUnplugPassthroughDevice(..)
             | SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
     }
@@ -858,11 +855,23 @@ impl RuntimeApiController {
                 .expect("Poisoned lock")
                 .hotplug_device(HotplugDeviceConfig::Net(config), event_manager)
                 .map(|()| VmmData::Empty),
+            InsertPassthroughDevice(config) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hotplug_passthrough_device(config)
+                .map(|()| VmmData::Empty),
             HotUnplugDevice(device_id, force) => self
                 .vmm
                 .lock()
                 .expect("Poisoned lock")
                 .hot_unplug_device(device_id, event_manager, force)
+                .map(|()| VmmData::Empty),
+            HotUnplugPassthroughDevice(id, force) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hot_unplug_passthrough_device(id, force)
                 .map(|()| VmmData::Empty),
             Pause => self.pause(),
             PutMMDS(value) => mmds_put_data(
@@ -945,7 +954,6 @@ impl RuntimeApiController {
             | SetMmdsConfiguration(_)
             | SetEntropyDevice(_)
             | SetMemoryHotplugDevice(_)
-            | InsertPassthroughDevice(_)
             | StartMicroVm
             | UpdateMachineConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
         }
@@ -1136,7 +1144,6 @@ mod tests {
     use crate::HTTP_MAX_PAYLOAD_SIZE;
     use crate::builder::tests::default_vmm;
     use crate::mmds::data_store::MmdsVersion;
-    use crate::pci::PciSBDF;
     use crate::seccomp::BpfThreadMap;
     use crate::vmm_config::snapshot::{
         MemBackendConfig, MemBackendType, SnapshotLoadHugePageConfig,
@@ -1467,12 +1474,6 @@ mod tests {
         )));
         check_unsupported(runtime_request(VmmAction::SetEnclaveConfig(
             EnclaveConfig::default(),
-        )));
-        check_unsupported(runtime_request(VmmAction::InsertPassthroughDevice(
-            DevicePassthroughConfig {
-                id: String::new(),
-                sbdf: PciSBDF::new(0x0, 0x0, 0x0, 0x0),
-            },
         )));
     }
 }
