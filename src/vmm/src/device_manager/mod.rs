@@ -585,7 +585,9 @@ impl DeviceManager {
         }
 
         let device = match config {
-            HotplugDeviceConfig::Block(cfg) => self.hotplug_make_block(cfg)?,
+            HotplugDeviceConfig::Block(cfg) => {
+                Self::hotplug_make_block(cfg, self.blk_worker_filter.clone())?
+            }
             HotplugDeviceConfig::Pmem(cfg) => {
                 let kvm_vm = vm.as_kvm().ok_or_else(|| {
                     VmmActionError::NotSupported(
@@ -639,8 +641,8 @@ impl DeviceManager {
     }
 
     fn hotplug_make_block(
-        &self,
         config: BlockDeviceConfig,
+        seccomp_filter: Option<Arc<Vec<u64>>>,
     ) -> Result<Arc<Mutex<dyn VirtioDevice>>, VmmActionError> {
         if config.is_root_device {
             return Err(DriveError::RootBlockDeviceAlreadyAdded.into());
@@ -648,7 +650,7 @@ impl DeviceManager {
 
         let mut block = Block::new(config).map_err(DriveError::CreateBlockDevice)?;
         block
-            .spawn_worker(self.blk_worker_filter.clone())
+            .spawn_worker(seccomp_filter)
             .map_err(DriveError::CreateBlockDevice)?;
 
         Ok(Arc::new(Mutex::new(block)))
