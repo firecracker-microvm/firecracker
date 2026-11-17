@@ -596,7 +596,20 @@ impl DeviceManager {
                 })?;
                 Self::hotplug_make_pmem(kvm_vm.clone(), cfg)?
             }
-            HotplugDeviceConfig::Net(cfg) => self.hotplug_make_net(cfg)?,
+            HotplugDeviceConfig::Net(cfg) => match &self.virtio_devices {
+                VirtioDevices::Pci(pci_devices) => {
+                    let devices = pci_devices.virtio_devices.values();
+                    let devices = devices.map(|d| d.lock().expect("Poisoned lock").virtio_device());
+                    Self::hotplug_make_net(cfg, devices)?
+                }
+                VirtioDevices::Enclave(ne_devices) => {
+                    let devices = ne_devices.devices.values();
+                    let devices =
+                        devices.map(|d| d.lock().expect("Poisoned lock").device().clone());
+                    Self::hotplug_make_net(cfg, devices)?
+                }
+                VirtioDevices::Mmio(_) => unreachable!("MMIO is rejected above"),
+            },
         };
 
         match &mut self.virtio_devices {
@@ -669,19 +682,19 @@ impl DeviceManager {
     }
 
     fn hotplug_make_net(
-        &self,
         config: NetworkInterfaceConfig,
+        mut devices: impl Iterator<Item = Arc<Mutex<dyn VirtioDevice>>>,
     ) -> Result<Arc<Mutex<dyn VirtioDevice>>, VmmActionError> {
         if let Some(mac) = config.guest_mac {
-            let mut mac_in_use = false;
-            self.for_each_virtio_device(|_, device| {
-                if let Some(net) = device.as_any().downcast_ref::<Net>()
-                    && net.guest_mac() == Some(&mac)
-                {
-                    mac_in_use = true;
-                }
+            let in_use = devices.any(|device| {
+                device
+                    .lock()
+                    .expect("Poisoned lock")
+                    .as_any()
+                    .downcast_ref::<Net>()
+                    .is_some_and(|net| net.guest_mac() == Some(&mac))
             });
-            if mac_in_use {
+            if in_use {
                 return Err(NetworkInterfaceError::GuestMacAddressInUse(mac.to_string()).into());
             }
         }
