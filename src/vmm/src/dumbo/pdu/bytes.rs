@@ -246,3 +246,49 @@ mod tests {
         }
     }
 }
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    // See the Virtual I/O Device (VIRTIO) specification, Sec. 5.1.6.2.
+    // https://docs.oasis-open.org/virtio/virtio/v1.2/csd01/virtio-v1.2-csd01.pdf
+    const MAX_FRAME_SIZE: usize = 1514;
+
+    /// Reading two bytes that lie within the slice does not panic, and returns them as a
+    /// big-endian integer.
+    #[kani::proof]
+    fn verify_ntohs_unchecked() {
+        let buffer: [u8; MAX_FRAME_SIZE] = kani::Arbitrary::any_array::<MAX_FRAME_SIZE>();
+        let bytes = kani::slice::any_slice_of_array(&buffer);
+        let offset: usize = kani::any();
+        kani::assume(bytes.len() >= 2 && offset <= bytes.len() - 2);
+
+        let value = bytes.ntohs_unchecked(offset);
+
+        assert_eq!(
+            value,
+            u16::from(bytes[offset]) << 8 | u16::from(bytes[offset + 1])
+        );
+    }
+
+    /// Reading four bytes that lie within the slice does not panic, and returns them as a
+    /// big-endian integer.
+    #[kani::proof]
+    fn verify_ntohl_unchecked() {
+        let buffer: [u8; MAX_FRAME_SIZE] = kani::Arbitrary::any_array::<MAX_FRAME_SIZE>();
+        let bytes = kani::slice::any_slice_of_array(&buffer);
+        let offset: usize = kani::any();
+        kani::assume(bytes.len() >= 4 && offset <= bytes.len() - 4);
+
+        let value = bytes.ntohl_unchecked(offset);
+
+        assert_eq!(
+            value,
+            u32::from(bytes[offset]) << 24
+                | u32::from(bytes[offset + 1]) << 16
+                | u32::from(bytes[offset + 2]) << 8
+                | u32::from(bytes[offset + 3])
+        );
+    }
+}
