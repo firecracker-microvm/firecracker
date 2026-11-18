@@ -14,7 +14,7 @@ use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 use vm_allocator::AllocPolicy;
-use vm_memory::GuestAddress;
+use vm_memory::{Address, GuestAddress, GuestMemory};
 
 #[cfg(target_arch = "aarch64")]
 use crate::Vcpu;
@@ -96,6 +96,16 @@ pub enum StartMicrovmError {
     EnablePVTime(crate::arch::VcpuArchError),
     /// Invalid Memory Configuration: {0}
     GuestMemory(crate::vstate::memory::MemoryError),
+    /// Guest memory is too large to be combined with a pmem or memory-hotplug device: guest \
+    /// memory reaches address {guest_mem_end}, which overlaps the region those devices are \
+    /// allocated from (starting at {past_mmio64_start}). Reduce mem_size_mib or remove the \
+    /// pmem/memory-hotplug device.
+    GuestMemoryOverlapsPmemRegion {
+        /// One past the last guest-physical address backed by guest RAM.
+        guest_mem_end: u64,
+        /// First guest-physical address of the pmem / memory-hotplug allocation region.
+        past_mmio64_start: u64,
+    },
     /// Error with initrd initialization: {0}.
     Initrd(#[from] InitrdError),
     /// Internal error while starting microVM: {0}
@@ -204,6 +214,27 @@ pub fn build_microvm_for_boot(
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm)?;
     vm.register_dram_memory_regions(guest_memory)?;
+
+    // pmem and memory-hotplug devices are allocated from `past_mmio64_memory`, which starts at
+    // `FIRST_ADDR_PAST_64BITS_MMIO`. When guest RAM does not fit below the 64-bit MMIO gap,
+    // `arch_memory_regions` places the overflow at that same base, so a pmem/virtio-mem
+    // allocation would collide with guest RAM and fail deep in device attach with an opaque KVM
+    // error ("File exists" / "memory regions intersect"). Detect the overlap here and fail with
+    // an actionable message instead. See issue #6449.
+    if vm_resources.memory_hotplug.is_some() || !vm_resources.pmem.configs.is_empty() {
+        // `last_addr()` is the last byte backed by guest RAM; `+ 1` is one-past-the-end.
+        let guest_mem_end = vm
+            .guest_memory()
+            .last_addr()
+            .raw_value()
+            .saturating_add(1);
+        if guest_mem_end > arch::FIRST_ADDR_PAST_64BITS_MMIO {
+            return Err(StartMicrovmError::GuestMemoryOverlapsPmemRegion {
+                guest_mem_end,
+                past_mmio64_start: arch::FIRST_ADDR_PAST_64BITS_MMIO,
+            });
+        }
+    }
 
     // Allocate memory as soon as possible to make hotpluggable memory available to all consumers,
     // before they clone the GuestMemoryMmap object

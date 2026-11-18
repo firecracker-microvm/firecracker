@@ -112,6 +112,13 @@ and this project adheres to
 
 ### Fixed
 
+- [#6449](https://github.com/firecracker-microvm/firecracker/issues/6449):
+  Starting a microVM with a pmem or memory-hotplug device and enough guest
+  memory to spill past the 64-bit MMIO gap now fails with a clear error instead
+  of an opaque KVM `File exists` / "memory regions intersect" error deep in
+  device attach. Such guest memory overlaps the region pmem and virtio-mem
+  devices are allocated from, so the combination is rejected up front.
+
 - [#6302](https://github.com/firecracker-microvm/firecracker/issues/6302): Fixed
   AMX tile state being lost after a snapshot restore. The IA32_XFD and
   IA32_XFD_ERR MSRs are now saved in snapshots. Without them a restored guest
