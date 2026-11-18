@@ -45,6 +45,8 @@ class MemoryMonitor(Thread):
     # Memory starts at 2GiB
     ARM64_64BIT_MEMORY_GAP_START = 256 << 30
     ARM64_MEMORY_START = 2 << 30
+    # Each vCPU adds about 30 KiB of VMM memory on top of the thresholds.
+    VCPU_OVERHEAD = 32 << 10
 
     def __init__(
         self,
@@ -80,6 +82,10 @@ class MemoryMonitor(Thread):
         """Set threshold for snapshot creation."""
         self.threshold = self.threshold_snapshot
 
+    def upper_memory_limit(self):
+        """Maximum amount of memory the VM can consume."""
+        return self.threshold + self._vm.vcpus_count * self.VCPU_OVERHEAD
+
     def stop(self):
         """Stop the thread"""
         if self.is_alive():
@@ -112,13 +118,13 @@ class MemoryMonitor(Thread):
                     mem_total = rss.sample(skip, skip_path=b"nitro_enclaves")
                 except (FileNotFoundError, ProcessLookupError):
                     return
-                if mem_total > self.threshold:
+                if self.upper_memory_limit() < mem_total:
                     # A region mapped over its PROT_NONE reservation between the
                     # maps and pagemap reads is counted against the reservation.
                     # A genuine excess survives a fresh sample.
                     mem_total = rss.sample(skip, skip_path=b"nitro_enclaves")
                 self._current_rss = mem_total
-                if mem_total > self.threshold:
+                if self.upper_memory_limit() < mem_total:
                     self._exceeded = ps
                     return
 
@@ -183,7 +189,7 @@ class MemoryMonitor(Thread):
         """Check that there are no samples over the threshold."""
         if self._exceeded is not None:
             raise MemoryUsageExceededError(
-                self._current_rss, self.threshold, self._exceeded
+                self._current_rss, self.upper_memory_limit(), self._exceeded
             )
 
     @property
