@@ -675,8 +675,22 @@ impl VirtioBlock {
 
     /// Update the backing file and the config space of the block device.
     pub fn update_disk_image(&mut self, disk_image_path: String) -> Result<(), VirtioBlockError> {
+        // Worker threads run the disk. Take the workers back as for a snapshot, switch them below,
+        // and start them again: on the old disk if the switch failed.
+        if let BlockRuntimeState::Threaded(ThreadedActive {
+            workers: ThreadedWorkers::Running(_),
+            ..
+        }) = &self.state
+        {
+            self.prepare_save();
+            let result = self.update_disk_image(disk_image_path);
+            self.kick();
+            return result;
+        }
+
         let config_path = disk_image_path.clone();
         let read_only = self.config.is_read_only;
+        let file_engine_type = self.config.file_engine_type;
         let nsectors = match &mut self.state {
             BlockRuntimeState::Configuring(resources, _) => {
                 let (last, rest) = resources
@@ -691,31 +705,27 @@ impl VirtioBlock {
             BlockRuntimeState::Inline(worker) => {
                 worker.update_disk_image(disk_image_path, read_only)?
             }
-            // The paused workers are updated here, the running ones on their threads.
+            // The paused workers, taken back for a snapshot or above. Every queue opens its own
+            // descriptor of the new file before any is switched, so that a failure leaves them all
+            // on the old one.
             BlockRuntimeState::Threaded(ThreadedActive {
                 workers: ThreadedWorkers::Paused(paused),
                 ..
             }) => {
-                let ((_, last), rest) = paused
-                    .split_last_mut()
-                    .expect("threaded block device must have at least one worker");
-                for (_, worker) in rest {
-                    worker.update_disk_image(disk_image_path.clone(), read_only)?;
+                let disks = paused
+                    .iter()
+                    .map(|_| DiskProperties::new(&disk_image_path, read_only, file_engine_type))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let nsectors = disks
+                    .last()
+                    .expect("threaded block device must have at least one worker")
+                    .nsectors;
+                for ((_, worker), disk) in paused.iter_mut().zip(disks) {
+                    worker.resources.disk = disk;
                 }
-                last.update_disk_image(disk_image_path, read_only)?
+                nsectors
             }
-            BlockRuntimeState::Threaded(ThreadedActive {
-                workers: ThreadedWorkers::Running(handles),
-                ..
-            }) => {
-                let (last, rest) = handles
-                    .split_last()
-                    .expect("threaded block device must have at least one worker");
-                for handle in rest {
-                    handle.update_disk_image(disk_image_path.clone(), read_only)?;
-                }
-                last.update_disk_image(disk_image_path, read_only)?
-            }
+            BlockRuntimeState::Threaded(_) => unreachable!("running workers were taken back above"),
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
         };
         self.config_space.capacity = nsectors.to_le();
@@ -2491,12 +2501,113 @@ mod tests {
         assert!(block.queue_event(0).is_some());
     }
 
+    /// How many workers of the threaded `block` are paused, taken back from their threads.
+    fn paused_workers(block: &VirtioBlock) -> usize {
+        let BlockRuntimeState::Threaded(active) = &block.state else {
+            panic!("the block device must be active on worker threads");
+        };
+        match &active.workers {
+            ThreadedWorkers::Running(_) => 0,
+            ThreadedWorkers::Paused(paused) => paused.len(),
+        }
+    }
+
+    /// Puts a `VIRTIO_BLK_T_GET_ID` request on `vq` without notifying the device, and returns
+    /// where the device writes the ID.
+    fn queue_get_id(vq: &VirtQueue, mem: &GuestMemoryMmap) -> GuestAddress {
+        read_blk_req_descriptors(vq);
+        vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
+        mem.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(vq.dtable[0].addr.get()))
+            .unwrap();
+        GuestAddress(vq.dtable[1].addr.get())
+    }
+
+    /// Kicks the threaded `block` and waits until its workers have served what they found: the
+    /// hand-back is answered after the kick.
+    fn serve(block: &mut VirtioBlock) {
+        block.kick();
+        block.prepare_save();
+    }
+
+    /// The ID the device served at `addr`, which is that of the disk it read it from.
+    fn served_id(mem: &GuestMemoryMmap, addr: GuestAddress) -> [u8; VIRTIO_BLK_ID_BYTES as usize] {
+        let mut id = [0; VIRTIO_BLK_ID_BYTES as usize];
+        mem.read_slice(&mut id, addr).unwrap();
+        id
+    }
+
+    #[test]
+    fn test_threaded_update_disk_while_running() {
+        // After an update the running worker serves from the new disk. That the update takes it
+        // back and completes in-flight I/O first is shown by
+        // test_mq_update_disk_while_running_completes_writes.
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let mut block = default_threaded_block(engine);
+            let mem = default_mem();
+            let interrupt = default_interrupt();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.activate(mem.clone(), interrupt.clone()).unwrap();
+
+            let disk = TempFile::new().unwrap();
+            disk.as_file().set_len(0x2000).unwrap();
+            block
+                .update_disk_image(disk.as_path().to_str().unwrap().to_string())
+                .unwrap();
+            assert_eq!(paused_workers(&block), 0);
+            assert_eq!(u64::from_le(block.config_space.capacity), 16);
+            // Taking the worker back completes its pending I/O, which may signal the used ring.
+            interrupt.ack_interrupt(VirtioInterruptType::Queue(0));
+            assert!(interrupt.has_pending_interrupt(VirtioInterruptType::Config));
+
+            let id_addr = queue_get_id(&vq, &mem);
+            serve(&mut block);
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(
+                served_id(&mem, id_addr),
+                DiskProperties::build_disk_image_id(disk.as_file())
+            );
+        }
+    }
+
+    #[test]
+    fn test_threaded_update_disk_while_paused() {
+        // Workers taken back for a snapshot are switched where the device holds them, and only
+        // the resume starts them again.
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let mut block = default_threaded_block(engine);
+            let mem = default_mem();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.activate(mem.clone(), default_interrupt()).unwrap();
+            block.prepare_save();
+            let id_addr = queue_get_id(&vq, &mem);
+
+            let disk = TempFile::new().unwrap();
+            disk.as_file().set_len(0x2000).unwrap();
+            block
+                .update_disk_image(disk.as_path().to_str().unwrap().to_string())
+                .unwrap();
+            assert_eq!(paused_workers(&block), 1);
+            assert_eq!(u64::from_le(block.config_space.capacity), 16);
+            assert_eq!(vq.used.idx.get(), 0);
+
+            serve(&mut block);
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(
+                served_id(&mem, id_addr),
+                DiskProperties::build_disk_image_id(disk.as_file())
+            );
+        }
+    }
+
     #[test]
     fn test_threaded_update_disk_error() {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_threaded_block(engine);
             let original_config = block.config();
             let original_capacity = block.config_space.capacity;
+            let original_id = block.disk().image_id;
 
             let mem = default_mem();
             let interrupt = default_interrupt();
@@ -2512,6 +2623,13 @@ mod tests {
             assert_eq!(block.config(), original_config);
             assert_eq!(block.config_space.capacity, original_capacity);
             assert!(!interrupt.has_pending_interrupt(VirtioInterruptType::Config));
+
+            // The worker is running again, and still serves from the old disk.
+            assert_eq!(paused_workers(&block), 0);
+            let id_addr = queue_get_id(&vq, &mem);
+            serve(&mut block);
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(served_id(&mem, id_addr), original_id);
         }
     }
 
@@ -2873,6 +2991,9 @@ mod tests {
             block.update_disk_image(disk_path.clone()).unwrap();
             assert_eq!(block.config().path_on_host, disk_path);
             assert_eq!(u64::from_le(block.config_space.capacity), 24);
+            // Taking the workers back completes their pending I/O, which may signal the used
+            // rings.
+            interrupt.ack_interrupt(VirtioInterruptType::Queue(0));
             assert!(
                 interrupt.has_pending_interrupt(VirtioInterruptType::Config),
                 "updating an active disk must notify the guest"
@@ -2890,6 +3011,135 @@ mod tests {
             assert!(block.reset());
             for resources in block.resources() {
                 assert_eq!(resources.disk.nsectors, 32);
+            }
+        }
+    }
+
+    #[test]
+    fn test_mq_update_disk_while_running_completes_writes() {
+        use std::os::unix::fs::FileExt;
+
+        use crate::devices::virtio::block::virtio::test_utils::default_config;
+
+        let old = TempFile::new().unwrap();
+        old.as_file().set_len(0x1000).unwrap();
+        let mut config = default_config(
+            old.as_path().to_str().unwrap().to_string(),
+            FileEngineType::Async,
+        );
+        config.num_queues = NonZeroU16::new(2);
+        let mut block = VirtioBlock::new(config).unwrap();
+        block.spawn_worker(Arc::new(vec![])).unwrap();
+
+        let mem = default_mem();
+        let vqs = [
+            VirtQueue::new(GuestAddress(0), &mem, 16),
+            VirtQueue::new(GuestAddress(0x4000), &mem, 16),
+        ];
+        for (idx, vq) in vqs.iter().enumerate() {
+            set_queue(&mut block, idx, vq.create_queue());
+        }
+        block.activate(mem.clone(), default_interrupt()).unwrap();
+
+        // One write per queue, each to its own sector from its own buffers.
+        let status_addr = |idx: u8| GuestAddress(0xa000 + 0x4000 * u64::from(idx));
+        for (idx, vq) in (0u8..).zip(&vqs) {
+            let header_addr = 0x8000 + 0x4000 * u64::from(idx);
+            read_blk_req_descriptors(vq);
+            vq.dtable[0].set(header_addr, 0x1000, VIRTQ_DESC_F_NEXT, 1);
+            vq.dtable[1].set(header_addr + 0x1000, 0x200, VIRTQ_DESC_F_NEXT, 2);
+            vq.dtable[2].set(status_addr(idx).0, 0x1000, VIRTQ_DESC_F_WRITE, 3);
+            mem.write_obj(
+                RequestHeader::new(VIRTIO_BLK_T_OUT, u64::from(idx)),
+                GuestAddress(header_addr),
+            )
+            .unwrap();
+            mem.write_slice(&[0xa0 + idx; 0x200], GuestAddress(header_addr + 0x1000))
+                .unwrap();
+        }
+
+        // Both workers submit their write; the update takes them back, completing the writes,
+        // before it switches the file under them.
+        block.kick();
+        let new = TempFile::new().unwrap();
+        new.as_file().set_len(0x1000).unwrap();
+        block
+            .update_disk_image(new.as_path().to_str().unwrap().to_string())
+            .unwrap();
+        for (idx, vq) in (0u8..).zip(&vqs) {
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(
+                u32::from(mem.read_obj::<u8>(status_addr(idx)).unwrap()),
+                VIRTIO_BLK_S_OK
+            );
+        }
+
+        // The writes are in the old file, and the new one is untouched.
+        let mut sector = [0u8; 0x200];
+        for idx in 0u8..2 {
+            old.as_file()
+                .read_exact_at(&mut sector, u64::from(idx) * 0x200)
+                .unwrap();
+            assert_eq!(sector, [0xa0 + idx; 0x200]);
+            new.as_file()
+                .read_exact_at(&mut sector, u64::from(idx) * 0x200)
+                .unwrap();
+            assert_eq!(sector, [0; 0x200]);
+        }
+
+        // Every queue now runs on the new file.
+        block.prepare_save();
+        let BlockRuntimeState::Threaded(ThreadedActive {
+            workers: ThreadedWorkers::Paused(paused),
+            ..
+        }) = &block.state
+        else {
+            panic!("prepare_save must take every worker back");
+        };
+        let new_id = DiskProperties::build_disk_image_id(new.as_file());
+        assert_eq!(paused.len(), 2);
+        for (_, worker) in paused {
+            assert_eq!(worker.resources.disk.image_id, new_id);
+        }
+    }
+
+    #[test]
+    fn test_mq_update_disk_error_keeps_every_queue() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let mut block = default_mq_block(engine, 2);
+            let original_id = block.disk().image_id;
+            let original_capacity = block.config_space.capacity;
+            let mem = default_mem();
+            let vqs = [
+                VirtQueue::new(GuestAddress(0), &mem, 16),
+                VirtQueue::new(GuestAddress(0x4000), &mem, 16),
+            ];
+            for (idx, vq) in vqs.iter().enumerate() {
+                set_queue(&mut block, idx, vq.create_queue());
+            }
+            block.activate(mem, default_interrupt()).unwrap();
+
+            let mut missing_disk = TempFile::new().unwrap();
+            let missing_path = missing_disk.as_path().to_str().unwrap().to_string();
+            missing_disk.remove().unwrap();
+            assert!(block.update_disk_image(missing_path).is_err());
+            assert_eq!(block.config_space.capacity, original_capacity);
+
+            // No queue switched: both still run on the old file. The update opens the new file
+            // for every queue before it switches any; a missing file fails the first open, the
+            // only failure a test can force without fault injection.
+            assert_eq!(paused_workers(&block), 0);
+            block.prepare_save();
+            let BlockRuntimeState::Threaded(ThreadedActive {
+                workers: ThreadedWorkers::Paused(paused),
+                ..
+            }) = &block.state
+            else {
+                panic!("prepare_save must take every worker back");
+            };
+            assert_eq!(paused.len(), 2);
+            for (_, worker) in paused {
+                assert_eq!(worker.resources.disk.image_id, original_id);
             }
         }
     }

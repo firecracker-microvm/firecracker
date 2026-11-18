@@ -52,7 +52,6 @@ enum WorkerState {
 #[allow(clippy::large_enum_variant)]
 enum ControlMsg {
     Start(BlockWorker),
-    UpdateDiskImage { path: String, read_only: bool },
     Reset,
     HandBack,
     CommitDirty,
@@ -63,7 +62,6 @@ enum ControlMsg {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 enum ControlResponse {
-    DiskUpdated(Result<u64, VirtioBlockError>), // returns nsectors on success
     Reset(BlockResources),
     HandedBack(BlockWorker),
     DirtyCommitted,
@@ -361,22 +359,6 @@ impl WorkerHandle {
         }
     }
 
-    /// Replace the worker's backing file and return its new sector count.
-    pub(crate) fn update_disk_image(
-        &self,
-        disk_image_path: String,
-        read_only: bool,
-    ) -> Result<u64, VirtioBlockError> {
-        let msg = ControlMsg::UpdateDiskImage {
-            path: disk_image_path,
-            read_only,
-        };
-        match self.request_response(msg) {
-            ControlResponse::DiskUpdated(result) => result,
-            response => panic!("Unexpected block worker disk update response: {response:?}"),
-        }
-    }
-
     /// Ask the worker to stop data-path processing after completing pending I/O and to come back
     /// from its thread; [`WorkerHandle::handed_back`] collects it. Every worker of a device can be
     /// asked before any is collected, so that they drain in parallel.
@@ -508,9 +490,6 @@ impl ThreadedWorker {
         while let Ok(msg) = self.from_vmm.try_recv() {
             match msg {
                 ControlMsg::Start(worker) => self.start_worker(worker, ops),
-                ControlMsg::UpdateDiskImage { path, read_only } => {
-                    self.update_disk_image(path, read_only)
-                }
                 ControlMsg::HandBack => self.hand_back(ops),
                 ControlMsg::CommitDirty => self.commit_dirty(),
                 ControlMsg::Kick => self.kick_worker(),
@@ -540,18 +519,6 @@ impl ThreadedWorker {
         self.to_vmm
             .send(response)
             .expect("Failed to send block worker response");
-    }
-
-    fn update_disk_image(&mut self, path: String, read_only: bool) {
-        let result = match &mut self.state {
-            WorkerState::Running(worker) => worker.update_disk_image(path, read_only),
-            WorkerState::Parked => panic!("Disk image update requested while worker is parked"),
-            WorkerState::Finished => {
-                panic!("Disk image update requested after worker finished")
-            }
-        };
-
-        self.reply(ControlResponse::DiskUpdated(result));
     }
 
     fn reset_worker(&mut self, ops: &mut EventOps) {
@@ -817,18 +784,5 @@ mod tests {
         // panics too, as every other request to a dead worker does, instead of waiting.
         handle.request(ControlMsg::HandBack);
         handle.stop_and_wait();
-    }
-
-    #[test]
-    #[should_panic(expected = "Failed to receive block worker response")]
-    fn test_parked_disk_update() {
-        let worker = WorkerHandle::spawn(
-            Arc::new(vec![]),
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-            "fc_test".into(),
-        )
-        .unwrap();
-
-        worker.update_disk_image(String::new(), false).unwrap();
     }
 }
