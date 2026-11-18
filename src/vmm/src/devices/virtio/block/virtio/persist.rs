@@ -303,7 +303,7 @@ mod tests {
             let mut block =
                 default_block_with_path(disk.as_path().to_str().unwrap().to_string(), engine);
             block.config.num_queues = NonZeroU16::new(1);
-            block.spawn_worker(Arc::new(vec![])).unwrap();
+            block.spawn_workers(&Arc::new(vec![])).unwrap();
             let mem = default_mem();
             let vq = VirtQueue::new(GuestAddress(0), &mem, BLOCK_QUEUE_SIZE);
             set_queue(&mut block, 0, vq.create_queue());
@@ -337,7 +337,7 @@ mod tests {
             let mut config = default_config(disk_path, engine);
             config.num_queues = NonZeroU16::new(2);
             let mut block = VirtioBlock::new(config).unwrap();
-            block.spawn_worker(Arc::new(vec![])).unwrap();
+            block.spawn_workers(&Arc::new(vec![])).unwrap();
             let mem = default_mem();
             let vq = VirtQueue::new(GuestAddress(0), &mem, BLOCK_QUEUE_SIZE);
             set_queue(&mut block, 0, vq.create_queue());

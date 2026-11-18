@@ -51,7 +51,7 @@ pub fn default_mq_block(file_engine_type: FileEngineType, num_queues: u16) -> Vi
     let mut config = default_config(f.as_path().to_str().unwrap().to_string(), file_engine_type);
     config.num_queues = std::num::NonZeroU16::new(num_queues);
     let mut block = VirtioBlock::new(config).unwrap();
-    block.spawn_worker(Arc::new(vec![])).unwrap();
+    block.spawn_workers(&Arc::new(vec![])).unwrap();
     block
 }
 

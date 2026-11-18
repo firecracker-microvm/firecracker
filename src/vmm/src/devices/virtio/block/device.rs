@@ -123,8 +123,8 @@ impl Block {
         match self {
             // A set `num_queues` means the block device runs on worker threads.
             Self::Virtio(b) if b.config.num_queues.is_some() => b
-                .spawn_worker(seccomp_filter.ok_or(BlockError::MissingSeccompFilter)?)
-                .map_err(BlockError::VirtioBackend),
+                .spawn_workers(&seccomp_filter.ok_or(BlockError::MissingSeccompFilter)?)
+                .map_err(|err| BlockError::VirtioBackend(err.into())),
             Self::Virtio(_) | Self::VhostUser(_) => Ok(()),
         }
     }

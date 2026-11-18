@@ -1,81 +1,35 @@
 // Copyright 2026 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, Mutex};
-use std::thread::{self, JoinHandle};
+use std::os::fd::AsRawFd;
+use std::sync::Arc;
 
-use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
 use vmm_sys_util::epoll::EventSet;
-use vmm_sys_util::eventfd::EventFd;
 
 use super::device::BlockResources;
 use super::io::{BlockIoError, FileEngine, async_io};
 use super::metrics::BlockDeviceMetrics;
 use super::{FinishedRequest, IoErr, ProcessingResult, Request, VirtioBlockError};
-use crate::EventManager;
 use crate::devices::virtio::device::ActiveState;
 use crate::devices::virtio::queue::InvalidAvailIdx;
 use crate::devices::virtio::transport::VirtioInterruptType;
+use crate::devices::virtio::worker::{QueueGroupWorker, WorkerEvent};
 use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::SharedRateLimiter;
-use crate::seccomp::{BpfProgram, apply_filter};
 
-/// Runtime state and processing logic for an active block device.
+/// Runtime state and processing logic for one queue of an active block device.
+///
+/// There is one worker per virtqueue. It runs either inline on the VMM thread or on a thread of its
+/// own through the shared [`QueueGroupWorker`] lifecycle; the data path is identical either way.
 #[derive(Debug)]
 pub(crate) struct BlockWorker {
     pub(crate) resources: BlockResources,
     pub(crate) active_state: ActiveState,
+    /// Shared by every queue of the device, so that a configured limit stays a per-device limit.
+    /// Its blocked state is checked lock-free on every queue event.
     pub(crate) rate_limiter: SharedRateLimiter,
     pub(crate) discard_supported: bool,
     pub(crate) metrics: Arc<BlockDeviceMetrics>,
-}
-
-/// Worker state and control channel side (recv ctl msg)
-#[derive(Debug)]
-struct ThreadedWorker {
-    state: WorkerState,
-    control_evt: EventFd,
-    from_vmm: Receiver<ControlMsg>,
-    to_vmm: Sender<ControlResponse>,
-}
-
-/// Data-path ownership state of the worker thread.
-#[allow(clippy::large_enum_variant)]
-#[derive(Debug)]
-enum WorkerState {
-    Parked,
-    Running(BlockWorker),
-    Finished,
-}
-
-#[allow(clippy::large_enum_variant)]
-enum ControlMsg {
-    Start(BlockWorker),
-    Reset,
-    HandBack,
-    CommitDirty,
-    Kick,
-    Finish,
-}
-
-#[allow(clippy::large_enum_variant)]
-#[derive(Debug)]
-enum ControlResponse {
-    Reset(BlockResources),
-    HandedBack(BlockWorker),
-    DirtyCommitted,
-    Finished(Option<BlockResources>),
-}
-
-/// VMM-side handle for controlling and joining a block worker thread.
-#[derive(Debug)]
-pub(crate) struct WorkerHandle {
-    to_worker: Sender<ControlMsg>,
-    from_worker: Receiver<ControlResponse>,
-    control_evt: EventFd,
-    join: JoinHandle<()>,
-    queue_evt: EventFd,
 }
 
 macro_rules! unwrap_async_file_engine_or_return {
@@ -91,6 +45,9 @@ macro_rules! unwrap_async_file_engine_or_return {
 }
 
 impl BlockWorker {
+    const PROCESS_QUEUE: u32 = 0;
+    const PROCESS_ASYNC_COMPLETION: u32 = 1;
+
     /// Process a single event in the Virtio queue.
     ///
     /// This function is called by the event manager when the guest notifies us
@@ -264,18 +221,6 @@ impl BlockWorker {
         }
     }
 
-    /// Prepare the queue for being snapshotted: complete its pending I/O. The device flushes the
-    /// backing file once every queue did (see `VirtioBlock::prepare_save`).
-    pub(crate) fn prepare_save(&mut self) {
-        // Drain errors are broken invariants.
-        if let Err(err) = self.resources.disk.file_engine.drain(false) {
-            panic!("Failed to drain block IO engine for snapshot: {err:?}");
-        }
-        if matches!(&self.resources.disk.file_engine, FileEngine::Async(_)) {
-            self.process_async_completion_queue();
-        }
-    }
-
     /// Update the backing file and return the new sector count.
     pub fn update_disk_image(
         &mut self,
@@ -287,502 +232,70 @@ impl BlockWorker {
     }
 }
 
-impl WorkerHandle {
-    /// Spawn a parked block worker thread.
-    pub(crate) fn spawn(
-        seccomp_filter: Arc<BpfProgram>,
-        queue_evt: EventFd,
-        name: String,
-    ) -> Result<Self, std::io::Error> {
-        // handle writes and worker reads the control eventfd
-        let control_evt = EventFd::new(libc::EFD_NONBLOCK)?;
-        let handle_evt = control_evt.try_clone()?;
+impl QueueGroupWorker for BlockWorker {
+    type Resources = BlockResources;
 
-        let (to_worker, from_vmm) = channel::<ControlMsg>();
-        let (to_vmm, from_worker) = channel::<ControlResponse>();
-
-        let join = thread::Builder::new().name(name).spawn(move || {
-            // Create epoll before applying the filter, which does not allow epoll_create1.
-            let event_manager =
-                EventManager::new().expect("Failed to create block worker EventManager");
-
-            if let Err(err) = apply_filter(&seccomp_filter) {
-                panic!("Failed to apply seccomp filter on block worker: {err}");
-            }
-
-            run_worker_loop(event_manager, control_evt, from_vmm, to_vmm);
-        })?;
-
-        Ok(Self {
-            to_worker,
-            from_worker,
-            control_evt: handle_evt,
-            join,
-            queue_evt,
-        })
+    fn events(&self) -> Vec<WorkerEvent> {
+        // The rate limiter timerfd is deliberately absent: the limiter is shared by every queue of
+        // the device, so its timer stays on the VMM event loop, which kicks the workers when the
+        // limiter unblocks. Workers only read its lock-free blocked flag.
+        let mut events = vec![WorkerEvent {
+            fd: self.resources.queue_evt.as_raw_fd(),
+            token: Self::PROCESS_QUEUE,
+            events: EventSet::IN,
+        }];
+        if let FileEngine::Async(ref engine) = self.resources.disk.file_engine {
+            events.push(WorkerEvent {
+                fd: engine.completion_evt().as_raw_fd(),
+                token: Self::PROCESS_ASYNC_COMPLETION,
+                events: EventSet::IN,
+            });
+        }
+        events
     }
 
-    pub(crate) fn queue_event(&self) -> &EventFd {
-        &self.queue_evt
-    }
-
-    /// Send a control request to the worker thread.
-    ///
-    /// Channels and control eventfd failures are invariants if broken, state cannot be recovered.
-    fn request(&self, msg: ControlMsg) {
-        self.to_worker
-            .send(msg)
-            .expect("Failed to send request to block worker");
-        self.control_evt
-            .write(1)
-            .expect("Failed to notify block worker");
-    }
-
-    fn request_response(&self, msg: ControlMsg) -> ControlResponse {
-        self.request(msg);
-        self.from_worker
-            .recv()
-            .expect("Failed to receive block worker response")
-    }
-
-    /// Transfer data-path resources to the worker thread and start processing.
-    pub(crate) fn start(&self, worker: BlockWorker) {
-        self.request(ControlMsg::Start(worker));
-    }
-
-    /// Stop processing and return the data-path resources to the VMM thread.
-    /// The caller must reset the returned resources before reuse.
-    pub(crate) fn reset(&self) -> BlockResources {
-        match self.request_response(ControlMsg::Reset) {
-            ControlResponse::Reset(resources) => resources,
-            response => panic!("Unexpected block worker reset response: {response:?}"),
+    fn process(&mut self, token: u32) {
+        match token {
+            Self::PROCESS_QUEUE => self.process_queue_event(),
+            Self::PROCESS_ASYNC_COMPLETION => self.process_async_completion_event(),
+            other => warn!("Block worker received an unexpected epoll token {other}"),
         }
     }
 
-    /// Ask the worker to stop data-path processing after completing pending I/O and to come back
-    /// from its thread; [`WorkerHandle::handed_back`] collects it. Every worker of a device can be
-    /// asked before any is collected, so that they drain in parallel.
-    pub(crate) fn request_hand_back(&self) {
-        self.request(ControlMsg::HandBack);
-    }
-
-    /// Wait for the worker asked back by [`WorkerHandle::request_hand_back`]. Its thread is parked
-    /// until the worker is started again.
-    pub(crate) fn handed_back(&self) -> BlockWorker {
-        match self
-            .from_worker
-            .recv()
-            .expect("Failed to receive block worker response")
-        {
-            ControlResponse::HandedBack(worker) => worker,
-            response => panic!("Unexpected block worker hand back response: {response:?}"),
+    /// Completes the queue's pending I/O. The device flushes the backing file once every queue did
+    /// (see `VirtioBlock::prepare_save`).
+    fn prepare_save(&mut self) {
+        // Drain errors are broken invariants.
+        if let Err(err) = self.resources.disk.file_engine.drain(false) {
+            panic!("Failed to drain block IO engine while quiescing: {err:?}");
+        }
+        if matches!(&self.resources.disk.file_engine, FileEngine::Async(_)) {
+            self.process_async_completion_queue();
         }
     }
 
-    /// Mark dirty the worker-owned queue pages written since the last call.
-    pub(crate) fn commit_dirty(&self) {
-        match self.request_response(ControlMsg::CommitDirty) {
-            ControlResponse::DirtyCommitted => {}
-            response => panic!("Unexpected block worker commit dirty response: {response:?}"),
-        }
-    }
-
-    /// Process pending queue entries of a running worker.
-    pub(crate) fn kick(&self) {
-        self.request(ControlMsg::Kick);
-    }
-
-    /// Stop the worker and wait for its thread to exit. A running worker completes its pending
-    /// I/O first and returns its resources.
-    pub(crate) fn stop_and_wait(self) -> Option<BlockResources> {
-        self.request_finish();
-        self.finished()
-    }
-
-    /// Ask the worker to stop; [`WorkerHandle::finished`] waits for it. Every worker of a device
-    /// can be asked before any is waited for, so that they drain in parallel.
-    pub(crate) fn request_finish(&self) {
-        // A thread that already exited cannot take the request, but dropped its sender, so
-        // `finished` fails instead of blocking.
-        if let Err(err) = self.to_worker.send(ControlMsg::Finish) {
-            error!("Block worker receiver already dropped: {:?}", err);
-        }
-        if let Err(err) = self.control_evt.write(1) {
-            error!("Block worker control event is closed: {:?}", err);
-        }
-    }
-
-    /// Wait for the thread asked to stop by [`WorkerHandle::request_finish`] to exit, and take
-    /// back the resources of a worker that was running.
-    pub(crate) fn finished(self) -> Option<BlockResources> {
-        let resources = match self
-            .from_worker
-            .recv()
-            .expect("Failed to receive block worker response")
-        {
-            ControlResponse::Finished(resources) => resources,
-            response => panic!("Unexpected block worker finish response: {response:?}"),
-        };
-
-        self.join.join().unwrap_or_else(|err| {
-            error!("Block worker thread panicked during teardown: {:?}", err);
-        });
-        resources
-    }
-}
-
-impl ThreadedWorker {
-    const PROCESS_QUEUE: u32 = 0;
-    const PROCESS_ASYNC_COMPLETION: u32 = 1;
-    const PROCESS_CONTROL: u32 = 2;
-
-    fn register_control_event(&self, ops: &mut EventOps) {
-        ops.add(Events::with_data(
-            &self.control_evt,
-            Self::PROCESS_CONTROL,
-            EventSet::IN,
-        ))
-        .expect("Failed to register block worker control event");
-    }
-
-    fn register_runtime_events(resources: &BlockResources, ops: &mut EventOps) {
-        ops.add(Events::with_data(
-            &resources.queue_evt,
-            Self::PROCESS_QUEUE,
-            EventSet::IN,
-        ))
-        .expect("Failed to register queue event");
-        if let FileEngine::Async(ref engine) = resources.disk.file_engine {
-            ops.add(Events::with_data(
-                engine.completion_evt(),
-                Self::PROCESS_ASYNC_COMPLETION,
-                EventSet::IN,
-            ))
-            .expect("Failed to register IO engine completion event");
-        }
-    }
-
-    fn unregister_runtime_events(resources: &BlockResources, ops: &mut EventOps) {
-        ops.remove(Events::with_data(
-            &resources.queue_evt,
-            Self::PROCESS_QUEUE,
-            EventSet::IN,
-        ))
-        .expect("Failed to unregister queue event");
-        if let FileEngine::Async(ref engine) = resources.disk.file_engine {
-            ops.remove(Events::with_data(
-                engine.completion_evt(),
-                Self::PROCESS_ASYNC_COMPLETION,
-                EventSet::IN,
-            ))
-            .expect("Failed to unregister IO engine completion event");
-        }
-    }
-
-    fn process_control_event(&mut self, ops: &mut EventOps) {
-        if let Err(err) = self.control_evt.read() {
-            if let WorkerState::Running(worker) = &self.state {
-                worker.metrics.event_fails.inc();
-            }
-            panic!("Failed to consume block worker control event: {err:?}");
-        }
-
-        while let Ok(msg) = self.from_vmm.try_recv() {
-            match msg {
-                ControlMsg::Start(worker) => self.start_worker(worker, ops),
-                ControlMsg::HandBack => self.hand_back(ops),
-                ControlMsg::CommitDirty => self.commit_dirty(),
-                ControlMsg::Kick => self.kick_worker(),
-                ControlMsg::Reset => self.reset_worker(ops),
-                ControlMsg::Finish => self.finish_worker(ops),
-            }
-
-            if self.is_finished() {
-                break;
-            }
-        }
-    }
-
-    fn start_worker(&mut self, worker: BlockWorker, ops: &mut EventOps) {
-        assert!(
-            matches!(self.state, WorkerState::Parked),
-            "Start requested while block worker is not parked"
-        );
-
-        Self::register_runtime_events(&worker.resources, ops);
-        self.state = WorkerState::Running(worker);
-    }
-
-    /// Reply to the VMM. The handle outlives every request, so a closed channel is a
-    /// broken invariant.
-    fn reply(&self, response: ControlResponse) {
-        self.to_vmm
-            .send(response)
-            .expect("Failed to send block worker response");
-    }
-
-    fn reset_worker(&mut self, ops: &mut EventOps) {
-        let worker = match std::mem::replace(&mut self.state, WorkerState::Parked) {
-            WorkerState::Running(worker) => {
-                Self::unregister_runtime_events(&worker.resources, ops);
-                worker
-            }
-            state => {
-                self.state = state;
-                panic!("Reset requested while block worker is not active")
-            }
-        };
-
-        drop(worker.active_state);
-        self.reply(ControlResponse::Reset(worker.resources));
-    }
-
-    fn hand_back(&mut self, ops: &mut EventOps) {
-        let WorkerState::Running(mut worker) =
-            std::mem::replace(&mut self.state, WorkerState::Parked)
-        else {
-            panic!("Hand back requested while block worker is not running")
-        };
-
-        Self::unregister_runtime_events(&worker.resources, ops);
-        worker.prepare_save();
-        self.reply(ControlResponse::HandedBack(worker));
-    }
-
-    fn commit_dirty(&mut self) {
-        // The worker owns the queue while it runs, so it commits the pages itself.
-        if let WorkerState::Running(worker) = &self.state {
-            worker.resources.queue.commit_dirty();
-        }
-        self.reply(ControlResponse::DirtyCommitted);
-    }
-
-    fn kick_worker(&mut self) {
-        let WorkerState::Running(worker) = &mut self.state else {
-            warn!("Kick requested while block worker is not running");
-            return;
-        };
-
-        // process directly instead of going through epoll
-        worker
-            .process_queue()
+    fn kick(&mut self) {
+        self.process_queue()
             .unwrap_or_else(|err| error!("Failed to kick block worker queue: {:?}", err));
     }
 
-    fn finish_worker(&mut self, ops: &mut EventOps) {
-        let resources = match std::mem::replace(&mut self.state, WorkerState::Finished) {
-            WorkerState::Running(mut worker) => {
-                Self::unregister_runtime_events(&worker.resources, ops);
-                // Complete in-flight I/O here, while the worker still holds the guest memory it
-                // targets. The device flushes once every queue is back.
-                if let Err(err) = worker.resources.disk.file_engine.drain(true) {
-                    error!("Failed to drain block IO engine on finish: {:?}", err);
-                }
-                // The worker can write the used ring after the VMM's last commit (a completion or
-                // a queue event handled before this request), and the VMM drops the queue without
-                // committing again.
-                worker.resources.queue.commit_dirty();
-                Some(worker.resources)
-            }
-            WorkerState::Parked | WorkerState::Finished => None,
-        };
-        self.reply(ControlResponse::Finished(resources));
+    fn commit_dirty(&self) {
+        self.resources.queue.commit_dirty();
     }
 
-    fn is_finished(&self) -> bool {
-        matches!(self.state, WorkerState::Finished)
+    fn into_resources(mut self) -> BlockResources {
+        self.resources.reset();
+        self.resources
     }
-}
 
-fn run_worker_loop(
-    mut event_manager: EventManager,
-    control_evt: EventFd,
-    from_vmm: Receiver<ControlMsg>,
-    to_vmm: Sender<ControlResponse>,
-) {
-    let worker = Arc::new(Mutex::new(ThreadedWorker {
-        state: WorkerState::Parked,
-        control_evt,
-        from_vmm,
-        to_vmm,
-    }));
-    let subscriber: Arc<Mutex<dyn MutEventSubscriber>> = worker.clone();
-    event_manager.add_subscriber(subscriber);
-
-    loop {
-        if let Err(err) = event_manager.run() {
-            error!("Block worker event loop error: {:?}", err);
+    /// Completes in-flight I/O while the worker still holds the guest memory it targets, then
+    /// commits the used ring pages written since the VMM's last commit. The device flushes once
+    /// every queue is back (see `Drop for VirtioBlock`).
+    fn shutdown(mut self) -> BlockResources {
+        if let Err(err) = self.resources.disk.file_engine.drain(true) {
+            error!("Failed to drain block IO engine on finish: {:?}", err);
         }
-        if worker
-            .lock()
-            .expect("Poisoned block worker lock")
-            .is_finished()
-        {
-            break;
-        }
-    }
-}
-
-impl MutEventSubscriber for ThreadedWorker {
-    fn process(&mut self, event: Events, ops: &mut EventOps) {
-        let source = event.data();
-        let event_set = event.event_set();
-
-        if !EventSet::IN.contains(event_set) {
-            warn!(
-                "Block worker received unknown event: {:?} from source: {:?}",
-                event_set, source
-            );
-            return;
-        }
-
-        if let WorkerState::Running(worker) = &mut self.state {
-            match source {
-                Self::PROCESS_QUEUE => worker.process_queue_event(),
-                Self::PROCESS_ASYNC_COMPLETION => worker.process_async_completion_event(),
-                Self::PROCESS_CONTROL => self.process_control_event(ops),
-                _ => warn!("Block: Spurious event received: {:?}", source),
-            }
-        } else {
-            match source {
-                Self::PROCESS_CONTROL => self.process_control_event(ops),
-                _ => warn!(
-                    "Block: The device worker is not yet activated. Spurious event received: {:?}",
-                    source
-                ),
-            }
-        }
-    }
-
-    fn init(&mut self, ops: &mut EventOps) {
-        self.register_control_event(ops);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::RECV_TIMEOUT_SEC;
-    use crate::devices::virtio::block::virtio::device::{BlockRuntimeState, FileEngineType};
-    use crate::devices::virtio::block::virtio::request::{
-        VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_OK, VIRTIO_BLK_T_GET_ID,
-    };
-    use crate::devices::virtio::block::virtio::test_utils::{
-        default_block, read_blk_req_descriptors, set_queue,
-    };
-    use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
-    use crate::snapshot::Persist;
-    use crate::vstate::memory::{Bytes, GuestAddress};
-
-    #[test]
-    fn test_control_msg_batch() {
-        let mut block = default_block(FileEngineType::Sync);
-        let BlockRuntimeState::Configuring(mut resources, _) =
-            std::mem::replace(&mut block.state, BlockRuntimeState::Placeholder)
-        else {
-            unreachable!()
-        };
-        let resources = resources.pop().unwrap();
-        let expected_queue_state = resources.queue.save();
-        let queue_evt = resources.queue_evt.try_clone().unwrap();
-        let worker = BlockWorker {
-            resources,
-            active_state: ActiveState {
-                mem: default_mem(),
-                interrupt: default_interrupt(),
-            },
-            rate_limiter: block.rate_limiter.clone(),
-            discard_supported: false,
-            metrics: block.metrics.clone(),
-        };
-        let handle = WorkerHandle::spawn(Arc::new(vec![]), queue_evt, "fc_test".into()).unwrap();
-
-        handle.to_worker.send(ControlMsg::Start(worker)).unwrap();
-        handle.to_worker.send(ControlMsg::HandBack).unwrap();
-        handle.control_evt.write(1).unwrap();
-
-        match handle.from_worker.recv_timeout(RECV_TIMEOUT_SEC).unwrap() {
-            ControlResponse::HandedBack(worker) => {
-                assert_eq!(worker.resources.queue.save(), expected_queue_state);
-                // Finishing a running worker completes its I/O on its thread and returns its
-                // resources.
-                handle.start(worker);
-            }
-            response => panic!("Unexpected block worker response: {response:?}"),
-        }
-
-        assert!(handle.stop_and_wait().is_some());
-    }
-
-    #[test]
-    fn test_kick_after_hand_back() {
-        let mut block = default_block(FileEngineType::Sync);
-        let mem = default_mem();
-        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        set_queue(&mut block, 0, vq.create_queue());
-        let BlockRuntimeState::Configuring(mut resources, _) =
-            std::mem::replace(&mut block.state, BlockRuntimeState::Placeholder)
-        else {
-            unreachable!()
-        };
-        let mut resources = resources.pop().unwrap();
-        resources.queue.initialize(&mem).unwrap();
-        let queue_evt = resources.queue_evt.try_clone().unwrap();
-        let worker = BlockWorker {
-            resources,
-            active_state: ActiveState {
-                mem: mem.clone(),
-                interrupt: default_interrupt(),
-            },
-            rate_limiter: block.rate_limiter.clone(),
-            discard_supported: false,
-            metrics: block.metrics.clone(),
-        };
-        let handle = WorkerHandle::spawn(Arc::new(vec![]), queue_evt, "fc_test".into()).unwrap();
-
-        handle.start(worker);
-        handle.request_hand_back();
-        let worker = handle.handed_back();
-
-        read_blk_req_descriptors(&vq);
-        let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
-        let status_addr = GuestAddress(vq.dtable[2].addr.get());
-        vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
-        mem.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, request_type_addr)
-            .unwrap();
-
-        // A worker taken back is not on its thread, so a kick cannot process its queue.
-        handle.kick();
-        handle.commit_dirty();
-        assert_eq!(vq.used.idx.get(), 0);
-
-        // Started again, the next kick processes the pending request.
-        handle.start(worker);
-        handle.kick();
-        handle.request_hand_back();
-        let worker = handle.handed_back();
-        assert_eq!(vq.used.idx.get(), 1);
-        assert_eq!(vq.used.ring[0].get().id, 0);
-        assert_eq!(vq.used.ring[0].get().len, VIRTIO_BLK_ID_BYTES + 1);
-        assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
-
-        drop(worker);
-        assert!(handle.stop_and_wait().is_none());
-    }
-
-    #[test]
-    #[should_panic(expected = "Failed to receive block worker response")]
-    fn test_finish_after_worker_panic() {
-        let handle = WorkerHandle::spawn(
-            Arc::new(vec![]),
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-            "fc_test".into(),
-        )
-        .unwrap();
-
-        // A parked worker has nothing to hand back, so its thread panics. Finishing it afterwards
-        // panics too, as every other request to a dead worker does, instead of waiting.
-        handle.request(ControlMsg::HandBack);
-        handle.stop_and_wait();
+        self.resources.queue.commit_dirty();
+        self.resources
     }
 }

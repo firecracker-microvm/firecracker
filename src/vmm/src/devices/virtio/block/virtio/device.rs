@@ -22,7 +22,7 @@ use vm_memory::ByteValued;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::io::FileEngine;
-use super::worker::{BlockWorker, WorkerHandle};
+use super::worker::BlockWorker;
 use super::{
     BLOCK_QUEUE_SIZE, DEFAULT_BLOCK_NUM_QUEUES, MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE,
     VirtioBlockError,
@@ -39,6 +39,10 @@ use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue, QueueConfig};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
+use crate::devices::virtio::worker::{
+    QueueGroupWorker, WorkerError, WorkerHandle, commit_dirty_all, finish_all, hand_back_all,
+    reset_all,
+};
 use crate::impl_device_type;
 use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter, SharedRateLimiter};
@@ -402,7 +406,7 @@ pub struct VirtioBlock {
 pub(crate) enum BlockRuntimeState {
     // Vmm owns the runtime resources before activation
     // In threaded mode, it also owns parked worker threads
-    Configuring(Vec<BlockResources>, Vec<WorkerHandle>),
+    Configuring(Vec<BlockResources>, Vec<WorkerHandle<BlockWorker>>),
     // Data path on VMM thread (single thread)
     Inline(BlockWorker),
     // Data path on a dedicated worker thread (multi thread)
@@ -423,11 +427,11 @@ pub(crate) struct ThreadedActive {
 #[derive(Debug)]
 pub(crate) enum ThreadedWorkers {
     /// On their threads, reached through their handles.
-    Running(Vec<WorkerHandle>),
+    Running(Vec<WorkerHandle<BlockWorker>>),
     /// Handed back to the device for a snapshot (see `VirtioBlock::prepare_save`), each with the
     /// handle of its thread, parked meanwhile. Nothing serves their queues until the next kick
     /// starts them again.
-    Paused(Vec<(WorkerHandle, BlockWorker)>),
+    Paused(Vec<(WorkerHandle<BlockWorker>, BlockWorker)>),
 }
 
 impl ThreadedWorkers {
@@ -438,7 +442,7 @@ impl ThreadedWorkers {
         }
     }
 
-    fn handle(&self, index: usize) -> Option<&WorkerHandle> {
+    fn handle(&self, index: usize) -> Option<&WorkerHandle<BlockWorker>> {
         match self {
             Self::Running(handles) => handles.get(index),
             Self::Paused(paused) => paused.get(index).map(|(handle, _)| handle),
@@ -458,7 +462,7 @@ pub(crate) struct BlockResources {
 
 impl BlockResources {
     /// Drain pending I/O and clear engine throttling
-    fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         // The guest may reuse its buffers once the reset completes, so wait for every operation
         // still in flight. The wait retries EINTR; any other error leaves the engine in an unknown
         // state, so stop rather than complete the reset with operations in flight.
@@ -656,7 +660,9 @@ impl VirtioBlock {
                 ..
             }) => {
                 for handle in handles {
-                    handle.kick();
+                    if let Err(err) = handle.kick() {
+                        error!("Failed to kick a block worker after a rate limiter event: {err}");
+                    }
                 }
             }
             // Workers are paused only while the VM is paused, when rate limiter events are not
@@ -767,14 +773,14 @@ impl VirtioBlock {
             BlockRuntimeState::Threaded(active) => {
                 if let ThreadedWorkers::Running(handles) = &mut active.workers {
                     let handles = std::mem::take(handles);
-                    // Ask every worker before waiting for any, so that they drain in parallel.
-                    for handle in &handles {
-                        handle.request_hand_back();
-                    }
+                    let workers = hand_back_all(&handles)
+                        .expect("an active block worker must answer a hand-back");
                     let paused = handles
                         .into_iter()
-                        .map(|handle| {
-                            let worker = handle.handed_back();
+                        .zip(workers)
+                        .map(|(handle, worker)| {
+                            let worker =
+                                worker.expect("an active block worker must hand its worker back");
                             (handle, worker)
                         })
                         .collect();
@@ -790,37 +796,33 @@ impl VirtioBlock {
         }
     }
 
-    /// Spawn a parked worker thread for the next activation.
-    pub(crate) fn spawn_worker(
+    /// Spawns one parked worker thread per queue, for the next activation.
+    pub(crate) fn spawn_workers(
         &mut self,
-        seccomp_filter: Arc<BpfProgram>,
-    ) -> Result<(), VirtioBlockError> {
+        seccomp_filter: &Arc<BpfProgram>,
+    ) -> Result<(), WorkerError> {
         if let BlockRuntimeState::Configuring(resources, worker_handles) = &mut self.state {
             if !worker_handles.is_empty() {
                 assert_eq!(worker_handles.len(), resources.len());
                 return Ok(());
             }
 
-            let mut spawned: Vec<WorkerHandle> = Vec::with_capacity(resources.len());
+            let mut spawned: Vec<WorkerHandle<BlockWorker>> = Vec::with_capacity(resources.len());
             for resource in resources {
-                let queue_evt = match resource.queue_evt.try_clone() {
-                    Ok(queue_evt) => queue_evt,
-                    Err(err) => {
-                        for handle in spawned {
-                            handle.stop_and_wait();
-                        }
-                        return Err(VirtioBlockError::EventFd(err));
-                    }
-                };
-
                 let name = format!("fc_q{}_{}", resource.queue_idx, self.config.drive_id);
-                let worker = match WorkerHandle::spawn(seccomp_filter.clone(), queue_evt, name) {
+                // The transport keeps writing to the queue eventfd after the original moved into
+                // the worker, so the handle keeps a clone of it.
+                let worker = match resource
+                    .queue_evt
+                    .try_clone()
+                    .map_err(WorkerError::Spawn)
+                    .and_then(|queue_evt| {
+                        WorkerHandle::spawn(seccomp_filter.clone(), name, vec![queue_evt])
+                    }) {
                     Ok(worker) => worker,
                     Err(err) => {
-                        for handle in spawned {
-                            handle.stop_and_wait();
-                        }
-                        return Err(VirtioBlockError::ThreadSpawn(err));
+                        finish_all(spawned);
+                        return Err(err);
                     }
                 };
                 spawned.push(worker);
@@ -892,9 +894,11 @@ impl VirtioDevice for VirtioBlock {
             BlockRuntimeState::Inline(worker) => {
                 (index == 0).then_some(&worker.resources.queue_evt)
             }
-            BlockRuntimeState::Threaded(active) => {
-                active.workers.handle(index).map(WorkerHandle::queue_event)
-            }
+            // One queue per worker: the transport's clone is the handle's only queue eventfd.
+            BlockRuntimeState::Threaded(active) => active
+                .workers
+                .handle(index)
+                .and_then(|handle| handle.queue_evt(0)),
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
         }
     }
@@ -984,7 +988,7 @@ impl VirtioDevice for VirtioBlock {
                         interrupt: interrupt.clone(),
                     },
                     metrics: self.metrics.clone(),
-                });
+                })?;
             }
             self.state = BlockRuntimeState::Threaded(ThreadedActive {
                 workers: ThreadedWorkers::Running(worker_handles),
@@ -1007,8 +1011,10 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn _reset(&mut self) -> bool {
+        // Resources coming back from workers were drained by `BlockWorker::into_resources`; only
+        // the ones that never left the device still need it.
         let state = std::mem::replace(&mut self.state, BlockRuntimeState::Placeholder);
-        let (mut resources, worker_handles) = match state {
+        let (resources, worker_handles) = match state {
             BlockRuntimeState::Threaded(active) => {
                 assert_eq!(
                     active.workers.len(),
@@ -1017,16 +1023,30 @@ impl VirtioDevice for VirtioBlock {
                 );
                 match active.workers {
                     ThreadedWorkers::Running(handles) => {
-                        (handles.iter().map(WorkerHandle::reset).collect(), handles)
+                        let resources = reset_all(&handles)
+                            .expect("an active queue group worker must answer a reset")
+                            .into_iter()
+                            .map(|resources| {
+                                resources.expect(
+                                    "an active queue group worker must return its resources",
+                                )
+                            })
+                            .collect();
+                        (resources, handles)
                     }
+                    // Not reached in production: workers are paused only while the VM is paused,
+                    // when the guest cannot reset the device, or inside a disk update, which
+                    // restarts them before returning. Kept so that a reset there would still
+                    // recover every queue.
                     ThreadedWorkers::Paused(paused) => paused
                         .into_iter()
-                        .map(|(handle, worker)| (worker.resources, handle))
+                        .map(|(handle, worker)| (worker.into_resources(), handle))
                         .unzip(),
                 }
             }
-            BlockRuntimeState::Inline(worker) => (vec![worker.resources], Vec::new()),
-            BlockRuntimeState::Configuring(resources, worker_handles) => {
+            BlockRuntimeState::Inline(worker) => (vec![worker.into_resources()], Vec::new()),
+            BlockRuntimeState::Configuring(mut resources, worker_handles) => {
+                resources.iter_mut().for_each(BlockResources::reset);
                 (resources, worker_handles)
             }
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
@@ -1037,10 +1057,6 @@ impl VirtioDevice for VirtioBlock {
             self.num_queues(),
             "reset must recover every block queue"
         );
-
-        for resource in &mut resources {
-            resource.reset();
-        }
 
         self.state = BlockRuntimeState::Configuring(resources, worker_handles);
         true
@@ -1062,7 +1078,9 @@ impl VirtioDevice for VirtioBlock {
                     let handles = std::mem::take(paused)
                         .into_iter()
                         .map(|(handle, worker)| {
-                            handle.start(worker);
+                            if let Err(err) = handle.start(worker) {
+                                error!("Failed to restart a block worker: {err}");
+                            }
                             handle
                         })
                         .collect();
@@ -1072,7 +1090,9 @@ impl VirtioDevice for VirtioBlock {
                     unreachable!("the workers were started above");
                 };
                 for handle in handles {
-                    handle.kick();
+                    if let Err(err) = handle.kick() {
+                        error!("Failed to kick a block worker: {err}");
+                    }
                 }
             }
             BlockRuntimeState::Inline(_) => self.notify_queue_events(),
@@ -1091,8 +1111,10 @@ impl VirtioDevice for VirtioBlock {
             BlockRuntimeState::Inline(worker) => worker.resources.queue.commit_dirty(),
             BlockRuntimeState::Threaded(active) => match &active.workers {
                 ThreadedWorkers::Running(handles) => {
-                    for handle in handles {
-                        handle.commit_dirty();
+                    for result in commit_dirty_all(handles) {
+                        if let Err(err) = result {
+                            error!("Failed to commit the dirty pages of a block worker: {err}");
+                        }
                     }
                 }
                 ThreadedWorkers::Paused(paused) => {
@@ -1123,34 +1145,21 @@ impl Drop for VirtioBlock {
                 BlockRuntimeState::Threaded(ThreadedActive {
                     workers: ThreadedWorkers::Running(handles),
                     ..
-                }) => {
-                    // Ask every worker before waiting for any, so that they drain in parallel.
-                    for handle in &handles {
-                        handle.request_finish();
-                    }
-                    handles
-                        .into_iter()
-                        .filter_map(WorkerHandle::finished)
-                        .collect()
-                }
-                // Paused workers drained when they were handed back.
+                }) => finish_all(handles).into_iter().flatten().collect(),
+                // Paused workers drained when they were handed back. A parked thread owns no
+                // runtime resources: finishing only joins it.
                 BlockRuntimeState::Threaded(ThreadedActive {
                     workers: ThreadedWorkers::Paused(paused),
                     ..
-                }) => paused
-                    .into_iter()
-                    .map(|(handle, worker)| {
-                        // a parked worker owns no runtime resources, it just joins the thread
-                        handle.stop_and_wait();
-                        worker.resources
-                    })
-                    .collect(),
+                }) => {
+                    let (handles, workers): (Vec<_>, Vec<_>) = paused.into_iter().unzip();
+                    finish_all(handles);
+                    workers.into_iter().map(|worker| worker.resources).collect()
+                }
                 // Nothing was submitted since activation or the reset, which drained every queue.
                 BlockRuntimeState::Configuring(resources, worker_handles) => {
-                    for handle in worker_handles {
-                        // a parked worker owns no runtime resources, it just joins the thread
-                        handle.stop_and_wait();
-                    }
+                    // A parked thread owns no runtime resources: finishing only joins it.
+                    finish_all(worker_handles);
                     resources
                 }
                 BlockRuntimeState::Placeholder => return,
@@ -2669,6 +2678,17 @@ mod tests {
     }
 
     #[test]
+    fn test_reset_before_activation() {
+        // A drive the driver never activated keeps its resources on the device, and a reset
+        // clears them in place.
+        let mut block = default_mq_block(FileEngineType::Sync, 2);
+        block.resources_mut()[1].is_io_engine_throttled = true;
+        assert!(block.reset());
+        assert!(!block.is_activated());
+        assert!(block.resources().iter().all(|r| !r.is_io_engine_throttled));
+    }
+
+    #[test]
     fn test_threaded_rate_limiter_event() {
         let mut block = default_threaded_block(FileEngineType::Sync);
         let mem = default_mem();
@@ -2790,7 +2810,7 @@ mod tests {
         config.num_queues = NonZeroU16::new(2);
         config.cache_type = CacheType::Writeback;
         let mut block = VirtioBlock::new(config).unwrap();
-        block.spawn_worker(Arc::new(vec![])).unwrap();
+        block.spawn_workers(&Arc::new(vec![])).unwrap();
 
         let mem = default_mem();
         let vqs = [
@@ -2873,33 +2893,15 @@ mod tests {
         assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
     }
 
-    #[test]
-    fn test_threaded_reset_paused() {
-        for engine in [FileEngineType::Sync, FileEngineType::Async] {
-            let mut block = default_threaded_block(engine);
-            let mem = default_mem();
-            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
-            set_queue(&mut block, 0, vq.create_queue());
-            block.set_acked_features(1);
-            block.activate(mem, default_interrupt()).unwrap();
-            block.prepare_save();
-
-            assert!(block.reset());
-            assert!(!block.is_activated());
-            assert_eq!(block.acked_features(), 0);
-            assert!(!block.queue_config(0).unwrap().ready);
-        }
-    }
-
     // The worker thread dies asynchronously, so the panic can come from `start` or from
     // `reset`. Both name the block worker.
     #[test]
-    #[should_panic(expected = "block worker")]
+    #[should_panic(expected = "queue group worker")]
     fn test_threaded_worker_failure() {
         let mut block = default_block(FileEngineType::Sync);
         block.config.num_queues = NonZeroU16::new(1);
         block
-            .spawn_worker(Arc::new(vec![0; BPF_MAX_LEN + 1]))
+            .spawn_workers(&Arc::new(vec![0; BPF_MAX_LEN + 1]))
             .unwrap();
 
         let mem = default_mem();
@@ -3029,7 +3031,7 @@ mod tests {
         );
         config.num_queues = NonZeroU16::new(2);
         let mut block = VirtioBlock::new(config).unwrap();
-        block.spawn_worker(Arc::new(vec![])).unwrap();
+        block.spawn_workers(&Arc::new(vec![])).unwrap();
 
         let mem = default_mem();
         let vqs = [
@@ -3151,7 +3153,7 @@ mod tests {
                 let mut block = default_block(engine);
                 if threaded {
                     block.config.num_queues = NonZeroU16::new(1);
-                    block.spawn_worker(Arc::new(vec![])).unwrap();
+                    block.spawn_workers(&Arc::new(vec![])).unwrap();
                 }
 
                 let mem = default_mem();

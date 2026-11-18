@@ -29,6 +29,7 @@ pub mod transport;
 pub mod vhost_user;
 pub mod vhost_user_metrics;
 pub mod vsock;
+pub mod worker;
 
 /// When the driver initializes the device, it lets the device know about the
 /// completed stages using the Device Status Field.
@@ -59,6 +60,8 @@ pub enum ActivateError {
     QueueMismatch { expected: usize, got: usize },
     /// Failed to write to activate eventfd
     EventFd,
+    /// Failed to start a queue group worker: {0}
+    Worker(#[from] worker::WorkerError),
     /// Vhost user: {0}
     VhostUser(vhost_user::VhostUserError),
     /// Setting tap interface offload flags failed: {0}
