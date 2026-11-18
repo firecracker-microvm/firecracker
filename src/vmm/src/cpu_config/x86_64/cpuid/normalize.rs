@@ -34,7 +34,7 @@ pub enum VendorIdError {
     MissingLeaf0,
 }
 
-/// Error type for setting leaf 1 section of `IntelCpuid::normalize`.
+/// Error type for setting leaf 1 section of [`super::Cpuid::normalize`].
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum FeatureInformationError {
     /// Leaf 0x1 is missing from CPUID.
@@ -58,7 +58,7 @@ pub enum GetMaxCpusPerPackageError {
     Overflow,
 }
 
-/// Error type for setting leaf b section of `IntelCpuid::normalize`.
+/// Error type for setting leaf 0xB section of [`super::Cpuid::normalize`].
 #[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum ExtendedTopologyError {
