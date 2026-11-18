@@ -115,6 +115,10 @@ and this project adheres to
   other than a single `Content-Length: 0`, or a header name that is not an HTTP
   token. MMDS requests never carry a body, so no valid request needs any of
   these. Such a request receives a `400` response, and the connection is closed.
+- [#6456](https://github.com/firecracker-microvm/firecracker/pull/6456): Raised
+  the maximum number of vCPUs of a KVM microVM from 32 to 64. CPUID leaf 0xB
+  (and 0x1F where present) subleaf 1 `EAX[4:0]` now reports 6 instead of 5 for
+  every microVM; the topology a guest reports is unchanged.
 
 ### Deprecated
 

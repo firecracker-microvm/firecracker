@@ -759,6 +759,7 @@ mod tests {
     };
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
+    use crate::vstate::vm::MAX_SUPPORTED_KVM_VCPUS;
 
     fn default_net_cfg() -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {
@@ -1752,9 +1753,10 @@ mod tests {
             Err(MachineConfigError::InvalidVcpuCount)
         );
 
-        // Counts above the KVM limit (32) are accepted by the machine-config API;
-        // the per-path limit is enforced when the VM is started.
-        aux_vm_config.vcpu_count = Some(33);
+        // Counts above the limit
+        // ([`MAX_SUPPORTED_KVM_VCPUS`](crate::vstate::vm::MAX_SUPPORTED_KVM_VCPUS)) are accepted by
+        // the machine-config API; the per-path limit is enforced when the VM is started.
+        aux_vm_config.vcpu_count = Some(MAX_SUPPORTED_KVM_VCPUS + 1);
         vm_resources.update_machine_config(&aux_vm_config).unwrap();
 
         // Check that SMT is not supported on aarch64, and that on x86_64 enabling it requires vcpu
