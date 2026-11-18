@@ -10,13 +10,19 @@ from packaging import version
 
 import framework.utils_cpuid as utils
 from framework.artifacts import pin_pci
+from framework.kvm import MAX_SUPPORTED_VCPUS
 from framework.properties import global_props
 from framework.utils import get_kernel_version
 from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 pytestmark = pin_vm_backend(VM_BACKEND_KVM)
 
-TOPOLOGY_STR = {1: "0", 2: "0,1", 16: "0-15"}
+TOPOLOGY_STR = {
+    1: "0",
+    2: "0,1",
+    16: "0-15",
+    MAX_SUPPORTED_VCPUS: f"0-{MAX_SUPPORTED_VCPUS - 1}",
+}
 PLATFORM = platform.machine()
 
 
@@ -196,7 +202,7 @@ def _check_cache_topology_arm(test_microvm, no_cpus, kernel_version_tpl):
         assert guest_slice == host_slice
 
 
-@pytest.mark.parametrize("num_vcpus", [1, 2, 16])
+@pytest.mark.parametrize("num_vcpus", [1, 2, 16, MAX_SUPPORTED_VCPUS])
 @pytest.mark.parametrize("htt", [True, False], ids=["HTT_ON", "HTT_OFF"])
 # The transport plays no part in what is asserted: guest CPU state.
 @pin_pci(True)
@@ -232,7 +238,7 @@ def test_cpu_topology(uvm, num_vcpus, htt):
     case guest uses values from CLIDR_EL1 which will not contain info about L1$
     and so this test will fail.""",
 )
-@pytest.mark.parametrize("num_vcpus", [1, 2, 16])
+@pytest.mark.parametrize("num_vcpus", [1, 2, 16, MAX_SUPPORTED_VCPUS])
 @pytest.mark.parametrize("htt", [True, False], ids=["HTT_ON", "HTT_OFF"])
 # The transport plays no part in what is asserted: guest CPU state.
 @pin_pci(True)
