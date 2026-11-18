@@ -14,8 +14,6 @@ use crate::cpu_config::x86_64::cpuid::{
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum NormalizeCpuidError {
-    /// Provided `cpu_bits` is >=8: {0}.
-    CpuBits(u8),
     /// Failed to passthrough cache topology: {0}
     PassthroughCacheTopology(#[from] PassthroughCacheTopologyError),
     /// Missing leaf 0x7 / subleaf 0.
@@ -50,8 +48,8 @@ pub enum FeatureEntryError {
     MissingLeaf0x80000008,
     /// Failed to set number of physical threads (CPUID.80000008H:ECX[7:0]): {0}
     NumberOfPhysicalThreads(CheckedAssignError),
-    /// Failed to set number of physical threads (CPUID.80000008H:ECX[7:0]) due to overflow.
-    NumberOfPhysicalThreadsOverflow,
+    /// Failed to set number of physical threads (CPUID.80000008H:ECX[7:0]) due to underflow.
+    NumberOfPhysicalThreadsUnderflow,
 }
 
 /// Error type for setting leaf 0x8000001d section of [`super::AmdCpuid::normalize`].
@@ -60,11 +58,11 @@ pub enum ExtendedCacheTopologyError {
     /// Missing leaf 0x8000001d.
     MissingLeaf0x8000001d,
     #[rustfmt::skip]
-    /// Failed to set number of logical processors sharing cache(CPUID.(EAX=8000001DH,ECX={0}):EAX[25:14]): {1}
+    /// Failed to set number of logical processors sharing cache (CPUID.(EAX=8000001DH,ECX={0}):EAX[25:14]): {1}
     NumSharingCache(u32, CheckedAssignError),
     #[rustfmt::skip]
-    /// Failed to set number of logical processors sharing cache (CPUID.(EAX=8000001DH,ECX={0}):EAX[25:14]) due to overflow.
-    NumSharingCacheOverflow(u32),
+    /// Failed to set number of logical processors sharing cache (CPUID.(EAX=8000001DH,ECX={0}):EAX[25:14]) due to underflow.
+    NumSharingCacheUnderflow(u32),
 }
 
 /// Error type for setting leaf 0x8000001e section of [`super::AmdCpuid::normalize`].
@@ -76,7 +74,7 @@ pub enum ExtendedApicIdError {
     ExtendedApicId(CheckedAssignError),
     /// Missing leaf 0x8000001e.
     MissingLeaf0x8000001e,
-    /// Failed to set threads per core unit (CPUID:8000001EH:EBX[15:8]): {0}
+    /// Failed to set threads per compute unit (CPUID.8000001EH:EBX[15:8]): {0}
     ThreadPerComputeUnit(CheckedAssignError),
 }
 
@@ -211,7 +209,7 @@ impl super::AmdCpuid {
     /// Update AMD feature entry.
     #[allow(clippy::unwrap_used, clippy::unwrap_in_result)]
     fn update_amd_feature_entry(&mut self, cpu_count: u8) -> Result<(), FeatureEntryError> {
-        /// This value allows at most 64 logical threads within a package.
+        /// This value allows at most 128 logical threads within a package.
         const THREAD_ID_MAX_SIZE: u32 = 7;
 
         // We don't support more than 128 threads right now.
@@ -236,7 +234,7 @@ impl super::AmdCpuid {
         // (e.g., if NT = 0, then there is one thread). See “Legacy Method” on page 633.
         let sub = cpu_count
             .checked_sub(1)
-            .ok_or(FeatureEntryError::NumberOfPhysicalThreadsOverflow)?;
+            .ok_or(FeatureEntryError::NumberOfPhysicalThreadsUnderflow)?;
         set_range(&mut leaf_80000008.result.ecx, 0..=7, u32::from(sub))
             .map_err(FeatureEntryError::NumberOfPhysicalThreads)?;
 
@@ -291,7 +289,7 @@ impl super::AmdCpuid {
                     3 => {
                         let sub = cpu_count
                             .checked_sub(1)
-                            .ok_or(ExtendedCacheTopologyError::NumSharingCacheOverflow(i))?;
+                            .ok_or(ExtendedCacheTopologyError::NumSharingCacheUnderflow(i))?;
                         set_range(&mut subleaf.result.eax, 14..=25, u32::from(sub))
                             .map_err(|err| ExtendedCacheTopologyError::NumSharingCache(i, err))?;
                     }
