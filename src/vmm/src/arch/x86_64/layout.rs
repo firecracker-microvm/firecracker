@@ -82,7 +82,7 @@ pub const SYSTEM_MEM_START: u64 = 0x9fc00;
 ///   devices: 71 bytes per device)
 ///
 /// The above assumes a maximum of 256 vCPUs, because that's what ACPI allows, but currently
-/// we have a hard limit of up to 32 vCPUs.
+/// we have a hard limit of up to `MAX_SUPPORTED_KVM_VCPUS` vCPUs.
 ///
 /// Moreover, for MPTable we need up to 5304 bytes (284 + 20 * #vCPUS) assuming again
 /// a maximum number of 256 vCPUs.

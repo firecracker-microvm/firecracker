@@ -54,6 +54,8 @@ and this project adheres to
 
 ### Changed
 
+- [#6456](https://github.com/firecracker-microvm/firecracker/pull/6456): Raised
+  the maximum number of vCPUs of a KVM microVM from 32 to 64.
 - [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228): Device
   hotplug now requires `pcie_hotplug_ports` to be set in the machine
   configuration, and only devices behind a PCIe root port can be hot-unplugged.
