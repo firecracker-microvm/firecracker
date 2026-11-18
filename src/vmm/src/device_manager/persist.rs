@@ -469,7 +469,7 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
             };
             let mmio_transport = Arc::new(Mutex::new(
                 MmioTransport::restore(restore_args, &state.transport_state)
-                    .map_err(|()| DevicePersistError::MmioTransport)?,
+                    .map_err(DevicePersistError::MmioTransport)?,
             ));
 
             vm.resource_allocator()
