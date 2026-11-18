@@ -3,6 +3,7 @@
 Firecracker is maintained by a dedicated team within Amazon:
 
 - Egor Lazarchuk <yegorlz@amazon.co.uk>
+- Gianmaria Rovelli <grovelli@amazon.com>
 - Ilias Stamatis <ilstam@amazon.com>
 - Jack Thomson <jackabt@amazon.com>
 - James Curtis <jxcurtis@amazon.com>
