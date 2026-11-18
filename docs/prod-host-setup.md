@@ -86,6 +86,16 @@ While there is no security impact caused by the deadlock, we recommend that
 customers have an overwatcher process on the host, that periodically looks for
 Firecracker processes that are unresponsive, and kills them, by SIGKILL.
 
+### Snapshot files
+
+Firecracker trusts snapshot files as much as it trusts the host and the API
+client: it performs only basic sanity checks on them and does not defend against
+crafted files. Treat snapshots as privileged input: only restore snapshots your
+own infrastructure produced, protect their integrity and confidentiality in
+transit and at rest, and keep each jail limited to the resources of its own
+microVM so that a path inside a snapshot cannot name anything else. See
+[Snapshot files management](snapshotting/snapshot-support.md#snapshot-files-management).
+
 ## Jailer Configuration
 
 For assuring secure isolation in production deployments, Firecracker should be
@@ -115,6 +125,12 @@ To set up the jailer correctly, you'll need to:
   recommended that each runs with its unique `uid` and `gid` to provide an extra
   layer of security for their individually owned resources in the unlikely case
   where any one of the jails is broken out of.
+- We recommend giving every microVM its own network namespace and passing it to
+  the jailer with `--netns`: it limits what the Firecracker process can reach on
+  the host network and keeps each microVM's TAP device, routes and firewall
+  rules separate; see [network-setup](network-setup.md),
+  [Network Connectivity for Clones](snapshotting/network-for-clones.md) and
+  [Filtering Guest Egress Network Traffic](#filtering-guest-egress-network-traffic).
 
 Firecracker's customers are strongly advised to use the provided
 `resource-limits` and `cgroup` functionalities encapsulated within jailer, in
@@ -173,10 +189,47 @@ Here are some recommendations on how to limit the process's resources:
   - `cpuacct.usage_percpu` - limits the CPU time, in ns, consumed by the process
     in the group, separated by CPU
 
+### NUMA placement
+
+Firecracker does not expose a NUMA topology to a KVM microVM: the guest always
+sees a single node, and there is no API to choose which host node backs a
+microVM. vCPUs are ordinary host threads and guest memory is ordinary host
+memory, so on a multi-socket host the scheduler is free to run a vCPU on one
+node while the memory it touches was faulted in on another. The result is higher
+and less predictable memory latency, and noisy neighbours across the socket
+interconnect. A [Nitro Sandbox](nitro-sandboxes/README.md) is different: its
+`numa_nodes` configuration places vCPUs and memory on chosen parent nodes
+without pinning the Firecracker process; see
+[NUMA placement](nitro-sandboxes/features.md#numa-placement).
+
+We recommend keeping each KVM microVM on a single node. Any mechanism that
+constrains both the CPUs and the memory nodes of the Firecracker process works,
+for example `numactl --cpunodebind=0 --membind=0`, or the `cpuset` cgroup, which
+the jailer can set up before Firecracker starts (see the
+[jailer example](jailer.md#example-run-and-notes)):
+
+```bash
+--cgroup cpuset.mems=0 --cgroup cpuset.cpus=$(cat /sys/devices/system/node/node0/cpulist)
+```
+
+Whichever mechanism you use, the memory node restriction also selects the node
+whose huge page pool backs a microVM that uses [huge pages](hugepages.md), so
+reserve huge pages per node (`/sys/devices/system/node/node<N>/hugepages/`)
+rather than only globally. The same applies when restoring a snapshot: guest
+memory is faulted in on the nodes allowed for the process that populates it,
+which is Firecracker for a file-backed restore and the UFFD handler for a UFFD
+restore, so give that process the placement the memory should end up with.
+
 Additional details of Jailer features can be found in the
 [Jailer documentation](jailer.md).
 
 ## Host Security Configuration
+
+### Nested virtualization
+
+Firecracker does not need nested virtualization. To reduce the attack surface,
+disable it on Firecracker hosts: load KVM with `kvm_intel.nested=0` or
+`kvm_amd.nested=0`, and do not boot arm64 hosts with `kvm-arm.mode=nested`.
 
 ### Constrain CPU overhead caused by kvm-pit kernel threads
 
