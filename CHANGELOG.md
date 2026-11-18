@@ -126,6 +126,9 @@ and this project adheres to
 
 ### Fixed
 
+- Fixed a failure when creating a snapshot or dumping the CPU configuration on
+  x86_64 if Firecracker needed to read 256 or more model-specific registers.
+
 - [#6302](https://github.com/firecracker-microvm/firecracker/issues/6302): Fixed
   AMX tile state being lost after a snapshot restore. The IA32_XFD and
   IA32_XFD_ERR MSRs are now saved in snapshots. Without them a restored guest

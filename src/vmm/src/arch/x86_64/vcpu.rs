@@ -10,9 +10,9 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use kvm_bindings::{
-    CpuId, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES, KVM_VCPU_TSC_CTRL, KVM_VCPU_TSC_OFFSET,
-    KVMIO, Msrs, Xsave, kvm_debugregs, kvm_device_attr, kvm_lapic_state, kvm_mp_state, kvm_regs,
-    kvm_sregs, kvm_vcpu_events, kvm_xcrs, kvm_xsave, kvm_xsave2,
+    CpuId, KVM_MAX_CPUID_ENTRIES, KVM_VCPU_TSC_CTRL, KVM_VCPU_TSC_OFFSET, KVMIO, Msrs, Xsave,
+    kvm_debugregs, kvm_device_attr, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs,
+    kvm_vcpu_events, kvm_xcrs, kvm_xsave, kvm_xsave2,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use serde::{Deserialize, Serialize};
@@ -538,9 +538,7 @@ impl KvmVcpu {
 
     /// Get MSR chunks for the given MSR index list.
     ///
-    /// KVM only supports getting `KVM_MAX_MSR_ENTRIES` at a time, so we divide
-    /// the list of MSR indices into chunks, call `KVM_GET_MSRS` for each
-    /// chunk, and collect into a [`Vec<Msrs>`].
+    /// Read the indices in batches with `KVM_GET_MSRS`, moving deferred MSRs to the last chunk.
     ///
     /// # Arguments
     ///
@@ -556,13 +554,15 @@ impl KvmVcpu {
         &self,
         mut msr_index_iter: impl ExactSizeIterator<Item = u32>,
     ) -> Result<Vec<Msrs>, KvmVcpuError> {
-        let num_chunks = msr_index_iter.len().div_ceil(KVM_MAX_MSR_ENTRIES);
+        // Linux rejects nmsrs >= MAX_IO_MSRS (256), even though the bindings can hold 256 entries.
+        const MAX_MSRS_PER_IOCTL: usize = 255;
+        let num_chunks = msr_index_iter.len().div_ceil(MAX_MSRS_PER_IOCTL);
 
         // + 1 for the chunk of deferred MSRs
         let mut msr_chunks: Vec<Msrs> = Vec::with_capacity(num_chunks + 1);
 
         for _ in 0..num_chunks {
-            let chunk_len = msr_index_iter.len().min(KVM_MAX_MSR_ENTRIES);
+            let chunk_len = msr_index_iter.len().min(MAX_MSRS_PER_IOCTL);
             let chunk = self.get_msr_chunk(&mut msr_index_iter, chunk_len)?;
             msr_chunks.push(chunk);
         }
@@ -1399,6 +1399,19 @@ pub(crate) mod tests {
             &msr_chunks,
             &[(MSR_IA32_TSC_DEADLINE, 1), (MSR_IA32_TSC, 2)],
         );
+    }
+
+    #[test]
+    fn test_get_msr_chunks_256_entries() {
+        use crate::arch::x86_64::generated::msr_index::MSR_STAR;
+
+        let (_vm, vcpu) = setup_vcpu(0x1000);
+        // Repeat a readable MSR so the test does not require 256 distinct host MSRs.
+        let mut indices = [MSR_IA32_TSC; 256];
+        indices[255] = MSR_STAR;
+        let chunks = vcpu.get_msr_chunks(indices.iter().copied()).unwrap();
+        let saved = chunks.iter().flat_map(|chunk| chunk.as_slice());
+        assert!(saved.map(|entry| entry.index).eq(indices));
     }
 
     #[test]
