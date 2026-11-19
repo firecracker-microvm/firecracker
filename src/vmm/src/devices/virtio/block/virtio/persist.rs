@@ -167,6 +167,7 @@ impl Persist<'_> for VirtioBlock {
                     is_read_only,
                     state.file_engine_type.into(),
                     state.disk_image_format,
+                    config.discard,
                 )?,
                 is_io_engine_throttled: false,
             });
