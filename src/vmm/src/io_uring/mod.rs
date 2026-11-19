@@ -109,6 +109,18 @@ impl<T: Debug> IoUring<T> {
         restrictions: Vec<Restriction>,
         eventfd: Option<RawFd>,
     ) -> Result<Self, IoUringError> {
+        Self::new_with_required_ops(num_entries, files, restrictions, eventfd, &[])
+    }
+
+    /// Create a new instance that also requires `extra_ops` to be supported by the host
+    /// kernel, in addition to the read and write operations required by [`IoUring::new`].
+    pub fn new_with_required_ops(
+        num_entries: u32,
+        files: Vec<&File>,
+        restrictions: Vec<Restriction>,
+        eventfd: Option<RawFd>,
+        extra_ops: &[OpCode],
+    ) -> Result<Self, IoUringError> {
         let mut params = io_uring_params {
             // Create the ring as disabled, so that we may register restrictions.
             flags: generated::IORING_SETUP_R_DISABLED,
@@ -149,7 +161,7 @@ impl<T: Debug> IoUring<T> {
             slab,
         };
 
-        instance.check_operations()?;
+        instance.check_operations(extra_ops)?;
 
         if let Some(eventfd) = eventfd {
             instance.register_eventfd(eventfd)?;
@@ -357,7 +369,7 @@ impl<T: Debug> IoUring<T> {
         Ok(())
     }
 
-    fn check_operations(&self) -> Result<(), IoUringError> {
+    fn check_operations(&self, extra_ops: &[OpCode]) -> Result<(), IoUringError> {
         let mut probes = ProbeWrapper::new(PROBE_LEN).map_err(IoUringError::Fam)?;
 
         // SAFETY: Safe because values are valid and we check the return value.
@@ -380,7 +392,7 @@ impl<T: Debug> IoUring<T> {
             .map(|op| op.op)
             .collect();
 
-        for opcode in REQUIRED_OPS.iter() {
+        for opcode in REQUIRED_OPS.iter().chain(extra_ops) {
             if !supported_opcodes.contains(&(*opcode as u8)) {
                 return Err(IoUringError::UnsupportedOperation((*opcode).into()));
             }
@@ -406,6 +418,64 @@ mod tests {
     /// BEGIN PROPERTY BASED TESTING
     use super::*;
     use crate::vstate::memory::{Bytes, MmapRegion};
+
+    #[test]
+    fn test_required_ops() {
+        let file = TempFile::new().unwrap().into_file();
+        // Fsync and fallocate exist on every host kernel Firecracker supports.
+        IoUring::<u32>::new_with_required_ops(
+            4,
+            vec![&file],
+            vec![],
+            None,
+            &[OpCode::Fsync, OpCode::Fallocate],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_fallocate_punch_hole() {
+        const FALLOC_FL_KEEP_SIZE_PUNCH_HOLE: u32 = 0x03;
+        const LEN: u64 = 1 << 20;
+
+        let file = TempFile::new().unwrap().into_file();
+        file.write_all_at(&vec![0xab; crate::utils::u64_to_usize(LEN)], 0)
+            .unwrap();
+        file.sync_all().unwrap();
+        let blocks_before = std::os::linux::fs::MetadataExt::st_blocks(&file.metadata().unwrap());
+
+        let mut ring = IoUring::<u32>::new_with_required_ops(
+            4,
+            vec![&file],
+            vec![
+                Restriction::RequireFixedFds,
+                Restriction::AllowOpCode(OpCode::Fallocate),
+            ],
+            None,
+            &[OpCode::Fallocate],
+        )
+        .unwrap();
+        ring.push(Operation::fallocate(
+            0,
+            FALLOC_FL_KEEP_SIZE_PUNCH_HOLE,
+            0,
+            LEN,
+            1,
+        ))
+        .unwrap();
+        assert_eq!(ring.submit_and_wait_all().unwrap(), 1);
+        let cqe = ring.pop().unwrap().unwrap();
+        match cqe.result() {
+            Ok(_) => (),
+            // Hole punching is not supported by every filesystem.
+            Err(err) if err.raw_os_error() == Some(-libc::EOPNOTSUPP) => return,
+            Err(err) => panic!("fallocate failed: {err}"),
+        }
+
+        let metadata = file.metadata().unwrap();
+        assert_eq!(std::os::unix::fs::MetadataExt::size(&metadata), LEN);
+        assert!(std::os::linux::fs::MetadataExt::st_blocks(&metadata) < blocks_before);
+    }
 
     fn drain_cqueue(ring: &mut IoUring<u32>) {
         while let Some(entry) = ring.pop().unwrap() {
