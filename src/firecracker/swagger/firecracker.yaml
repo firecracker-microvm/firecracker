@@ -1407,7 +1407,8 @@ definitions:
         description:
           Enables virtio-blk discard support. When enabled, the guest can issue
           discard/TRIM requests for this drive. Only supported for writable
-          virtio-block devices using the Sync IO engine.
+          virtio-block devices. With the Async IO engine, a block device
+          backend requires host kernel 6.12 or newer.
           This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
         default: false
       num_queues:

@@ -10,6 +10,11 @@ and this project adheres to
 
 ### Added
 
+- [#5935](https://github.com/firecracker-microvm/firecracker/pull/5935): Added
+  virtio-blk discard support for drives using the `Async` IO engine. Regular
+  backing files use `IORING_OP_FALLOCATE`; block devices use
+  `BLOCK_URING_CMD_DISCARD` and require host kernel 6.12 or newer. See the
+  [block discard documentation](docs/api_requests/block-discard.md).
 - [#6226](https://github.com/firecracker-microvm/firecracker/pull/6226),
   [#6227](https://github.com/firecracker-microvm/firecracker/pull/6227),
   [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228),

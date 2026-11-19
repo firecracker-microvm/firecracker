@@ -59,6 +59,10 @@ If a block device is configured with the `Async` io_engine on a host kernel
 older than 5.10.51, the API call will return a 400 Bad Request, with a
 suggestive error message.
 
+[Discard](block-discard.md) on a drive backed by a block device uses
+`BLOCK_URING_CMD_DISCARD`, which requires host kernel 6.12 or newer. Discard on
+a drive backed by a regular file has no extra requirement.
+
 ## Performance considerations
 
 The performance is strictly tied to the host kernel version. The gathered data
