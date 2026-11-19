@@ -541,10 +541,6 @@ impl VirtioBlock {
             return Err(VirtioBlockError::DiscardReadOnlyUnsupported);
         }
 
-        if config.discard && config.file_engine_type == FileEngineType::Async {
-            return Err(VirtioBlockError::DiscardAsyncUnsupported);
-        }
-
         let num_queues = config
             .num_queues
             .map_or(DEFAULT_BLOCK_NUM_QUEUES, NonZeroU16::get);
@@ -1166,6 +1162,7 @@ mod tests {
     use std::fs::metadata;
     use std::io::{Read, Write};
     use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::FileExt;
     use std::thread;
     use std::time::Duration;
 
@@ -1487,7 +1484,7 @@ mod tests {
         assert_eq!(block.config_space.discard_sector_alignment, 8);
 
         let async_config = VirtioBlockConfig {
-            drive_id: "discard_async_unsupported".to_string(),
+            drive_id: "discard_async".to_string(),
             path_on_host: path,
             is_root_device: false,
             partuuid: None,
@@ -1502,10 +1499,11 @@ mod tests {
             blk_size: None,
             topology: None,
         };
-        assert!(matches!(
-            VirtioBlock::new(async_config),
-            Err(VirtioBlockError::DiscardAsyncUnsupported)
-        ));
+        let block = VirtioBlock::new(async_config).unwrap();
+        assert_eq!(
+            block.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD),
+            1u64 << VIRTIO_BLK_F_DISCARD
+        );
 
         let f = TempFile::new().unwrap();
         f.as_file().set_len(0x1000).unwrap();
@@ -1533,52 +1531,113 @@ mod tests {
 
     #[test]
     fn test_discard_requires_negotiated_feature() {
-        let f = TempFile::new().unwrap();
-        f.as_file().set_len(0x1000).unwrap();
-        let config = VirtioBlockConfig {
-            drive_id: "discard_negotiation".to_string(),
-            path_on_host: f.as_path().to_str().unwrap().to_string(),
-            is_root_device: false,
-            partuuid: None,
-            is_read_only: false,
-            discard: true,
-            num_queues: None,
-            cache_type: CacheType::Unsafe,
-            dmb_size_mib: None,
-            rate_limiter: None,
-            file_engine_type: FileEngineType::Sync,
-            image_format: DiskImageFormat::Raw,
-            blk_size: None,
-            topology: None,
-        };
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let f = TempFile::new().unwrap();
+            f.as_file().set_len(0x1000).unwrap();
+            let config = VirtioBlockConfig {
+                drive_id: "discard_negotiation".to_string(),
+                path_on_host: f.as_path().to_str().unwrap().to_string(),
+                is_root_device: false,
+                partuuid: None,
+                is_read_only: false,
+                discard: true,
+                num_queues: None,
+                cache_type: CacheType::Unsafe,
+                dmb_size_mib: None,
+                rate_limiter: None,
+                file_engine_type: engine,
+                image_format: DiskImageFormat::Raw,
+                blk_size: None,
+                topology: None,
+            };
 
-        let mut block = VirtioBlock::new(config).unwrap();
-        let mem = default_mem();
-        let interrupt = default_interrupt();
-        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        set_queue(&mut block, 0, vq.create_queue());
-        block.activate(mem.clone(), interrupt).unwrap();
+            let mut block = VirtioBlock::new(config).unwrap();
+            let mem = default_mem();
+            let interrupt = default_interrupt();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.activate(mem.clone(), interrupt).unwrap();
 
-        let chain = RequestDescriptorChain::new(&vq);
-        chain.set_header(RequestHeader::new(VIRTIO_BLK_T_DISCARD, 0));
-        chain.data_desc.flags.set(VIRTQ_DESC_F_NEXT);
-        chain.data_desc.len.set(16);
+            let chain = RequestDescriptorChain::new(&vq);
+            chain.set_header(RequestHeader::new(VIRTIO_BLK_T_DISCARD, 0));
+            chain.data_desc.flags.set(VIRTQ_DESC_F_NEXT);
+            chain.data_desc.len.set(16);
 
-        let mut discard_range = [0_u8; 16];
-        discard_range[8..12].copy_from_slice(&1_u32.to_le_bytes());
-        mem.write_slice(&discard_range, GuestAddress(chain.data_desc.addr.get()))
-            .unwrap();
+            let mut discard_range = [0_u8; 16];
+            discard_range[8..12].copy_from_slice(&1_u32.to_le_bytes());
+            mem.write_slice(&discard_range, GuestAddress(chain.data_desc.addr.get()))
+                .unwrap();
 
-        simulate_queue_event(&mut block, Some(true));
+            simulate_queue_event(&mut block, Some(true));
 
-        assert_eq!(vq.used.idx.get(), 1);
-        assert_eq!(vq.used.ring[0].get().id, 0);
-        assert_eq!(vq.used.ring[0].get().len, 1);
-        assert_eq!(
-            mem.read_obj::<u32>(GuestAddress(chain.status_desc.addr.get()))
-                .unwrap(),
-            VIRTIO_BLK_S_UNSUPP
-        );
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 1);
+            assert_eq!(
+                mem.read_obj::<u32>(GuestAddress(chain.status_desc.addr.get()))
+                    .unwrap(),
+                VIRTIO_BLK_S_UNSUPP
+            );
+        }
+    }
+
+    #[test]
+    fn test_discard_request() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let f = TempFile::new().unwrap();
+            f.as_file().write_all_at(&[0xab; 0x2000], 0).unwrap();
+            f.as_file().sync_all().unwrap();
+            let blocks_before = f.as_file().metadata().unwrap().st_blocks();
+            let config = VirtioBlockConfig {
+                drive_id: "discard_request".to_string(),
+                path_on_host: f.as_path().to_str().unwrap().to_string(),
+                is_root_device: false,
+                partuuid: None,
+                is_read_only: false,
+                discard: true,
+                num_queues: None,
+                cache_type: CacheType::Unsafe,
+                dmb_size_mib: None,
+                rate_limiter: None,
+                file_engine_type: engine,
+                image_format: DiskImageFormat::Raw,
+                blk_size: None,
+                topology: None,
+            };
+
+            let mut block = VirtioBlock::new(config).unwrap();
+            block.set_acked_features(block.avail_features);
+            let mem = default_mem();
+            let interrupt = default_interrupt();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.activate(mem.clone(), interrupt).unwrap();
+
+            let chain = RequestDescriptorChain::new(&vq);
+            chain.set_header(RequestHeader::new(VIRTIO_BLK_T_DISCARD, 0));
+            chain.data_desc.flags.set(VIRTQ_DESC_F_NEXT);
+            chain.data_desc.len.set(16);
+
+            // Discard all 16 sectors.
+            let mut discard_range = [0_u8; 16];
+            discard_range[8..12].copy_from_slice(&16_u32.to_le_bytes());
+            mem.write_slice(&discard_range, GuestAddress(chain.data_desc.addr.get()))
+                .unwrap();
+
+            simulate_queue_and_async_completion_events(&mut block, true);
+
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 1);
+            assert_eq!(
+                mem.read_obj::<u8>(GuestAddress(chain.status_desc.addr.get()))
+                    .unwrap(),
+                u8::try_from(VIRTIO_BLK_S_OK).unwrap()
+            );
+            let metadata = f.as_file().metadata().unwrap();
+            assert_eq!(metadata.len(), 0x2000);
+            assert!(metadata.st_blocks() < blocks_before);
+        }
     }
 
     #[test]
