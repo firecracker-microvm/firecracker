@@ -447,153 +447,104 @@ fn test_load_snapshot_huge_pages_override() {
 }
 
 #[cfg(target_arch = "x86_64")]
-mod tsc_deadline {
-    use super::*;
-    use vmm::arch::x86_64::generated::msr_index::{MSR_IA32_TSC, MSR_IA32_TSC_DEADLINE};
+#[test]
+fn test_overdue_timer_fires_after_restore() {
+    use kvm_bindings::KVM_MP_STATE_RUNNABLE;
+    use kvm_ioctls::VcpuExit;
+    use vm_memory::Bytes;
+    use zerocopy::IntoBytes;
 
-    const TIMER_VECTOR: u32 = 0xec;
-    const APIC_SPIV: usize = 0xf0;
-    const APIC_LVTT: usize = 0x320;
-    const APIC_IRR: usize = 0x200 + (TIMER_VECTOR as usize / 32) * 0x10;
-    const TIMER_BIT: u32 = 1 << (TIMER_VECTOR % 32);
-    const LOOP_ADDRESS: u64 = 0x100000;
+    use crate::arch::x86_64::generated::msr_index::{MSR_IA32_TSC, MSR_IA32_TSC_DEADLINE};
+    use crate::cpu_config::x86_64::cpuid::Cpuid;
+    use crate::utils::byte_order;
 
-    fn configure_snapshot(snapshot: &mut MicrovmState) {
-        let boot_sregs = snapshot.vcpu_states[0].sregs;
-        let ticks_per_second = u64::from(snapshot.vcpu_states[0].tsc_khz.unwrap()) * 1000;
-        for (vcpu_index, state) in snapshot.vcpu_states.iter_mut().enumerate() {
-            state.sregs = boot_sregs;
-            state.regs.rip = LOOP_ADDRESS;
-            state.regs.rflags = 2;
-            state.mp_state.mp_state = kvm_bindings::KVM_MP_STATE_RUNNABLE;
-            for (offset, value) in [
-                (APIC_SPIV, 0x1ff_u32),
-                (APIC_LVTT, (2 << 17) | TIMER_VECTOR),
-                (APIC_IRR, 0),
-            ] {
-                state.lapic.regs[offset..offset + 4]
-                    .copy_from_slice(&value.to_le_bytes().map(u8::cast_signed));
-            }
-            // Exceed KVM's one-second TSC synchronization window. vCPU1 initially
-            // arms its timer 59 seconds into its future. On vCPU0's timeline, which
-            // both vCPUs must adopt, the deadline has already expired.
-            for (index, seconds) in [
-                (MSR_IA32_TSC, if vcpu_index == 0 { 120 } else { 60 }),
-                (MSR_IA32_TSC_DEADLINE, 119),
-            ] {
-                let msr = state
-                    .saved_msrs
-                    .iter_mut()
-                    .flat_map(|msrs| msrs.as_mut_slice())
-                    .find(|msr| msr.index == index)
-                    .expect("snapshot must contain TSC and TSC deadline MSRs");
-                msr.data = ticks_per_second * seconds;
-            }
-        }
+    // Spurious interrupt vector register (SVR).
+    const SPURIOUS_VECTOR_REG_OFFSET: usize = 0xf0;
+    const APIC_ENABLED: u32 = 1 << 8;
+
+    // Local vector table (LVT) timer register.
+    const LVT_TIMER_REG_OFFSET: usize = 0x320;
+    const TIMER_MODE_TSC_DEADLINE: u32 = 0b10 << 17;
+    const TIMER_VECTOR: u32 = 0xec; // Interrupt vector for the local APIC timer.
+
+    // Interrupt request register (IRR).
+    // There is one 32-bit register every 16 bytes, with one bit per vector.
+    const IRR_BASE_OFFSET: usize = 0x200;
+    const TIMER_IRR_OFFSET: usize = IRR_BASE_OFFSET + (TIMER_VECTOR as usize / 32) * 16;
+    const TIMER_IRR_MASK: u32 = 1 << (TIMER_VECTOR % 32);
+
+    let mut vm = setup_vm_with_memory(0x1000);
+    let cpuid = Cpuid::try_from(vm.kvm().supported_cpuid.clone()).unwrap();
+    let mut vcpus = vm.create_vcpus(2).unwrap();
+    if !vcpus[0].kvm_vcpu.supports_tsc_offset_attr() {
+        eprintln!("Skipping: KVM TSC offset attribute unavailable");
+        return;
     }
 
-    fn create_snapshot_with_skewed_tsc() -> (TempFile, TempFile) {
-        use vmm::builder::build_microvm_for_boot;
-        use vmm::test_utils::mock_resources::MockBootSourceConfig;
+    let mut states = Vec::new();
+    let tsc_hz = u64::from(vcpus[0].kvm_vcpu.get_tsc_khz().unwrap()) * 1000;
+    // Simulate a delay between vCPU restores (e.g., waiting for a page from a UFFD handler).
+    // vCPU 0's TSC keeps advancing during the delay.
+    for (vcpu, tsc) in vcpus.iter().zip([120 * tsc_hz, 60 * tsc_hz]) {
+        let vcpu = &vcpu.kvm_vcpu;
+        vcpu.configure_cpuid(&cpuid, 2, false).unwrap();
+        let mut state = vcpu.save_state().unwrap();
 
-        let resources: VmResources = MockVmResources::new()
-            .with_boot_source(MockBootSourceConfig::new().into())
-            .with_vm_config(MachineConfig {
-                vcpu_count: 2,
-                ..Default::default()
-            })
-            .into();
-        let mut event_manager = EventManager::new().unwrap();
-        let filters = get_empty_filters();
-        let source = build_microvm_for_boot(
-            &InstanceInfo::default(),
-            &resources,
-            &mut event_manager,
-            &filters,
-        )
-        .unwrap();
-        let snapshot_file = TempFile::new().unwrap();
-        let memory_file = TempFile::new().unwrap();
-        {
-            let mut vmm = source.lock().unwrap();
-            // Spin with interrupts disabled so the timer IRQ stays observable in LAPIC IRR.
-            vmm.vm
-                .as_kvm()
-                .unwrap()
-                .guest_memory()
-                .write_slice(&[0xeb, 0xfe], GuestAddress(LOOP_ADDRESS))
+        // Make the vCPU runnable with its entry point at guest physical address 0.
+        state.sregs.cs.base = 0;
+        state.sregs.cs.selector = 0;
+        state.regs.rip = 0;
+        state.mp_state.mp_state = KVM_MP_STATE_RUNNABLE;
+
+        // Enable the local APIC and configure its TSC-deadline timer.
+        let regs = state.lapic.regs.as_mut_bytes();
+        for (offset, value) in [
+            (SPURIOUS_VECTOR_REG_OFFSET, APIC_ENABLED),
+            (LVT_TIMER_REG_OFFSET, TIMER_MODE_TSC_DEADLINE | TIMER_VECTOR),
+        ] {
+            byte_order::write_le_u32(&mut regs[offset..], value);
+        }
+
+        // On restore, vCPU 0's timer is overdue and vCPU 1's is due in about 59 seconds.
+        for (index, value) in [(MSR_IA32_TSC, tsc), (MSR_IA32_TSC_DEADLINE, 119 * tsc_hz)] {
+            let msr = state
+                .saved_msrs
+                .iter_mut()
+                .flat_map(|chunk| chunk.as_mut_slice())
+                .find(|entry| entry.index == index)
                 .unwrap();
-            let vm_info = VmInfo::from(&*vmm);
-            vmm::persist::create_snapshot(
-                &mut vmm,
-                &vm_info,
-                &CreateSnapshotParams {
-                    snapshot_type: SnapshotType::Full,
-                    snapshot_path: snapshot_file.as_path().to_path_buf(),
-                    mem_file_path: memory_file.as_path().to_path_buf(),
-                    sync_snapshot_files: false,
-                },
-            )
-            .unwrap();
-            vmm.stop(FcExitCode::Ok);
+            msr.data = value;
         }
-
-        let mut snapshot: Snapshot<MicrovmState> =
-            Snapshot::load(&mut snapshot_file.as_file()).unwrap();
-        configure_snapshot(&mut snapshot.data);
-        snapshot_file.as_file().set_len(0).unwrap();
-        snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
-        snapshot.save(&mut snapshot_file.as_file()).unwrap();
-        (snapshot_file, memory_file)
+        vcpu.restore_state(&state).unwrap();
+        states.push(state);
     }
 
-    #[test]
-    fn test_snapshot_restore_tsc_deadline_after_offset_sync() {
-        use std::time::Instant;
+    // Applying vCPU 0's TSC offset advances vCPU 1 past its timer deadline.
+    synchronize_tsc_offsets(&vcpus, &states);
 
-        // Older hosts keep the original offsets and cannot exercise this restore path.
-        let kvm = vmm::vstate::kvm::Kvm::new(vec![]).unwrap();
-        let probe_vm = vmm::vstate::vm::KvmVm::new(kvm).unwrap();
-        let probe_vcpu = vmm::arch::x86_64::vcpu::KvmVcpu::new(0, &probe_vm).unwrap();
-        if !probe_vcpu.supports_tsc_offset_attr() {
-            eprintln!("Skipping TSC deadline restore: KVM TSC offset attribute unavailable");
-            return;
-        }
+    // OUT to an unused port (0xff here) makes KVM_RUN return to the test with KVM_EXIT_IO.
+    let guest_code = [0xe6, 0xff]; // out 0xff, al
+    vm.guest_memory()
+        .write_slice(&guest_code, GuestAddress(0))
+        .unwrap();
 
-        let (snapshot_file, memory_file) = create_snapshot_with_skewed_tsc();
-
-        let (restored, _event_manager) = load_snapshot(
-            &snapshot_file,
-            &memory_file,
-            SnapshotLoadHugePageConfig::Snapshot,
-        );
-        let timeout = Instant::now() + Duration::from_secs(2);
-        let pending = loop {
-            thread::sleep(Duration::from_millis(10));
-            let mut vmm = restored.lock().unwrap();
-            vmm.pause_vm().unwrap();
-            let vm_info = VmInfo::from(&*vmm);
-            let state = vmm.save_state(&vm_info).unwrap();
-            let pending: Vec<_> = state
-                .vcpu_states
-                .iter()
-                .map(|vcpu| {
-                    let irr = u32::from_le_bytes(std::array::from_fn(|i| {
-                        vcpu.lapic.regs[APIC_IRR + i].cast_unsigned()
-                    }));
-                    irr & TIMER_BIT != 0
-                })
-                .collect();
-            if pending.iter().all(|&fired| fired) || Instant::now() >= timeout {
-                vmm.stop(FcExitCode::Ok);
-                break pending;
+    // Maskable interrupts are disabled (IF=0), so the timer interrupt stays pending in the IRR.
+    for vcpu in &mut vcpus {
+        let fd = &mut vcpu.kvm_vcpu.fd;
+        loop {
+            match fd.run() {
+                Ok(VcpuExit::IoOut(0xff, _)) => break,
+                Err(e) if e.errno() == libc::EINTR => continue,
+                other => panic!("expected guest OUT to port 0xff, got {other:?}"),
             }
-            vmm.resume_vm().unwrap();
-        };
-        assert_eq!(
-            pending,
-            vec![true, true],
-            "TSC deadline interrupts did not arrive"
+        }
+        let lapic = fd.get_lapic().unwrap();
+        let irr_word = &lapic.regs[TIMER_IRR_OFFSET..TIMER_IRR_OFFSET + 4];
+        assert_ne!(
+            byte_order::read_le_u32(irr_word.as_bytes()) & TIMER_IRR_MASK,
+            0,
+            "timer missing on vCPU {}",
+            vcpu.kvm_vcpu.index
         );
     }
 }
