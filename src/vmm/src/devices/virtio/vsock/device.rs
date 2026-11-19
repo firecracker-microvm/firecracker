@@ -494,7 +494,6 @@ mod tests {
     use super::*;
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
     use crate::devices::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
-    use crate::utils::byte_order;
     use crate::vstate::memory::GuestAddress;
 
     /// Guest address used for the writable evq descriptor payload in tests.
@@ -551,7 +550,7 @@ mod tests {
         // Validate config_as_bytes returns the CID in little-endian.
         let config = ctx.device.config_as_bytes();
         assert_eq!(config.len(), 8);
-        assert_eq!(byte_order::read_le_u64(config), ctx.cid);
+        assert_eq!(u64::from_le_bytes(config.try_into().unwrap()), ctx.cid);
 
         // Just covering lines here, since the vsock device has no writable config.
         // A warning is, however, logged, if the guest driver attempts to write any config data.

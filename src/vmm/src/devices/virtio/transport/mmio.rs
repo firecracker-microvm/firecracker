@@ -16,7 +16,6 @@ use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::device_status;
 use crate::devices::virtio::queue::QueueConfig;
 use crate::logger::{IncMetric, METRICS, error, warn};
-use crate::utils::byte_order;
 use crate::vstate::bus::BusDevice;
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
@@ -291,7 +290,7 @@ impl BusDevice for MmioTransport {
                         return;
                     }
                 };
-                byte_order::write_le_u32(data, v);
+                data.copy_from_slice(&v.to_le_bytes());
             }
             0x100..=0xfff => self.locked_device().read_config(offset - 0x100, data),
             _ => {
@@ -314,7 +313,7 @@ impl BusDevice for MmioTransport {
 
         match offset {
             0x00..=0xff if data.len() == 4 => {
-                let v = byte_order::read_le_u32(data);
+                let v = u32::from_le_bytes(data.try_into().unwrap());
                 match offset {
                     0x14 => self.features_select = v,
                     0x20 => {
@@ -498,7 +497,6 @@ pub(crate) mod tests {
     use crate::devices::virtio::queue::Queue;
     use crate::impl_device_type;
     use crate::test_utils::single_region_mem;
-    use crate::utils::byte_order::{read_le_u32, write_le_u32};
     use crate::utils::u64_to_usize;
     use crate::vstate::memory::GuestMemoryMmap;
 
@@ -633,9 +631,7 @@ pub(crate) mod tests {
     }
 
     fn set_device_status(d: &mut MmioTransport, status: u32) {
-        let mut buf = [0; 4];
-        write_le_u32(&mut buf[..], status);
-        d.write(0x0, 0x70, &buf[..]);
+        d.write(0x0, 0x70, &status.to_le_bytes());
     }
 
     #[test]
@@ -706,62 +702,77 @@ pub(crate) mod tests {
         // Now we test that reading at various predefined offsets works as intended.
 
         d.read(0x0, 0, &mut buf[..]);
-        assert_eq!(read_le_u32(&buf[..]), MMIO_MAGIC_VALUE);
+        assert_eq!(
+            u32::from_le_bytes(buf[..].try_into().unwrap()),
+            MMIO_MAGIC_VALUE
+        );
 
         d.read(0x0, 0x04, &mut buf[..]);
-        assert_eq!(read_le_u32(&buf[..]), MMIO_VERSION);
+        assert_eq!(
+            u32::from_le_bytes(buf[..].try_into().unwrap()),
+            MMIO_VERSION
+        );
 
         d.read(0x0, 0x08, &mut buf[..]);
         assert_eq!(
-            read_le_u32(&buf[..]),
+            u32::from_le_bytes(buf[..].try_into().unwrap()),
             d.locked_device().device_type() as u32,
         );
 
         d.read(0x0, 0x0c, &mut buf[..]);
-        assert_eq!(read_le_u32(&buf[..]), VENDOR_ID);
+        assert_eq!(u32::from_le_bytes(buf[..].try_into().unwrap()), VENDOR_ID);
 
         d.features_select = 0;
         d.read(0x0, 0x10, &mut buf[..]);
         assert_eq!(
-            read_le_u32(&buf[..]),
+            u32::from_le_bytes(buf[..].try_into().unwrap()),
             d.locked_device().avail_features_by_page(0)
         );
 
         d.features_select = 1;
         d.read(0x0, 0x10, &mut buf[..]);
         assert_eq!(
-            read_le_u32(&buf[..]),
+            u32::from_le_bytes(buf[..].try_into().unwrap()),
             d.locked_device().avail_features_by_page(0) | 0x1
         );
 
         d.read(0x0, 0x34, &mut buf[..]);
-        assert_eq!(read_le_u32(&buf[..]), 16);
+        assert_eq!(u32::from_le_bytes(buf[..].try_into().unwrap()), 16);
 
         d.read(0x0, 0x44, &mut buf[..]);
-        assert_eq!(read_le_u32(&buf[..]), u32::from(false));
+        assert_eq!(
+            u32::from_le_bytes(buf[..].try_into().unwrap()),
+            u32::from(false)
+        );
 
         d.interrupt.irq_status.store(111, Ordering::SeqCst);
         d.read(0x0, 0x60, &mut buf[..]);
-        assert_eq!(read_le_u32(&buf[..]), 111);
+        assert_eq!(u32::from_le_bytes(buf[..].try_into().unwrap()), 111);
 
         d.is_vhost_user = true;
         d.interrupt.status().store(0, Ordering::SeqCst);
         d.read(0x0, 0x60, &mut buf[..]);
-        assert_eq!(read_le_u32(&buf[..]), VIRTIO_MMIO_INT_VRING);
+        assert_eq!(
+            u32::from_le_bytes(buf[..].try_into().unwrap()),
+            VIRTIO_MMIO_INT_VRING
+        );
 
         d.is_vhost_user = true;
         d.interrupt
             .irq_status
             .store(VIRTIO_MMIO_INT_CONFIG, Ordering::SeqCst);
         d.read(0x0, 0x60, &mut buf[..]);
-        assert_eq!(read_le_u32(&buf[..]), VIRTIO_MMIO_INT_CONFIG);
+        assert_eq!(
+            u32::from_le_bytes(buf[..].try_into().unwrap()),
+            VIRTIO_MMIO_INT_CONFIG
+        );
 
         d.read(0x0, 0x70, &mut buf[..]);
-        assert_eq!(read_le_u32(&buf[..]), 0);
+        assert_eq!(u32::from_le_bytes(buf[..].try_into().unwrap()), 0);
 
         d.config_generation = 5;
         d.read(0x0, 0xfc, &mut buf[..]);
-        assert_eq!(read_le_u32(&buf[..]), 5);
+        assert_eq!(u32::from_le_bytes(buf[..].try_into().unwrap()), 5);
 
         // This read shouldn't do anything, as it's past the readable generic registers, and
         // before the device specific configuration space. Btw, reads from the device specific
@@ -787,7 +798,7 @@ pub(crate) mod tests {
         let dummy_dev = Arc::new(Mutex::new(DummyDevice::new()));
         let mut d = MmioTransport::new(m, interrupt, dummy_dev.clone(), false);
         let mut buf = vec![0; 5];
-        write_le_u32(&mut buf[..4], 1);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(1));
 
         // Nothing should happen, because the slice len > 4.
         d.features_select = 0;
@@ -802,7 +813,7 @@ pub(crate) mod tests {
         // Acking features in invalid state shouldn't take effect.
         assert_eq!(d.locked_device().acked_features(), 0x0);
         d.acked_features_select = 0x0;
-        write_le_u32(&mut buf[..], 1);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(1));
         d.write(0x0, 0x20, &buf[..]);
         assert_eq!(d.locked_device().acked_features(), 0x0);
 
@@ -828,13 +839,13 @@ pub(crate) mod tests {
 
         // now writes should work
         d.features_select = 0;
-        write_le_u32(&mut buf[..], 1);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(1));
         d.write(0x0, 0x14, &buf[..]);
         assert_eq!(d.features_select, 1);
 
         // Test acknowledging features on bus.
         d.acked_features_select = 0;
-        write_le_u32(&mut buf[..], 0x124);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(0x124));
 
         // Set the device available features in order to make acknowledging possible.
         dummy_dev.lock().unwrap().set_avail_features(0x124);
@@ -842,7 +853,7 @@ pub(crate) mod tests {
         assert_eq!(d.locked_device().acked_features(), 0x124);
 
         d.acked_features_select = 0;
-        write_le_u32(&mut buf[..], 2);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(2));
         d.write(0x0, 0x24, &buf[..]);
         assert_eq!(d.acked_features_select, 2);
         set_device_status(
@@ -853,24 +864,24 @@ pub(crate) mod tests {
         // Acking features in invalid state shouldn't take effect.
         assert_eq!(d.locked_device().acked_features(), 0x124);
         d.acked_features_select = 0x0;
-        write_le_u32(&mut buf[..], 1);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(1));
         d.write(0x0, 0x20, &buf[..]);
         assert_eq!(d.locked_device().acked_features(), 0x124);
 
         // Setup queues
         d.queue_select = 0;
-        write_le_u32(&mut buf[..], 3);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(3));
         d.write(0x0, 0x30, &buf[..]);
         assert_eq!(d.queue_select, 3);
 
         d.queue_select = 0;
         assert_eq!(d.locked_device().queue_config(0).unwrap().size, 16);
-        write_le_u32(&mut buf[..], 16);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(16));
         d.write(0x0, 0x38, &buf[..]);
         assert_eq!(d.locked_device().queue_config(0).unwrap().size, 16);
 
         assert!(!d.locked_device().queue_config(0).unwrap().ready);
-        write_le_u32(&mut buf[..], 1);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(1));
         d.write(0x0, 0x44, &buf[..]);
         assert!(d.locked_device().queue_config(0).unwrap().ready);
 
@@ -882,7 +893,7 @@ pub(crate) mod tests {
                 .0,
             0
         );
-        write_le_u32(&mut buf[..], 123);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(123));
         d.write(0x0, 0x80, &buf[..]);
         assert_eq!(
             d.locked_device()
@@ -910,7 +921,7 @@ pub(crate) mod tests {
                 .0,
             0
         );
-        write_le_u32(&mut buf[..], 124);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(124));
         d.write(0x0, 0x90, &buf[..]);
         assert_eq!(
             d.locked_device()
@@ -938,7 +949,7 @@ pub(crate) mod tests {
                 .0,
             0
         );
-        write_le_u32(&mut buf[..], 125);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(125));
         d.write(0x0, 0xa0, &buf[..]);
         assert_eq!(
             d.locked_device()
@@ -967,12 +978,12 @@ pub(crate) mod tests {
         );
 
         d.interrupt.irq_status.store(0b10_1010, Ordering::Relaxed);
-        write_le_u32(&mut buf[..], 0b111);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(0b111));
         d.write(0x0, 0x64, &buf[..]);
         assert_eq!(d.interrupt.irq_status.load(Ordering::Relaxed), 0b10_1000);
 
         // Write to an invalid address in generic register range.
-        write_le_u32(&mut buf[..], 0xf);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(0xf));
         d.config_generation = 0;
         d.write(0x0, 0xfb, &buf[..]);
         assert_eq!(d.config_generation, 0);
@@ -1041,9 +1052,9 @@ pub(crate) mod tests {
         let queue_len = d.locked_device().num_queues();
         for q in 0..queue_len {
             d.queue_select = q.try_into().unwrap();
-            write_le_u32(&mut buf[..], 16);
+            buf[..4].copy_from_slice(&u32::to_le_bytes(16));
             d.write(0x0, 0x38, &buf[..]);
-            write_le_u32(&mut buf[..], 1);
+            buf[..4].copy_from_slice(&u32::to_le_bytes(1));
             d.write(0x0, 0x44, &buf[..]);
         }
         assert!(!d.locked_device().is_activated());
@@ -1093,9 +1104,9 @@ pub(crate) mod tests {
         let queue_len = d.locked_device().num_queues();
         for q in 0..queue_len {
             d.queue_select = q.try_into().unwrap();
-            write_le_u32(&mut buf[..], 16);
+            buf[..4].copy_from_slice(&u32::to_le_bytes(16));
             d.write(0x0, 0x38, &buf[..]);
-            write_le_u32(&mut buf[..], 1);
+            buf[..4].copy_from_slice(&u32::to_le_bytes(1));
             d.write(0x0, 0x44, &buf[..]);
         }
         assert!(!d.locked_device().is_activated());
@@ -1140,9 +1151,9 @@ pub(crate) mod tests {
         let queues_count = d.locked_device().num_queues();
         for q in 0..queues_count {
             d.queue_select = q.try_into().unwrap();
-            write_le_u32(&mut buf[..], 16);
+            buf[..4].copy_from_slice(&u32::to_le_bytes(16));
             d.write(0x0, 0x38, &buf[..]);
-            write_le_u32(&mut buf[..], 1);
+            buf[..4].copy_from_slice(&u32::to_le_bytes(1));
             d.write(0x0, 0x44, &buf[..]);
         }
         assert!(!d.locked_device().is_activated());
@@ -1168,7 +1179,7 @@ pub(crate) mod tests {
     fn read_device_status(d: &mut MmioTransport) -> u32 {
         let mut buf = [0; 4];
         d.read(0x0, 0x70, &mut buf[..]);
-        read_le_u32(&buf[..])
+        u32::from_le_bytes(buf)
     }
 
     #[test]
@@ -1237,13 +1248,13 @@ pub(crate) mod tests {
         activate_device(&mut d);
 
         // Marking device as FAILED should not affect device_activated state
-        write_le_u32(&mut buf[..], 0x8f);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(0x8f));
         d.write(0x0, 0x70, &buf[..]);
         assert_eq!(d.device_status, 0x8f);
         assert!(d.locked_device().is_activated());
 
         // Resetting the device should deactivate it
-        write_le_u32(&mut buf[..], 0x0);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(0x0));
         d.write(0x0, 0x70, &buf[..]);
         assert_eq!(d.device_status, device_status::INIT);
         assert!(!d.locked_device().is_activated());
@@ -1265,7 +1276,7 @@ pub(crate) mod tests {
 
         // A backend that doesn't support reset must set FAILED.
         let mut buf = [0; 4];
-        write_le_u32(&mut buf[..], 0x0);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(0x0));
         d.write(0x0, 0x70, &buf[..]);
         assert_ne!(d.device_status & device_status::FAILED, 0);
     }
@@ -1340,7 +1351,7 @@ pub(crate) mod tests {
         let mut buf = [0u8; 4];
 
         // QueueNum (0x38)
-        write_le_u32(&mut buf, 0);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(0));
         dev.write(0x0, 0x38, &buf);
         assert_eq!(
             dev.locked_device().queue_config(0).unwrap().size,
@@ -1348,7 +1359,7 @@ pub(crate) mod tests {
         );
 
         // QueueReady (0x44)
-        write_le_u32(&mut buf, 0);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(0));
         dev.write(0x0, 0x44, &buf);
         assert_eq!(
             dev.locked_device().queue_config(0).unwrap().ready,
@@ -1356,7 +1367,7 @@ pub(crate) mod tests {
         );
 
         // QueueDescLow/High (0x80, 0x84)
-        write_le_u32(&mut buf, 0xDEADBEEF);
+        buf[..4].copy_from_slice(&u32::to_le_bytes(0xDEADBEEF));
         dev.write(0x0, 0x80, &buf);
         dev.write(0x0, 0x84, &buf);
         assert_eq!(
