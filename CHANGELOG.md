@@ -51,6 +51,11 @@ and this project adheres to
   files of pmem devices when loading a snapshot. See
   [Overriding host resources](docs/snapshotting/snapshot-support.md#overriding-host-resources)
   for more information.
+- [#5935](https://github.com/firecracker-microvm/firecracker/pull/5935): Added
+  virtio-blk discard support for drives using the `Async` IO engine. Regular
+  backing files use `IORING_OP_FALLOCATE`; block devices use
+  `BLOCK_URING_CMD_DISCARD` and require host kernel 6.12 or newer. See the
+  [block discard documentation](docs/api_requests/block-discard.md).
 
 ### Changed
 
