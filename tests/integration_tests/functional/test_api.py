@@ -24,6 +24,7 @@ from framework.artifacts import (
     pin_rootfs_mode,
 )
 from framework.kvm import MAX_SUPPORTED_VCPUS, default_boot_args
+from framework.properties import global_props
 from framework.utils import get_firecracker_version_from_toml
 from framework.utils_cpu_templates import (
     CUSTOM_CPU_TEMPLATES,
@@ -756,21 +757,52 @@ def test_discard_drive_api_config(uvm):
             io_engine="Sync",
         )
 
+    # Async on a regular file punches holes with IORING_OP_FALLOCATE.
     fs_async = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, "discard_async")
     )
-    with pytest.raises(
-        RuntimeError,
-        match="Discard is not supported with the async IO engine",
-    ):
-        test_microvm.api.drive.put(
-            drive_id="discard_async",
-            path_on_host=test_microvm.create_jailed_resource(fs_async.path),
-            is_root_device=False,
-            is_read_only=False,
-            discard=True,
-            io_engine="Async",
-        )
+    test_microvm.api.drive.put(
+        drive_id="discard_async",
+        path_on_host=test_microvm.create_jailed_resource(fs_async.path),
+        is_root_device=False,
+        is_read_only=False,
+        discard=True,
+        io_engine="Async",
+    )
+
+    # Async on a block device needs BLOCK_URING_CMD_DISCARD, added in Linux 6.12.
+    fs_block = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.fsfiles, "discard_async_block")
+    )
+    _, stdout, _ = utils.check_output(["losetup", "--find", "--show", fs_block.path])
+    loop_device = stdout.strip()
+    try:
+        drive_args = {
+            "drive_id": "discard_async_block",
+            "path_on_host": test_microvm.create_jailed_resource(loop_device),
+            "is_root_device": False,
+            "is_read_only": False,
+            "discard": True,
+            "io_engine": "Async",
+        }
+        if global_props.host_linux_version_tpl >= (6, 12):
+            test_microvm.api.drive.put(**drive_args)
+        else:
+            with pytest.raises(
+                RuntimeError,
+                match="Discard on a block device with the Async engine requires "
+                "host kernel 6.12 or newer",
+            ):
+                test_microvm.api.drive.put(**drive_args)
+    finally:
+        utils.check_output(["losetup", "--detach", loop_device])
+
+    vm_config = test_microvm.api.vm_config.get().json()
+    async_drive = next(
+        drive for drive in vm_config["drives"] if drive["drive_id"] == "discard_async"
+    )
+    assert async_drive["discard"] is True
+    assert async_drive["io_engine"] == "Async"
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
