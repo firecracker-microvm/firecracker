@@ -5,8 +5,8 @@ use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use utils::time::TimerFd;
-use vmm::logger::{IncMetric, METRICS, error_unrestricted, warn_unrestricted};
+use utils::time::{ClockType, TimerFd, get_time_us};
+use vmm::logger::{IncMetric, METRICS, StoreMetric, error_unrestricted, warn_unrestricted};
 use vmm_sys_util::epoll::EventSet;
 
 /// Metrics reporting period.
@@ -42,6 +42,11 @@ impl PeriodicMetrics {
     }
 
     fn write_metrics(&mut self) {
+        // The metrics are written from the event loop, so this is the main thread.
+        METRICS
+            .vmm
+            .main_thread_cpu_us
+            .store(get_time_us(ClockType::ThreadCpu));
         if let Err(err) = METRICS.write() {
             METRICS.logger.missed_metrics_count.inc();
             error_unrestricted!("Failed to write metrics: {}", err);
@@ -113,5 +118,7 @@ pub mod tests {
             .expect("Metrics event timeout or error.");
         // Verify there was another flush.
         assert_eq!(metrics.lock().expect("Unlock failed.").flush_counter, 2);
+        // Every flush stores the CPU time of the flushing thread.
+        assert!(METRICS.vmm.main_thread_cpu_us.fetch() > 0);
     }
 }
