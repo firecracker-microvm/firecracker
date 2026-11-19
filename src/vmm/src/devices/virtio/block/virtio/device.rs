@@ -101,6 +101,7 @@ impl DiskProperties {
         is_disk_read_only: bool,
         file_engine_type: FileEngineType,
         image_format: DiskImageFormat,
+        discard: bool,
     ) -> Result<(FileEngine, u64), VirtioBlockError> {
         match image_format {
             DiskImageFormat::Vmdk => {
@@ -124,7 +125,7 @@ impl DiskProperties {
             }
             DiskImageFormat::Raw => {
                 let disk_size = Self::file_size(disk_image_path, &mut disk_image)?;
-                let engine = FileEngine::from_file(disk_image, file_engine_type)
+                let engine = FileEngine::from_file(disk_image, file_engine_type, discard)
                     .map_err(VirtioBlockError::FileEngine)?;
                 Ok((engine, disk_size))
             }
@@ -144,6 +145,7 @@ impl DiskProperties {
         is_disk_read_only: bool,
         file_engine_type: FileEngineType,
         image_format: DiskImageFormat,
+        discard: bool,
     ) -> Result<Self, VirtioBlockError> {
         let disk_image = Self::open_file(disk_image_path, is_disk_read_only)?;
         let image_id = Self::build_disk_image_id(&disk_image);
@@ -153,6 +155,7 @@ impl DiskProperties {
             is_disk_read_only,
             file_engine_type,
             image_format,
+            discard,
         )?;
 
         Ok(Self {
@@ -189,6 +192,8 @@ impl DiskProperties {
                 is_disk_read_only,
                 self.file_engine_type(),
                 image_format,
+                // Formatted images are read-only, so they never have discard enabled.
+                false,
             )?;
             self.file_engine = file_engine;
             disk_size
@@ -554,6 +559,7 @@ impl VirtioBlock {
                     config.is_read_only,
                     config.file_engine_type,
                     config.image_format,
+                    config.discard,
                 )?,
                 is_io_engine_throttled: false,
             });
@@ -1285,6 +1291,7 @@ mod tests {
                 true,
                 engine,
                 DiskImageFormat::Raw,
+                false,
             )
             .unwrap();
 
@@ -1293,7 +1300,13 @@ mod tests {
             // Testing `backing_file.virtio_block_disk_image_id()` implies
             // duplicating that logic in tests, so skipping it.
 
-            let res = DiskProperties::new("invalid-disk-path", true, engine, DiskImageFormat::Raw);
+            let res = DiskProperties::new(
+                "invalid-disk-path",
+                true,
+                engine,
+                DiskImageFormat::Raw,
+                false,
+            );
             assert!(
                 matches!(res, Err(VirtioBlockError::BackingFile(_, _))),
                 "{:?}",
@@ -1308,20 +1321,38 @@ mod tests {
         let path = descriptor.to_string_lossy().into_owned();
 
         assert!(matches!(
-            DiskProperties::new(&path, false, FileEngineType::Sync, DiskImageFormat::Vmdk),
+            DiskProperties::new(
+                &path,
+                false,
+                FileEngineType::Sync,
+                DiskImageFormat::Vmdk,
+                false
+            ),
             Err(VirtioBlockError::FileEngine(block_io::BlockIoError::Vmdk(
                 block_io::VmdkIoError::RequiresReadOnly
             )))
         ));
         assert!(matches!(
-            DiskProperties::new(&path, true, FileEngineType::Async, DiskImageFormat::Vmdk),
+            DiskProperties::new(
+                &path,
+                true,
+                FileEngineType::Async,
+                DiskImageFormat::Vmdk,
+                false
+            ),
             Err(VirtioBlockError::FileEngine(block_io::BlockIoError::Vmdk(
                 block_io::VmdkIoError::AsyncNotSupported
             )))
         ));
 
-        let mut disk =
-            DiskProperties::new(&path, true, FileEngineType::Sync, DiskImageFormat::Vmdk).unwrap();
+        let mut disk = DiskProperties::new(
+            &path,
+            true,
+            FileEngineType::Sync,
+            DiskImageFormat::Vmdk,
+            false,
+        )
+        .unwrap();
         assert!(matches!(disk.file_engine, FileEngine::Vmdk(_)));
         assert_eq!(disk.nsectors, 2048);
 
@@ -1339,6 +1370,7 @@ mod tests {
             true,
             FileEngineType::Sync,
             DiskImageFormat::Vmdk,
+            false,
         )
         .unwrap();
         let original_image_id = disk.image_id;

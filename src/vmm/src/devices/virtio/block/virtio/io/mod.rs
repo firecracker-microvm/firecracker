@@ -71,10 +71,14 @@ impl From<&FileEngine> for DiskImageFormat {
 }
 
 impl FileEngine {
-    pub fn from_file(file: File, engine_type: FileEngineType) -> Result<FileEngine, BlockIoError> {
+    pub fn from_file(
+        file: File,
+        engine_type: FileEngineType,
+        discard: bool,
+    ) -> Result<FileEngine, BlockIoError> {
         match engine_type {
             FileEngineType::Async => Ok(FileEngine::Async(
-                AsyncFileEngine::from_file(file).map_err(BlockIoError::Async)?,
+                AsyncFileEngine::from_file(file, discard).map_err(BlockIoError::Async)?,
             )),
             FileEngineType::Sync => Ok(FileEngine::Sync(SyncFileEngine::from_file(file))),
         }
@@ -203,11 +207,11 @@ impl FileEngine {
         req: PendingRequest,
     ) -> Result<FileEngineOk, RequestError<BlockIoError>> {
         match self {
-            FileEngine::Async(engine) => match engine.discard(range) {
-                Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
+            FileEngine::Async(engine) => match engine.push_discard(range, req) {
+                Ok(_) => Ok(FileEngineOk::Submitted),
                 Err(err) => Err(RequestError {
-                    req,
-                    error: BlockIoError::Async(err),
+                    req: err.req,
+                    error: BlockIoError::Async(err.error),
                 }),
             },
             FileEngine::Sync(engine) => match engine.discard(range) {
@@ -246,7 +250,9 @@ impl FileEngine {
 #[cfg(test)]
 pub mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
+    use std::os::linux::fs::MetadataExt;
     use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::FileExt;
 
     use vm_memory::{GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion};
     use vmm_sys_util::tempfile::TempFile;
@@ -321,7 +327,7 @@ pub mod tests {
         let mem = create_mem();
         // Create backing file.
         let file = TempFile::new().unwrap().into_file();
-        let mut engine = FileEngine::from_file(file, FileEngineType::Sync).unwrap();
+        let mut engine = FileEngine::from_file(file, FileEngineType::Sync, false).unwrap();
 
         let data = vmm_sys_util::rand::rand_alphanumerics(FILE_LEN as usize)
             .as_bytes()
@@ -410,7 +416,7 @@ pub mod tests {
             .open(temp_file.as_path())
             .unwrap();
         let mut engine =
-            FileEngine::from_file(temp_file.into_file(), FileEngineType::Sync).unwrap();
+            FileEngine::from_file(temp_file.into_file(), FileEngineType::Sync, false).unwrap();
         let data = vmm_sys_util::rand::rand_alphanumerics(FILE_LEN as usize)
             .as_bytes()
             .to_vec();
@@ -462,7 +468,7 @@ pub mod tests {
 
         // A `read` that fails outright writes nothing, so nothing is marked: on the write-only
         // handle `read` fails with EBADF on the first call.
-        let mut engine = FileEngine::from_file(write_only, FileEngineType::Sync).unwrap();
+        let mut engine = FileEngine::from_file(write_only, FileEngineType::Sync, false).unwrap();
         let mem = create_mem();
         match engine.read(
             0,
@@ -484,7 +490,7 @@ pub mod tests {
     fn test_async() {
         // Create backing file.
         let file = TempFile::new().unwrap().into_file();
-        let mut engine = FileEngine::from_file(file, FileEngineType::Async).unwrap();
+        let mut engine = FileEngine::from_file(file, FileEngineType::Async, false).unwrap();
 
         let data = vmm_sys_util::rand::rand_alphanumerics(FILE_LEN as usize)
             .as_bytes()
@@ -536,6 +542,45 @@ pub mod tests {
 
         engine.drain(true).unwrap();
         engine.drain_and_flush(true).unwrap();
+    }
+
+    #[test]
+    fn test_async_discard() {
+        const LEN: u32 = 1 << 20;
+
+        let mem = create_mem();
+        let file = TempFile::new().unwrap().into_file();
+        file.write_all_at(&vec![0xab; LEN as usize], 0).unwrap();
+        file.sync_all().unwrap();
+        let blocks_before = file.metadata().unwrap().st_blocks();
+
+        // Without discard enabled the engine has no discard operation.
+        let mut engine =
+            FileEngine::from_file(file.try_clone().unwrap(), FileEngineType::Async, false).unwrap();
+        assert!(matches!(
+            engine
+                .discard((0, LEN), PendingRequest::default())
+                .unwrap_err()
+                .error,
+            BlockIoError::Async(AsyncIoError::NotImplemented)
+        ));
+
+        let mut engine = FileEngine::from_file(file, FileEngineType::Async, true).unwrap();
+        assert_queued!(engine.discard((0, LEN), PendingRequest::default()));
+        let FileEngine::Async(async_engine) = &mut engine else {
+            unreachable!()
+        };
+        async_engine.drain(false).unwrap();
+        match async_engine.pop(&mem).unwrap().unwrap().result() {
+            Ok(count) => assert_eq!(count, 0),
+            // Hole punching is not supported by every filesystem.
+            Err(err) if err.raw_os_error() == Some(-libc::EOPNOTSUPP) => return,
+            Err(err) => panic!("discard failed: {err}"),
+        }
+
+        let metadata = engine.file().metadata().unwrap();
+        assert_eq!(metadata.len(), u64::from(LEN));
+        assert!(metadata.st_blocks() < blocks_before);
     }
 
     #[test]
