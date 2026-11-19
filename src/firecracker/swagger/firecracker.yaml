@@ -5,7 +5,7 @@ info:
     The API is accessible through HTTP calls on specific URLs
     carrying JSON modeled data.
     The transport medium is a Unix Domain Socket.
-  version: 1.18.0-dev
+  version: 1.19.0-dev
   termsOfService: ""
   contact:
     email: "firecracker-maintainers@amazon.com"
@@ -278,6 +278,52 @@ paths:
             $ref: "#/definitions/Error"
 
 
+  /enclave:
+    get:
+      summary: Gets the Nitro Enclave VM configuration.
+      description:
+        Returns the VM's enclave-specific configuration options.
+      operationId: getEnclaveConfiguration
+      responses:
+        200:
+          description: Nitro Enclave configuration
+          schema:
+            $ref: "#/definitions/EnclaveConfig"
+        400:
+          description:
+            No enclave was configured, or this is not a Nitro Enclave VM
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+    put:
+      summary: Configures the Nitro Enclave options. Pre-boot only.
+      description:
+        Configures Firecracker to launch a Nitro Enclave backed guest.
+        Omitted properties use their documented defaults. This operation fails after
+        the guest has started or when the configuration is invalid.
+      operationId: putEnclaveConfiguration
+      parameters:
+        - name: body
+          in: body
+          description: Nitro Enclave configuration
+          required: true
+          schema:
+            $ref: "#/definitions/EnclaveConfig"
+      responses:
+        204:
+          description: Nitro Enclave configuration created/updated
+        400:
+          description: Nitro Enclave configuration cannot be updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
   /drives/{drive_id}:
     put:
       summary: Creates or updates a drive. Pre-boot only.
@@ -512,9 +558,14 @@ paths:
       description:
         Updates the Virtual Machine Configuration with the specified input.
         Firecracker starts with default values for vCPU count (=1) and memory size (=128 MiB).
-        The vCPU count is restricted to the [1, 32] range.
-        With SMT enabled, the vCPU count is required to be either 1 or an even number in the range.
-        otherwise there are no restrictions regarding the vCPU count.
+        A KVM microVM supports at most 32 vCPUs. A Nitro Enclave VM's maximum
+        depends on the underlying hardware, up to an arbitrary hard cap of 1024.
+        The vCPU count is validated against the limit for the VM being started
+        when the VM is started rather than at configuration time, so a count
+        above it is rejected then. A vCPU count of zero, or an odd count with
+        SMT enabled, is still rejected at configuration time.
+        With SMT enabled, the vCPU count is required to be either 1 or an even
+        number; otherwise there are no restrictions regarding the vCPU count.
         If 2M hugetlbfs pages are specified, then `mem_size_mib` must be a multiple of 2.
         If any of the parameters has an incorrect value, the whole update fails.
         All parameters that are optional and are not specified are set to their default values
@@ -1310,6 +1361,18 @@ definitions:
         type: string
         description: 32-bit bitmap string defining which bits to modify. Format is "0b" followed by 32 characters where '0' = clear bit, '1' = set bit, 'x' = don't modify. Example "0b00000000000000000000000001100000"
 
+  DmbSizeMib:
+    type: integer
+    minimum: 2
+    maximum: 256
+    multipleOf: 2
+    description:
+      Device Memory Buffer size in MiB for confidential enclaves; defaults to 16
+      at attachment. Explicit sizes are rejected by vhost-user block and by KVM
+      or direct-mode transports at attachment (InstanceStart or hotplug PUT).
+      GET /vm/config reports supplied values before start and resolved sizes
+      after attachment, including the default. KVM and direct mode omit it.
+
   Drive:
     type: object
     required:
@@ -1347,6 +1410,16 @@ definitions:
           virtio-block devices using the Sync IO engine.
           This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
         default: false
+      num_queues:
+        type: integer
+        format: int32
+        minimum: 1
+        description:
+          Number of virtio queues exposed by the block device, each processed on a
+          dedicated worker thread. Cannot exceed the configured vCPU count.
+          If omitted, the device exposes a single queue processed on the VMM thread.
+          Setting it to 1 still processes the queue on a dedicated worker thread.
+          This field is supported only for virtio-block configuration.
       path_on_host:
         type: string
         description:
@@ -1362,6 +1435,14 @@ definitions:
           This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
         enum: ["Sync", "Async"]
         default: "Sync"
+      image_format:
+        type: string
+        description:
+          Format of the file at path_on_host. "Vmdk" images must be opened
+          read-only and use the Sync IO engine.
+          This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
+        enum: ["Raw", "Vmdk"]
+        default: "Raw"
       blk_size:
         type: integer
         description:
@@ -1378,6 +1459,9 @@ definitions:
         description:
           Path to the socket of vhost-user-block backend.
           This field is required for vhost-user-block config should be omitted for virtio-block configuration.
+
+      dmb_size_mib:
+        $ref: "#/definitions/DmbSizeMib"
 
   BlockTopology:
     type: object
@@ -1427,6 +1511,91 @@ definitions:
       rate_limiter:
         $ref: "#/definitions/RateLimiter"
 
+  EnclaveConfig:
+    type: object
+    description:
+      Describes the set of enclave-specific configuration options. Boot arguments, vCPU
+      count, and memory size come from the boot source and machine configuration APIs.
+    properties:
+      cpu_ids:
+        type: array
+        minItems: 1
+        maxItems: 1024
+        description:
+          Specific CPU IDs from the Nitro Enclaves CPU pool. When omitted, the kernel
+          selects CPUs from the dynamic pool. When present, the number of IDs must equal
+          the machine vCPU count.
+        items:
+          type: integer
+          minimum: 0
+      debug_mode:
+        type: boolean
+        default: false
+        description:
+          Whether to enable enclave debug mode, which exposes guest serial output through
+          the configured serial output sink.
+      direct_mode:
+        type: boolean
+        default: false
+        description:
+          Whether to run in direct, non-confidential mode. The default is confidential
+          mode, which uses per-device data memory buffers (DMBs) sized by each device's
+          `dmb_size_mib`.
+      cpu_overcommit:
+        type: boolean
+        default: false
+        description:
+          Whether to use host-scheduled floating vCPUs from the parent's overcommit pool
+          instead of dedicated pinned cores from the Nitro Enclaves CPU pool.
+      cpu_accounting:
+        type: boolean
+        default: false
+        description:
+          Whether to attribute each enclave vCPU's guest time to a parent-side thread.
+          Spawns an additional host thread per vCPU, mirroring the vCPU's CPU time,
+          therefore making it host-visible.
+      hotplug_mode:
+        type: boolean
+        default: false
+        description: Whether PCIe devices can be attached after the enclave starts.
+      numa_nodes:
+        type: array
+        minItems: 1
+        maxItems: 1024
+        description:
+          Per-parent-NUMA-node placement of vCPUs and memory. When omitted, all vCPUs and
+          memory are placed on parent NUMA node 0. The vCPU and memory totals must equal
+          the machine configuration, and parent NUMA node IDs must be unique.
+        items:
+          $ref: "#/definitions/EnclaveNumaNode"
+
+  EnclaveNumaNode:
+    type: object
+    required:
+      - parent_numa
+      - vcpu_count
+      - mem_size_mib
+    description: Placement of a slice of enclave vCPUs and memory on a parent NUMA node.
+    properties:
+      parent_numa:
+        type: integer
+        minimum: 0
+        maximum: 4096
+        description: Parent NUMA node ID.
+      vcpu_count:
+        type: integer
+        minimum: 1
+        maximum: 1024
+        description:
+          Number of enclave vCPUs to place on this parent NUMA node. The total across all
+          nodes must equal the machine vCPU count.
+      mem_size_mib:
+        type: integer
+        minimum: 1
+        description:
+          Enclave memory in MiB to place on this parent NUMA node. Every entry except
+          the last, after sorting by parent_numa, must be a multiple of 128 MiB.
+
   Error:
     type: object
     properties:
@@ -1449,6 +1618,8 @@ definitions:
         $ref: "#/definitions/BootSource"
       cpu-config:
         $ref: "#/definitions/CpuConfig"
+      enclave:
+        $ref: "#/definitions/EnclaveConfig"
       logger:
         $ref: "#/definitions/Logger"
       machine-config:
@@ -1576,7 +1747,6 @@ definitions:
       vcpu_count:
         type: integer
         minimum: 1
-        maximum: 32
         description: Number of vCPUs (either 1 or an even number)
       huge_pages:
         type: string
@@ -1714,6 +1884,8 @@ definitions:
         $ref: "#/definitions/RateLimiter"
       tx_rate_limiter:
         $ref: "#/definitions/RateLimiter"
+      dmb_size_mib:
+        $ref: "#/definitions/DmbSizeMib"
 
   PartialDrive:
     type: object
@@ -1834,6 +2006,43 @@ definitions:
         type: string
         description:
           The new path for the backing Unix Domain Socket.
+  DriveOverride:
+    type: object
+    description:
+      Allows for changing the backing file of a block device during snapshot
+      restore.
+    required:
+      - drive_id
+      - path_on_host
+    properties:
+      drive_id:
+        type: string
+        description:
+          The ID of the drive to modify
+      path_on_host:
+        type: string
+        description:
+          The new path of the drive's backing file. The file must have the same
+          contents as the drive's backing file when the snapshot was created.
+  PmemOverride:
+    type: object
+    description:
+      Allows for changing the backing file of a pmem device during snapshot
+      restore.
+    required:
+      - id
+      - path_on_host
+    properties:
+      id:
+        type: string
+        description:
+          The ID of the pmem device to modify
+      path_on_host:
+        type: string
+        description:
+          The new path of the pmem device's backing file. The file must have the
+          same contents as the device's backing file when the snapshot was
+          created.
 
   SnapshotLoadParams:
     type: object
@@ -1882,6 +2091,18 @@ definitions:
           for restoring a snapshot with a different socket path than the one used
           when the snapshot was created. For example, when the original socket path
           is no longer available or when deploying to a different environment.
+      drive_overrides:
+        type: array
+        description:
+          Block device backing files to override. vhost-user block devices do
+          not support snapshots, so they cannot be overridden.
+        items:
+          $ref: "#/definitions/DriveOverride"
+      pmem_overrides:
+        type: array
+        description: Pmem device backing files to override
+        items:
+          $ref: "#/definitions/PmemOverride"
       clock_realtime:
         type: boolean
         description:
@@ -2083,3 +2304,5 @@ definitions:
         description:
           This parameter has been deprecated and it will be removed in future
           Firecracker release.
+      dmb_size_mib:
+        $ref: "#/definitions/DmbSizeMib"

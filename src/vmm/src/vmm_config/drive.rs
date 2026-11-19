@@ -3,6 +3,7 @@
 
 use std::collections::VecDeque;
 use std::io;
+use std::num::NonZeroU16;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -10,10 +11,12 @@ use serde::{Deserialize, Serialize};
 use super::RateLimiterConfig;
 use crate::VmmError;
 use crate::devices::virtio::block::device::Block;
+pub use crate::devices::virtio::block::virtio::device::DiskImageFormat;
 pub use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::devices::virtio::block::virtio::device::VirtioBlkTopology;
 use crate::devices::virtio::block::{BlockError, CacheType};
 use crate::devices::virtio::device::VirtioDevice;
+use crate::vmm_config::enclave::DmbSizeMib;
 
 /// Errors associated with the operations allowed on a drive.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -47,6 +50,10 @@ pub struct BlockDeviceConfig {
     /// the guest driver.
     #[serde(default)]
     pub cache_type: CacheType,
+    /// DMB size for confidential enclaves. Defaults to 16 MiB at attachment;
+    /// transports without DMBs reject explicit sizes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dmb_size_mib: Option<DmbSizeMib>,
 
     // VirtioBlock specific fields
     /// If set to true, the drive is opened in read-only mode. Otherwise, the
@@ -54,6 +61,10 @@ pub struct BlockDeviceConfig {
     pub is_read_only: Option<bool>,
     /// If set to true, the drive advertises discard support to the guest.
     pub discard: Option<bool>,
+    /// Number of queues for the device, each processed on a dedicated worker thread.
+    /// If unset, the device exposes a single queue processed on the VMM thread.
+    /// Cannot exceed the configured vCPU count.
+    pub num_queues: Option<NonZeroU16>,
     /// Path of the drive.
     pub path_on_host: Option<String>,
     /// Rate Limiter for I/O operations.
@@ -64,6 +75,9 @@ pub struct BlockDeviceConfig {
     // pub file_engine_type: FileEngineType,
     #[serde(rename = "io_engine")]
     pub file_engine_type: Option<FileEngineType>,
+    /// The disk image format of the backing file.
+    #[serde(rename = "image_format", skip_serializing_if = "Option::is_none")]
+    pub image_format: Option<DiskImageFormat>,
     /// Logical block size.
     pub blk_size: Option<u32>,
     /// Block topology settings
@@ -224,11 +238,14 @@ mod tests {
                 is_root_device: self.is_root_device,
                 is_read_only: self.is_read_only,
                 discard: self.discard,
+                num_queues: self.num_queues,
                 cache_type: self.cache_type,
+                dmb_size_mib: self.dmb_size_mib,
 
                 path_on_host: self.path_on_host.clone(),
                 rate_limiter: self.rate_limiter,
                 file_engine_type: self.file_engine_type,
+                image_format: self.image_format,
                 blk_size: self.blk_size,
                 topology: self.topology,
 
@@ -268,12 +285,15 @@ mod tests {
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Writeback,
+            dmb_size_mib: None,
 
             is_read_only: Some(false),
             discard: None,
+            num_queues: None,
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -305,12 +325,15 @@ mod tests {
             partuuid: None,
             is_root_device: true,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(true),
             discard: None,
+            num_queues: None,
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -340,12 +363,15 @@ mod tests {
             partuuid: None,
             is_root_device: true,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(true),
             discard: None,
+            num_queues: None,
             path_on_host: Some(dummy_path),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -372,12 +398,15 @@ mod tests {
             partuuid: None,
             is_root_device: true,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(false),
             discard: None,
+            num_queues: None,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -391,12 +420,15 @@ mod tests {
             partuuid: None,
             is_root_device: true,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(false),
             discard: None,
+            num_queues: None,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -421,12 +453,15 @@ mod tests {
             partuuid: None,
             is_root_device: true,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(false),
             discard: None,
+            num_queues: None,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -440,12 +475,15 @@ mod tests {
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(false),
             discard: None,
+            num_queues: None,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -459,12 +497,15 @@ mod tests {
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(false),
             discard: None,
+            num_queues: None,
             path_on_host: Some(dummy_path_3),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -503,12 +544,15 @@ mod tests {
             partuuid: None,
             is_root_device: true,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(false),
             discard: None,
+            num_queues: None,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -522,12 +566,15 @@ mod tests {
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(false),
             discard: None,
+            num_queues: None,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -541,12 +588,15 @@ mod tests {
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(false),
             discard: None,
+            num_queues: None,
             path_on_host: Some(dummy_path_3),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -586,12 +636,15 @@ mod tests {
             partuuid: None,
             is_root_device: true,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(false),
             discard: None,
+            num_queues: None,
             path_on_host: Some(dummy_path_1.clone()),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -600,17 +653,22 @@ mod tests {
 
         let dummy_file_2 = TempFile::new().unwrap();
         let dummy_path_2 = dummy_file_2.as_path().to_str().unwrap().to_string();
+        let initial_dmb = DmbSizeMib::try_from(32).unwrap();
+        let replacement_dmb = DmbSizeMib::try_from(64).unwrap();
         let mut dummy_block_device_2 = BlockDeviceConfig {
             drive_id: String::from("2"),
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: Some(initial_dmb),
 
             is_read_only: Some(false),
             discard: None,
+            num_queues: None,
             path_on_host: Some(dummy_path_2.clone()),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -624,6 +682,7 @@ mod tests {
         block_devs
             .insert(dummy_block_device_2.clone(), false)
             .unwrap();
+        assert_eq!(block_devs.configs()[1].dmb_size_mib, Some(initial_dmb));
 
         // Get index zero.
         assert_eq!(
@@ -647,6 +706,7 @@ mod tests {
         );
         // Update OK.
         dummy_block_device_2.is_read_only = Some(true);
+        dummy_block_device_2.dmb_size_mib = Some(replacement_dmb);
         block_devs
             .insert(dummy_block_device_2.clone(), false)
             .unwrap();
@@ -656,19 +716,34 @@ mod tests {
             .unwrap();
         // Validate update was successful.
         assert!(block_devs.devices[index].lock().unwrap().read_only());
+        assert_eq!(
+            block_devs.configs()[index].dmb_size_mib,
+            Some(replacement_dmb)
+        );
 
         // Update with invalid path.
         let dummy_path_3 = String::from("test_update_3");
         dummy_block_device_2.path_on_host = Some(dummy_path_3);
+        dummy_block_device_2.dmb_size_mib = Some(initial_dmb);
         assert!(matches!(
             block_devs.insert(dummy_block_device_2.clone(), false),
             Err(DriveError::CreateBlockDevice(BlockError::VirtioBackend(
                 VirtioBlockError::BackingFile(_, _)
             )))
         ));
+        assert_eq!(
+            block_devs.configs()[index].dmb_size_mib,
+            Some(replacement_dmb)
+        );
+
+        dummy_block_device_2.path_on_host = Some(dummy_path_2.clone());
+        dummy_block_device_2.dmb_size_mib = None;
+        block_devs
+            .insert(dummy_block_device_2.clone(), false)
+            .unwrap();
+        assert_eq!(block_devs.configs()[index].dmb_size_mib, None);
 
         // Update with 2 root block devices.
-        dummy_block_device_2.path_on_host = Some(dummy_path_2.clone());
         dummy_block_device_2.is_root_device = true;
         assert_eq!(
             block_devs.insert(dummy_block_device_2, false),
@@ -680,12 +755,15 @@ mod tests {
             partuuid: None,
             is_root_device: true,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(false),
             discard: None,
+            num_queues: None,
             path_on_host: Some(dummy_path_1),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -699,12 +777,15 @@ mod tests {
             partuuid: Some("0eaa91a0-01".to_string()),
             is_root_device: true,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(false),
             discard: None,
+            num_queues: None,
             path_on_host: Some(dummy_path_2),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -728,12 +809,15 @@ mod tests {
             partuuid: None,
             is_root_device: true,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(true),
             discard: Some(false),
+            num_queues: None,
             path_on_host: Some(dummy_file.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
+            image_format: None,
             blk_size: Some(512),
             topology: Some(VirtioBlkTopology {
                 physical_block_exp: 0,
@@ -766,12 +850,15 @@ mod tests {
             partuuid: None,
             is_root_device: true,
             cache_type: CacheType::default(),
+            dmb_size_mib: None,
 
             is_read_only: Some(true),
             discard: None,
+            num_queues: None,
             path_on_host: Some(backing_file.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -786,5 +873,23 @@ mod tests {
             block_devs.devices.pop_back().unwrap().lock().unwrap().id(),
             block_id
         );
+    }
+
+    #[test]
+    fn test_deserialize_num_queues() {
+        let minimal: BlockDeviceConfig =
+            serde_json::from_str(r#"{"drive_id": "test_id", "is_root_device": true}"#).unwrap();
+        assert_eq!(minimal.num_queues, None);
+
+        let explicit: BlockDeviceConfig = serde_json::from_str(
+            r#"{"drive_id": "test_id", "is_root_device": true, "num_queues": 4}"#,
+        )
+        .unwrap();
+        assert_eq!(explicit.num_queues, NonZeroU16::new(4));
+
+        serde_json::from_str::<BlockDeviceConfig>(
+            r#"{"drive_id": "test_id", "is_root_device": true, "num_queues": 0}"#,
+        )
+        .unwrap_err();
     }
 }

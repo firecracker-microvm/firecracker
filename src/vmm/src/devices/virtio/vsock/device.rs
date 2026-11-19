@@ -33,12 +33,13 @@ use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::{VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1};
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
+use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue, QueueConfig};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vsock::VsockError;
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::impl_device_type;
 use crate::logger::{IncMetric, error, info, warn};
+use crate::vmm_config::enclave::DmbSizeMib;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};
 
 pub(crate) const RXQ_INDEX: usize = 0;
@@ -61,6 +62,7 @@ pub(crate) const AVAIL_FEATURES: u64 = (1 << VIRTIO_F_VERSION_1 as u64)
 #[derive(Debug)]
 pub struct Vsock<B> {
     cid: u64,
+    pub(crate) dmb_size_mib: Option<DmbSizeMib>,
     pub(crate) queues: Vec<VirtQueue>,
     pub(crate) queue_events: Vec<EventFd>,
     pub(crate) backend: B,
@@ -99,6 +101,7 @@ where
 
         Ok(Vsock {
             cid,
+            dmb_size_mib: None,
             queues,
             queue_events,
             backend,
@@ -298,6 +301,14 @@ where
         defs::VSOCK_DEV_ID
     }
 
+    fn dmb_size_mib(&self) -> Option<DmbSizeMib> {
+        self.dmb_size_mib
+    }
+
+    fn set_default_dmb_size(&mut self) {
+        self.dmb_size_mib.get_or_insert_default();
+    }
+
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
@@ -310,16 +321,20 @@ where
         self.acked_features = acked_features
     }
 
-    fn queues(&self) -> &[VirtQueue] {
-        &self.queues
+    fn num_queues(&self) -> usize {
+        self.queues.len()
     }
 
-    fn queues_mut(&mut self) -> &mut [VirtQueue] {
-        &mut self.queues
+    fn queue_config(&self, index: usize) -> Option<&QueueConfig> {
+        self.queues.get(index).map(|queue| &queue.config)
     }
 
-    fn queue_events(&self) -> &[EventFd] {
-        &self.queue_events
+    fn queue_config_mut(&mut self, index: usize) -> Option<&mut QueueConfig> {
+        self.queues.get_mut(index).map(|queue| &mut queue.config)
+    }
+
+    fn queue_event(&self, index: usize) -> Option<&EventFd> {
+        self.queue_events.get(index)
     }
 
     fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
@@ -408,6 +423,16 @@ where
         true
     }
 
+    fn reset_queues(&mut self) {
+        self.queues.iter_mut().for_each(VirtQueue::reset);
+    }
+
+    fn commit_dirty(&self) {
+        for queue in &self.queues {
+            queue.commit_dirty();
+        }
+    }
+
     fn kick(&mut self) {
         if self.is_activated() {
             // Vsock has a complicated protocol that isn't resilient to any packet loss,
@@ -427,11 +452,7 @@ where
             // `process_rx` on an acknowledgment the guest can never send, hanging all
             // subsequent host-initiated connections.
             if self.pending_event_ack {
-                info!(
-                    "[{:?}:{}] signaling event queue",
-                    self.device_type(),
-                    self.id()
-                );
+                info!("[{}] signaling event queue", self.label());
                 self.signal_used_queue(EVQ_INDEX).unwrap();
             }
 
@@ -448,18 +469,9 @@ where
             // drains RX and re-arms `avail_event`), on a bare resume the RX queue
             // state was never disturbed, and in both cases the host pulls from the
             // backend rather than waiting on a guest RX notification.
-            info!(
-                "[{:?}:{}] notifying tx queue",
-                self.device_type(),
-                self.id()
-            );
+            info!("[{}] notifying tx queue", self.label());
             if let Err(err) = self.queue_events[TXQ_INDEX].write(1) {
-                error!(
-                    "[{:?}:{}] error notifying tx queue: {}",
-                    self.device_type(),
-                    self.id(),
-                    err
-                );
+                error!("[{}] error notifying tx queue: {}", self.label(), err);
             }
         }
     }
@@ -496,6 +508,14 @@ mod tests {
         ctx.guest_evvq.avail.ring[0].set(0);
         ctx.guest_evvq.avail.idx.set(1);
         ctx.device.queues[EVQ_INDEX] = ctx.guest_evvq.create_queue();
+    }
+
+    #[test]
+    fn test_queue_accessors() {
+        // A fresh device: `TestContext` marks its queues ready.
+        let backend = crate::devices::virtio::vsock::test_utils::TestBackend::new();
+        let mut vsock = Vsock::new(52, backend).unwrap();
+        crate::devices::virtio::test_utils::check_queue_accessors(&mut vsock);
     }
 
     #[test]

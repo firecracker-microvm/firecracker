@@ -8,10 +8,13 @@ from pathlib import Path
 import pytest
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.defs import DEFAULT_BINARY_DIR
 from framework.utils import check_output
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 from host_tools.fcmetrics import validate_fc_metrics
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_describe_snapshot(uvm):
     """
@@ -79,6 +82,7 @@ def test_cli_metrics_path_if_metrics_initialized_twice_fail(uvm):
         )
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_cli_metrics_if_resume_no_metrics(uvm, microvm_factory):
     """
@@ -101,12 +105,13 @@ def test_cli_metrics_if_resume_no_metrics(uvm, microvm_factory):
     assert not metrics2.exists()
 
 
-def test_cli_no_params(microvm_factory):
+def test_cli_no_params(request):
     """
     Test running firecracker with no parameters should work
     """
 
-    fc_binary = microvm_factory.fc_binary_path
+    binary_dir = request.config.getoption("--binary-dir") or DEFAULT_BINARY_DIR
+    fc_binary = Path(binary_dir) / "firecracker"
     process = subprocess.Popen(fc_binary)
     try:
         process.communicate(timeout=3)

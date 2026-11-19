@@ -23,6 +23,13 @@ int open_sysgenid(mode_t mode)
 		exit(EXIT_FAILURE);
 	}
 
+	/*
+	 * Ready marker for the tests: a bump after this point is reported by
+	 * read()/poll(), as the driver only reports changes from the generation
+	 * seen at open().
+	 */
+	printf("Watching SysGenID\n");
+	fflush(stdout);
 	return fd;
 }
 

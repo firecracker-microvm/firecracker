@@ -138,7 +138,7 @@ impl ApiServer {
                 response
             }
             Err(err) => {
-                error_unrestricted!("{:?}", err);
+                error_unrestricted!("{}", err);
                 err.into()
             }
         }

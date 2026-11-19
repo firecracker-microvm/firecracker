@@ -1,5 +1,10 @@
 # Using the Firecracker entropy device
 
+> [!NOTE]
+>
+> In a [Nitro Sandbox](nitro-sandboxes/README.md) the entropy device works in
+> direct mode only. The hypervisor rejects it in confidential mode.
+
 ## What is the entropy device
 
 An entropy device is a [`virtio-rng` device][1] that provides guests with

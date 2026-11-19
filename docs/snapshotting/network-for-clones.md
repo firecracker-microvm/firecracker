@@ -47,8 +47,12 @@ specific clone - `clone0`). A new network namespace is initially empty, so we
 also have to create a new tap interface within using
 
 ```bash
-sudo ip netns exec fc0 ip tuntap add name vmtap0 mode tap
+sudo ip netns exec fc0 ip tuntap add name vmtap0 mode tap user "$JAILER_UID" group "$JAILER_GID"
 ```
+
+(where `$JAILER_UID` and `$JAILER_GID` are the uid and gid passed to the jailer
+with `--uid` and `--gid`). If the tap device already exists, its owner and group
+can be changed with the `TUNSETOWNER` and `TUNSETGROUP` ioctls.
 
 The `ip netns exec <ns_name> <command>` allows us to execute `command` in the
 context of the specified network namespace (in the previous case, the secondary

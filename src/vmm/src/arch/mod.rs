@@ -22,8 +22,8 @@ pub use aarch64::vcpu::*;
 pub use aarch64::vm::{KvmVm, KvmVmError, VmState};
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::{
-    ConfigurationError, arch_memory_regions, configure_system_for_boot, get_kernel_start,
-    initrd_load_addr, layout::*, load_kernel,
+    ConfigurationError, MAX_GUEST_MEM_SIZE, arch_memory_regions, configure_system_for_boot,
+    get_kernel_start, initrd_load_addr, layout::*, load_kernel,
 };
 
 /// Module for x86_64 related functionality.
@@ -39,8 +39,8 @@ pub use x86_64::vm::{KvmVm, KvmVmError, VmState};
 
 #[cfg(target_arch = "x86_64")]
 pub use crate::arch::x86_64::{
-    ConfigurationError, arch_memory_regions, configure_system_for_boot, get_kernel_start,
-    initrd_load_addr, layout::*, load_kernel,
+    ConfigurationError, MAX_GUEST_MEM_SIZE, arch_memory_regions, configure_system_for_boot,
+    get_kernel_start, initrd_load_addr, layout::*, load_kernel,
 };
 
 /// Types of devices that can get attached to this platform.

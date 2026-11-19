@@ -1,5 +1,11 @@
 # Memory Hotplugging with virtio-mem
 
+> [!NOTE]
+>
+> Memory hotplugging is not available in a
+> [Nitro Sandbox](nitro-sandboxes/README.md), whose memory is donated in full at
+> boot. Configuring `virtio-mem` is rejected at `InstanceStart`.
+
 ## What is virtio-mem
 
 `virtio-mem` is a para-virtualized memory device that enables dynamic memory

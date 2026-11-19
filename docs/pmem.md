@@ -1,5 +1,11 @@
 # Using the Firecracker `virtio-pmem` device
 
+> [!NOTE]
+>
+> Pmem devices are not available in a
+> [Nitro Sandbox](nitro-sandboxes/README.md). Configuring one is rejected at
+> `InstanceStart`.
+
 ## What is a persistent memory device
 
 Persistent memory is a type of non-volatile, CPU accessible (with usual
@@ -258,7 +264,9 @@ contain the configuration options provided by the user. During restoration
 process, Firecracker will attempt to restore `virtio-pmem` device by opening
 same backing file as it was configured in the first place. This means all
 `virtio-pmem` backing files should be present in the same locations during
-restore as they were during initial `virtio-pmem` configuration.
+restore as they were during initial `virtio-pmem` configuration, unless they are
+overridden with `pmem_overrides` as described in
+[Overriding host resources](snapshotting/snapshot-support.md#overriding-host-resources).
 
 ## Performance
 

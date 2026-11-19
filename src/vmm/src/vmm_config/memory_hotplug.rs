@@ -8,7 +8,7 @@ use crate::devices::virtio::mem::{
 };
 
 /// Errors associated with memory hotplug configuration.
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
 pub enum MemoryHotplugConfigError {
     /// Block size must not be lower than {0} MiB
     BlockSizeTooSmall(u32),

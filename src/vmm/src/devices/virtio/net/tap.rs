@@ -324,7 +324,7 @@ pub mod tests {
         let mem = single_region_mem(0x10000);
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         let mut q = vq.create_queue();
-        q.ready = true;
+        q.config.ready = true;
         let buff1_len = u32::try_from(PAYLOAD_SIZE + VNET_HDR_SIZE).unwrap();
         let buff2_len = u32::try_from(2 * PAYLOAD_SIZE).unwrap();
         let buff1_addr = vq.end().0;

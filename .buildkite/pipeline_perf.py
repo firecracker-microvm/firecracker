@@ -20,11 +20,13 @@ perf_test = {
         "label": "virtio-block-sync",
         "tests": "integration_tests/performance/test_block.py::test_block_performance -k 'not Async'",
         "devtool_opts": "-c 1-10 -m 0",
+        "enclave": True,
     },
     "virtio-block-async": {
         "label": "virtio-block-async",
         "tests": "integration_tests/performance/test_block.py::test_block_performance -k Async",
         "devtool_opts": "-c 1-10 -m 0",
+        "enclave": True,
     },
     "vhost-user-block": {
         "label": "vhost-user-block",
@@ -41,11 +43,13 @@ perf_test = {
         "label": "network",
         "tests": "integration_tests/performance/test_network.py",
         "devtool_opts": "-c 1-10 -m 0",
+        "enclave": True,
     },
     "vsock-throughput": {
         "label": "vsock-throughput",
         "tests": "integration_tests/performance/test_vsock.py",
         "devtool_opts": "-c 1-10 -m 0",
+        "enclave": True,
     },
     "memory-hotplug": {
         "label": "memory-hotplug",
@@ -54,6 +58,11 @@ perf_test = {
         # The test require polling (5 ms), so any change smaller than that is not significant.
         # Additionally, unplugging memory is dependent on how exactly it's being used, so some volatility is expected.
         "ab_opts": "--absolute-strength 0.005 --noise-threshold hotunplug_total_time=0.1",
+    },
+    "device-hotplug": {
+        "label": "device-hotplug",
+        "tests": "integration_tests/performance/test_hotplug_device.py",
+        "devtool_opts": "-c 1-10 -m 0",
     },
     "snapshot-latency": {
         "label": "snapshot-latency",
@@ -74,22 +83,26 @@ perf_test = {
         "label": "boottime",
         "tests": "integration_tests/performance/test_boottime.py::test_boottime",
         "devtool_opts": "-c 1-10 -m 0",
+        "enclave": True,
     },
     "process-startup": {
         "label": "process-startup",
         "tests": "integration_tests/performance/test_process_startup_time.py",
         "devtool_opts": "-c 1-10 -m 0",
+        "enclave": True,
     },
     "jailer": {
         "label": "jailer",
         "tests": "integration_tests/performance/test_jailer.py",
         "devtool_opts": "-c 1-10 -m 0",
         "ab_opts": "--noise-threshold startup=0.1",
+        "enclave": True,
     },
     "mmds": {
         "label": "mmds",
         "tests": "integration_tests/performance/test_mmds.py",
         "devtool_opts": "-c 1-10 -m 0",
+        "enclave": True,
         # The latency of consecutive MMDS calls is very correlated.
         # To make datapoints more independent, we run more iterations to spread the datapoint collection over a longer
         # period of time.
@@ -103,7 +116,11 @@ REVISION_A = os.environ.get("REVISION_A")
 REVISION_B = os.environ.get("REVISION_B")
 REVISION_A_ARTIFACTS = os.environ.get("REVISION_A_ARTIFACTS")
 REVISION_B_ARTIFACTS = os.environ.get("REVISION_B_ARTIFACTS")
-A_B_TEST_DEFAULT_MAX_ITERATIONS = 4
+# In case of no real regressions, each iteration will shrink the number of tests performed,
+# so each iteration will be faster and faster. In case of a real regression, datapoints
+# between iterations aren't forgotten, so the test suit won't shrink much, and it's possible
+# the regression will manifest as a BuildKite timeout.
+A_B_TEST_DEFAULT_MAX_ITERATIONS = 16
 
 # Either both are specified or neither. Only doing either is a bug. If you want to
 # run performance tests _on_ a specific commit, specify neither and put your commit
@@ -137,11 +154,29 @@ if pipeline.args.test:
 else:
     tests = perf_test.values()
 
+
+def download_command(artifacts):
+    """The artifact download, when there is one, to run before devtool."""
+    return [pipeline.devtool_download_artifacts(artifacts)] if artifacts else []
+
+
+def build_command(artifacts, devtool_opts, test_script_opts):
+    """Prefix the artifact download, when there is one, to a devtool run."""
+    return download_command(artifacts) + pipeline.devtool_test(
+        devtool_opts, test_script_opts
+    )
+
+
 for test in tests:
     devtool_opts = test.pop("devtool_opts")
-    test_selector = test.pop("tests")
+    # Perf tests are marked nonci, so this leaves out the functional tests that
+    # share their files. A group can override it with its own -m in "tests".
+    test_selector = f"-m nonci {test.pop('tests')}"
     ab_opts = test.pop("ab_opts", "")
     max_iterations = test.pop("max_iterations", A_B_TEST_DEFAULT_MAX_ITERATIONS)
+    # Unflagged groups exercise what an enclave cannot express -- snapshot
+    # restore, huge pages, virtio-mem, pmem -- and collect nothing there.
+    enclave = test.pop("enclave", False)
     devtool_opts += " --performance"
     test_script_opts = ""
     artifacts = []
@@ -153,20 +188,22 @@ for test in tests:
             artifacts.append(REVISION_B_ARTIFACTS)
             test_script_opts += f" --artifacts-a {REVISION_A_ARTIFACTS} --artifacts-b {REVISION_B_ARTIFACTS}"
     else:
-        # Passing `-m ''` below instructs pytest to collect tests regardless of
-        # their markers (e.g. it will collect both tests marked as nonci, and
-        # tests without any markers).
-        test_script_opts += f" -m '' {test_selector}"
+        test_script_opts += f" {test_selector}"
 
-    command = []
-    if artifacts:
-        command.append(pipeline.devtool_download_artifacts(artifacts))
-    command.extend(pipeline.devtool_test(devtool_opts, test_script_opts))
     pipeline.build_group(
-        command=command,
+        command=build_command(artifacts, devtool_opts, test_script_opts),
         # and the rest can be command arguments
         **test,
     )
+
+    if enclave:
+        # `devtool_opts` has the metal tuning options, so only keep --ab.
+        pipeline.build_group_enclave(
+            test["label"],
+            test_script_opts,
+            devtool_opts="--ab" if REVISION_A else None,
+            pre_commands=download_command(artifacts),
+        )
 
 # Stores the info about pinning tests to agents with particular kernel versions.
 # For example, the following:

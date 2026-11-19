@@ -14,8 +14,15 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait
 
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.enclave import DEFAULT_DMB_SIZE_MIB
 from framework.utils import generate_mmds_get_request, generate_mmds_session_token
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
+from framework.vm_backend import (
+    VM_BACKEND_ENCLAVE_CONFIDENTIAL,
+    VM_BACKEND_ENCLAVE_DIRECT,
+    VM_BACKEND_KVM,
+    pin_vm_backend,
+)
 
 # Directory with metadata JSON files
 DIR = Path("./data")
@@ -38,6 +45,29 @@ def _configure_vm_from_json(test_microvm, vm_config_file):
     obj["boot-source"]["kernel_image_path"] = str(test_microvm.kernel_file.name)
     obj["drives"][0]["path_on_host"] = str(test_microvm.rootfs_file.name)
     obj["drives"][0]["is_read_only"] = True
+
+    # Not in the JSON fixtures: they are shared by every backend, and
+    # `direct_mode` differs per enclave backend, so it cannot be a static value.
+    if test_microvm.backend.is_enclave:
+        obj["enclave"] = {
+            "debug_mode": True,
+            "direct_mode": test_microvm.backend is VM_BACKEND_ENCLAVE_DIRECT,
+            "cpu_overcommit": True,
+            "cpu_accounting": False,
+            "hotplug_mode": False,
+        }
+        # The VMM defaults this to one node holding the whole VM, so mirror it.
+        # Skipped for the fixtures that omit a size to be rejected.
+        machine_config = obj["machine-config"]
+        if {"vcpu_count", "mem_size_mib"} <= machine_config.keys():
+            obj["enclave"]["numa_nodes"] = [
+                {
+                    "parent_numa": 0,
+                    "vcpu_count": machine_config["vcpu_count"],
+                    "mem_size_mib": machine_config["mem_size_mib"],
+                }
+            ]
+
     vm_config = Path(test_microvm.chroot()) / vm_config_file.name
     vm_config.write_text(json.dumps(obj))
     test_microvm.jailer.extra_args = {"config-file": vm_config.name}
@@ -124,6 +154,8 @@ def test_config_start_with_api(uvm, vm_config_file):
     assert test_microvm.state == "Running"
 
     # Validate full vm configuration.
+    if test_microvm.backend is VM_BACKEND_ENCLAVE_CONFIDENTIAL:
+        vm_config["drives"][0]["dmb_size_mib"] = DEFAULT_DMB_SIZE_MIB
     response = test_microvm.api.vm_config.get()
     assert response.json() == vm_config
 
@@ -158,6 +190,7 @@ def test_config_start_no_api(uvm, vm_config_file):
             )
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pytest.mark.parametrize("vm_config_file", ["framework/vm_config_network.json"])
 def test_config_start_no_api_exit(uvm, vm_config_file):
@@ -202,6 +235,7 @@ def test_config_bad_machine_config(uvm, vm_config_file):
     test_microvm.mark_killed()
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pytest.mark.parametrize(
     "test_config",

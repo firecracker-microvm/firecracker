@@ -10,6 +10,11 @@ import host_tools.drive as drive_tools
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_rootfs_mode
 from framework.utils_drive import partuuid_and_disk_path
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
+
+# Most tests here run on every backend (incl. Nitro Enclave): post-boot block
+# config updates reach enclave guests via NE_UPDATE_DEVICE_CONFIG and the
+# config-change interrupt.
 
 MB = 1024 * 1024
 
@@ -24,7 +29,7 @@ def partuuid_and_disk_path_tmpfs(rootfs, tmp_path):
     disk_path.unlink()
 
 
-def test_rescan_file(uvm, io_engine):
+def test_rescan_file(uvm, io_engine, num_queues):
     """
     Verify that rescan works with a file-backed virtio device.
     """
@@ -40,7 +45,9 @@ def test_rescan_file(uvm, io_engine):
     fs = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, "scratch"), size=block_size
     )
-    test_microvm.add_drive("scratch", fs.path, io_engine=io_engine)
+    test_microvm.add_drive(
+        "scratch", fs.path, io_engine=io_engine, num_queues=num_queues
+    )
 
     test_microvm.start()
 
@@ -65,7 +72,7 @@ def test_rescan_file(uvm, io_engine):
     _check_block_size(test_microvm.ssh, "/dev/vdb", fs.size())
 
 
-def test_device_ordering(uvm, io_engine):
+def test_device_ordering(uvm, io_engine, num_queues):
     """
     Verify device ordering.
 
@@ -79,7 +86,9 @@ def test_device_ordering(uvm, io_engine):
     fs1 = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, "scratch1"), size=128
     )
-    test_microvm.add_drive("scratch1", fs1.path, io_engine=io_engine)
+    test_microvm.add_drive(
+        "scratch1", fs1.path, io_engine=io_engine, num_queues=num_queues
+    )
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM and a root file system
     # (this is the second block device added).
@@ -90,7 +99,9 @@ def test_device_ordering(uvm, io_engine):
     fs2 = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, "scratch2"), size=512
     )
-    test_microvm.add_drive("scratch2", fs2.path, io_engine=io_engine)
+    test_microvm.add_drive(
+        "scratch2", fs2.path, io_engine=io_engine, num_queues=num_queues
+    )
 
     test_microvm.start()
 
@@ -112,7 +123,7 @@ def test_device_ordering(uvm, io_engine):
     _check_block_size(ssh_connection, "/dev/vdc", fs2.size())
 
 
-def test_rescan_dev(uvm, io_engine):
+def test_rescan_dev(uvm, io_engine, num_queues):
     """
     Verify that rescan works with a device-backed virtio device.
     """
@@ -125,7 +136,9 @@ def test_rescan_dev(uvm, io_engine):
 
     # Add a scratch block device.
     fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "fs1"))
-    test_microvm.add_drive("scratch", fs1.path, io_engine=io_engine)
+    test_microvm.add_drive(
+        "scratch", fs1.path, io_engine=io_engine, num_queues=num_queues
+    )
 
     test_microvm.start()
 
@@ -152,7 +165,7 @@ def test_rescan_dev(uvm, io_engine):
             utils.check_output(["losetup", "--detach", loopback_device])
 
 
-def test_non_partuuid_boot(uvm, io_engine):
+def test_non_partuuid_boot(uvm, io_engine, num_queues):
     """
     Test the output reported by blockdev when booting from /dev/vda.
     """
@@ -165,7 +178,13 @@ def test_non_partuuid_boot(uvm, io_engine):
 
     # Add another read-only block device.
     fs = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "readonly"))
-    test_microvm.add_drive("scratch", fs.path, is_read_only=True, io_engine=io_engine)
+    test_microvm.add_drive(
+        "scratch",
+        fs.path,
+        is_read_only=True,
+        io_engine=io_engine,
+        num_queues=num_queues,
+    )
 
     test_microvm.start()
 
@@ -252,7 +271,7 @@ def test_partuuid_update(uvm, io_engine):
     _check_drives(test_microvm, assert_dict, assert_dict.keys())
 
 
-def test_patch_drive(uvm, io_engine):
+def test_patch_drive(uvm, io_engine, num_queues):
     """
     Test replacing the backing filesystem after guest boot works.
     """
@@ -264,7 +283,9 @@ def test_patch_drive(uvm, io_engine):
     test_microvm.add_net_iface()
 
     fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, "scratch"))
-    test_microvm.add_drive("scratch", fs1.path, io_engine=io_engine)
+    test_microvm.add_drive(
+        "scratch", fs1.path, io_engine=io_engine, num_queues=num_queues
+    )
 
     test_microvm.start()
 
@@ -290,7 +311,7 @@ def test_patch_drive(uvm, io_engine):
     assert lines[1].strip() == size_bytes_str
 
 
-def test_no_flush(uvm, io_engine):
+def test_no_flush(uvm, io_engine, num_queues):
     """
     Verify default block ignores flush.
     """
@@ -306,6 +327,7 @@ def test_no_flush(uvm, io_engine):
         test_microvm.rootfs_file,
         is_root_device=True,
         io_engine=io_engine,
+        num_queues=num_queues,
     )
     test_microvm.start()
 
@@ -325,7 +347,7 @@ def test_no_flush(uvm, io_engine):
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
-def test_discard(uvm):
+def test_discard(uvm, num_queues):
     """
     Verify discard is advertised and punches holes in a file-backed drive.
     """
@@ -338,7 +360,9 @@ def test_discard(uvm):
     fs = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, "discard"), size=64
     )
-    test_microvm.add_drive("discard", fs.path, discard=True, io_engine="Sync")
+    test_microvm.add_drive(
+        "discard", fs.path, discard=True, io_engine="Sync", num_queues=num_queues
+    )
 
     test_microvm.start()
 
@@ -366,7 +390,7 @@ def test_discard(uvm):
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pin_rootfs_mode("rw")
-def test_flush(uvm, io_engine):
+def test_flush(uvm, io_engine, num_queues):
     """
     Verify block with flush actually flushes.
     """
@@ -382,6 +406,7 @@ def test_flush(uvm, io_engine):
         is_root_device=True,
         cache_type="Writeback",
         io_engine=io_engine,
+        num_queues=num_queues,
     )
     test_microvm.start()
 
@@ -428,7 +453,11 @@ def _check_mount(ssh_connection, dev_path):
     assert stderr == ""
 
 
-def test_device_reset(uvm, io_engine):
+# The enclave transport does not handle virtio device reset: it never consumes
+# reset_count from the info-page device entry header, so a guest driver rebind
+# leaves the parent with stale queue state.
+@pin_vm_backend(VM_BACKEND_KVM)
+def test_device_reset(uvm, io_engine, num_queues):
     """
     Test that virtio-block device reset works.
     """
@@ -438,7 +467,7 @@ def test_device_reset(uvm, io_engine):
     vm.add_net_iface()
 
     fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch"), size=2)
-    vm.add_drive("scratch", fs.path, io_engine=io_engine)
+    vm.add_drive("scratch", fs.path, io_engine=io_engine, num_queues=num_queues)
     vm.start()
 
     # Verify the scratch drive is accessible.
@@ -562,3 +591,38 @@ def test_topology_advertised(uvm, io_engine):
         _read_queue_attr(vm.ssh, "vdb", "optimal_io_size")
         == expected["optimal_io_size"]
     )
+
+
+def test_multiqueue(uvm, microvm_factory, io_engine):
+    """
+    Test multiqueue block I/O before and after snapshot restore.
+    """
+    num_queues = 4
+    vm = uvm
+    vm.spawn()
+    vm.basic_config(vcpu_count=num_queues)
+    vm.add_net_iface()
+
+    fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch"), size=16)
+    vm.add_drive("scratch", fs.path, io_engine=io_engine, num_queues=num_queues)
+    vm.start()
+
+    assert int(vm.ssh.check_output("ls /sys/block/vdb/mq | wc -l").stdout) == num_queues
+    vm.ssh.check_output("mount /dev/vdb /tmp")
+    vm.ssh.check_output("echo multiqueue > /tmp/test")
+    vm.ssh.check_output("umount /tmp")
+
+    # Enclaves cannot be snapshotted.
+    if vm.backend.is_enclave:
+        return
+
+    snapshot = vm.snapshot_full()
+    restored = microvm_factory.build_from_snapshot(snapshot)
+
+    assert (
+        int(restored.ssh.check_output("ls /sys/block/vdb/mq | wc -l").stdout)
+        == num_queues
+    )
+    restored.ssh.check_output("mount /dev/vdb /tmp")
+    assert restored.ssh.check_output("cat /tmp/test").stdout.strip() == "multiqueue"
+    restored.ssh.check_output("umount /tmp")

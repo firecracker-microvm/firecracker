@@ -11,15 +11,32 @@ are operating identically, except for the expected differences.
 
 import pytest
 
+from framework.utils import CpuMap
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
 
+# Not pinned: templated variants are deselected on enclaves at collection, and
+# the no-template ones run everywhere.
 pytestmark = [pin_cpu_template(ALL_CPU_TEMPLATES)]
 
-# Use the maximum number of vCPUs supported by Firecracker
-MAX_VCPUS = 32
+# Guest kernels are built with CONFIG_NR_CPUS=64, so a guest onlines at most 64.
+MAX_GUEST_VCPUS = 64
 
 
-@pytest.mark.parametrize("vcpu_count", [MAX_VCPUS])
+# Shadows the shared dimension: the ceiling is backend-specific, and only known
+# once the backend is. Deliberately a fixture rather than a parametrize, so the
+# host's CPU count does not leak into test IDs.
+@pytest.fixture
+def vcpu_count(vm_backend):
+    """The most vCPUs this backend can be given on this host."""
+    if not vm_backend.is_enclave:
+        # KVM caps at MAX_SUPPORTED_KVM_VCPUS.
+        return min(CpuMap.len(), 32)
+    # An enclave goes above the KVM cap, but this one asks for no NUMA placement
+    # and so lands wholly on parent node 0. test_enclave_max_vcpus covers a
+    # host-sized count spread over every node.
+    return min(CpuMap.node_len(), MAX_GUEST_VCPUS)
+
+
 def test_all_vcpus_online(uvm_any):
     """Check all vCPUs are online inside guest"""
     assert (
@@ -28,7 +45,6 @@ def test_all_vcpus_online(uvm_any):
     )
 
 
-@pytest.mark.parametrize("vcpu_count", [MAX_VCPUS])
 def test_all_vcpus_have_same_features(uvm_any):
     """
     Check all vCPUs have the same features inside guest.

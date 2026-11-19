@@ -30,7 +30,7 @@ use crate::devices::virtio::net::tap::Tap;
 use crate::devices::virtio::net::{
     MAX_BUFFER_SIZE, NET_QUEUE_SIZES, NetError, NetQueue, RX_INDEX, TX_INDEX, generated,
 };
-use crate::devices::virtio::queue::{InvalidAvailIdx, Queue};
+use crate::devices::virtio::queue::{InvalidAvailIdx, Queue, QueueConfig};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::{DeviceError, report_net_event_fail};
 use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
@@ -41,6 +41,7 @@ use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use crate::utils::net::mac::MacAddr;
+use crate::vmm_config::enclave::DmbSizeMib;
 use crate::vstate::memory::{ByteValued, GuestMemoryMmap};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
@@ -203,6 +204,7 @@ impl RxBuffers {
 #[derive(Debug)]
 pub struct Net {
     pub(crate) id: String,
+    pub(crate) dmb_size_mib: Option<DmbSizeMib>,
 
     /// The backend for this device: a tap.
     pub tap: Tap,
@@ -281,6 +283,7 @@ impl Net {
 
         Ok(Net {
             id: id.clone(),
+            dmb_size_mib: None,
             tap,
             avail_features,
             acked_features: 0u64,
@@ -943,6 +946,14 @@ impl VirtioDevice for Net {
         &self.id
     }
 
+    fn dmb_size_mib(&self) -> Option<DmbSizeMib> {
+        self.dmb_size_mib
+    }
+
+    fn set_default_dmb_size(&mut self) {
+        self.dmb_size_mib.get_or_insert_default();
+    }
+
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
@@ -955,16 +966,20 @@ impl VirtioDevice for Net {
         self.acked_features = acked_features;
     }
 
-    fn queues(&self) -> &[Queue] {
-        &self.queues
+    fn num_queues(&self) -> usize {
+        self.queues.len()
     }
 
-    fn queues_mut(&mut self) -> &mut [Queue] {
-        &mut self.queues
+    fn queue_config(&self, index: usize) -> Option<&QueueConfig> {
+        self.queues.get(index).map(|queue| &queue.config)
     }
 
-    fn queue_events(&self) -> &[EventFd] {
-        &self.queue_evts
+    fn queue_config_mut(&mut self, index: usize) -> Option<&mut QueueConfig> {
+        self.queues.get_mut(index).map(|queue| &mut queue.config)
+    }
+
+    fn queue_event(&self, index: usize) -> Option<&EventFd> {
+        self.queue_evts.get(index)
     }
 
     fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
@@ -1034,6 +1049,16 @@ impl VirtioDevice for Net {
         self.rx_buffer.clear();
         self.tx_buffer.clear();
         true
+    }
+
+    fn reset_queues(&mut self) {
+        self.queues.iter_mut().for_each(Queue::reset);
+    }
+
+    fn commit_dirty(&self) {
+        for queue in &self.queues {
+            queue.commit_dirty();
+        }
     }
 
     /// Prepare saving state
@@ -1106,6 +1131,12 @@ pub mod tests {
         let offset = std::mem::offset_of!(virtio_net_hdr_v1, num_buffers);
         frame[offset] = bytes[0];
         frame[offset + 1] = bytes[1];
+    }
+
+    #[test]
+    fn test_queue_accessors() {
+        let mut net = crate::devices::virtio::net::test_utils::default_net();
+        crate::devices::virtio::test_utils::check_queue_accessors(&mut net);
     }
 
     #[test]
@@ -2719,13 +2750,14 @@ pub mod tests {
         let net = th.net.lock().unwrap();
 
         // Test queues count (TX and RX).
-        let queues = net.queues();
+        let queues = &net.queues;
         assert_eq!(queues.len(), NET_QUEUE_SIZES.len());
-        assert_eq!(queues[RX_INDEX].size, th.rxq.size());
-        assert_eq!(queues[TX_INDEX].size, th.txq.size());
+        assert_eq!(queues[RX_INDEX].config.size, th.rxq.size());
+        assert_eq!(queues[TX_INDEX].config.size, th.txq.size());
 
         // Test corresponding queues events.
-        assert_eq!(net.queue_events().len(), NET_QUEUE_SIZES.len());
+        assert_eq!(net.num_queues(), NET_QUEUE_SIZES.len());
+        assert!((0..net.num_queues()).all(|index| net.queue_event(index).is_some()));
 
         // Test interrupts.
         assert!(
@@ -2748,7 +2780,7 @@ pub mod tests {
         th.activate_net();
 
         let net = th.net();
-        let queues = net.queues();
+        let queues = &net.queues;
         assert!(queues[RX_INDEX].uses_notif_suppression);
         assert!(queues[TX_INDEX].uses_notif_suppression);
     }
@@ -2775,7 +2807,7 @@ pub mod tests {
         let mem = single_region_mem_dirty_tracking(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let used_ring = u64_to_usize(th.net().queues[RX_INDEX].used_ring_address.0);
+        let used_ring = u64_to_usize(th.net().queues[RX_INDEX].config.used_ring_address.0);
         let dirty_at = |addr: usize| {
             mem.find_region(GuestAddress(0))
                 .unwrap()

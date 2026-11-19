@@ -12,29 +12,32 @@ from host_tools.cargo_build import run_seccompiler_bin
 
 ITERATIONS = 100
 
+# Production deployments give the jailer a cgroup v2 per microVM. Without
+# --cgroup the jailer does no cgroup work. These values make it create the
+# cgroup, set its limits and move into it.
+CGROUPS_V2 = ["memory.max=1073741824", "cpu.weight=100"]
+
 pytestmark = pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 
 
 @pytest.mark.nonci
-def test_startup_time_new_pid_ns(microvm_factory, guest_kernel, rootfs, metrics):
+@pytest.mark.parametrize("cgroups", ["none", "v2"], ids=["none", "cgroupv2"])
+def test_startup_time_daemonize(
+    microvm_factory, guest_kernel, rootfs, metrics, cgroups
+):
     """
-    Check startup time when jailer is spawned in a new PID namespace.
+    Check startup time when jailer detaches Firecracker from the controlling terminal,
+    without cgroups and with a cgroup v2 per microVM.
     """
+    if cgroups == "v2" and not os.path.exists("/sys/fs/cgroup/cgroup.controllers"):
+        pytest.skip("cgroupsv2 only")
+    suffix = "daemonize" if cgroups == "none" else "daemonize_cgroupv2"
     for _ in range(ITERATIONS):
         microvm = microvm_factory.build(guest_kernel, rootfs)
-        microvm.jailer.new_pid_ns = True
-        _test_startup_time(microvm, metrics, "new_pid_ns")
-        microvm.kill()
-
-
-@pytest.mark.nonci
-def test_startup_time_daemonize(microvm_factory, guest_kernel, rootfs, metrics):
-    """
-    Check startup time when jailer detaches Firecracker from the controlling terminal.
-    """
-    for _ in range(ITERATIONS):
-        microvm = microvm_factory.build(guest_kernel, rootfs)
-        _test_startup_time(microvm, metrics, "daemonize")
+        if cgroups == "v2":
+            microvm.jailer.cgroup_ver = 2
+            microvm.jailer.cgroups = CGROUPS_V2
+        _test_startup_time(microvm, metrics, suffix)
         microvm.kill()
 
 

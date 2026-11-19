@@ -11,6 +11,11 @@ from framework.artifacts import (
     pin_hotplug_ports,
     pin_pci,
 )
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
+
+# KVM-only: these check the root ports Firecracker reserves; an enclave guest's
+# PCI topology comes from the NE hypervisor.
+pytestmark = pin_vm_backend(VM_BACKEND_KVM)
 
 # What a root port looks like in lspci: a PCI-to-PCI bridge
 PCI_BRIDGE_CLASS = "0604:"

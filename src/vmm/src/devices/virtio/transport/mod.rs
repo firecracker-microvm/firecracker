@@ -10,6 +10,8 @@ use crate::vstate::interrupts::InterruptError;
 
 /// MMIO transport for VirtIO devices
 pub mod mmio;
+/// Nitro Enclave transport for VirtIO devices
+pub mod nitro_enclave;
 /// PCI transport for VirtIO devices
 pub mod pci;
 

@@ -28,12 +28,40 @@ and this project adheres to
 - [#6237](https://github.com/firecracker-microvm/firecracker/pull/6237): Added
   balloon and virtio-mem memory reclamation for shared memfd-backed guest
   memory, such as memory shared with vhost-user devices.
+- [#6123](https://github.com/firecracker-microvm/firecracker/pull/6123),
+  [#6128](https://github.com/firecracker-microvm/firecracker/pull/6128),
+  [#6131](https://github.com/firecracker-microvm/firecracker/pull/6131),
+  [#6132](https://github.com/firecracker-microvm/firecracker/pull/6132),
+  [#6197](https://github.com/firecracker-microvm/firecracker/pull/6197),
+  [#6312](https://github.com/firecracker-microvm/firecracker/pull/6312): Added
+  an optional `num_queues` field to the virtio-block drive configuration. When
+  set, the drive exposes that number of queues to the guest and processes each
+  of them on a dedicated host worker thread instead of the VMM thread, enabling
+  virtio-blk multiqueue for values greater than `1`. The queue count cannot
+  exceed the vCPU count. Custom seccomp filters must include the new
+  `blk_worker` thread category. See
+  [block documentation](docs/block.md#threaded-mode-and-multiqueue).
+- [#6402](https://github.com/firecracker-microvm/firecracker/pull/6402): Added
+  `drive_overrides` to the `PUT /snapshot/load` API, which overrides the backing
+  files of block devices when loading a snapshot. See
+  [Overriding host resources](docs/snapshotting/snapshot-support.md#overriding-host-resources)
+  for more information.
+- [#6402](https://github.com/firecracker-microvm/firecracker/pull/6402): Added
+  `pmem_overrides` to the `PUT /snapshot/load` API, which overrides the backing
+  files of pmem devices when loading a snapshot. See
+  [Overriding host resources](docs/snapshotting/snapshot-support.md#overriding-host-resources)
+  for more information.
 
 ### Changed
 
 - [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228): Device
   hotplug now requires `pcie_hotplug_ports` to be set in the machine
   configuration, and only devices behind a PCIe root port can be hot-unplugged.
+- [#6357](https://github.com/firecracker-microvm/firecracker/pull/6357):
+  `PUT`/`PATCH /machine-config` now rejects a `mem_size_mib` larger than the
+  architecture can address (1022 GiB on aarch64, `usize::MAX` minus the MMIO
+  gaps on x86_64) instead of silently clamping it and failing later with an
+  out-of-memory error at boot.
 - [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
   PL061 GPIO controller backing the new aarch64 power button is always attached
   and uses one extra GSI, which reduces the GSIs left for VirtIO devices. With
@@ -64,6 +92,15 @@ and this project adheres to
   largest frame needs, instead of every buffer the guest has made available.
   This lowers the cost of receiving each frame and improves receive throughput
   for small packets.
+- [#6354](https://github.com/firecracker-microvm/firecracker/pull/6354): Unified
+  the saved virtio device state across the MMIO and PCI transports and dropped
+  the redundant PCI SBDF from the saved state.
+- [#6413](https://github.com/firecracker-microvm/firecracker/pull/6413):
+  Firecracker now prints the error that makes it exit, and logs API request
+  parsing errors, using their human-readable message instead of the Rust debug
+  representation. Together with the other changes in this pull request, this
+  reduces the size of the `firecracker` binary's code by about 10% (297 KiB on
+  x86_64, 247 KiB on aarch64).
 
 ### Deprecated
 
@@ -103,6 +140,13 @@ and this project adheres to
   used for host-side ports of host-initiated connections. Guest connection
   requests to ports in this range are now refused.
 
+- [#6331](https://github.com/firecracker-microvm/firecracker/pull/6331): Fixed
+  MMDS TCP retransmissions. Since responses larger than one segment were
+  supported, every retransmission of response data failed, counting
+  `mmds.tx_errors`; the guest's connection then stalled until it acknowledged
+  everything, or was reset if a segment had been lost. Responses are now resent
+  from the oldest unacknowledged byte.
+
 - [#6208](https://github.com/firecracker-microvm/firecracker/pull/6208): Fixed
   the vsock device stalling the VMM thread when the guest connects to a
   host-side Unix socket whose accept backlog is full. Such connection requests
@@ -141,6 +185,42 @@ and this project adheres to
   [#6274](https://github.com/firecracker-microvm/firecracker/pull/6274): Guest
   memory written by the virtio devices is now tracked more accurately. This will
   lead to smaller incremental snapshots when dirty tracking is enabled.
+
+- [#6278](https://github.com/firecracker-microvm/firecracker/issues/6278): Fixed
+  the reset of a virtio-block device using the `Async` io engine failing when a
+  signal interrupted the wait for its in-flight requests, which left the device
+  unusable for the rest of the microVM's lifetime. The reset now waits until
+  every in-flight request has completed.
+
+- [#6406](https://github.com/firecracker-microvm/firecracker/pull/6406): Fixed
+  the API server logging MMDS request bodies in cleartext when the request path
+  was not exactly `/mmds`. Paths such as `/mmds/` or `//mmds` reach the MMDS
+  handler too, but were not recognized as MMDS by the log redaction.
+
+- [#6388](https://github.com/firecracker-microvm/firecracker/pull/6388): Fixed
+  microVM creation and snapshot restore taking 20-50 ms longer on hosts running
+  Linux 6.18 or newer, by registering guest memory and pmem memslots before
+  creating the vCPUs and the devices. Intel hosts still pay one ~25 ms wait at
+  vCPU creation, which only a kernel fix can remove.
+
+- [#6301](https://github.com/firecracker-microvm/firecracker/pull/6301): Fixed
+  snapshot restore on aarch64 hosts with a GICv2 interrupt controller, such as
+  the Raspberry Pi 5. The previous implementation accidentally shifted the vCPU
+  number bits twice, making all of the vCPU numbers 0 and breaking snapshot
+  restore of VMs with more than one vCPU.
+
+## [1.18.0]
+
+### Added
+
+- [#6393](https://github.com/firecracker-microvm/firecracker/pull/6393): Added
+  support for Nitro Sandboxes. Firecracker can now launch and manage isolated
+  VMs that the Nitro Hypervisor carves out of the parent EC2 instance, as an
+  alternative to KVM. Firecracker drives the Nitro Enclaves driver
+  (`/dev/nitro_enclaves`) instead of `/dev/kvm`, and keeps its existing API,
+  jailer and virtio device model. A sandbox is configured with the new
+  `PUT /enclave` API, in confidential or direct mode. See the
+  [Nitro Sandboxes documentation](docs/nitro-sandboxes/README.md).
 
 ## [1.17.0]
 

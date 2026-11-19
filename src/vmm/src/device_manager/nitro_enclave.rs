@@ -1,0 +1,235 @@
+// Copyright 2026 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+//! Nitro Enclave device manager.
+//!
+//! Manages Nitro Enclave transport devices, parallel to `MMIODeviceManager` and `PciDevices`.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use event_manager::SubscriberOps;
+
+use crate::EventManager;
+use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceType};
+use crate::devices::virtio::transport::nitro_enclave::{
+    DeviceDmaMemory, NeTransport, NeTransportError,
+};
+use crate::logger::info;
+use crate::nitro_enclave::enclave_vm::{EnclaveVm, EnclaveVmError};
+use crate::nitro_enclave::ne_ioctl::EnclaveFd;
+use crate::utils::{mib_to_bytes, u64_to_usize};
+use crate::vmm_config::enclave::EnclaveConfigError;
+
+/// Errors from NE device manager operations.
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum NeDeviceError {
+    /// Failed to create NE transport: {0}
+    Transport(#[from] NeTransportError),
+    /// Failed to allocate DMB: {0}
+    Dmb(#[from] EnclaveVmError),
+    /// Cannot size DMB: {0}
+    DmbSize(#[from] EnclaveConfigError),
+    /// Device not found
+    DeviceNotFound,
+}
+
+/// Manages NE transport devices for enclaves.
+#[derive(Debug, Default)]
+pub struct NeDevices {
+    devices: HashMap<VirtioDeviceId, Arc<Mutex<NeTransport>>>,
+}
+
+impl NeDevices {
+    /// Attach a virtio device via the Nitro Enclave transport.
+    ///
+    /// This manager owns the attach orchestration (mirroring how
+    /// `pci_mngr::attach_common` drives `register_notification_ioevent`):
+    /// it constructs the transport, drives the host-side wiring via
+    /// `NeTransport::register_device` (NE_ADD_DEVICE + eventfds), and registers
+    /// the device backend and transport as event subscribers. The transport
+    /// itself only owns the wiring primitive and post-DRIVER_OK activation.
+    pub fn attach_ne_virtio_device(
+        &mut self,
+        device: Arc<Mutex<dyn VirtioDevice>>,
+        enclave_vm: &EnclaveVm,
+        event_manager: &mut EventManager,
+    ) -> Result<(), NeDeviceError> {
+        let (device_id, num_vqs, dmb_size_mib) = {
+            let locked = device.lock().expect("Poisoned lock");
+            let num_vqs = u32::try_from(locked.num_queues()).expect("queue count exceeds u32");
+            (
+                (locked.device_type(), locked.id().to_string()),
+                num_vqs,
+                locked.dmb_size_mib(),
+            )
+        };
+
+        // Installed by enclave_builder before any device is attached.
+        let info_page = enclave_vm
+            .info_page()
+            .expect("info page must be installed before device attachment");
+
+        let dma_memory = if enclave_vm.direct_mode() {
+            if dmb_size_mib.is_some() {
+                return Err(EnclaveConfigError::DmbSizeInDirectMode.into());
+            }
+            // Direct mode uses donated enclave RAM instead of a DMB.
+            let memory = enclave_vm
+                .guest_memory()
+                .expect("direct mode keeps enclave guest memory for device DMA")
+                .clone();
+            DeviceDmaMemory::GuestMemory(memory)
+        } else {
+            let size_mib = dmb_size_mib.unwrap_or_default().get();
+            let dmb = enclave_vm.create_dmb(mib_to_bytes(u64_to_usize(size_mib)))?;
+            info!(
+                "[{}] allocated {size_mib} MiB DMB",
+                device.lock().expect("Poisoned lock").label()
+            );
+            DeviceDmaMemory::Dmb(dmb)
+        };
+
+        let mut transport =
+            NeTransport::new(device.clone(), dma_memory, info_page, device_id.0, num_vqs)?;
+
+        // Wire the transport to the enclave: NE_ADD_DEVICE + eventfds.
+        transport.register_device(enclave_vm.enclave_fd())?;
+
+        // Register subscribers only after successful wiring.
+        event_manager.add_subscriber(device);
+        let transport = Arc::new(Mutex::new(transport));
+        event_manager.add_subscriber(transport.clone());
+        self.devices.insert(device_id, transport);
+        Ok(())
+    }
+
+    pub(crate) fn get_device(
+        &self,
+        device_type: VirtioDeviceType,
+        device_id: &str,
+    ) -> Option<Arc<Mutex<dyn VirtioDevice>>> {
+        self.devices
+            .get(&(device_type, device_id.to_string()))
+            .map(|transport| transport.lock().expect("Poisoned lock").device().clone())
+    }
+
+    pub(crate) fn contains_virtio_device(&self, device_id: &VirtioDeviceId) -> bool {
+        self.devices.contains_key(device_id)
+    }
+
+    /// Push a device's current config space to the enclave mirror.
+    pub(crate) fn update_device_config(
+        &self,
+        device_type: VirtioDeviceType,
+        device_id: &str,
+        enclave_fd: &EnclaveFd,
+    ) -> Result<(), NeDeviceError> {
+        let transport = self
+            .devices
+            .get(&(device_type, device_id.to_string()))
+            .ok_or(NeDeviceError::DeviceNotFound)?
+            .lock()
+            .expect("Poisoned lock");
+        transport.update_device_config(enclave_fd)?;
+        Ok(())
+    }
+
+    pub(crate) fn for_each_virtio_device(
+        &self,
+        mut f: impl FnMut(VirtioDeviceType, &dyn VirtioDevice),
+    ) {
+        for ((device_type, _), transport) in &self.devices {
+            let device_arc = transport.lock().expect("Poisoned lock").device().clone();
+            let device = device_arc.lock().expect("Poisoned lock");
+            f(*device_type, &*device);
+        }
+    }
+
+    pub(crate) fn for_each_virtio_device_mut(
+        &self,
+        mut f: impl FnMut(VirtioDeviceType, &mut dyn VirtioDevice),
+    ) {
+        for ((device_type, _), transport) in &self.devices {
+            let device_arc = transport.lock().expect("Poisoned lock").device().clone();
+            let mut device = device_arc.lock().expect("Poisoned lock");
+            f(*device_type, &mut *device);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::devices::virtio::block::device::Block;
+    use crate::devices::virtio::block::virtio::device::FileEngineType;
+    use crate::devices::virtio::block::virtio::test_utils::default_block;
+    use crate::nitro_enclave::info_page::TestPageBuilder;
+    use crate::test_utils::single_region_mem;
+    use vmm_sys_util::tempfile::TempFile;
+
+    fn ne_devices_with_block() -> (NeDevices, Arc<Mutex<Block>>) {
+        let device = Arc::new(Mutex::new(Block::Virtio(default_block(
+            FileEngineType::Sync,
+        ))));
+        let transport = NeTransport::new(
+            device.clone(),
+            DeviceDmaMemory::GuestMemory(single_region_mem(0x1000)),
+            Arc::new(TestPageBuilder::new().build()),
+            VirtioDeviceType::Block,
+            1,
+        )
+        .unwrap();
+        let mut devices = NeDevices::default();
+        devices.devices.insert(
+            (VirtioDeviceType::Block, "test".to_string()),
+            Arc::new(Mutex::new(transport)),
+        );
+        (devices, device)
+    }
+
+    #[test]
+    fn test_update_device_config_unknown_device() {
+        let (devices, _) = ne_devices_with_block();
+        assert!(matches!(
+            devices
+                .update_device_config(VirtioDeviceType::Block, "nosuch", &EnclaveFd::dev_null(),),
+            Err(NeDeviceError::DeviceNotFound)
+        ));
+    }
+
+    #[test]
+    fn test_update_device_config_keeps_host_update_on_ioctl_error() {
+        let (devices, device) = ne_devices_with_block();
+        let old_config = device.lock().unwrap().config_as_bytes().to_vec();
+
+        let new_disk = TempFile::new().unwrap();
+        new_disk.as_file().set_len(0x2000).unwrap();
+        device
+            .lock()
+            .unwrap()
+            .update_disk_image(new_disk.as_path().to_str().unwrap().to_string())
+            .unwrap();
+        let updated_config = device.lock().unwrap().config_as_bytes().to_vec();
+        assert_ne!(updated_config, old_config);
+
+        let err = devices
+            .update_device_config(VirtioDeviceType::Block, "test", &EnclaveFd::dev_null())
+            .unwrap_err();
+        assert!(matches!(
+            &err,
+            NeDeviceError::Transport(NeTransportError::UpdateDeviceConfig(err))
+                if err.raw_os_error() == Some(libc::ENOTTY)
+        ));
+
+        let device = device.lock().unwrap();
+        assert_eq!(device.config_as_bytes(), updated_config);
+        let Block::Virtio(block) = &*device else {
+            panic!("expected virtio block");
+        };
+        assert_eq!(
+            block.config().path_on_host,
+            new_disk.as_path().to_str().unwrap()
+        );
+    }
+}

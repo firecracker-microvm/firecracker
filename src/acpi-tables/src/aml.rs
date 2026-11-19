@@ -77,6 +77,10 @@ impl Aml for Path {
             }
             n => {
                 bytes.push(0x2f); // MultiNamePrefix
+                // MultiNamePath encodes the segment count in one byte (max 255).
+                // Firecracker ACPI devices use at most 2 name segments, so a path
+                // with 255+ segments is not reachable in practice; a new device with
+                // that many hard-coded segments would fail deterministically.
                 bytes.push(n.try_into().unwrap());
             }
         };

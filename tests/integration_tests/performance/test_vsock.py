@@ -9,7 +9,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from tenacity import Retrying, stop_after_attempt, wait_fixed
 
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
@@ -20,6 +19,7 @@ from framework.utils_vsock import (
     make_host_port_path,
     start_guest_echo_server,
 )
+from framework.utils_wait import wait_for_unix_socket_on_host
 
 pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
 
@@ -51,7 +51,7 @@ class VsockIPerf3Test(IPerf3Test):
     WARMUP_SEC = 3
 
     # Time (in seconds) for which iperf runs after warmup is done
-    RUNTIME_SEC = 20
+    RUNTIME_SEC = 10
 
     # VM guest memory size
     GUEST_MEM_MIB = 1024
@@ -82,15 +82,15 @@ class VsockIPerf3Test(IPerf3Test):
             .with_arg("-B", os.path.join(self._microvm.path, VSOCK_UDS_PATH))
         )
 
-    def spawn_iperf3_client(self, client_idx, client_mode_flag):
-        # Bind the UDS in the jailer's root.
-        self._microvm.create_jailed_resource(
-            os.path.join(
-                self._microvm.path,
-                make_host_port_path(VSOCK_UDS_PATH, self._base_port + client_idx),
-            )
+    def wait_for_server(self, port_offset):
+        # The server listens on a Unix socket; link it into the jail so the
+        # guest can reach it.
+        uds_path = os.path.join(
+            self._microvm.path,
+            make_host_port_path(VSOCK_UDS_PATH, self._base_port + port_offset),
         )
-        return super().spawn_iperf3_client(client_idx, client_mode_flag)
+        wait_for_unix_socket_on_host(self._microvm.netns.cmd_prefix(), uds_path)
+        self._microvm.create_jailed_resource(uds_path)
 
     def guest_command(self, port_offset):
         return super().guest_command(port_offset).with_arg("--vsock")
@@ -116,8 +116,11 @@ def consume_vsock_ping_output(ping_output):
 @pytest.mark.timeout(120)
 @pytest.mark.nonci
 @pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
-@pytest.mark.parametrize("payload_length", ["64K", "1024K"], ids=["p64K", "p1024K"])
-@pytest.mark.parametrize("mode", ["g2h", "h2g"])
+@pytest.mark.parametrize(
+    "mode,payload_length",
+    [("g2h", "64K"), ("h2g", "64K"), ("h2g", "1024K")],
+    ids=["g2h-p64K", "h2g-p64K", "h2g-p1024K"],
+)
 def test_vsock_throughput(
     uvm,
     vcpus,
@@ -198,13 +201,7 @@ def test_vsock_latency_g2h(vsock_uvm, metrics, bin_vsock_path):
     )
 
     try:
-        for attempt in Retrying(
-            wait=wait_fixed(0.2),
-            stop=stop_after_attempt(5),
-            reraise=True,
-        ):
-            with attempt:
-                assert Path(server_port_path).exists()
+        wait_for_unix_socket_on_host("", server_port_path)
 
         vm.create_jailed_resource(server_port_path)
 

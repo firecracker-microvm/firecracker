@@ -157,6 +157,7 @@ def validate_fc_metrics(metrics):
             "mmds_count",
             "vmm_version_count",
             "hotplug_memory_count",
+            "enclave_count",
         ],
         "i8042": [
             "error_count",
@@ -241,6 +242,8 @@ def validate_fc_metrics(metrics):
             "serial_fails",
             "hotplug_memory_count",
             "hotplug_memory_fails",
+            "enclave_count",
+            "enclave_fails",
         ],
         "seccomp": [
             "num_faults",
@@ -579,12 +582,14 @@ class FCMetricsMonitor(Thread):
 
         self.metrics_logger = get_metrics_logger()
         # Read the dimension from the logical GuestKernel so it matches
-        # `Microvm.dimensions` and is independent of the boot image path.
+        # `Microvm.dimensions` and is independent of the backend boot image
+        # (on enclave `kernel_file` is the EFI image, not a kernel version).
         self.metrics_logger.set_dimensions(
             {
                 "instance": global_props.instance,
                 "host_kernel": "linux-" + global_props.host_linux_version,
                 "guest_kernel": vm.guest_kernel.metric_id,
+                "backend": str(vm.backend),
             }
         )
         self.start()

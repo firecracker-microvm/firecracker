@@ -248,8 +248,10 @@ def collect_data(
     else:
         selection = pytest_opts
 
+    # `-m ''` goes first so a marker in pytest_opts takes precedence, while
+    # retries by node id still run regardless of markers.
     subprocess.run(
-        f"./tools/test.sh --binary-dir={binary_dir} {selection} -m '' --json-report-file=../{test_report_path}",
+        f"./tools/test.sh --binary-dir={binary_dir} -m '' {selection} --json-report-file=../{test_report_path}",
         env=os.environ,
         check=True,
         shell=True,

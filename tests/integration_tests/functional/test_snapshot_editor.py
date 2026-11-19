@@ -9,6 +9,9 @@ import pytest
 import host_tools.cargo_build as host
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
+
+pytestmark = pin_vm_backend(VM_BACKEND_KVM)
 
 PLATFORM = platform.machine()
 MIDR_EL1 = hex(0x603000000013C000)

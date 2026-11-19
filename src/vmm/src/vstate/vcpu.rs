@@ -52,7 +52,7 @@ pub enum VcpuError {
     VcpuSpawn(io::Error),
     /// Vcpu not present in TLS
     VcpuTlsNotPresent,
-    /// Error with gdb request sent
+    /// Error with gdb request sent: {0}
     #[cfg(feature = "gdb")]
     GdbRequest(GdbTargetError),
 }
@@ -80,9 +80,9 @@ pub enum StartThreadedError {
 /// Error type for [`Vcpu::copy_kvm_vcpu_fd`].
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum CopyKvmFdError {
-    /// Error with libc dup of kvm Vcpu fd
+    /// Error with libc dup of kvm Vcpu fd: {0}
     DupError(#[from] std::io::Error),
-    /// Error creating the Vcpu from the duplicated Vcpu fd
+    /// Error creating the Vcpu from the duplicated Vcpu fd: {0}
     CreateVcpuError(#[from] kvm_ioctls::Error),
 }
 

@@ -37,8 +37,8 @@ def test_validate_filter(seccompiler, bin_test_syscall, monkeypatch, tmp_path, t
 
     # cd to a tmp dir because we may generate a bunch of intermediate files
     monkeypatch.chdir(tmp_path)
-    # prevent coredumps
-    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    # prevent coredumps, including piped ones (see `--ulimit core=1` in tools/devtool)
+    resource.setrlimit(resource.RLIMIT_CORE, (1, 1))
 
     seccompiler.compile(fc_filter, split_output=True)
 

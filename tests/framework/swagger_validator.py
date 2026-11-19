@@ -3,6 +3,7 @@
 
 """A validator for Firecracker API Swagger schema"""
 
+import threading
 from pathlib import Path
 
 import yaml
@@ -22,6 +23,7 @@ class SwaggerValidator:
 
     _instance = None
     _initialized = False
+    _lock = threading.Lock()
 
     def __new__(cls):
         if cls._instance is None:
@@ -30,10 +32,16 @@ class SwaggerValidator:
 
     def __init__(self):
         """Initialize the validator with the Swagger specification."""
-        if self._initialized:
-            return
-        self._initialized = True
+        # Tests spawn microVMs from several threads; publish the instance as
+        # initialized only once the validators are built.
+        with self._lock:
+            if self._initialized:
+                return
+            self._load()
+            self._initialized = True
 
+    def _load(self):
+        """Load the Swagger specification and build the validators."""
         swagger_path = (
             Path(__file__).parent.parent.parent
             / "src"

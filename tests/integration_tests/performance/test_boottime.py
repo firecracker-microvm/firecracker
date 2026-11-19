@@ -9,16 +9,20 @@ import time
 import pytest
 
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_rootfs_mode
+from framework.enclave import MIN_ENCLAVE_MEM_SIZE_MIB
+from framework.kvm import BASE_BOOT_ARGS
 from framework.utils_hugepages import HugePagesConfig
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 # Regex for obtaining boot time from some string.
 
-DEFAULT_BOOT_ARGS = (
-    "reboot=k panic=1 nomodule 8250.nr_uarts=0"
-    " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd swiotlb=noforce cryptomgr.notests"
-)
+# Boot time is measured without a serial console. `i8042.nopnp` keeps the
+# measured configuration as it has always been, though it leaves the guest
+# without a keyboard (see BASE_BOOT_ARGS).
+DEFAULT_BOOT_ARGS = BASE_BOOT_ARGS + " 8250.nr_uarts=0 i8042.nopnp"
 
-pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
+# Not pinned as a module: each test below states what it needs from the backend.
+pytestmark = [pin_guest_kernel(ACPI_GUEST_KERNELS)]
 
 
 def get_boottime_device_info(vm):
@@ -99,8 +103,9 @@ def get_systemd_analyze_times(microvm):
     return kernel, userspace, total
 
 
-def launch_vm_with_boot_timer(
+def launch_boottime_vm(
     microvm_factory,
+    vm_backend,
     guest_kernel,
     rootfs,
     vcpu_count,
@@ -109,18 +114,36 @@ def launch_vm_with_boot_timer(
     boot_from_pmem,
     huge_pages=HugePagesConfig.NONE,
 ):
-    """Launches a microVM with guest-timer and returns the reported metrics for it"""
+    """Launch a microVM configured for boot-time measurement.
+
+    Returns ``(vm, boot_time_us, cpu_boot_time_us)``, the latter two ``None`` on
+    backends without a boot timer.
+    """
     vm = microvm_factory.build(
-        guest_kernel, rootfs, pci=pci_enabled, monitor_memory=False
+        guest_kernel, rootfs, pci=pci_enabled, backend=vm_backend, monitor_memory=False
     )
-    vm.jailer.extra_args.update({"boot-timer": None})
+    if vm_backend.has_boot_timer:
+        vm.jailer.extra_args.update({"boot-timer": None})
     vm.spawn()
+    # The entropy device is here to keep the guest from blocking on crng init,
+    # not as a subject of the measurement, so drop it where it is unsupported.
+    entropy = vm_backend.supports_entropy_device
+    # /usr/local/bin/init pokes the boot timer through /dev/mem at a hardcoded
+    # GPA, then execs /sbin/init. That GPA is arch::MMIO_MEM_START, which on
+    # aarch64 is where an enclave puts the base of guest RAM, so without a boot
+    # timer the poke corrupts the guest instead of signalling anything.
+    boot_args = DEFAULT_BOOT_ARGS
+    if vm_backend.is_enclave:
+        # Enclaves have no i8042 device, skip its init to save 500ms of boot time.
+        boot_args += " initcall_blacklist=i8042_init"
+    if vm_backend.has_boot_timer:
+        boot_args += " init=/usr/local/bin/init"
     if not boot_from_pmem:
         vm.basic_config(
             vcpu_count=vcpu_count,
             mem_size_mib=mem_size_mib,
-            boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init",
-            enable_entropy_device=True,
+            boot_args=boot_args,
+            enable_entropy_device=entropy,
             huge_pages=huge_pages,
         )
     else:
@@ -128,33 +151,39 @@ def launch_vm_with_boot_timer(
             add_root_device=False,
             vcpu_count=vcpu_count,
             mem_size_mib=mem_size_mib,
-            boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init rootflags=dax",
-            enable_entropy_device=True,
+            boot_args=boot_args + " rootflags=dax",
+            enable_entropy_device=entropy,
             huge_pages=huge_pages,
         )
         vm.add_pmem("pmem", rootfs, True, True)
 
     vm.add_net_iface()
     vm.start()
-    vm.pin_threads(0)
+    if vm.backend.has_parent_vcpu_threads:
+        vm.pin_threads(0)
+
+    if not vm_backend.has_boot_timer:
+        return (vm, None, None)
 
     boot_time_us, cpu_boot_time_us = get_boottime_device_info(vm)
 
     return (vm, boot_time_us, cpu_boot_time_us)
 
 
-# Asserts on measured boot times.
+# Asserts on measured boot times. KVM-only: without the boot timer device there
+# is nothing to assert.
 @pytest.mark.serial
-def test_boot_timer(microvm_factory, guest_kernel, rootfs, pci_enabled):
+@pin_vm_backend(VM_BACKEND_KVM)
+def test_boot_timer(microvm_factory, vm_backend, guest_kernel, rootfs, pci_enabled):
     """Tests that the boot timer device works"""
-    launch_vm_with_boot_timer(
-        microvm_factory, guest_kernel, rootfs, 1, 128, pci_enabled, False
+    launch_boottime_vm(
+        microvm_factory, vm_backend, guest_kernel, rootfs, 1, 128, pci_enabled, False
     )
 
 
 @pytest.mark.parametrize(
     "vcpu_count,mem_size_mib",
-    [(1, 128), (1, 1024), (2, 2048), (4, 4096)],
+    [(1, 1024), (2, 2048), (4, 4096)],
 )
 @pin_rootfs_mode("rw")
 @pytest.mark.parametrize("boot_from_pmem", [True, False], ids=["PmemBoot", "BlockBoot"])
@@ -164,6 +193,7 @@ def test_boot_timer(microvm_factory, guest_kernel, rootfs, pci_enabled):
 @pytest.mark.nonci
 def test_boottime(
     microvm_factory,
+    vm_backend,
     guest_kernel,
     rootfs,
     vcpu_count,
@@ -173,11 +203,21 @@ def test_boottime(
     huge_pages,
     metrics,
 ):
-    """Test boot time with different guest configurations"""
+    """Test boot time with different guest configurations.
+
+    Backends without a boot timer report time-to-ssh-up, the build and boot
+    event durations and systemd-analyze, but no guest_boot_time.
+    """
+    if boot_from_pmem and vm_backend.is_enclave:
+        pytest.skip("virtio-pmem has no Nitro Enclave transport")
+
+    if vm_backend.is_enclave and mem_size_mib < MIN_ENCLAVE_MEM_SIZE_MIB:
+        pytest.skip(f"{mem_size_mib} MiB is below the enclave memory floor")
 
     for i in range(10):
-        vm, boot_time_us, cpu_boot_time_us = launch_vm_with_boot_timer(
+        vm, boot_time_us, cpu_boot_time_us = launch_boottime_vm(
             microvm_factory,
+            vm_backend,
             guest_kernel,
             rootfs,
             vcpu_count,
@@ -198,15 +238,22 @@ def test_boottime(
             )
 
         metrics.put_metric(
-            "guest_boot_time",
-            boot_time_us,
+            "time_to_ssh_up",
+            vm.time_to_ssh_up_us,
             unit="Microseconds",
         )
-        metrics.put_metric(
-            "guest_cpu_boot_time",
-            cpu_boot_time_us,
-            unit="Microseconds",
-        )
+
+        if boot_time_us is not None:
+            metrics.put_metric(
+                "guest_boot_time",
+                boot_time_us,
+                unit="Microseconds",
+            )
+            metrics.put_metric(
+                "guest_cpu_boot_time",
+                cpu_boot_time_us,
+                unit="Microseconds",
+            )
 
         events = find_events(vm.log_data)
         build_time = events["build microvm for boot"]["duration"]

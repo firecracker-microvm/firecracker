@@ -17,6 +17,14 @@ to perform its virtualization and emulation tasks.
 We exclusively use `.metal` instance types, because EC2 only supports KVM on
 `.metal` instance types.
 
+> [!NOTE]
+>
+> A [Nitro Sandbox](nitro-sandboxes/README.md) is the exception to both
+> statements. It is isolated by the AWS Nitro System rather than by KVM, needs
+> no `/dev/kvm` access, and runs on virtualized instance types that support AWS
+> Nitro Enclaves. See its
+> [requirements](nitro-sandboxes/getting-started.md#requirements).
+
 ### Architecture & OS
 
 Firecracker supports **x86_64** and **aarch64** Linux, see
@@ -226,7 +234,7 @@ MASK_SHORT="/30"
 
 # Setup network interface
 sudo ip link del "$TAP_DEV" 2> /dev/null || true
-sudo ip tuntap add dev "$TAP_DEV" mode tap
+sudo ip tuntap add dev "$TAP_DEV" mode tap user "$(id -u)" group "$(id -g)"
 sudo ip addr add "${TAP_IP}${MASK_SHORT}" dev "$TAP_DEV"
 sudo ip link set dev "$TAP_DEV" up
 

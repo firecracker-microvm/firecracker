@@ -4,9 +4,8 @@
 
 import concurrent.futures
 import json
-import time
 
-from framework import utils
+from framework import utils, utils_wait
 from framework.utils import CmdBuilder, CpuMap, track_cpu_utilization
 
 
@@ -51,8 +50,8 @@ class IPerf3Test:
             utils.check_output(f"{self._microvm.netns.cmd_prefix()} {cmd}")
             first_free_cpu += 1
 
-        # Wait for the iperf3 server to start
-        time.sleep(2)
+        for server_idx in range(self._num_clients):
+            self.wait_for_server(server_idx)
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
             cpu_load_future = executor.submit(
@@ -101,6 +100,12 @@ class IPerf3Test:
         )
 
         return self._microvm.ssh.check_output(cmd).stdout
+
+    def wait_for_server(self, port_offset):
+        """Waits for the iperf3 server on the host to listen"""
+        utils_wait.wait_for_tcp_port_on_host(
+            self._microvm.netns.cmd_prefix(), self._base_port + port_offset
+        )
 
     def host_command(self, port_offset):
         """Builds the command used for spawning an iperf3 server on the host"""

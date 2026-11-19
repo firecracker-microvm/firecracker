@@ -29,6 +29,7 @@ use crate::device_manager::{
     DeviceRestoreArgs,
 };
 use crate::devices::virtio::balloon::Balloon;
+use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::mem::{VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB, VirtioMem};
@@ -51,15 +52,14 @@ use crate::vmm_config::boot_source::{
     DEFAULT_KERNEL_CMDLINE, append_root_device_cmdline, build_cmdline,
 };
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
-use crate::vmm_config::machine_config::MachineConfigError;
+use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError};
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
-use crate::vmm_config::pmem::PmemConfig;
 use crate::vstate::kvm::{Kvm, KvmError};
 use crate::vstate::memory::GuestRegionMmap;
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
-use crate::vstate::vm::{KvmVm, Vm, VmError};
+use crate::vstate::vm::{KvmVm, MAX_SUPPORTED_KVM_VCPUS, Vm, VmError};
 use crate::{EventManager, Vmm, VmmError};
 
 /// Errors associated with starting the instance.
@@ -67,6 +67,13 @@ use crate::{EventManager, Vmm, VmmError};
 pub enum StartMicrovmError {
     /// Unable to attach block device to Vmm: {0}
     AttachBlockDevice(io::Error),
+    /// The number of vCPUs ({requested}) exceeds the maximum for a KVM microVM ({max}).
+    TooManyVcpus {
+        /// Requested vCPU count from the machine config.
+        requested: u16,
+        /// Maximum vCPUs supported by a KVM microVM.
+        max: u16,
+    },
     /// Could not attach device: {0}
     AttachDevice(#[from] AttachDeviceError),
     /// System configuration error: {0}
@@ -82,6 +89,8 @@ pub enum StartMicrovmError {
     /// Error creating legacy device: {0}
     #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
+    /// Enclave builder error: {0}
+    Enclave(#[from] crate::nitro_enclave::enclave_builder::EnclaveBuilderError),
     /// Error enabling pvtime on vcpu: {0}
     #[cfg(target_arch = "aarch64")]
     EnablePVTime(crate::arch::VcpuArchError),
@@ -109,6 +118,8 @@ pub enum StartMicrovmError {
     NetDeviceNotConfigured,
     /// Cannot open the block device backing file: {0}
     OpenBlockDevice(io::Error),
+    /// Failed to spawn the block worker thread: {0}
+    SpawnBlockWorker(BlockError),
     /// Cannot restore microvm state: {0}
     RestoreMicrovmState(MicrovmStateError),
     /// Cannot set vm resources: {0}
@@ -120,7 +131,7 @@ pub enum StartMicrovmError {
     /// Error starting GDB debug session: {0}
     #[cfg(feature = "gdb")]
     GdbServer(gdb::target::GdbTargetError),
-    /// Error cloning Vcpu fds
+    /// Error cloning Vcpu fds: {0}
     #[cfg(feature = "gdb")]
     VcpuFdCloneError(#[from] crate::vstate::vcpu::CopyKvmFdError),
     /// Error with the KvmVm object: {0}
@@ -133,6 +144,19 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
     fn from(err: linux_loader::cmdline::Error) -> StartMicrovmError {
         StartMicrovmError::KernelCmdline(err.to_string())
     }
+}
+
+/// Validate the configured vCPU count against the KVM microVM limit and return
+/// it as a `u8` for the KVM vCPU-creation path.
+fn kvm_vcpu_count(machine_config: &MachineConfig) -> Result<u8, StartMicrovmError> {
+    if machine_config.vcpu_count > MAX_SUPPORTED_KVM_VCPUS {
+        return Err(StartMicrovmError::TooManyVcpus {
+            requested: machine_config.vcpu_count,
+            max: MAX_SUPPORTED_KVM_VCPUS,
+        });
+    }
+    Ok(u8::try_from(machine_config.vcpu_count)
+        .expect("vcpu_count validated <= MAX_SUPPORTED_KVM_VCPUS"))
 }
 
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
@@ -148,6 +172,9 @@ pub fn build_microvm_for_boot(
 ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     // Timestamp for measuring microVM boot duration.
     let request_ts = TimestampUs::default();
+
+    // Reject an out-of-range vCPU count before doing any work for the boot.
+    let vcpu_count = kvm_vcpu_count(&vm_resources.machine_config)?;
 
     let boot_config = vm_resources
         .boot_source
@@ -176,7 +203,6 @@ pub fn build_microvm_for_boot(
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm)?;
-    let mut vcpus = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
     vm.register_dram_memory_regions(guest_memory)?;
 
     // Allocate memory as soon as possible to make hotpluggable memory available to all consumers,
@@ -202,6 +228,16 @@ pub fn build_microvm_for_boot(
     let kvm_vm = Arc::new(vm);
     let vm = Vm::Kvm(kvm_vm.clone());
 
+    let pmem_devices = vm_resources
+        .pmem
+        .configs
+        .iter()
+        .map(|config| Pmem::new(kvm_vm.clone(), config.clone()))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // All memslots are registered by now, see `create_vcpus`.
+    let mut vcpus = kvm_vm.create_vcpus(vcpu_count)?;
+
     let mut device_manager = DeviceManager::new(
         event_manager,
         kvm_vm.vcpus_exit_evt(),
@@ -210,6 +246,7 @@ pub fn build_microvm_for_boot(
         vm_resources.serial_rate_limiter(),
         vm_resources.pci_enabled,
         vm_resources.machine_config.pcie_hotplug_ports,
+        seccomp_filters.get("blk_worker").cloned(),
     )?;
 
     let guest_memory = kvm_vm.guest_memory();
@@ -255,7 +292,7 @@ pub fn build_microvm_for_boot(
         &mut device_manager,
         &vm,
         &mut boot_cmdline,
-        &vm_resources.pmem.configs,
+        pmem_devices,
         event_manager,
     )?;
 
@@ -317,7 +354,8 @@ pub fn build_microvm_for_boot(
         &kvm_vm,
         &mut device_manager,
         vcpus.as_mut(),
-        &vm_resources.machine_config,
+        vcpu_count,
+        vm_resources.machine_config.smt,
         &cpu_template,
         entry_point,
         &initrd,
@@ -476,17 +514,27 @@ pub fn build_microvm_from_snapshot(
     // Build Vmm.
     debug!("event_start: build microvm from snapshot");
 
+    // Reject an out-of-range vCPU count before doing any work for the restore.
+    let vcpu_count = kvm_vcpu_count(&vm_resources.machine_config)?;
+
     let kvm = Kvm::new(microvm_state.kvm_state.kvm_cap_modifiers.clone())
         .map_err(StartMicrovmError::Kvm)?;
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm).map_err(StartMicrovmError::KvmVm)?;
 
-    let mut vcpus = vm
-        .create_vcpus(vm_resources.machine_config.vcpu_count)
-        .map_err(StartMicrovmError::KvmVm)?;
-
     vm.restore_memory_regions(guest_memory, &microvm_state.vm_state.memory)
+        .map_err(StartMicrovmError::KvmVm)?;
+    vm.set_uffd(uffd);
+
+    let kvm_vm = Arc::new(vm);
+    let pmem_devices = microvm_state
+        .device_states
+        .restore_pmem_devices(&kvm_vm, kvm_vm.guest_memory())?;
+
+    // All memslots are registered by now, see `create_vcpus`.
+    let mut vcpus = kvm_vm
+        .create_vcpus(vcpu_count)
         .map_err(StartMicrovmError::KvmVm)?;
 
     #[cfg(target_arch = "x86_64")]
@@ -524,19 +572,16 @@ pub fn build_microvm_from_snapshot(
         }
         let mpidrs = construct_kvm_mpidrs(&microvm_state.vcpu_states);
         // Restore kvm vm state.
-        vm.restore_state(&mpidrs, &microvm_state.vm_state)?;
+        kvm_vm.restore_state(&mpidrs, &microvm_state.vm_state)?;
     }
 
     // Restore kvm vm state.
     #[cfg(target_arch = "x86_64")]
-    vm.restore_state(&microvm_state.vm_state, clock_realtime)?;
+    kvm_vm.restore_state(&microvm_state.vm_state, clock_realtime)?;
 
     // Restore the boot source config paths.
     vm_resources.boot_source.config = microvm_state.vm_info.boot_source;
 
-    vm.set_uffd(uffd);
-
-    let kvm_vm = Arc::new(vm);
     let vm = Vm::Kvm(kvm_vm.clone());
 
     // Restore devices states.
@@ -550,6 +595,8 @@ pub fn build_microvm_from_snapshot(
         vm_resources,
         instance_id: &instance_info.id,
         vcpus_exit_evt: kvm_vm.vcpus_exit_evt(),
+        blk_worker_filter: seccomp_filters.get("blk_worker").cloned(),
+        pmem_devices,
     };
     #[allow(unused_mut)]
     let mut device_manager =
@@ -720,6 +767,13 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
             }
             (locked.id().to_string(), locked.is_vhost_user())
         };
+
+        block
+            .lock()
+            .expect("Poisoned lock")
+            .spawn_worker(device_manager.blk_worker_filter.clone())
+            .map_err(StartMicrovmError::SpawnBlockWorker)?;
+
         // The device mutex mustn't be locked here otherwise it will deadlock.
         device_manager.attach_boot_virtio_device(
             vm,
@@ -759,20 +813,18 @@ fn attach_pmem_devices(
     device_manager: &mut DeviceManager,
     vm: &Vm,
     cmdline: &mut LoaderKernelCmdline,
-    configs: &[PmemConfig],
+    devices: Vec<Pmem>,
     event_manager: &mut EventManager,
 ) -> Result<(), StartMicrovmError> {
-    let kvm_vm = vm.as_kvm().ok_or(AttachDeviceError::NotSupported)?;
-    for (i, config) in configs.iter().enumerate() {
-        if config.root_device {
+    for (i, pmem) in devices.into_iter().enumerate() {
+        if pmem.config.root_device {
             cmdline.insert_str(format!("root=/dev/pmem{i}"))?;
-            match config.read_only {
+            match pmem.config.read_only {
                 true => cmdline.insert_str("ro")?,
                 false => cmdline.insert_str("rw")?,
             }
         }
-        let id = config.id.clone();
-        let pmem = Pmem::new(kvm_vm.clone(), config.clone())?;
+        let id = pmem.config.id.clone();
         let device = Arc::new(Mutex::new(pmem));
 
         device_manager.attach_boot_virtio_device(vm, id, device, cmdline, event_manager, false)?;
@@ -839,6 +891,29 @@ pub(crate) mod tests {
     use crate::vstate::vm::Vm;
     use crate::vstate::vm::tests::setup_vm_with_memory;
 
+    #[test]
+    fn test_kvm_vcpu_count() {
+        let with_vcpus = |vcpu_count| MachineConfig {
+            vcpu_count,
+            ..Default::default()
+        };
+
+        // At and below the KVM limit is accepted and narrows to u8.
+        assert_eq!(kvm_vcpu_count(&with_vcpus(1)).unwrap(), 1);
+        assert_eq!(
+            u16::from(kvm_vcpu_count(&with_vcpus(MAX_SUPPORTED_KVM_VCPUS)).unwrap()),
+            MAX_SUPPORTED_KVM_VCPUS
+        );
+
+        // Above the KVM limit is rejected (even though the API accepts it).
+        let over = MAX_SUPPORTED_KVM_VCPUS + 1;
+        assert!(matches!(
+            kvm_vcpu_count(&with_vcpus(over)),
+            Err(StartMicrovmError::TooManyVcpus { requested, max })
+                if requested == over && max == MAX_SUPPORTED_KVM_VCPUS
+        ));
+    }
+
     #[derive(Debug)]
     pub(crate) struct CustomBlockConfig {
         drive_id: String,
@@ -875,7 +950,7 @@ pub(crate) mod tests {
             &[5_000_000_000, 5_000_000_000][..],
         ] {
             let count = u8::try_from(offsets.len()).unwrap();
-            let mut source_vm = setup_vm_with_memory(0x1000);
+            let source_vm = setup_vm_with_memory(0x1000);
             let source_vcpus = source_vm.create_vcpus(count).unwrap();
             if !source_vcpus[0].kvm_vcpu.supports_tsc_offset_attr() {
                 eprintln!("Skipping TSC offset synchronization: KVM attribute unavailable");
@@ -887,7 +962,7 @@ pub(crate) mod tests {
                 .map(|vcpu| vcpu.kvm_vcpu.save_state().unwrap())
                 .collect();
 
-            let mut vm = setup_vm_with_memory(0x1000);
+            let vm = setup_vm_with_memory(0x1000);
             let vcpus = vm.create_vcpus(count).unwrap();
             for ((vcpu, state), &offset) in vcpus.iter().zip(&states).zip(offsets) {
                 vcpu.kvm_vcpu.restore_state(state).unwrap();
@@ -932,7 +1007,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_vmm() -> Vmm {
-        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
 
         let _ = vm.create_vcpus(1).unwrap();
 
@@ -951,7 +1026,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_vmm_with_pci_ports(hotplug_ports: u8) -> Vmm {
-        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
 
         let _ = vm.create_vcpus(1).unwrap();
 
@@ -997,6 +1072,7 @@ pub(crate) mod tests {
 
                 is_read_only: Some(custom_block_cfg.is_read_only),
                 discard: None,
+                num_queues: None,
                 path_on_host: Some(
                     block_files
                         .last()
@@ -1008,10 +1084,12 @@ pub(crate) mod tests {
                 ),
                 rate_limiter: None,
                 file_engine_type: None,
+                image_format: None,
                 blk_size: None,
                 topology: None,
 
                 socket: None,
+                dmb_size_mib: None,
             };
 
             block_dev_configs
@@ -1144,11 +1222,17 @@ pub(crate) mod tests {
             builder.build(config, false).unwrap();
         }
 
+        let kvm_vm = vmm.vm.as_kvm().unwrap();
+        let devices = builder
+            .configs
+            .iter()
+            .map(|config| Pmem::new(kvm_vm.clone(), config.clone()).unwrap())
+            .collect();
         attach_pmem_devices(
             &mut vmm.device_manager,
             &vmm.vm,
             cmdline,
-            &builder.configs,
+            devices,
             event_manager,
         )
         .unwrap();
@@ -1207,6 +1291,7 @@ pub(crate) mod tests {
             mtu: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
+            dmb_size_mib: None,
         };
 
         let mut cmdline = default_kernel_cmdline();

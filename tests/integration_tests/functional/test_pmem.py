@@ -5,20 +5,29 @@
 import json
 import os
 import re
+from pathlib import Path
 
 import pytest
-from tenacity import Retrying, stop_after_delay, wait_fixed
 
 import host_tools.drive as drive_tools
-from framework import utils
-from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_rootfs_mode
-from framework.utils_hugepages import HugePagesConfig
-
-pytestmark = pytest.mark.parametrize(
-    "huge_pages", [HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT]
+from framework import utils, utils_wait
+from framework.artifacts import (
+    ACPI_GUEST_KERNELS,
+    GUEST_KERNEL_DEFAULT,
+    pin_guest_kernel,
+    pin_rootfs_mode,
 )
+from framework.utils_hugepages import HugePagesConfig
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 ALIGNMENT = 2 << 20
+
+pytestmark = [
+    pytest.mark.parametrize(
+        "huge_pages", [HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT]
+    ),
+    pin_vm_backend(VM_BACKEND_KVM),
+]
 
 
 def align(size: int) -> int:
@@ -192,6 +201,7 @@ def outside_rssanon(vm) -> int:
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
 def test_pmem_dax_memory_saving(
     microvm_factory,
+    vm_backend,
     guest_kernel,
     rootfs,
     huge_pages,
@@ -202,7 +212,9 @@ def test_pmem_dax_memory_saving(
     """
 
     # Boot from a block device
-    vm = microvm_factory.build(guest_kernel, rootfs, pci=True, monitor_memory=False)
+    vm = microvm_factory.build(
+        guest_kernel, rootfs, pci=True, backend=vm_backend, monitor_memory=False
+    )
     vm.spawn()
     vm.basic_config(huge_pages=huge_pages)
     vm.add_net_iface()
@@ -212,7 +224,7 @@ def test_pmem_dax_memory_saving(
 
     # Boot from pmem with DAX enabled for root device
     vm_pmem = microvm_factory.build(
-        guest_kernel, rootfs, pci=True, monitor_memory=False
+        guest_kernel, rootfs, pci=True, backend=vm_backend, monitor_memory=False
     )
     vm_pmem.spawn()
     vm_pmem.basic_config(
@@ -270,13 +282,68 @@ def test_device_reset(uvm, huge_pages):
     vm.ssh.check_output(f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_pmem/bind")
     # The NVDIMM subsystem creates the device node asynchronously after driver
     # probe, so we need to wait for it.
-    for attempt in Retrying(
-        wait=wait_fixed(0.1), stop=stop_after_delay(5.0), reraise=True
-    ):
-        with attempt:
-            vm.ssh.check_output("ls /dev/pmem0")
+    utils_wait.wait_for_guest_cmd(vm, "ls /dev/pmem0")
     vm.ssh.check_output("mount /dev/pmem0 /tmp")
     vm.ssh.check_output("echo reset_test > /tmp/testfile")
     ret = vm.ssh.check_output("cat /tmp/testfile")
     assert "reset_test" in ret.stdout
     vm.ssh.check_output("umount /tmp")
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_pmem_override_on_restore(uvm_configured, microvm_factory):
+    """
+    Test that we can restore a snapshot and point its pmem device to a
+    different backing file.
+    """
+    pmem_size = 2 << 20
+    vm = uvm_configured
+    pmem = Path(vm.path) / "pmem"
+    pmem.write_bytes(bytes(pmem_size))
+    vm.add_pmem("pmem", pmem)
+    vm.add_net_iface()
+    vm.start()
+    snapshot = vm.snapshot_full()
+    vm.kill()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+
+    # Only the new backing file holds the marker, so the guest reads it only if
+    # the override applies.
+    marker = b"pmem_override_marker"
+    pmem_copy = Path(restored_vm.path) / "pmem_moved"
+    pmem_copy.write_bytes(marker.ljust(pmem_size, b"\0"))
+
+    restored_vm.restore_from_snapshot(
+        snapshot, resume=True, pmem_overrides={"pmem": pmem_copy}
+    )
+
+    # Bypass the guest page cache, which may hold the old contents of the device.
+    _, stdout, _ = restored_vm.ssh.check_output(
+        f"dd if=/dev/pmem0 bs=4096 count=1 iflag=direct status=none | head -c {len(marker)}"
+    )
+    assert stdout == marker.decode()
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_pmem_override_unknown_device(uvm_configured, microvm_factory):
+    """
+    Test that restoring a snapshot fails if a pmem override targets a pmem
+    device that the snapshot does not contain.
+    """
+    vm = uvm_configured
+    vm.start()
+    snapshot = vm.snapshot_full()
+    vm.kill()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+
+    # The failed snapshot load causes Firecracker to exit.
+    with pytest.raises(RuntimeError, match="Unknown Pmem Device"):
+        restored_vm.restore_from_snapshot(
+            snapshot, pmem_overrides={"pmem": snapshot.disks["rootfs"]}
+        )
+
+    restored_vm.mark_killed()

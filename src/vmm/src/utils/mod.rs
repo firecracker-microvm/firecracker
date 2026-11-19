@@ -16,6 +16,8 @@ use std::path::Path;
 
 use libc::O_NONBLOCK;
 
+use crate::logger::error;
+
 /// How many bits to left-shift by to convert MiB to bytes
 const MIB_TO_BYTES_SHIFT: usize = 20;
 
@@ -48,6 +50,11 @@ pub const fn mib_to_bytes(mib: usize) -> usize {
     mib << MIB_TO_BYTES_SHIFT
 }
 
+/// Converts MiB to Bytes, returning `None` if the byte count does not fit in a `usize`.
+pub const fn checked_mib_to_bytes(mib: usize) -> Option<usize> {
+    mib.checked_mul(1 << MIB_TO_BYTES_SHIFT)
+}
+
 /// Converts MiB to Bytes, widening to `u64` first so the result cannot wrap.
 ///
 /// The largest input yields just under 4 PiB, which always fits in a `u64` byte count.
@@ -63,6 +70,15 @@ pub const fn u32_mib_to_bytes(mib: u32) -> u64 {
 /// counts that originate from a `u32` MiB value, for which this is unreachable.
 pub fn bytes_to_u32_mib(bytes: u64) -> u32 {
     u32::try_from(bytes >> MIB_TO_BYTES_SHIFT).expect("byte count does not originate from u32 MiB")
+}
+
+/// Converts Bytes to MiB, returning `None` if the byte count is not a whole number of MiB or the
+/// MiB count does not fit in a `u32`.
+pub fn checked_bytes_to_u32_mib(bytes: u64) -> Option<u32> {
+    if !bytes.is_multiple_of(1 << MIB_TO_BYTES_SHIFT) {
+        return None;
+    }
+    u32::try_from(bytes >> MIB_TO_BYTES_SHIFT).ok()
 }
 
 /// Converts Bytes to MiB, truncating any remainder
@@ -141,6 +157,20 @@ impl std::fmt::Display for Version {
     }
 }
 
+/// Adds `O_NONBLOCK` to the stdout flags.
+pub fn set_stdout_nonblocking() {
+    // SAFETY: Call is safe since parameters are valid.
+    let flags = unsafe { libc::fcntl(libc::STDOUT_FILENO, libc::F_GETFL, 0) };
+    if flags < 0 {
+        error!("Could not get Firecracker stdout flags.");
+    }
+    // SAFETY: Call is safe since parameters are valid.
+    let rc = unsafe { libc::fcntl(libc::STDOUT_FILENO, libc::F_SETFL, flags | O_NONBLOCK) };
+    if rc < 0 {
+        error!("Could not set Firecracker stdout to non-blocking.");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,11 +202,34 @@ mod tests {
     }
 
     #[test]
+    fn test_checked_bytes_to_u32_mib() {
+        for mib in [0, 1, 2, 128, 1024, u32::MAX] {
+            assert_eq!(checked_bytes_to_u32_mib(u32_mib_to_bytes(mib)), Some(mib));
+        }
+        assert_eq!(checked_bytes_to_u32_mib((1 << 20) - 1), None);
+        assert_eq!(checked_bytes_to_u32_mib((1 << 20) + 1), None);
+        assert_eq!(
+            checked_bytes_to_u32_mib(u32_mib_to_bytes(u32::MAX) + (1 << 20)),
+            None
+        );
+    }
+
+    #[test]
     fn test_align_up_already_aligned() {
         assert_eq!(align_up!(0u64, 4096u64), 0);
         assert_eq!(align_up!(4096u64, 4096u64), 4096);
         assert_eq!(align_up!(8192u64, 4096u64), 8192);
         assert_eq!(align_up!(0x20_0000u64, 0x20_0000u64), 0x20_0000); // 2 MiB
+    }
+
+    #[test]
+    fn test_checked_mib_to_bytes() {
+        assert_eq!(checked_mib_to_bytes(1), Some(1 << 20));
+        assert_eq!(
+            checked_mib_to_bytes(usize::MAX >> 20),
+            Some(usize::MAX & !((1 << 20) - 1))
+        );
+        assert_eq!(checked_mib_to_bytes((usize::MAX >> 20) + 1), None);
     }
 
     #[test]

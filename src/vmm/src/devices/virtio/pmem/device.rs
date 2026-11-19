@@ -17,7 +17,9 @@ use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, Vir
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::pmem::PMEM_QUEUE_SIZE;
 use crate::devices::virtio::pmem::metrics::{PmemMetrics, PmemMetricsPerDevice};
-use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue, QueueError};
+use crate::devices::virtio::queue::{
+    DescriptorChain, InvalidAvailIdx, Queue, QueueConfig, QueueError,
+};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{IncMetric, error, info, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
@@ -530,16 +532,20 @@ impl VirtioDevice for Pmem {
         self.acked_features = acked_features;
     }
 
-    fn queues(&self) -> &[Queue] {
-        &self.queues
+    fn num_queues(&self) -> usize {
+        self.queues.len()
     }
 
-    fn queues_mut(&mut self) -> &mut [Queue] {
-        &mut self.queues
+    fn queue_config(&self, index: usize) -> Option<&QueueConfig> {
+        self.queues.get(index).map(|queue| &queue.config)
     }
 
-    fn queue_events(&self) -> &[EventFd] {
-        &self.queue_events
+    fn queue_config_mut(&mut self, index: usize) -> Option<&mut QueueConfig> {
+        self.queues.get_mut(index).map(|queue| &mut queue.config)
+    }
+
+    fn queue_event(&self, index: usize) -> Option<&EventFd> {
+        self.queue_events.get(index)
     }
 
     fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
@@ -595,6 +601,16 @@ impl VirtioDevice for Pmem {
         true
     }
 
+    fn reset_queues(&mut self) {
+        self.queues.iter_mut().for_each(Queue::reset);
+    }
+
+    fn commit_dirty(&self) {
+        for queue in &self.queues {
+            queue.commit_dirty();
+        }
+    }
+
     fn kick(&mut self) {
         if self.is_activated() {
             info!("kick pmem {}.", self.config.id);
@@ -614,6 +630,23 @@ mod tests {
     use crate::arch::Kvm;
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
+
+    #[test]
+    fn test_queue_accessors() {
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = Arc::new(KvmVm::new(kvm).unwrap());
+        let backing_file = TempFile::new().unwrap();
+        backing_file.as_file().set_len(0x20_0000).unwrap();
+        let config = PmemConfig {
+            id: "1".into(),
+            path_on_host: backing_file.as_path().to_str().unwrap().to_string(),
+            root_device: true,
+            read_only: false,
+            ..Default::default()
+        };
+        let mut pmem = Pmem::new(vm, config).unwrap();
+        crate::devices::virtio::test_utils::check_queue_accessors(&mut pmem);
+    }
 
     #[test]
     fn test_from_config() {

@@ -13,7 +13,13 @@ from framework.defs import SUPPORTED_HOST_KERNELS
 from framework.properties import global_props
 from framework.utils_cpu_templates import CUSTOM_CPU_TEMPLATES, pin_cpu_template
 from framework.utils_cpuid import get_guest_cpuid
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 from host_tools import cargo_build
+
+# cpu-template-helper reads the host's /dev/kvm directly and CPU templates are
+# KVM-only. Tests that build no VM consume the pin via usefixtures to gate on
+# KVM availability.
+pytestmark = pin_vm_backend(VM_BACKEND_KVM)
 
 PLATFORM = platform.machine()
 TEST_RESOURCES_DIR = Path("./data/cpu_template_helper")
@@ -356,6 +362,7 @@ def test_cpu_config_dump_vs_actual(
     global_props.host_linux_version not in SUPPORTED_HOST_KERNELS,
     reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
+@pytest.mark.usefixtures("vm_backend")
 def test_guest_cpu_config_change(results_dir, cpu_template_helper):
     """
     Verify that the guest CPU config has not changed since the baseline
@@ -378,6 +385,7 @@ def test_guest_cpu_config_change(results_dir, cpu_template_helper):
     )
 
 
+@pytest.mark.usefixtures("vm_backend")
 @pin_cpu_template(CUSTOM_CPU_TEMPLATES)
 def test_json_static_templates(cpu_template_helper, tmp_path, cpu_template):
     """
@@ -392,6 +400,7 @@ def test_json_static_templates(cpu_template_helper, tmp_path, cpu_template):
     cpu_template_helper.template_verify(custom_cpu_template_path)
 
 
+@pytest.mark.usefixtures("vm_backend")
 def test_consecutive_fingerprint_consistency(cpu_template_helper, tmp_path):
     """
     Verify that two fingerprints obtained consecutively are consistent.

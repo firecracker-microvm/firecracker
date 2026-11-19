@@ -136,8 +136,9 @@ impl<T: Debug> IoUring<T> {
 
         let squeue = SubmissionQueue::new(fd, &params).map_err(IoUringError::SQueue)?;
         let cqueue = CompletionQueue::new(fd, &params).map_err(IoUringError::CQueue)?;
-        let slab =
-            slab::Slab::with_capacity(params.sq_entries as usize + params.cq_entries as usize);
+        let slab = slab::Slab::with_capacity(
+            (params.sq_entries as usize).strict_add(params.cq_entries as usize),
+        );
 
         let mut instance = Self {
             squeue,
@@ -229,7 +230,18 @@ impl<T: Debug> IoUring<T> {
 
     /// Submit all operations and wait for their completion.
     pub fn submit_and_wait_all(&mut self) -> Result<u32, IoUringError> {
-        self.do_submit(self.num_ops)
+        // Retry until the CQ holds every operation.
+        // Partial submissions and signal interrupts return early.
+        let mut submitted = 0;
+        while self.cqueue.ready().map_err(IoUringError::CQueue)? < self.num_ops {
+            match self.do_submit(self.num_ops) {
+                Ok(count) => submitted += count,
+                Err(IoUringError::SQueue(SQueueError::Submit(err)))
+                    if err.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(err) => return Err(err),
+            }
+        }
+        Ok(submitted)
     }
 
     /// Return the number of operations currently on the submission queue.

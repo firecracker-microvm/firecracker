@@ -36,6 +36,26 @@ def kvm_probe_details():
     return details
 
 
+# Guest kernel command line options shared by the tests' defaults: Firecracker's
+# DEFAULT_KERNEL_CMDLINE (src/vmm/src/vmm_config/boot_source.rs) without
+# `8250.nr_uarts=0`, plus `cryptomgr.notests`. The i8042 options stop the guest
+# from probing the emulated keyboard controller for a mouse, a multiplexer and
+# LED control, which otherwise stalls every boot by ~0.5 s; the AT keyboard is
+# still registered, so SendCtrlAltDel keeps working. `i8042.nopnp` must not be
+# added: without PNP the driver requests legacy IRQ 1, which fails, and the
+# guest is left without a keyboard.
+BASE_BOOT_ARGS = (
+    "reboot=k panic=1 nomodule swiotlb=noforce cryptomgr.notests"
+    " i8042.noaux i8042.nomux i8042.dumbkbd"
+)
+
+
+def default_boot_args(pci_enabled: bool) -> str:
+    """Kernel command line used for a microVM whose test does not choose one."""
+    args = BASE_BOOT_ARGS + " console=ttyS0"
+    return args if pci_enabled else args + " pci=off"
+
+
 def kvm_basic_config(
     vm,
     vcpu_count: int = 2,
@@ -62,10 +82,7 @@ def kvm_basic_config(
     The function checks the response status code and asserts that
     the response is within the interval [200, 300).
 
-    If boot_args is None, the default boot_args used in tests is
-        reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0 [pci=off]
-    which differs from Firecracker's default only in the enabling of the serial console.
-    Reference: file:../../src/vmm/src/vmm_config/boot_source.rs::DEFAULT_KERNEL_CMDLINE
+    If boot_args is None, `default_boot_args()` is used.
     """
     vm.api.machine_config.put(
         vcpu_count=vcpu_count,
@@ -91,11 +108,7 @@ def kvm_basic_config(
     if boot_args is not None:
         vm.boot_args = boot_args
     else:
-        vm.boot_args = (
-            "reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0 cryptomgr.notests"
-        )
-        if not vm.pci_enabled:
-            vm.boot_args += " pci=off"
+        vm.boot_args = default_boot_args(vm.pci_enabled)
     boot_source_args = {
         "kernel_image_path": vm.create_jailed_resource(vm.kernel_file),
         "boot_args": vm.boot_args,

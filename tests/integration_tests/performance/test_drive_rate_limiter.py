@@ -37,7 +37,7 @@ def check_iops_limit(ssh_connection, block_size, count, min_time, max_time):
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 # Assumes it can do a fixed amount of work in a fixed time.
 @pytest.mark.serial
-def test_patch_drive_limiter(uvm):
+def test_patch_drive_limiter(uvm, num_queues):
     """
     Test replacing the drive rate-limiter after guest boot works.
     """
@@ -60,6 +60,7 @@ def test_patch_drive_limiter(uvm):
             "bandwidth": {"size": 10 * MB, "refill_time": 100},
             "ops": {"size": 100, "refill_time": 100},
         },
+        num_queues=num_queues,
     )
     test_microvm.start()
 

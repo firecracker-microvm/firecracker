@@ -8,6 +8,7 @@ import re
 import pytest
 
 from framework import utils
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 DMESG_LOG_REGEX = r"rtc-pl031\s+(\d+).rtc: setting system clock to"
 
@@ -15,6 +16,7 @@ DMESG_LOG_REGEX = r"rtc-pl031\s+(\d+).rtc: setting system clock to"
 @pytest.mark.skipif(
     platform.machine() != "aarch64", reason="RTC exists only on aarch64."
 )
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_rtc(uvm):
     """
     Test RTC functionality on aarch64.

@@ -1,9 +1,13 @@
 # Production Host Setup Recommendations
 
 Firecracker relies on KVM and on the processor virtualization features for
-workload isolation. The host and guest kernels and host microcode must be
-regularly patched in accordance with your distribution's security advisories
-such as [ALAS](https://alas.aws.amazon.com/alas2023.html) for Amazon Linux.
+workload isolation. A [Nitro Sandbox](nitro-sandboxes/README.md) is isolated by
+the AWS Nitro System instead, so the KVM-specific items below do not apply to
+it. Firecracker still processes guest-controlled input for a sandbox, so the
+jailer, seccomp, resource-limit and patching recommendations still do. The host
+and guest kernels and host microcode must be regularly patched in accordance
+with your distribution's security advisories such as
+[ALAS](https://alas.aws.amazon.com/alas2023.html) for Amazon Linux.
 
 Security guarantees and defense in depth can only be upheld, if the following
 list of recommendations are implemented in production.

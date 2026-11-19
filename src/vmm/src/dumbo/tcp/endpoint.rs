@@ -52,10 +52,9 @@ pub struct Endpoint {
     receive_buf_left: usize,
     // This is filled with the HTTP response bytes after we parse a request and generate the reply.
     response_buf: Vec<u8>,
-    // Initial response sequence, used to track if the entire `response_buf` was sent.
+    // The sequence number of the first byte of `response_buf`, used to track if the entire
+    // `response_buf` was acknowledged.
     initial_response_seq: Wrapping<u32>,
-    // Represents the sequence number associated with the first byte from response_buf.
-    response_seq: Wrapping<u32>,
     // The TCP connection that does all the receiving/sending work.
     connection: Connection,
     // Timestamp (in cycles) associated with the most recent reception of a segment.
@@ -109,7 +108,6 @@ impl Endpoint {
             receive_buf: [0u8; RCV_BUF_MAX_SIZE as usize],
             receive_buf_left: 0,
             response_buf: Vec::new(),
-            response_seq: connection.first_not_sent(),
             initial_response_seq: connection.first_not_sent(),
             connection,
             last_segment_received_timestamp: timestamp_cycles(),
@@ -183,10 +181,9 @@ impl Endpoint {
             // stored in self.response_buf).
 
             // It seems we just received the last ACK we were waiting for, so the entire
-            // response has been successfully received. Set the new response_seq and clear
-            // the response_buf.
-            self.response_seq = self.connection.highest_ack_received();
-            self.initial_response_seq = self.response_seq;
+            // response has been successfully received. Set where the next response starts and
+            // clear the response_buf.
+            self.initial_response_seq = self.connection.highest_ack_received();
             self.response_buf.clear();
         }
 
@@ -256,12 +253,13 @@ impl Endpoint {
         buf: &'a mut [u8],
         mss_reserved: u16,
     ) -> Option<Incomplete<TcpSegment<'a, &'a mut [u8]>>> {
+        // The response from its oldest unacknowledged byte: the connection picks the next segment
+        // within it, new data or, after a duplicate ACK or a timeout, a retransmission. The guest
+        // never acknowledges past the response while it is pending, so the slice always exists.
+        let unacked = self.connection.highest_ack_received();
         let tcp_payload_src = if !self.response_buf.is_empty() {
-            let offset = self.response_seq - self.initial_response_seq;
-            Some((
-                self.response_buf.split_at(offset.0 as usize).1,
-                self.response_seq,
-            ))
+            let acked = (unacked - self.initial_response_seq).0 as usize;
+            self.response_buf.get(acked..).map(|src| (src, unacked))
         } else {
             None
         };
@@ -272,9 +270,7 @@ impl Endpoint {
             tcp_payload_src,
             timestamp_cycles(),
         ) {
-            Ok(write_result) => write_result.inspect(|segment| {
-                self.response_seq += Wrapping(u32::from(segment.inner().payload_len()));
-            }),
+            Ok(write_result) => write_result,
             Err(_) => {
                 METRICS.mmds.tx_errors.inc();
                 None
@@ -360,6 +356,7 @@ mod tests {
     use std::str::from_utf8;
 
     use super::*;
+    use crate::check_metric_after_block;
     use crate::dumbo::pdu::tcp::Flags as TcpFlags;
     use crate::dumbo::tcp::connection::tests::ConnectionTester;
     use crate::dumbo::tcp::tests::mock_callback;
@@ -571,6 +568,77 @@ mod tests {
                 .unwrap();
             assert_eq!(s.inner().flags_after_ns(), TcpFlags::RST);
         }
+    }
+
+    #[test]
+    fn test_endpoint_retransmits_after_dup_ack() {
+        // A duplicate ACK, such as a stale one that reached the MMDS through another TX queue than
+        // the guest's newer segments, makes the connection resend from the oldest unacknowledged
+        // byte. The endpoint keeps the whole response until it is acknowledged, and must offer it.
+        let mut buf = [0u8; 500];
+        let mut write_buf = [0u8; RCV_BUF_MAX_SIZE as usize + 100];
+        let t = ConnectionTester::new();
+
+        let mut syn = t.write_syn(buf.as_mut());
+        syn.set_flags_after_ns(TcpFlags::SYN);
+        let remote_isn = syn.sequence_number();
+        let mut endpoint = Endpoint::new_with_defaults(&syn).unwrap();
+        let endpoint_isn = endpoint
+            .write_next_segment(write_buf.as_mut(), t.mss_reserved)
+            .unwrap()
+            .inner()
+            .sequence_number();
+        let mut ack = t.write_ctrl(buf.as_mut());
+        ack.set_flags_after_ns(TcpFlags::ACK);
+        ack.set_ack_number(endpoint_isn.wrapping_add(1));
+        endpoint.receive_segment(&ack, mock_callback);
+        assert!(endpoint.connection.is_established());
+
+        let request = b"GET http://169.254.169.255/asdfghjkl HTTP/1.1\r\n\r\n";
+        let remote_first_not_sent =
+            remote_isn.wrapping_add(1 + u32::try_from(request.len()).unwrap());
+        {
+            let mut data = t.write_data(write_buf.as_mut(), request.as_ref());
+            data.set_flags_after_ns(TcpFlags::ACK);
+            data.set_sequence_number(remote_isn.wrapping_add(1));
+            data.set_ack_number(endpoint_isn.wrapping_add(1));
+            endpoint.receive_segment(&data, mock_callback);
+        }
+        let (sent_seq, sent) = {
+            let s = endpoint
+                .write_next_segment(write_buf.as_mut(), t.mss_reserved)
+                .unwrap();
+            (s.inner().sequence_number(), s.inner().payload().to_vec())
+        };
+        assert_eq!(sent_seq, endpoint_isn.wrapping_add(1));
+        assert!(from_utf8(&sent).unwrap().contains("200"));
+
+        // The guest ACKs again what it had already ACKed while the response is in flight.
+        let mut dup = t.write_ctrl(buf.as_mut());
+        dup.set_flags_after_ns(TcpFlags::ACK);
+        dup.set_sequence_number(remote_first_not_sent);
+        dup.set_ack_number(endpoint_isn.wrapping_add(1));
+        endpoint.receive_segment(&dup, mock_callback);
+        assert!(endpoint.connection.dup_ack_pending());
+
+        // The response goes out again, from its first byte.
+        check_metric_after_block!(METRICS.mmds.tx_errors, 0, {
+            let s = endpoint
+                .write_next_segment(write_buf.as_mut(), t.mss_reserved)
+                .unwrap();
+            assert_eq!(s.inner().sequence_number(), sent_seq);
+            assert_eq!(s.inner().payload(), sent.as_slice());
+        });
+        assert!(!endpoint.connection.dup_ack_pending());
+
+        // Once the guest ACKs it, the response is done and there is nothing left to send.
+        let mut ack = t.write_ctrl(buf.as_mut());
+        ack.set_flags_after_ns(TcpFlags::ACK);
+        ack.set_sequence_number(remote_first_not_sent);
+        ack.set_ack_number(sent_seq.wrapping_add(u32::try_from(sent.len()).unwrap()));
+        endpoint.receive_segment(&ack, mock_callback);
+        assert!(endpoint.response_buf.is_empty());
+        assert_eq!(endpoint.next_segment_status(), NextSegmentStatus::Nothing);
     }
 
     #[test]

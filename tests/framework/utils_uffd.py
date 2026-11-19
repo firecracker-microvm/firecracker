@@ -5,8 +5,9 @@
 import os
 import stat
 import subprocess
-import time
 from pathlib import Path
+
+from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_fixed
 
 from framework.utils import chroot
 from host_tools import cargo_build
@@ -46,11 +47,19 @@ class UffdHandler:
                     args, stdout=logfile, stderr=subprocess.STDOUT
                 )
 
-            # Give it time start and fail, if it really has too (bad things happen).
-            time.sleep(1)
-            if not self.is_running():
-                print(chroot_log_file.read_text(encoding="utf-8"))
-                assert False, "Could not start PF handler!"
+            # Wait for the handler to create the socket (UnixListener::bind
+            # binds and listens in one go), unless it exits first.
+            for attempt in Retrying(
+                retry=retry_if_exception_type(AssertionError),
+                wait=wait_fixed(0.05),
+                stop=stop_after_delay(5),
+                reraise=True,
+            ):
+                with attempt:
+                    if not self.is_running():
+                        log = chroot_log_file.read_text(encoding="utf-8")
+                        raise RuntimeError(f"Could not start PF handler!\n{log}")
+                    assert Path(self.socket_path).exists(), "PF handler socket missing"
 
             # The page fault handler will create the socket path with root rights.
             # Change rights to the jailer's.

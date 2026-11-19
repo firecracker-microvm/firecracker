@@ -127,7 +127,7 @@ impl Persist<'_> for Balloon {
                 num_pages: self.config_space.num_pages,
                 actual_pages: self.config_space.actual_pages,
             },
-            virtio_state: VirtioDeviceState::from_device(self),
+            virtio_state: VirtioDeviceState::from_device(self, &self.queues),
         }
     }
 
@@ -238,10 +238,10 @@ mod tests {
         );
         assert!(
             restored_balloon
-                .queues()
+                .queues
                 .iter()
                 .map(Persist::save)
-                .eq(balloon.queues().iter().map(Persist::save))
+                .eq(balloon.queues.iter().map(Persist::save))
         );
         assert!(!restored_balloon.is_activated());
         assert!(!balloon.is_activated());

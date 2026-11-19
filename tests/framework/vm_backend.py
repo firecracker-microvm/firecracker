@@ -12,6 +12,14 @@ from functools import lru_cache
 import pytest
 
 from framework.artifacts import GuestKernel
+from framework.enclave import (
+    EnclaveConfigError,
+    enclave_basic_config,
+    enclave_deselect_reason,
+    enclave_host_available,
+    enclave_prepare_start,
+    enclave_probe_details,
+)
 from framework.kvm import has_kvm, kvm_basic_config, kvm_probe_details
 
 
@@ -19,16 +27,79 @@ class VmBackend(str, Enum):
     """Backend values and lifecycle behavior for the ``vm_backend`` dimension."""
 
     KVM = "kvm"
+    ENCLAVE_DIRECT = "enclave-direct"
+    ENCLAVE_CONFIDENTIAL = "enclave-confidential"
 
     def __str__(self):
         """Return the stable value used in pytest IDs and reports."""
         return self.value
+
+    @classmethod
+    def enclaves(cls):
+        """Return the Nitro Enclave backend values."""
+        return (cls.ENCLAVE_DIRECT, cls.ENCLAVE_CONFIDENTIAL)
+
+    @property
+    def is_enclave(self):
+        """Whether this value selects a Nitro Enclave backend."""
+        return self in self.enclaves()
+
+    @property
+    def enforces_api_timing(self):
+        """Whether API call durations are asserted against the timing budget.
+
+        Enclave start (EIF build and guest-memory donation) has not been
+        characterised against MAX_API_CALL_DURATION_MS, so exempt enclave VMs
+        rather than assert an unvalidated bound - revisit with data, or drop
+        the metric.
+        """
+        return not self.is_enclave
+
+    @property
+    def has_parent_vcpu_threads(self):
+        """Whether guest vCPUs are threads of the parent Firecracker process.
+
+        Enclave vCPUs are donated from the parent VM to the enclave, so they
+        are not parent threads and there is nothing for pin_threads() to pin.
+        Phrased as a capability rather than an is_enclave check at the call
+        site, so `Microvm` never branches on which backend it is running.
+        """
+        return not self.is_enclave
+
+    @property
+    def supports_hot_unplug(self):
+        """Whether devices can be removed from a running microVM.
+
+        Enclaves support hot-plugging (with ``hotplug_mode``) but not
+        hot-unplugging, so tests exercise the plug half on every backend and
+        skip the unplug half where it is unsupported.
+        """
+        return not self.is_enclave
+
+    @property
+    def has_boot_timer(self):
+        """Whether the boot timer pseudo-device can be attached.
+
+        It is an MMIO device wired up only on the KVM build path.
+        """
+        return not self.is_enclave
+
+    @property
+    def supports_entropy_device(self):
+        """Whether virtio-rng can be attached.
+
+        Confidential enclaves disallow it, and the NE hypervisor rejects the
+        device at start with errno 291.
+        """
+        return self is not VmBackend.ENCLAVE_CONFIDENTIAL
 
     def available(self):
         """Whether this host can run the backend."""
         match self:
             case VmBackend.KVM:
                 return has_kvm()
+            case VmBackend.ENCLAVE_DIRECT | VmBackend.ENCLAVE_CONFIDENTIAL:
+                return enclave_host_available()
             case _:
                 raise AssertionError(f"Unhandled VM backend: {self!r}")
 
@@ -37,6 +108,30 @@ class VmBackend(str, Enum):
         match self:
             case VmBackend.KVM:
                 return kvm_probe_details()
+            case VmBackend.ENCLAVE_DIRECT | VmBackend.ENCLAVE_CONFIDENTIAL:
+                return enclave_probe_details()
+            case _:
+                raise AssertionError(f"Unhandled VM backend: {self!r}")
+
+    def deselect_reason(
+        self, *, kernel, pci_enabled, huge_pages, lifecycle, cpu_template
+    ):
+        """Why this backend cannot run a parametrisation, or ``None``.
+
+        Consulted at collection time so impossible variants are deselected
+        instead of skipped during fixture setup.
+        """
+        match self:
+            case VmBackend.KVM:
+                return None
+            case VmBackend.ENCLAVE_DIRECT | VmBackend.ENCLAVE_CONFIDENTIAL:
+                return enclave_deselect_reason(
+                    kernel=kernel,
+                    pci_enabled=pci_enabled,
+                    huge_pages=huge_pages,
+                    lifecycle=lifecycle,
+                    cpu_template=cpu_template,
+                )
             case _:
                 raise AssertionError(f"Unhandled VM backend: {self!r}")
 
@@ -45,6 +140,14 @@ class VmBackend(str, Enum):
         match self:
             case VmBackend.KVM:
                 return guest_kernel.vmlinux
+            case VmBackend.ENCLAVE_DIRECT | VmBackend.ENCLAVE_CONFIDENTIAL:
+                if not guest_kernel.acpi:
+                    pytest.skip("Enclave backend requires an ACPI guest kernel")
+                if guest_kernel.efi_image is None:
+                    pytest.skip(
+                        f"No enclave EFI boot image for {guest_kernel.pytest_id}"
+                    )
+                return guest_kernel.efi_image
             case _:
                 raise AssertionError(f"Unhandled VM backend: {self!r}")
 
@@ -53,22 +156,54 @@ class VmBackend(str, Enum):
         match self:
             case VmBackend.KVM:
                 return kvm_basic_config(vm, *args, **kwargs)
+            case VmBackend.ENCLAVE_DIRECT | VmBackend.ENCLAVE_CONFIDENTIAL:
+                return enclave_basic_config(vm, *args, **kwargs)
             case _:
                 raise AssertionError(f"Unhandled VM backend: {self!r}")
 
-    def prepare_start(self, _vm, *args, **kwargs):
+    def prepare_start(self, vm, *args, **kwargs):
         """Perform backend-specific preparation before starting a microVM."""
         match self:
             case VmBackend.KVM:
                 if args or kwargs:
                     raise TypeError("KVM backend does not accept start options")
                 return
+            case VmBackend.ENCLAVE_DIRECT | VmBackend.ENCLAVE_CONFIDENTIAL:
+                enclave_prepare_start(
+                    vm,
+                    *args,
+                    direct_mode=self is VmBackend.ENCLAVE_DIRECT,
+                    **kwargs,
+                )
+            case _:
+                raise AssertionError(f"Unhandled VM backend: {self!r}")
+
+    def require_restore_support(self):
+        """Raise if this backend cannot restore snapshots."""
+        match self:
+            case VmBackend.KVM:
+                return
+            case VmBackend.ENCLAVE_DIRECT | VmBackend.ENCLAVE_CONFIDENTIAL:
+                raise EnclaveConfigError(
+                    "Enclave backend does not support snapshot restore; pin this "
+                    "test to KVM with @pin_vm_backend(VM_BACKEND_KVM)."
+                )
             case _:
                 raise AssertionError(f"Unhandled VM backend: {self!r}")
 
 
 VM_BACKEND_KVM = VmBackend.KVM
+VM_BACKEND_ENCLAVE_DIRECT = VmBackend.ENCLAVE_DIRECT
+VM_BACKEND_ENCLAVE_CONFIDENTIAL = VmBackend.ENCLAVE_CONFIDENTIAL
+VM_BACKENDS_ENCLAVE = VmBackend.enclaves()
 VM_BACKENDS_ALL = tuple(VmBackend)
+
+
+def pin_vm_backend(backends):
+    """Convenience marker for pinning the `vm_backend` dimension."""
+    if not isinstance(backends, (list, tuple)):
+        backends = [backends]
+    return pytest.mark.parametrize("vm_backend", list(backends), indirect=True)
 
 
 @lru_cache(maxsize=1)

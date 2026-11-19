@@ -22,6 +22,7 @@ use crate::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
 };
 use crate::vmm_config::drive::*;
+use crate::vmm_config::enclave::EnclaveConfig;
 use crate::vmm_config::entropy::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError, MachineConfigUpdate};
@@ -100,6 +101,9 @@ pub struct VmmConfig {
     #[serde(skip)]
     pub serial_config: Option<SerialConfig>,
     pub memory_hotplug: Option<MemoryHotplugConfig>,
+    /// Enclave configuration for Nitro Enclaves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enclave: Option<EnclaveConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -138,6 +142,8 @@ pub struct VmResources {
     pub serial_out_path: Option<PathBuf>,
     /// Optional rate limiter config for serial output.
     pub serial_rate_limiter_cfg: Option<TokenBucketConfig>,
+    /// Enclave configuration for Nitro Enclaves.
+    pub enclave: Option<EnclaveConfig>,
 }
 
 impl VmResources {
@@ -161,7 +167,23 @@ impl VmResources {
         pci_enabled: bool,
     ) -> Result<Self, ResourcesError> {
         let vmm_config = serde_json::from_str::<VmmConfig>(config_json)?;
+        Self::from_config(
+            vmm_config,
+            instance_info,
+            mmds_size_limit,
+            metadata_json,
+            pci_enabled,
+        )
+    }
 
+    /// Configures Vmm resources as described by an already parsed `vmm_config`.
+    pub fn from_config(
+        vmm_config: VmmConfig,
+        instance_info: &InstanceInfo,
+        mmds_size_limit: usize,
+        metadata_json: Option<&str>,
+        pci_enabled: bool,
+    ) -> Result<Self, ResourcesError> {
         if let Some(logger_config) = vmm_config.logger {
             crate::logger::LOGGER.update(logger_config)?;
         }
@@ -197,6 +219,9 @@ impl VmResources {
         resources.build_boot_source(vmm_config.boot_source)?;
 
         for drive_config in vmm_config.drives.into_iter() {
+            resources
+                .machine_config
+                .validate_num_queues(&drive_config.drive_id, drive_config.num_queues)?;
             resources.set_block_device(drive_config)?;
         }
 
@@ -241,6 +266,10 @@ impl VmResources {
             resources.set_memory_hotplug_config(memory_hotplug_config)?;
         }
 
+        if let Some(enclave) = vmm_config.enclave {
+            resources.set_enclave_config(enclave);
+        }
+
         Ok(resources)
     }
 
@@ -272,6 +301,10 @@ impl VmResources {
 
         if updated.pcie_hotplug_ports > 0 && !self.pci_enabled {
             return Err(MachineConfigError::PcieHotplugPortsRequirePci);
+        }
+
+        for config in self.block.configs() {
+            updated.validate_num_queues(&config.drive_id, config.num_queues)?;
         }
 
         // The VM cannot have a memory size smaller than the target size
@@ -384,6 +417,11 @@ impl VmResources {
     /// Sets a vsock device to be attached when the VM starts.
     pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) -> Result<(), VsockConfigError> {
         self.vsock.insert(config)
+    }
+
+    /// Sets the enclave config.
+    pub fn set_enclave_config(&mut self, config: EnclaveConfig) {
+        self.enclave = Some(config);
     }
 
     /// Builds an entropy device to be attached when the VM starts.
@@ -527,7 +565,7 @@ impl VmResources {
         memfd: bool,
     ) -> Result<(Vec<GuestRegionMmap>, Option<MemfdBacking>), MemoryError> {
         let regions =
-            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
+            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib))?;
 
         if memfd {
             let mut backing = MemfdBacking::new(
@@ -592,6 +630,7 @@ impl From<&VmResources> for VmmConfig {
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots.
             serial_config: None,
             memory_hotplug: resources.memory_hotplug.clone(),
+            enclave: resources.enclave.clone(),
         }
     }
 }
@@ -644,6 +683,7 @@ mod tests {
             mtu: None,
             rx_rate_limiter: Some(RateLimiterConfig::default()),
             tx_rate_limiter: Some(RateLimiterConfig::default()),
+            dmb_size_mib: None,
         }
     }
 
@@ -665,13 +705,16 @@ mod tests {
 
                 is_read_only: Some(false),
                 discard: None,
+                num_queues: None,
                 path_on_host: Some(tmp_file.as_path().to_str().unwrap().to_string()),
                 rate_limiter: Some(RateLimiterConfig::default()),
                 file_engine_type: None,
+                image_format: None,
                 blk_size: None,
                 topology: None,
 
                 socket: None,
+                dmb_size_mib: None,
             },
             tmp_file,
         )
@@ -713,6 +756,7 @@ mod tests {
             serial_out_path: None,
             serial_rate_limiter_cfg: None,
             memory_hotplug: Default::default(),
+            enclave: None,
         }
     }
 
@@ -748,6 +792,7 @@ mod tests {
         let dram_size = mib_to_bytes(resources.machine_config.mem_size_mib) as u64;
         // Right after DRAM, which does not start at guest address 0 on all architectures.
         let hotplug_addr = crate::arch::arch_memory_regions(u64_to_usize(dram_size))
+            .unwrap()
             .iter()
             .map(|&(start, size)| start.0 + size as u64)
             .max()
@@ -1607,17 +1652,17 @@ mod tests {
             aux_vm_config
         );
 
-        // Invalid vcpu count.
+        // Zero is rejected.
         aux_vm_config.vcpu_count = Some(0);
         assert_eq!(
             vm_resources.update_machine_config(&aux_vm_config),
             Err(MachineConfigError::InvalidVcpuCount)
         );
+
+        // Counts above the KVM limit (32) are accepted by the machine-config API;
+        // the per-path limit is enforced when the VM is started.
         aux_vm_config.vcpu_count = Some(33);
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidVcpuCount)
-        );
+        vm_resources.update_machine_config(&aux_vm_config).unwrap();
 
         // Check that SMT is not supported on aarch64, and that on x86_64 enabling it requires vcpu
         // count to be even.
@@ -1640,6 +1685,12 @@ mod tests {
 
         // Invalid mem_size_mib.
         aux_vm_config.mem_size_mib = Some(0);
+        assert_eq!(
+            vm_resources.update_machine_config(&aux_vm_config),
+            Err(MachineConfigError::InvalidMemorySize)
+        );
+        // Byte count overflows usize.
+        aux_vm_config.mem_size_mib = Some(usize::MAX >> 10);
         assert_eq!(
             vm_resources.update_machine_config(&aux_vm_config),
             Err(MachineConfigError::InvalidMemorySize)
@@ -1861,6 +1912,47 @@ mod tests {
                 .st_ino(),
             tmp_ino
         );
+    }
+
+    #[test]
+    fn test_mq_vcpus() {
+        let mut vm_resources = default_vm_resources();
+        let (mut block_config, _file) = default_block_cfg();
+        block_config.drive_id = "mq".to_string();
+        block_config.num_queues = std::num::NonZeroU16::new(2);
+
+        assert_eq!(
+            vm_resources
+                .machine_config
+                .validate_num_queues(&block_config.drive_id, block_config.num_queues),
+            Err(MachineConfigError::InvalidQueueCount(
+                "mq".to_string(),
+                2,
+                1
+            ))
+        );
+
+        vm_resources
+            .update_machine_config(&MachineConfigUpdate {
+                vcpu_count: Some(2),
+                ..Default::default()
+            })
+            .unwrap();
+        vm_resources.set_block_device(block_config).unwrap();
+
+        // Lowering the vCPU count below the queue count is rejected and leaves the config as is.
+        assert_eq!(
+            vm_resources.update_machine_config(&MachineConfigUpdate {
+                vcpu_count: Some(1),
+                ..Default::default()
+            }),
+            Err(MachineConfigError::InvalidQueueCount(
+                "mq".to_string(),
+                2,
+                1
+            ))
+        );
+        assert_eq!(vm_resources.machine_config.vcpu_count, 2);
     }
 
     #[test]

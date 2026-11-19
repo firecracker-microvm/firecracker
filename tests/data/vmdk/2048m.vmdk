@@ -1,0 +1,18 @@
+# Disk DescriptorFile
+version=1
+CID=648ec685
+parentCID=ffffffff
+createType="monolithicFlat"
+
+# Extent description
+RW 4194304 FLAT "2048m-flat.vmdk" 0
+
+# The Disk Data Base
+#DDB
+
+ddb.virtualHWVersion = "4"
+ddb.geometry.cylinders = "4161"
+ddb.geometry.heads = "16"
+ddb.geometry.sectors = "63"
+ddb.adapterType = "ide"
+ddb.toolsVersion = "2147483647"

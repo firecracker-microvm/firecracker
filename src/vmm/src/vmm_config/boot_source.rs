@@ -16,8 +16,17 @@ use serde::{Deserialize, Serialize};
 /// - `i8042.nomux` do not probe i8042 for a multiplexing controller (save boot time);
 /// - `i8042.dumbkbd` do not attempt to control kbd state via the i8042 (save boot time).
 /// - `swiotlb=noforce` disable software bounce buffers (SWIOTLB)
+///
+/// The integration tests build their default command line from a copy of this
+/// one (`BASE_BOOT_ARGS` in tests/framework/kvm.py); keep the two in sync.
 pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 nomodule 8250.nr_uarts=0 i8042.noaux \
                                           i8042.nomux i8042.dumbkbd swiotlb=noforce";
+
+/// Default kernel command line for enclave VMs.
+///
+/// `initcall_blacklist=i8042_init` skips the i8042 keyboard controller probe
+/// which would otherwise stall for ~500ms on hardware without one.
+pub const DEFAULT_ENCLAVE_KERNEL_CMDLINE: &str = "panic=1 initcall_blacklist=i8042_init";
 
 /// Strongly typed data structure used to configure the boot source of the
 /// microvm.

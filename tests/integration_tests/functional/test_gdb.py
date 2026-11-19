@@ -14,6 +14,7 @@ import pytest
 import host_tools.cargo_build
 from framework.artifacts import GUEST_KERNEL_DEFAULT_DEBUG, pin_guest_kernel
 from framework.microvm import MicroVMFactory
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 
 @pytest.mark.skipif(
@@ -21,6 +22,7 @@ from framework.microvm import MicroVMFactory
     reason="GDB requires a vmlinux but we ship a uImage for ARM in our CI",
 )
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT_DEBUG)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_gdb_connects(guest_kernel, rootfs, vm_backend):
     """Checks that GDB works in a FC VM"""
 

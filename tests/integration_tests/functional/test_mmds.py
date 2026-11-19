@@ -19,6 +19,7 @@ from framework.utils import (
     populate_data_store,
     run_guest_cmd,
 )
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 # Minimum lifetime of token.
 MIN_TOKEN_TTL_SECONDS = 1
@@ -525,6 +526,7 @@ def test_mmds_limit_scenario(uvm, version):
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
 @pytest.mark.parametrize("imds_compat", [None, False, True])
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_mmds_snapshot(uvm_configured, microvm_factory, version, imds_compat):
     """
     Test MMDS behavior by restoring a snapshot on current FC versions.

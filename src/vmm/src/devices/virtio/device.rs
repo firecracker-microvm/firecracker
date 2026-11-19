@@ -13,13 +13,14 @@ use serde::{Deserialize, Serialize};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::ActivateError;
-use super::queue::Queue;
+use super::queue::QueueConfig;
 use super::transport::VirtioInterrupt;
 use crate::MutEventSubscriber;
 use crate::devices::virtio::AsAny;
 use crate::devices::virtio::generated::virtio_ids;
 use crate::logger::{error, info, warn};
 use crate::utils::u64_to_usize;
+use crate::vmm_config::enclave::DmbSizeMib;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// State of an active VirtIO device
@@ -74,12 +75,25 @@ pub enum VirtioDeviceType {
 /// Unique identifier for a virtio device: its type and string ID.
 pub type VirtioDeviceId = (VirtioDeviceType, String);
 
+/// Identifies a virtio device in log lines. Displays as `<type>:<id>`, e.g.
+/// `Block:rootfs`; use it as `"[{}] ..."`.
+#[derive(Debug, Clone, Copy)]
+pub struct VirtioDeviceLabel<'a> {
+    device_type: VirtioDeviceType,
+    id: &'a str,
+}
+
+impl fmt::Display for VirtioDeviceLabel<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}:{}", self.device_type, self.id)
+    }
+}
+
 /// Trait for virtio devices to be driven by a virtio transport.
 ///
 /// The lifecycle of a virtio device is to be moved to a virtio transport, which will then query the
 /// device. The virtio devices needs to create queues, events and event fds for interrupts and
-/// expose them to the transport via get_queues/get_queue_events/get_interrupt/get_interrupt_status
-/// fns.
+/// expose their queue configuration, events, and interrupt state to the transport.
 pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     /// Get the available features offered by device.
     fn avail_features(&self) -> u64;
@@ -110,14 +124,40 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     /// Returns unique device id
     fn id(&self) -> &str;
 
-    /// Returns the device queues.
-    fn queues(&self) -> &[Queue];
+    /// Tag identifying this device in log lines, see [`VirtioDeviceLabel`].
+    fn label(&self) -> VirtioDeviceLabel<'_> {
+        VirtioDeviceLabel {
+            device_type: self.device_type(),
+            id: self.id(),
+        }
+    }
 
-    /// Returns a mutable reference to the device queues.
-    fn queues_mut(&mut self) -> &mut [Queue];
+    /// Returns the device's DMB size. Successful attachment resolves an omitted size.
+    fn dmb_size_mib(&self) -> Option<DmbSizeMib> {
+        None
+    }
 
-    /// Returns the device queues event fds.
-    fn queue_events(&self) -> &[EventFd];
+    /// Sets the default DMB size if unset, leaving an explicit size unchanged.
+    /// Called only after successful registration on a transport using a DMB.
+    fn set_default_dmb_size(&mut self) {}
+
+    /// Returns the number of queues offered by the device.
+    fn num_queues(&self) -> usize;
+
+    /// Returns the transport-visible configuration for the selected queue.
+    ///
+    /// This must return `Some` exactly for indices below [`Self::num_queues`].
+    fn queue_config(&self, index: usize) -> Option<&QueueConfig>;
+
+    /// Returns the mutable transport-visible configuration for the selected queue.
+    ///
+    /// This must return `Some` exactly for indices below [`Self::num_queues`].
+    fn queue_config_mut(&mut self, index: usize) -> Option<&mut QueueConfig>;
+
+    /// Returns the event fd for the selected queue.
+    ///
+    /// This must return `Some` exactly for indices below [`Self::num_queues`].
+    fn queue_event(&self, index: usize) -> Option<&EventFd>;
 
     /// Returns the current device interrupt status.
     fn interrupt_status(&self) -> Arc<AtomicU32> {
@@ -207,9 +247,7 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
         self.set_acked_features(0);
         // The queues go with the reset; commit the used ring pages written since the last snapshot
         self.commit_dirty();
-        for queue in self.queues_mut() {
-            *queue = Queue::new(queue.max_size);
-        }
+        self.reset_queues();
         true
     }
 
@@ -218,11 +256,11 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     ///
     /// Returning false leaves the device activated and its queues in place. It
     /// also leaves running whatever work was handed to something outside our own
-    /// synchronous control: an out-of-process vhost-user backend, or io_uring
-    /// operations that are still in flight. That work may write into guest
-    /// memory that the guest has already freed and reused.
+    /// synchronous control, such as an out-of-process vhost-user backend. That
+    /// work may write into guest memory that the guest has already freed and
+    /// reused.
     ///
-    /// Today only devices in developer preview can fail a reset. Every other
+    /// Today only the vhost-user block device can fail a reset. Every other
     /// implementation returns true unconditionally.
     ///
     /// TODO: decide what Firecracker should do when a reset cannot be
@@ -230,25 +268,21 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     /// https://github.com/firecracker-microvm/firecracker/issues/6281
     fn _reset(&mut self) -> bool;
 
+    /// Resets device-owned queue configuration and runtime state.
+    fn reset_queues(&mut self);
+
     /// Marks dirty the queue pages written since the last call.
-    fn commit_dirty(&self) {
-        for queue in self.queues() {
-            queue.commit_dirty();
-        }
-    }
+    fn commit_dirty(&self);
 
     /// Notify all queues by writing to the eventfds.
     fn notify_queue_events(&mut self) {
-        info!("[{:?}:{}] notifying queues", self.device_type(), self.id());
-        for (i, eventfd) in self.queue_events().iter().enumerate() {
+        info!("[{}] notifying queues", self.label());
+        for i in 0..self.num_queues() {
+            let eventfd = self
+                .queue_event(i)
+                .expect("queue event must exist for each advertised queue");
             if let Err(err) = eventfd.write(1) {
-                error!(
-                    "[{:?}:{}] error notifying queue {}: {}",
-                    self.device_type(),
-                    self.id(),
-                    i,
-                    err
-                );
+                error!("[{}] error notifying queue {}: {}", self.label(), i, err);
             }
         }
     }
@@ -257,7 +291,10 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     /// notifications. This is used if a notification arrives while a device
     /// is being reset and before it's activated again.
     fn drain_queue_events(&self) {
-        for event in self.queue_events() {
+        for i in 0..self.num_queues() {
+            let event = self
+                .queue_event(i)
+                .expect("queue event must exist for each advertised queue");
             let _ = event.read();
         }
     }
@@ -330,15 +367,19 @@ pub(crate) mod tests {
             self.acked_features = acked_features
         }
 
-        fn queues(&self) -> &[Queue] {
+        fn num_queues(&self) -> usize {
             todo!()
         }
 
-        fn queues_mut(&mut self) -> &mut [Queue] {
+        fn queue_config(&self, _index: usize) -> Option<&QueueConfig> {
             todo!()
         }
 
-        fn queue_events(&self) -> &[EventFd] {
+        fn queue_config_mut(&mut self, _index: usize) -> Option<&mut QueueConfig> {
+            todo!()
+        }
+
+        fn queue_event(&self, _index: usize) -> Option<&EventFd> {
             todo!()
         }
 
@@ -373,6 +414,24 @@ pub(crate) mod tests {
         fn _reset(&mut self) -> bool {
             todo!()
         }
+
+        fn reset_queues(&mut self) {
+            todo!()
+        }
+
+        fn commit_dirty(&self) {
+            todo!()
+        }
+    }
+
+    #[test]
+    fn test_label() {
+        let device = MockVirtioDevice {
+            avail_features: 0,
+            acked_features: 0,
+            config: vec![],
+        };
+        assert_eq!(device.label().to_string(), "Net:mock");
     }
 
     #[test]

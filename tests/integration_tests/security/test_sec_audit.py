@@ -18,7 +18,7 @@ from framework.utils_cpuid import CpuVendor, get_cpu_vendor
     get_cpu_vendor() != CpuVendor.INTEL,
     reason="The audit is based on cargo.lock which is identical on all platforms",
 )
-def test_cargo_audit():
+def test_cargo_audit(tmp_path, monkeypatch):
     """
     Run cargo audit to check for crates with security vulnerabilities.
     """
@@ -49,9 +49,35 @@ def test_cargo_audit():
             )
         return findings
 
-    utils.run_cmd("cargo install --locked cargo-deny --debug")
+    # Build the latest cargo-deny on every run, so that a format change in the
+    # advisory database cannot break the audit. Install it into a private root
+    # rather than over the devctr's pinned copy, which test_licenses uses.
+    utils.check_output(
+        [
+            "cargo",
+            "install",
+            "--locked",
+            "--debug",
+            "--root",
+            str(tmp_path),
+            "cargo-deny",
+        ]
+    )
+    cargo_deny = tmp_path / "bin" / "cargo-deny"
 
+    # Keep rustup's info lines, e.g. while it installs the A revision's
+    # toolchain, out of the JSON that cargo-deny writes to stderr.
+    monkeypatch.setenv("RUSTUP_LOG", "warn")
     git_ab_test_host_command_if_pr(
-        "RUSTUP_LOG=warn cargo deny --manifest-path Cargo.toml -f json check advisories",
+        [
+            str(cargo_deny),
+            "deny",
+            "--manifest-path",
+            "Cargo.toml",
+            "-f",
+            "json",
+            "check",
+            "advisories",
+        ],
         comparator=set_did_not_grow_comparator(set_of_vulnerabilities),
     )

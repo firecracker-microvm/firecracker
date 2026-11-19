@@ -9,6 +9,12 @@ should consider modifying this setup to accommodate your specific needs.
 > Currently, Firecracker supports only a TUN/TAP network backend with no multi
 > queue support.
 
+> [!NOTE]
+>
+> The same TAP setup applies to a [Nitro Sandbox](nitro-sandboxes/README.md). In
+> a confidential sandbox a network interface additionally accepts
+> `dmb_size_mib`; see [DMB size](nitro-sandboxes/features.md#dmb-size).
+
 The steps in this guide assume `eth0` to be your Internet-facing network
 interface on the host. If `eth0` isn't your main network interface, you should
 change the value to the correct one in the commands below. IPv4 is also assumed
@@ -53,8 +59,8 @@ addresses: `/30`. For this VM, let's use the `172.16.0.1` `tap` IP and the
 `172.16.0.2` guest IP.
 
 ```bash
-# Create the tap device.
-sudo ip tuntap add tap0 mode tap
+# Create the tap device, owned by the user that runs Firecracker.
+sudo ip tuntap add tap0 mode tap user "$(id -u)" group "$(id -g)"
 # Assign it the tap IP and start up the device.
 sudo ip addr add 172.16.0.1/30 dev tap0
 sudo ip link set tap0 up
@@ -294,7 +300,7 @@ The next /30 subnet in the 172.16.0.0/16 range will give us these two IPs:
 Our new `tap` device will, sequentially, have the name `tap1`:
 
 ```bash
-sudo ip tuntap add tap1 mode tap
+sudo ip tuntap add tap1 mode tap user "$(id -u)" group "$(id -g)"
 sudo ip addr add 172.16.0.5/30 dev tap1
 sudo ip link set tap1 up
 ```

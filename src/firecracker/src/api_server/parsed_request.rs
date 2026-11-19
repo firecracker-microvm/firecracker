@@ -16,6 +16,7 @@ use super::request::balloon::{parse_get_balloon, parse_patch_balloon, parse_put_
 use super::request::boot_source::parse_put_boot_source;
 use super::request::cpu_configuration::parse_put_cpu_config;
 use super::request::drive::{parse_patch_drive, parse_put_drive};
+use super::request::enclave::{parse_get_enclave, parse_put_enclave};
 use super::request::entropy::parse_put_entropy;
 use super::request::instance_info::parse_get_instance_info;
 use super::request::logger::parse_put_logger;
@@ -68,12 +69,6 @@ impl TryFrom<&Request> for ParsedRequest {
     type Error = RequestError;
     fn try_from(request: &Request) -> Result<Self, Self::Error> {
         let request_uri = request.uri().get_abs_path().to_string();
-        let description = describe(
-            request.method(),
-            request_uri.as_str(),
-            request.body.as_ref(),
-        );
-        info_unrestricted!("The API server received a {description}.");
 
         // Split request uri by '/' by doing:
         // 1. Trim starting '/' characters
@@ -81,9 +76,18 @@ impl TryFrom<&Request> for ParsedRequest {
         let mut path_tokens = request_uri.trim_start_matches('/').split_terminator('/');
         let path = path_tokens.next().unwrap_or("");
 
+        let description = describe(
+            request.method(),
+            request_uri.as_str(),
+            path,
+            request.body.as_ref(),
+        );
+        info_unrestricted!("The API server received a {description}.");
+
         match (request.method(), path, request.body.as_ref()) {
             (Method::Get, "", None) => parse_get_instance_info(),
             (Method::Get, "balloon", None) => parse_get_balloon(path_tokens),
+            (Method::Get, "enclave", None) => parse_get_enclave(path_tokens),
             (Method::Get, "version", None) => parse_get_version(),
             (Method::Get, "vm", None) if path_tokens.next() == Some("config") => {
                 Ok(ParsedRequest::new_sync(VmmAction::GetFullVmConfig))
@@ -99,6 +103,7 @@ impl TryFrom<&Request> for ParsedRequest {
             (Method::Put, "boot-source", Some(body)) => parse_put_boot_source(body),
             (Method::Put, "cpu-config", Some(body)) => parse_put_cpu_config(body),
             (Method::Put, "drives", Some(body)) => parse_put_drive(body, path_tokens.next()),
+            (Method::Put, "enclave", Some(body)) => parse_put_enclave(body, path_tokens),
             (Method::Put, "pmem", Some(body)) => parse_put_pmem(body, path_tokens.next()),
             (Method::Put, "logger", Some(body)) => parse_put_logger(body),
             (Method::Put, "serial", Some(body)) => parse_put_serial(body),
@@ -205,6 +210,7 @@ impl ParsedRequest {
                 VmmData::HintingStatus(hinting_status) => {
                     Self::success_response_with_data(hinting_status)
                 }
+                VmmData::EnclaveConfiguration(config) => Self::success_response_with_data(config),
                 VmmData::InstanceInformation(info) => Self::success_response_with_data(info),
                 VmmData::VmmVersion(version) => Self::success_response_with_data(
                     &serde_json::json!({ "firecracker_version": version.as_str() }),
@@ -247,25 +253,26 @@ impl ParsedRequest {
 /// # Arguments
 ///
 /// * `method` - one of `GET`, `PATCH`, `PUT`
-/// * `path` - path of the API request
+/// * `uri` - URI of the API request
+/// * `path` - first path token of the API request, identifying the endpoint
 /// * `body` - body of the API request
-fn describe(method: Method, path: &str, body: Option<&Body>) -> String {
+fn describe(method: Method, uri: &str, path: &str, body: Option<&Body>) -> String {
     match (path, body) {
-        ("/mmds", Some(_)) | (_, None) => format!("{:?} request on {:?}", method, path),
-        ("/cpu-config", Some(payload_value)) => {
+        ("mmds", Some(_)) | (_, None) => format!("{:?} request on {:?}", method, uri),
+        ("cpu-config", Some(payload_value)) => {
             // If the log level is at Debug or higher, include the CPU template in
             // the log line.
             if log_enabled!(Level::Debug) {
-                describe_with_body(method, path, payload_value)
+                describe_with_body(method, uri, payload_value)
             } else {
                 format!(
                     "{:?} request on {:?}. To view the CPU template received by the API, \
                      configure log-level to DEBUG",
-                    method, path
+                    method, uri
                 )
             }
         }
-        (_, Some(payload_value)) => describe_with_body(method, path, payload_value),
+        (_, Some(payload_value)) => describe_with_body(method, uri, payload_value),
     }
 }
 
@@ -363,6 +370,7 @@ pub mod tests {
     use vmm::resources::VmmConfig;
     use vmm::rpc_interface::VmmActionError;
     use vmm::vmm_config::balloon::{BalloonDeviceConfig, BalloonStats};
+    use vmm::vmm_config::enclave::EnclaveConfig;
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::machine_config::MachineConfig;
 
@@ -580,17 +588,20 @@ pub mod tests {
     #[test]
     fn test_describe() {
         assert_eq!(
-            describe(Method::Get, "path", None),
+            describe(Method::Get, "path", "path", None),
             "Get request on \"path\""
         );
         assert_eq!(
-            describe(Method::Put, "/mmds", None),
-            "Put request on \"/mmds\""
-        );
-        assert_eq!(
-            describe(Method::Put, "path", Some(&Body::new("body"))),
+            describe(Method::Put, "path", "path", Some(&Body::new("body"))),
             "Put request on \"path\" with body \"body\""
         );
+        // The MMDS body must not be logged, no matter how the path is spelled.
+        for uri in ["/mmds", "/mmds/", "//mmds", "///mmds///"] {
+            assert_eq!(
+                describe(Method::Put, uri, "mmds", Some(&Body::new("secret"))),
+                format!("Put request on {uri:?}")
+            );
+        }
     }
 
     #[test]
@@ -612,6 +623,9 @@ pub mod tests {
                     http_response(&serde_json::to_string(status).unwrap(), 200)
                 }
                 VmmData::Empty => http_response("", 204),
+                VmmData::EnclaveConfiguration(cfg) => {
+                    http_response(&serde_json::to_string(cfg).unwrap(), 200)
+                }
                 VmmData::FullVmConfig(cfg) => {
                     http_response(&serde_json::to_string(cfg).unwrap(), 200)
                 }
@@ -644,6 +658,7 @@ pub mod tests {
             ..Default::default()
         }));
         verify_ok_response_with(VmmData::Empty);
+        verify_ok_response_with(VmmData::EnclaveConfiguration(EnclaveConfig::default()));
         verify_ok_response_with(VmmData::FullVmConfig(VmmConfig::default()));
         verify_ok_response_with(VmmData::MachineConfiguration(MachineConfig::default()));
         verify_ok_response_with(VmmData::MmdsValue(serde_json::from_str("{}").unwrap()));

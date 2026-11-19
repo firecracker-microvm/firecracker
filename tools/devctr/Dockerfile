@@ -1,32 +1,41 @@
-# Building the devctr is a multi-stage process. The dependency graph is as follows:
+# Building the devctr is a multi-stage process. BuildKit builds independent
+# stages concurrently, so the build takes as long as the longest chain below,
+# not the sum of all stages.
 #
-# Stage dependency graph:
+# Stage dependency graph (tree edges are FROM, the right-hand rail is
+# COPY --from into devctr):
 #
-#                                   +--- qemu-builder -------+
-#                                   |                        |
-#                                   +--- libseccomp-builder -+
-#                                   |                        |
-#   base-image +--------------------+--- iperf3-builder -----+--- devctr
-#              |                    |                        |
-#              |                    +--- git-secrets-builder +
-#              |                                             |
-#              +--- apt-base                                 |
-#                      |                                     |
-#                      |                                     |
-#                  python-deps      +--- crosvm-builder -----+
-#                      |            |                        |
-#                 rust-toolchain ---+------------------------+
+#   base-image
+#   |-- qemu-builder -----------------------.
+#   |-- libseccomp-builder -----------------|
+#   |-- iperf3-builder ---------------------|
+#   |-- git-secrets-builder ----------------|
+#   |-- rust-toolchain  (copied into rust-base)
+#   `-- apt-base                            |
+#       |-- python-deps --------------------|
+#       `-- rust-base                       |
+#           |-- crosvm-builder -------------|
+#           |-- grcov-builder --------------|
+#           |-- cargo-sort-builder ---------|
+#           |-- cargo-afl-builder ----------|
+#           |-- cargo-deny-builder ---------|
+#           |-- cargo-udeps-builder --------|
+#           `-- kani                        |
+#               `-- devctr <----------------'
 #
-# Parallel builders (from base-image):
-#   qemu-builder, libseccomp-builder, iperf3-builder, git-secrets-builder
-#
-# Sequential base chain:
-#   base-image -> apt-base -> python-deps -> rust-toolchain
-#
-# Rust fork (from rust-toolchain):
-#   crosvm-builder  (build deps thrown away, only binary copied)
-#   devctr           (cargo tools, kani, nightly, then COPY from all builders)
-#
+# - rust-toolchain only needs curl, so rustup downloads while apt-base installs.
+#   rust-base layers the toolchain onto apt-base for everything that compiles.
+# - Python and Rust are independent, so a poetry.lock change does not rebuild
+#   any Rust stage, and vice versa.
+# - Every cargo tool gets its own stage, because `cargo install a b c` builds
+#   the crates one after another.
+# - devctr builds on kani rather than python-deps, so the large Rust tree is
+#   not copied again; only the venv and the tool binaries are copied in.
+
+# Paths shared between stages. A stage brings one into scope by declaring the
+# bare name, e.g. `ARG VENV`.
+ARG RUST_HOME=/usr/local/rust
+ARG VENV=/opt/venv
 
 # ============================================================
 # Base image: Shared between builders
@@ -36,7 +45,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG ARCH
 RUN apt-get update \
     && apt-get -y install --no-install-recommends \
-        git gcc make libc-dev ca-certificates musl-tools
+        git gcc make libc-dev ca-certificates musl-tools \
+    && rm -rf /var/lib/apt/lists/*
 
 # help musl-gcc find linux headers
 RUN cd /usr/include/$ARCH-linux-musl \
@@ -80,7 +90,8 @@ ENV LIBSECCOMP_VER="v2.6.1"
 # for our musl builds.
 # We specify the tag in order to have a fixed version
 # of the library.
-RUN apt-get -y install --no-install-recommends \
+RUN apt-get update \
+    && apt-get -y install --no-install-recommends \
         libtool gperf autoconf automake \
     && git clone https://github.com/seccomp/libseccomp /tmp/libseccomp \
     && cd /tmp/libseccomp \
@@ -155,7 +166,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 
-# Add cross-compile toolchain for devtool checkbuild command (rust target added in devctr stage)
+# Add cross-compile toolchain for devtool checkbuild command (rust target added in rust-toolchain stage)
 RUN case "${ARCH}" in \
     "aarch64") \
         apt-get update && apt install -y gcc-x86-64-linux-gnu libc6-dev-amd64-cross linux-libc-dev-amd64-cross \
@@ -178,10 +189,11 @@ RUN cd /usr/local/bin \
 # ============================================================
 # Base: Python/Poetry deps (changes with poetry.lock)
 # ============================================================
+# devctr copies only /root/.local (poetry) and $VENV out of this stage, so
+# anything installed elsewhere here does not reach the final image.
 FROM apt-base AS python-deps
-ARG PIP_BREAK_SYSTEM_PACKAGES=1
 ARG ARCH
-ARG VENV="/opt/venv"
+ARG VENV
 
 RUN curl -sSL https://install.python-poetry.org | python3 -
 ENV PATH="/root/.local/bin:$PATH"
@@ -201,23 +213,50 @@ ENV PATH=$VENV/bin:$PATH
 RUN cp /usr/lib/python3/dist-packages/seccomp.cpython-312-"$ARCH"-linux-gnu.so "$VENV"/lib/python3.12/site-packages/
 
 # ============================================================
-# Base: Rust toolchain (current version)
+# Rust toolchain (current version), independent of apt-base
 # ============================================================
-FROM python-deps AS rust-toolchain
-ARG RUST_TOOLCHAIN="1.97.0"
-ENV CARGO_HOME=/usr/local/rust
-ENV RUSTUP_HOME=/usr/local/rust
+FROM base-image AS rust-toolchain
+ARG ARCH
+ARG RUST_TOOLCHAIN="1.99.1"
+ARG RUST_HOME
+ENV CARGO_HOME=$RUST_HOME
+ENV RUSTUP_HOME=$RUST_HOME
 ENV PATH="$PATH:$CARGO_HOME/bin"
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
+# - Everything rustup installs lives under $RUST_HOME, which is all that
+#   rust-base copies. PATH comes from ENV, so leave the shell rc files alone.
+# - Always install both x86_64 and aarch64 musl targets, as our
+#   rust-toolchain.toml would force on-the-fly installation of both anyway.
+# - The other arch's gnu target is for the devtool checkbuild command.
+RUN apt-get update \
+    && apt-get -y install --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path \
+        --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
     && rustup target add x86_64-unknown-linux-musl \
     && rustup target add aarch64-unknown-linux-musl \
-    && rustup component add llvm-tools-preview clippy rustfmt
+    && rustup component add llvm-tools-preview clippy rustfmt \
+    && case "${ARCH}" in \
+        "aarch64") rustup target add x86_64-unknown-linux-gnu ;; \
+        "x86_64")  rustup target add aarch64-unknown-linux-gnu ;; \
+       esac
+
+# ============================================================
+# Base: apt packages + Rust toolchain, for everything that compiles Rust
+# ============================================================
+FROM apt-base AS rust-base
+ARG RUST_HOME
+ENV CARGO_HOME=$RUST_HOME
+ENV RUSTUP_HOME=$RUST_HOME
+ENV PATH="$PATH:$CARGO_HOME/bin"
+COPY --from=rust-toolchain $RUST_HOME $RUST_HOME
 
 # ============================================================
 # Builder: crosvm (used as vhost-user-blk backend)
 # ============================================================
-FROM rust-toolchain AS crosvm-builder
+FROM rust-base AS crosvm-builder
 ENV CROSVM_VER="9d542e6dafa3a85acd1fb6cd6f1adfa1331c4e96"
+# crosvm pins Rust 1.68, whose cargo still fetches the crates.io index as a
+# full git clone (~90s). Opt in to the sparse protocol, the default since 1.70.
 RUN apt-get update && \
     apt-get -y install --no-install-recommends \
         libcap2 \
@@ -226,46 +265,82 @@ RUN apt-get update && \
     && git clone https://github.com/google/crosvm.git /tmp/crosvm \
     && cd /tmp/crosvm && git checkout ${CROSVM_VER} \
     && git submodule update --init \
-    && cargo build --no-default-features --release \
+    && CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
+       cargo build --no-default-features --release \
     && strip ./target/release/crosvm \
     && cp -a ./target/release/crosvm /usr/local/bin
 
 # ============================================================
-# Devctr (final): Kani, cargo targets and assembled artifacts
+# Builders: cargo tools, one stage per crate
 # ============================================================
-FROM rust-toolchain AS devctr
-ARG ARCH
-ENV CARGO_HOME=/usr/local/rust
+# Each installs into its own --root, so devctr copies only the executables.
+# cargo-deny and cargo-udeps ship with fat LTO and codegen-units = 1, which
+# compiles their final crate on a single core for minutes. These are dev
+# tools, so trade that for a parallel build. Pass the overrides per command:
+# as ENV they would leak into devctr and change every build run inside it.
+FROM rust-base AS grcov-builder
+RUN cargo install --locked --root /staging grcov
 
-# Run these as a single dockerfile command to avoid inflation of the image:
-# - Install required binary crates, including cargo-afl (fuzzer) and Kani (formal verification)
-# - Kani always installs _some_ nightly toolchain, we reuse it for the seccomp filter analysis test. Dynamically
-#   determine the exact toolchain name, and install more components into it.
-# - Always install both x86_64 and aarch64 musl targets, as our rust-toolchain.toml would force on-the-fly installation of both anyway
-# - Clean up cargo compilation directories
-RUN cargo install --locked grcov cargo-sort cargo-afl \
-    && cargo install --locked cargo-deny --version 0.19.0 \
-    && cargo install --locked kani-verifier --version 0.67.0 && cargo kani setup \
-    \
+FROM rust-base AS cargo-sort-builder
+RUN cargo install --locked --root /staging cargo-sort
+
+# Installing cargo-afl also builds AFL++ into ~/.local/share/afl.rs, keyed by
+# the rustc version.
+FROM rust-base AS cargo-afl-builder
+RUN cargo install --locked --root /staging cargo-afl
+
+FROM rust-base AS cargo-deny-builder
+RUN CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
+    cargo install --locked --root /staging cargo-deny --version 0.19.0
+
+# cargo-udeps needs nightly to run, not to build, so build it with stable
+# rather than waiting for kani to install the nightly toolchain.
+FROM rust-base AS cargo-udeps-builder
+RUN CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
+    cargo install --locked --root /staging cargo-udeps --version 0.1.60
+
+# ============================================================
+# Kani and the nightly toolchain
+# ============================================================
+# Kani always installs _some_ nightly toolchain, we reuse it for the seccomp
+# filter analysis test and to run cargo-udeps. Dynamically determine the exact
+# toolchain name, and install more components into it. Clean up the cargo
+# registry, as this stage is the base of devctr.
+FROM rust-base AS kani
+ARG ARCH
+RUN cargo install --locked kani-verifier --version 0.67.0 && cargo kani setup \
     && NIGHTLY_TOOLCHAIN=$(rustup toolchain list | grep nightly | tr -d '\n') \
     && rustup component add rust-src --toolchain "$NIGHTLY_TOOLCHAIN" \
     && rustup target add "$ARCH"-unknown-linux-musl --toolchain "$NIGHTLY_TOOLCHAIN" \
-    && cargo +"$NIGHTLY_TOOLCHAIN" install --locked cargo-udeps --version 0.1.60 \
-    \
-    && case "${ARCH}" in \
-        "aarch64") rustup target add x86_64-unknown-linux-gnu ;; \
-        "x86_64")  rustup target add aarch64-unknown-linux-gnu ;; \
-       esac \
-    \
-    && rm -rf "$CARGO_HOME/registry" \
-    && rm -rf "$CARGO_HOME/git"
+    && rm -rf "$CARGO_HOME/registry" "$CARGO_HOME/git"
 
-# Copy pre-built artifacts LAST — builder changes don't invalidate Rust layer
+# ============================================================
+# Devctr (final): Rust + Kani, plus Python env and built artifacts
+# ============================================================
+FROM kani AS devctr
+ARG VENV
+ENV VIRTUAL_ENV=$VENV
+ENV PATH="$VENV/bin:/root/.local/bin:$PATH"
+
+COPY --from=grcov-builder /staging/bin/ $CARGO_HOME/bin/
+COPY --from=cargo-sort-builder /staging/bin/ $CARGO_HOME/bin/
+COPY --from=cargo-afl-builder /staging/bin/ $CARGO_HOME/bin/
+COPY --from=cargo-afl-builder /root/.local/share/afl.rs /root/.local/share/afl.rs
+COPY --from=cargo-deny-builder /staging/bin/ $CARGO_HOME/bin/
+COPY --from=cargo-udeps-builder /staging/bin/ $CARGO_HOME/bin/
 COPY --from=qemu-builder /usr/local/bin/vhost-user-blk /usr/local/bin/
 COPY --from=libseccomp-builder /staging /
 COPY --from=iperf3-builder /usr/local/bin/iperf3-vsock /usr/local/bin/
 COPY --from=git-secrets-builder /staging /
 COPY --from=crosvm-builder /usr/local/bin/crosvm /usr/local/bin/
+# Python last: poetry.lock changes most often. /root/.local holds poetry.
+COPY --from=python-deps /root/.local /root/.local
+COPY --from=python-deps $VENV $VENV
+
+# Fail the build if a binary copied in from a builder stage needs a shared
+# library that only that stage installed.
+RUN ldd /usr/local/bin/* "$CARGO_HOME"/bin/* 2>/dev/null \
+    | awk '/:$/ { bin = $1 } /not found/ { print bin, $0; missing = 1 } END { exit missing }'
 
 ADD tools/devctr/ctr_gitconfig /root/.gitconfig
 

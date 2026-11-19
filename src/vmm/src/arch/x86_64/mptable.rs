@@ -61,7 +61,7 @@ pub enum MptableError {
     WriteMpcLintsrc,
     /// Failure to write MP table header.
     WriteMpcTable,
-    /// Failure to allocate memory for MPTable
+    /// Failure to allocate memory for MPTable: {0}
     AllocateMemory(#[from] vm_allocator::Error),
 }
 

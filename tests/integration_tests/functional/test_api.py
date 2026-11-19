@@ -8,6 +8,7 @@ import os
 import platform
 import re
 import resource
+from http import HTTPStatus
 from pathlib import Path
 
 import pytest
@@ -22,11 +23,17 @@ from framework.artifacts import (
     pin_guest_kernel,
     pin_rootfs_mode,
 )
+from framework.kvm import default_boot_args
 from framework.utils import get_firecracker_version_from_toml
 from framework.utils_cpu_templates import (
     CUSTOM_CPU_TEMPLATES,
     SUPPORTED_CPU_TEMPLATES,
     pin_cpu_template,
+)
+from framework.vm_backend import (
+    VM_BACKEND_ENCLAVE_DIRECT,
+    VM_BACKEND_KVM,
+    pin_vm_backend,
 )
 
 MEM_LIMIT = 1000000000
@@ -108,7 +115,21 @@ def test_api_put_update_pre_boot(uvm, io_engine):
         is_root_device=False,
         is_read_only=False,
         io_engine=io_engine,
+        dmb_size_mib=32,
     )
+    scratch_config = next(
+        drive
+        for drive in test_microvm.api.vm_config.get().json()["drives"]
+        if drive["drive_id"] == "scratch"
+    )
+    assert scratch_config.pop("dmb_size_mib") == 32
+
+    for invalid_size in (3, 300):
+        with pytest.raises(
+            RuntimeError, match="must be a multiple of 2 between 2 and 256 MiB"
+        ) as exc_info:
+            test_microvm.api.drive.put(**scratch_config, dmb_size_mib=invalid_size)
+        assert exc_info.value.args[2].status_code == 400
 
     # Updates to `kernel_image_path` with an invalid path are not allowed.
     expected_msg = re.escape(
@@ -152,6 +173,39 @@ def test_api_put_update_pre_boot(uvm, io_engine):
         is_root_device=False,
         io_engine=io_engine,
     )
+    assert all(
+        "dmb_size_mib" not in drive
+        for drive in test_microvm.api.vm_config.get().json()["drives"]
+    )
+
+    # More queues than vCPUs are not allowed. The microVM has 2 vCPUs here.
+    with pytest.raises(
+        RuntimeError,
+        match="Invalid queue count 3 for device scratch; cannot exceed the configured vCPU count 2",
+    ):
+        test_microvm.api.drive.put(
+            drive_id="scratch",
+            path_on_host=test_microvm.get_jailed_resource(fs2.path),
+            is_read_only=True,
+            is_root_device=False,
+            io_engine=io_engine,
+            num_queues=3,
+        )
+
+    # Two queues fit two vCPUs, and the vCPU count cannot drop below them afterwards.
+    test_microvm.api.drive.put(
+        drive_id="scratch",
+        path_on_host=test_microvm.get_jailed_resource(fs2.path),
+        is_read_only=True,
+        is_root_device=False,
+        io_engine=io_engine,
+        num_queues=2,
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="Invalid queue count 2 for device scratch; cannot exceed the configured vCPU count 1",
+    ):
+        test_microvm.api.machine_config.patch(vcpu_count=1)
 
     # Valid updates to all fields in the machine configuration are allowed.
     # The machine configuration has a default value, so all PUTs are updates.
@@ -314,6 +368,9 @@ def test_api_mmds_config(uvm):
 
 # pylint: disable=too-many-statements
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+# Boots and exercises KVM-only semantics; the pre-boot validation half is
+# backend-independent (enclave setup only happens at start()).
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_api_machine_config(uvm):
     """
     Test /machine_config PUT/PATCH scenarios that unit tests can't cover.
@@ -381,14 +438,17 @@ def test_api_machine_config(uvm):
     # unspecified so will revert to default values.
     test_microvm.basic_config()
 
-    # Test mem_size_mib of valid type, but too large.
+    # Test mem_size_mib of valid type, but larger than the architecture can address.
+    bad_size = (1 << 64) - 1
+    with pytest.raises(RuntimeError, match="exceeds the architectural maximum"):
+        test_microvm.api.machine_config.patch(mem_size_mib=bad_size)
+
+    # Test mem_size_mib that is addressable but cannot be backed by the host.
     firecracker_pid = test_microvm.firecracker_pid
     resource.prlimit(
         firecracker_pid, resource.RLIMIT_AS, (MEM_LIMIT, resource.RLIM_INFINITY)
     )
-
-    bad_size = (1 << 64) - 1
-    test_microvm.api.machine_config.patch(mem_size_mib=bad_size)
+    test_microvm.api.machine_config.patch(mem_size_mib=512 * 1024)
 
     fail_msg = re.escape(
         "Invalid Memory Configuration: Cannot create mmap region: Out of memory (os error 12)"
@@ -400,7 +460,7 @@ def test_api_machine_config(uvm):
     with pytest.raises(
         RuntimeError,
         match=re.escape(
-            "The memory size (MiB) is either 0, or not a multiple of the configured page size."
+            "The memory size (MiB) is either 0, not a multiple of the configured page size, or exceeds the architectural maximum."
         ),
     ):
         test_microvm.api.machine_config.patch(mem_size_mib=0)
@@ -516,6 +576,9 @@ def test_api_put_update_post_boot(uvm):
         test_microvm.api.mmds_config.put(**mmds_config)
 
 
+# Confidential enclaves disallow the entropy device (errno 291) this test
+# configures a rate limiter on.
+@pin_vm_backend([VM_BACKEND_KVM, VM_BACKEND_ENCLAVE_DIRECT])
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_rate_limiters_api_config(uvm, io_engine):
     """
@@ -802,7 +865,10 @@ def test_negative_api_patch_post_boot(uvm, io_engine):
         test_microvm.api.logger.patch(level="Error")
 
 
+# The vhost-user scratch drive this test attaches is KVM-only: vhost-user
+# devices have no Nitro Enclave transport.
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_drive_patch(uvm, io_engine):
     """
     Extensively test drive PATCH scenarios before and after boot.
@@ -821,6 +887,7 @@ def test_drive_patch(uvm, io_engine):
         is_root_device=False,
         is_read_only=False,
         io_engine=io_engine,
+        num_queues=1,
     )
 
     fs_vub = drive_tools.FilesystemFile(
@@ -867,6 +934,7 @@ def _pin_aarch64_logind(func):
     ],
     ids=["kernel", "userspace"],
 )
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_send_ctrl_alt_del(uvm, ctrl_alt_del_mode, timeout):
     """
     Test shutting down the microVM gracefully by sending CTRL+ALT+DEL.
@@ -902,6 +970,8 @@ def test_send_ctrl_alt_del(uvm, ctrl_alt_del_mode, timeout):
 
 
 @_pin_aarch64_logind
+# KVM-only: enclaves cannot be paused.
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_send_ctrl_alt_del_while_paused(uvm):
     """
     Test that a SendCtrlAltDel issued while the microVM is paused is not lost.
@@ -1023,6 +1093,7 @@ def _drive_patch(test_microvm, io_engine):
             "cache_type": "Unsafe",
             "is_read_only": True,
             "discard": False,
+            "num_queues": None,
             "path_on_host": "/" + test_microvm.rootfs_file.name,
             "rate_limiter": None,
             "io_engine": "Sync",
@@ -1042,6 +1113,7 @@ def _drive_patch(test_microvm, io_engine):
             "cache_type": "Unsafe",
             "is_read_only": False,
             "discard": False,
+            "num_queues": 1,
             "path_on_host": "/scratch_new.ext4",
             "rate_limiter": {
                 "bandwidth": {"size": 5000, "one_time_burst": None, "refill_time": 100},
@@ -1064,6 +1136,7 @@ def _drive_patch(test_microvm, io_engine):
             "cache_type": "Unsafe",
             "is_read_only": None,
             "discard": None,
+            "num_queues": None,
             "path_on_host": None,
             "rate_limiter": None,
             "io_engine": None,
@@ -1143,6 +1216,8 @@ def test_api_vsock(uvm_configured):
         vm.api.vsock.put(guest_cid=17, uds_path="vsock.sock")
 
 
+# Confidential enclaves disallow the entropy device (errno 291).
+@pin_vm_backend([VM_BACKEND_KVM, VM_BACKEND_ENCLAVE_DIRECT])
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_api_entropy(uvm):
     """
@@ -1165,6 +1240,7 @@ def test_api_entropy(uvm):
         test_microvm.api.entropy.put()
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_api_memory_hotplug(uvm):
     """
@@ -1209,6 +1285,7 @@ def test_api_memory_hotplug(uvm):
     assert status["requested_size_mib"] == 512
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_api_balloon(uvm_configured):
     """
@@ -1273,6 +1350,7 @@ def test_api_balloon(uvm_configured):
         test_microvm.api.balloon.patch(amount_mib=33554432)
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_pmem_api(uvm, rootfs):
     """
     Test virtio-pmem API commands
@@ -1325,6 +1403,7 @@ def test_pmem_api(uvm, rootfs):
         vm.api.pmem.put(id="pmem")
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_pmem_rate_limiter_api(uvm, rootfs):
     """
     Test virtio-pmem rate limiter PUT and PATCH API commands.
@@ -1420,6 +1499,7 @@ def test_pmem_rate_limiter_api(uvm, rootfs):
         )
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configured):
     """
@@ -1457,6 +1537,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
             "cache_type": "Unsafe",
             "is_read_only": True,
             "discard": False,
+            "num_queues": None,
             "path_on_host": f"/{uvm_configured.rootfs_file.name}",
             "rate_limiter": None,
             "io_engine": "Sync",
@@ -1550,10 +1631,8 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
             uvm_configured.kernel_file
         ),
         "initrd_path": None,
-        "boot_args": "reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0 cryptomgr.notests",
+        "boot_args": default_boot_args(uvm_configured.pci_enabled),
     }
-    if not uvm_configured.pci_enabled:
-        expected_cfg["boot-source"]["boot_args"] += " pci=off"
 
     # no ipv4_address or imds_compat specified during PUT /mmds/config so we expect the default
     expected_cfg["mmds-config"] = {
@@ -1572,6 +1651,60 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
     assert response == expected_cfg
 
 
+@pytest.mark.parametrize("device_type", ["block", "net", "vsock"])
+@pin_vm_backend(VM_BACKEND_KVM)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_get_full_config_kvm_rejects_dmb_size(uvm_configured, device_type):
+    """Report preboot DMB sizes, then reject them when attaching on KVM."""
+    vm = uvm_configured
+    dmb_size_mib = {"block": 32, "net": 64, "vsock": 8}[device_type]
+    drive_id = "rootfs"
+    vm.add_drive(
+        drive_id=drive_id,
+        path_on_host=vm.rootfs_file,
+        is_root_device=True,
+        is_read_only=vm.rootfs_file.suffix == ".squashfs",
+        **({"dmb_size_mib": dmb_size_mib} if device_type == "block" else {}),
+    )
+
+    device_id = drive_id
+    config_section = "drives"
+    id_key = "drive_id"
+    if device_type == "net":
+        iface = vm.add_net_iface(dmb_size_mib=dmb_size_mib)
+        device_id = iface.dev_name
+        config_section = "network-interfaces"
+        id_key = "iface_id"
+    elif device_type == "vsock":
+        vm.api.vsock.put(
+            guest_cid=3,
+            uds_path="/vsock.sock",
+            dmb_size_mib=dmb_size_mib,
+        )
+        device_id = "vsock"
+
+    preboot_config = vm.api.vm_config.get().json()
+    if device_type == "vsock":
+        requested_device = preboot_config["vsock"]
+        assert requested_device["guest_cid"] == 3
+    else:
+        requested_device = next(
+            device
+            for device in preboot_config[config_section]
+            if device[id_key] == device_id
+        )
+    assert requested_device["dmb_size_mib"] == dmb_size_mib
+
+    with pytest.raises(RuntimeError) as exc_info:
+        vm.api.actions.put(action_type="InstanceStart")
+
+    assert exc_info.value.args[2].status_code == HTTPStatus.BAD_REQUEST
+    error = str(exc_info.value.args[0])
+    assert "dmb_size_mib" in error
+    assert device_id in error
+
+
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_get_full_config(uvm):
     """
@@ -1606,6 +1739,7 @@ def test_get_full_config(uvm):
             "cache_type": "Unsafe",
             "is_read_only": True,
             "discard": False,
+            "num_queues": None,
             "path_on_host": "/" + test_microvm.rootfs_file.name,
             "rate_limiter": None,
             "io_engine": "Sync",

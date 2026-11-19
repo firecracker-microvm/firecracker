@@ -30,6 +30,7 @@ from tenacity import (
 )
 
 FLUSH_CMD = 'screen -S {session} -X colon "logfile flush 0^M"'
+ONLINE_CPUS_PATH = Path("/sys/devices/system/cpu/online")
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 CMDLOG = logging.getLogger("commands")
 
@@ -194,6 +195,21 @@ def chroot(path):
         os.chdir(working_dir)
 
 
+def parse_cpu_list(cpu_list: str) -> list[int]:
+    """Parse Linux CPU list syntax, e.g. ``0-2,5``."""
+    cpus = []
+    for part in cpu_list.strip().split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            start, end = part.split("-", 1)
+            cpus.extend(range(int(start), int(end) + 1))
+        else:
+            cpus.append(int(part))
+    return cpus
+
+
 class CpuMap:
     """Cpu map from real cpu cores to containers visible cores.
 
@@ -202,23 +218,31 @@ class CpuMap:
     of the machine instead of showing only the container assigned cores.
     This class maps the real assigned host cpu cores to virtual cpu cores,
     starting from 0.
-    """
 
-    arr = []
+    On enclave hosts, CPUs donated to Nitro Enclaves can remain in the
+    container affinity mask while being offline in the parent scheduler. Filter
+    offline CPUs out and recompute the map on each access because the online set
+    changes as enclaves start and stop.
+    """
 
     def __new__(cls, cpu):
         """Instantiate the class field."""
-        assert CpuMap.len() > cpu
-        if not CpuMap.arr:
-            CpuMap.arr = CpuMap._cpus()
-        return CpuMap.arr[cpu]
+        cpus = CpuMap._cpus()
+        assert len(cpus) > cpu
+        return cpus[cpu]
 
     @staticmethod
     def len():
         """Get the host cpus count."""
-        if not CpuMap.arr:
-            CpuMap.arr = CpuMap._cpus()
-        return len(CpuMap.arr)
+        return len(CpuMap._cpus())
+
+    @staticmethod
+    def node_len(node=0):
+        """Get the usable cpu count on one host NUMA node."""
+        cpulist = Path(f"/sys/devices/system/node/node{node}/cpulist").read_text(
+            "ascii"
+        )
+        return len(set(CpuMap._cpus()) & set(parse_cpu_list(cpulist)))
 
     @classmethod
     def _cpus(cls):
@@ -227,13 +251,15 @@ class CpuMap:
         See this issue for details:
         https://github.com/moby/moby/issues/20770.
 
-        Note that this method is called only once when `CpuMap.arr` is
-        initialized.
+        This method is intentionally called on each access, because the online
+        CPU set changes as enclaves start and stop.
         """
         # https://psutil.readthedocs.io/en/latest/#psutil.Process.cpu_affinity
         # > If no argument is passed it returns the current CPU affinity as a
-        # > list of intergers.
-        return psutil.Process().cpu_affinity()
+        # > list of integers.
+        affinity = set(psutil.Process().cpu_affinity())
+        online = set(parse_cpu_list(ONLINE_CPUS_PATH.read_text("ascii").strip()))
+        return sorted(affinity & online)
 
 
 class CmdBuilder:
@@ -424,24 +450,27 @@ def start_fast_page_fault_helper(ssh_connection, timeout_s=10) -> str:
     """
     # The helper truncates its output file when it finishes; remove any
     # leftover from a previous run (e.g. inside a restored snapshot).
-    ssh_connection.check_output(
+    _, pid, _ = ssh_connection.check_output(
         f"rm -f {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH}; "
-        f"nohup {FAST_PAGE_FAULT_HELPER_BIN} >/dev/null 2>&1 </dev/null &"
+        f"nohup {FAST_PAGE_FAULT_HELPER_BIN} >/dev/null 2>&1 </dev/null & echo $!"
     )
-    _, pid, _ = ssh_connection.check_output("pidof fast_page_fault_helper")
     pid = pid.strip()
     wait_for_fast_page_fault_helper_ready(ssh_connection, pid, timeout_s)
     return pid
 
 
-def wait_for_fast_page_fault_helper_output(ssh_connection) -> str:
+def wait_for_fast_page_fault_helper_output(ssh_connection, pid=None) -> str:
     """Wait for fast_page_fault_helper to finish and return the duration it
     reported, in nanoseconds. The helper writes the whole output in the single
-    flush at fclose, so a non-empty file is also a complete one.
+    flush at fclose, so a non-empty file is also a complete one. With `pid`,
+    wait for the helper to exit instead of polling for the file once a second.
     """
+    if pid:
+        wait = f"tail --pid={pid} -s 0.05 -f /dev/null"
+    else:
+        wait = f"while [ ! -s {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH} ]; do sleep 1; done"
     _, duration, _ = ssh_connection.check_output(
-        f"while [ ! -s {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH} ]; do sleep 1; done; "
-        f"cat {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH}"
+        f"{wait}; cat {FAST_PAGE_FAULT_HELPER_OUTPUT_PATH}"
     )
     return duration
 
@@ -573,7 +602,7 @@ def dump_proc_state(pid):
         # comm in stat is parenthesized and may contain spaces; split after last ')'
         rest = stat.rsplit(")", 1)[1].split()
         # field indexing per proc(5): pid(1) comm(2) state(3) ppid(4) ...
-        # rest[0] is field 3 onwards. exit_state is field 41 → rest[38]
+        # rest[0] is field 3 onwards. exit_state is field 41 -> rest[38]
         if len(rest) > 38:
             log.error("Process %d exit_state (stat[41]): %s", pid, rest[38])
     except (FileNotFoundError, PermissionError, IndexError, ValueError):
@@ -700,7 +729,7 @@ def get_firecracker_version_from_toml():
     """
     cmd = "cd ../src/firecracker && cargo pkgid | cut -d# -f2 | cut -d: -f2"
     _, stdout, _ = check_output(cmd)
-    return semver.Version.parse(stdout)
+    return semver.Version.parse(stdout.strip())
 
 
 def get_kernel_version(level=2):
@@ -900,44 +929,3 @@ class Timeout:
 def pvh_supported() -> bool:
     """Checks if PVH boot is supported"""
     return platform.architecture() == "x86_64"
-
-
-def wait_for_tcp_port_on_host(network_prefix, port, timeout=5.0):
-    """Poll until a TCP port is accepting connections on localhost."""
-    for attempt in Retrying(
-        wait=wait_fixed(0.1), stop=stop_after_delay(timeout), reraise=True
-    ):
-        with attempt:
-            exit_code, _, _ = run_cmd(f"{network_prefix} ss -tln | grep -q ':{port} '")
-            assert exit_code == 0, f"Port {port} not open on host"
-
-
-def wait_for_tcp_port_on_guest(vm, port, timeout=5.0):
-    """Poll via SSH until a TCP port is listening inside the guest."""
-    for attempt in Retrying(
-        wait=wait_fixed(0.1), stop=stop_after_delay(timeout), reraise=True
-    ):
-        with attempt:
-            exit_code, _, _ = vm.ssh.run(f"ss -tln | grep -q ':{port} '")
-            assert exit_code == 0, f"Port {port} not open on guest"
-
-
-def kill_and_wait_on_host(process_name, timeout=5.0):
-    """Kills the given process on the host, and waits for its termination via waitpid"""
-    exit_code, pid, _ = run_cmd(["pgrep", process_name])
-    if exit_code == 0:
-        # Note: process might be spawned as a child, I need to explicitly
-        # wait for it, otherwise it might remain a zombie
-        run_cmd(f"kill {pid}")
-        wait_process_termination(int(pid), timeout)
-
-
-def kill_and_wait_on_guest(vm, process_name, timeout=5.0):
-    """Kills the given process on the guest"""
-    vm.ssh.run(f"pkill {process_name}")
-    for attempt in Retrying(
-        wait=wait_fixed(0.1), stop=stop_after_delay(timeout), reraise=True
-    ):
-        with attempt:
-            exit_code, _, _ = vm.ssh.run(f"pgrep {process_name}")
-            assert exit_code == 1, f"{process_name} is still running on guest"

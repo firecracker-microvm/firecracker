@@ -89,22 +89,21 @@ use crate::devices::virtio::vhost_user_metrics;
 use crate::devices::virtio::vsock::metrics as vsock_metrics;
 
 /// Static instance used for handling metrics.
-pub static METRICS: Metrics<FirecrackerMetrics, FcLineWriter> =
-    Metrics::<FirecrackerMetrics, FcLineWriter>::new(FirecrackerMetrics::new());
+pub static METRICS: Metrics = Metrics::new(FirecrackerMetrics::new());
 
 /// Metrics system.
 // All member fields have types which are Sync, and exhibit interior mutability, so
 // we can call operations on metrics using a non-mut static global variable.
 #[derive(Debug)]
-pub struct Metrics<T: Serialize, M: Write + Send> {
+pub struct Metrics {
     // Metrics will get flushed here.
-    metrics_buf: OnceLock<Mutex<M>>,
-    pub app_metrics: T,
+    metrics_buf: OnceLock<Mutex<FcLineWriter>>,
+    pub app_metrics: FirecrackerMetrics,
 }
 
-impl<T: Serialize + Debug, M: Write + Send + Debug> Metrics<T, M> {
+impl Metrics {
     /// Creates a new instance of the current metrics.
-    pub const fn new(app_metrics: T) -> Metrics<T, M> {
+    pub const fn new(app_metrics: FirecrackerMetrics) -> Metrics {
         Metrics {
             metrics_buf: OnceLock::new(),
             app_metrics,
@@ -123,7 +122,7 @@ impl<T: Serialize + Debug, M: Write + Send + Debug> Metrics<T, M> {
     /// # Arguments
     ///
     /// * `metrics_dest` - Buffer for JSON formatted metrics. Needs to implement `Write` and `Send`.
-    pub fn init(&self, metrics_dest: M) -> Result<(), MetricsError> {
+    pub fn init(&self, metrics_dest: FcLineWriter) -> Result<(), MetricsError> {
         self.metrics_buf
             .set(Mutex::new(metrics_dest))
             .map_err(|_| MetricsError::AlreadyInitialized)
@@ -163,8 +162,8 @@ impl<T: Serialize + Debug, M: Write + Send + Debug> Metrics<T, M> {
     }
 }
 
-impl<T: Serialize + Debug, M: Write + Send + Debug> Deref for Metrics<T, M> {
-    type Target = T;
+impl Deref for Metrics {
+    type Target = FirecrackerMetrics;
 
     fn deref(&self) -> &Self::Target {
         &self.app_metrics
@@ -317,7 +316,9 @@ impl ProcessTimeReporter {
     /// Obtain process start time in microseconds.
     pub fn report_start_time(&self) {
         if let Some(start_time) = self.start_time_us {
-            let delta_us = get_time_us(ClockType::Monotonic) - start_time;
+            // `start_time` comes from a `--start-time-us` CLI argument supplied by the launcher,
+            // not this clock, so saturate rather than panic if it is ever in the future.
+            let delta_us = get_time_us(ClockType::Monotonic).saturating_sub(start_time);
             METRICS.api_server.process_startup_time_us.store(delta_us);
         }
     }
@@ -325,8 +326,10 @@ impl ProcessTimeReporter {
     /// Obtain process CPU start time in microseconds.
     pub fn report_cpu_start_time(&self) {
         if let Some(cpu_start_time) = self.start_time_cpu_us {
-            let delta_us = get_time_us(ClockType::ProcessCpu) - cpu_start_time
-                + self.parent_cpu_time_us.unwrap_or_default();
+            // Same launcher-supplied CLI input as `report_start_time`, so saturate.
+            let delta_us = get_time_us(ClockType::ProcessCpu)
+                .saturating_sub(cpu_start_time)
+                .saturating_add(self.parent_cpu_time_us.unwrap_or_default());
             METRICS
                 .api_server
                 .process_startup_time_cpu_us
@@ -404,6 +407,8 @@ pub struct GetRequestsMetrics {
     pub vmm_version_count: SharedIncMetric,
     /// Number of GETs for getting hotpluggable memory status.
     pub hotplug_memory_count: SharedIncMetric,
+    /// Number of GETs for getting the enclave configuration.
+    pub enclave_count: SharedIncMetric,
 }
 impl GetRequestsMetrics {
     /// Const default construction.
@@ -414,6 +419,7 @@ impl GetRequestsMetrics {
             mmds_count: SharedIncMetric::new(),
             vmm_version_count: SharedIncMetric::new(),
             hotplug_memory_count: SharedIncMetric::new(),
+            enclave_count: SharedIncMetric::new(),
         }
     }
 }
@@ -461,6 +467,10 @@ pub struct PutRequestsMetrics {
     pub vsock_count: SharedIncMetric,
     /// Number of failures in creating a vsock device.
     pub vsock_fails: SharedIncMetric,
+    /// Number of PUTs for configuring an enclave.
+    pub enclave_count: SharedIncMetric,
+    /// Number of failures in configuring an enclave.
+    pub enclave_fails: SharedIncMetric,
     /// Number of PUTs triggering a pmem attach.
     pub pmem_count: SharedIncMetric,
     /// Number of failures in attaching a pmem device.
@@ -498,6 +508,8 @@ impl PutRequestsMetrics {
             mmds_fails: SharedIncMetric::new(),
             vsock_count: SharedIncMetric::new(),
             vsock_fails: SharedIncMetric::new(),
+            enclave_count: SharedIncMetric::new(),
+            enclave_fails: SharedIncMetric::new(),
             pmem_count: SharedIncMetric::new(),
             pmem_fails: SharedIncMetric::new(),
             serial_count: SharedIncMetric::new(),
@@ -1100,7 +1112,7 @@ mod tests {
         // using METRICS specifically. So, to avoid the conflict we
         // use a local Metrics to test init() instead of the global
         // "METRICS"
-        let m = &Metrics::<_, FcLineWriter>::new(FirecrackerMetrics::new());
+        let m = &Metrics::new(FirecrackerMetrics::new());
 
         // Trying to write metrics, when metrics system is not initialized, should not throw error.
         let res = m.write();

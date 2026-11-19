@@ -116,6 +116,9 @@ pub mod vstate;
 /// Module with initrd.
 pub mod initrd;
 
+/// Nitro Enclaves kernel ioctl bindings.
+pub mod nitro_enclave;
+
 use std::collections::HashMap;
 use std::io;
 use std::os::unix::io::AsRawFd;
@@ -146,6 +149,7 @@ use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{METRICS, MetricsError, log_dev_preview_warning};
 use crate::mmds::data_store::Mmds;
+use crate::nitro_enclave::enclave_vm::EnclaveVm;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::resources::VmmConfig;
@@ -153,6 +157,7 @@ use crate::rpc_interface::VmmActionError;
 use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::BalloonDeviceConfig;
 use crate::vmm_config::boot_source::BootSourceConfig;
+use crate::vmm_config::enclave::EnclaveConfig;
 use crate::vmm_config::entropy::EntropyDeviceConfig;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::MachineConfig;
@@ -246,7 +251,7 @@ pub enum VmmError {
     VcpuEvent(vstate::vcpu::VcpuError),
     /// Cannot create a vCPU handle. {0}
     VcpuHandle(vstate::vcpu::VcpuError),
-    /// Failed to start vCPUs
+    /// Failed to start vCPUs: {0}
     VcpuStart(StartVcpusError),
     /// Failed to pause the vCPUs.
     VcpuPause,
@@ -266,6 +271,8 @@ pub enum VmmError {
     Kvm(#[from] vstate::kvm::KvmError),
     /// Failed perform action on device: {0}
     FindDeviceError(#[from] device_manager::FindDeviceError),
+    /// Nitro Enclave device error: {0}
+    NeDevice(#[from] device_manager::nitro_enclave::NeDeviceError),
     /// Block: {0}
     Block(#[from] BlockError),
     /// Balloon: {0}
@@ -433,7 +440,15 @@ impl Vmm {
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots
             serial_config: None,
             memory_hotplug,
+            enclave: self.enclave_config(),
         }
+    }
+
+    /// The config of the running enclave, reconstructed from the `EnclaveVm`, or
+    /// `None` for a non-enclave (KVM) VM. The single source of truth for the
+    /// enclave config after boot.
+    pub fn enclave_config(&self) -> Option<EnclaveConfig> {
+        self.vm.as_enclave().map(EnclaveVm::config)
     }
 
     /// Check if the VM has any devices without snapshot support
@@ -532,6 +547,12 @@ impl Vmm {
     pub fn save_state(&mut self, vm_info: &VmInfo) -> Result<MicrovmState, MicrovmStateError> {
         self.check_unsnapshottable_devices()?;
 
+        if self.instance_info.state != VmState::Paused {
+            return Err(MicrovmStateError::NotAllowed(
+                "snapshot requires a paused microVM".into(),
+            ));
+        }
+
         // We need to save device state before saving KVM state.
         // Some devices, (at the time of writing this comment block device with async engine)
         // might modify the VirtIO transport and send an interrupt to the guest. If we save KVM
@@ -590,6 +611,14 @@ impl Vmm {
             .with_virtio_device(drive_id, |block: &mut Block| {
                 block.update_disk_image(path_on_host)
             })??;
+
+        if let Some(enclave_vm) = self.vm.as_enclave() {
+            // The host view is authoritative; an ioctl failure may leave the enclave mirror stale.
+            self.device_manager
+                .enclave_devices()
+                .expect("enclave VM requires enclave virtio transport")
+                .update_device_config(VirtioDeviceType::Block, drive_id, enclave_vm.enclave_fd())?;
+        }
         Ok(())
     }
 
@@ -742,13 +771,12 @@ impl Vmm {
         event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
         log_dev_preview_warning("PCI device hotplug", None);
-        let kvm_vm = self
-            .vm
-            .as_kvm()
-            .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?
-            .clone();
+        if let HotplugDeviceConfig::Block(block_config) = &config {
+            self.machine_config
+                .validate_num_queues(&block_config.drive_id, block_config.num_queues)?;
+        }
         self.device_manager
-            .hotplug_device(kvm_vm, config, event_manager)
+            .hotplug_device(&self.vm, config, event_manager)
     }
 
     /// Detaches a device after VM start
@@ -879,6 +907,28 @@ impl MutEventSubscriber for Vmm {
                     error!("Spurious EventManager event for handler: Vmm");
                 }
             }
+            Vm::Enclave(enclave_vm) => {
+                if source != enclave_vm.enclave_raw_fd() {
+                    error!(
+                        "Spurious EventManager event for handler: Vmm (fd={}, event_set={:?})",
+                        source, event_set
+                    );
+                    return;
+                }
+                // Final serial drain before stopping, so a crash right after
+                // boot still reaches the log.
+                enclave_vm.flush_console();
+                if event_set.contains(EventSet::ERROR) {
+                    error!("Enclave exited with error (event_set={event_set:?})");
+                    self.stop(FcExitCode::GenericError);
+                } else if event_set.contains(EventSet::HANG_UP) || event_set.contains(EventSet::IN)
+                {
+                    info!("Enclave exited (event_set={event_set:?})");
+                    self.stop(FcExitCode::Ok);
+                } else {
+                    debug!("Unhandled enclave fd event set {event_set:?}; not stopping");
+                }
+            }
         }
     }
 
@@ -887,6 +937,14 @@ impl MutEventSubscriber for Vmm {
             Vm::Kvm(kvm_vm) => {
                 if let Err(err) = ops.add(Events::new(kvm_vm.vcpus_exit_evt(), EventSet::IN)) {
                     error!("Failed to register vmm exit event: {}", err);
+                }
+            }
+            Vm::Enclave(enclave_vm) => {
+                if let Err(err) = ops.add(Events::new_raw(
+                    enclave_vm.enclave_raw_fd(),
+                    EventSet::IN | EventSet::HANG_UP | EventSet::ERROR,
+                )) {
+                    error!("Failed to register enclave fd event: {}", err);
                 }
             }
         }

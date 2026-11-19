@@ -19,7 +19,7 @@ use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, Vir
 use crate::devices::virtio::generated::virtio_blk::{VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::queue::{Queue, QueueConfig};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vhost_user::{VhostUserHandleBackend, VhostUserHandleImpl};
 use crate::devices::virtio::vhost_user_metrics::{
@@ -67,22 +67,31 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
     type Error = VhostUserBlockError;
 
     fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
-        if let (Some(socket), None, None, None, None, None, None, None) = (
-            &value.socket,
-            &value.is_read_only,
-            &value.discard,
-            &value.path_on_host,
-            &value.rate_limiter,
-            &value.file_engine_type,
-            &value.blk_size,
-            &value.topology,
-        ) {
+        // No `..` on purpose: adding a field to `BlockDeviceConfig` must force
+        // a decision on whether vhost-user supports it.
+        if let BlockDeviceConfig {
+            drive_id,
+            partuuid,
+            is_root_device,
+            cache_type,
+            socket: Some(socket),
+            dmb_size_mib: None,
+            is_read_only: None,
+            discard: None,
+            num_queues: None,
+            path_on_host: None,
+            rate_limiter: None,
+            file_engine_type: None,
+            image_format: None,
+            blk_size: None,
+            topology: None,
+        } = value
+        {
             Ok(Self {
-                drive_id: value.drive_id.clone(),
-                partuuid: value.partuuid.clone(),
-                is_root_device: value.is_root_device,
-                cache_type: value.cache_type,
-
+                drive_id: drive_id.clone(),
+                partuuid: partuuid.clone(),
+                is_root_device: *is_root_device,
+                cache_type: *cache_type,
                 socket: socket.clone(),
             })
         } else {
@@ -98,16 +107,8 @@ impl From<VhostUserBlockConfig> for BlockDeviceConfig {
             partuuid: value.partuuid,
             is_root_device: value.is_root_device,
             cache_type: value.cache_type,
-
-            is_read_only: None,
-            discard: None,
-            path_on_host: None,
-            rate_limiter: None,
-            file_engine_type: None,
-            blk_size: None,
-            topology: None,
-
             socket: Some(value.socket),
+            ..Default::default()
         }
     }
 }
@@ -263,14 +264,13 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
         }
     }
 
-    pub fn config_update(&mut self) -> Result<(), VhostUserBlockError> {
+    pub fn update_config(&mut self) -> Result<(), VhostUserBlockError> {
         let start_time = get_time_us(ClockType::Monotonic);
-        let interrupt = self
-            .device_state
-            .active_state()
-            .expect("Device is not initialized")
-            .interrupt
-            .clone();
+
+        let Some(device_state) = self.device_state.active_state() else {
+            return Err(VhostUserBlockError::DeviceNotActive);
+        };
+        let interrupt = device_state.interrupt.clone();
 
         // This buffer is used for config size check in vhost crate.
         let buffer = [0u8; BLOCK_CONFIG_SPACE_SIZE as usize];
@@ -318,16 +318,20 @@ where
         self.acked_features = acked_features;
     }
 
-    fn queues(&self) -> &[Queue] {
-        &self.queues
+    fn num_queues(&self) -> usize {
+        self.queues.len()
     }
 
-    fn queues_mut(&mut self) -> &mut [Queue] {
-        &mut self.queues
+    fn queue_config(&self, index: usize) -> Option<&QueueConfig> {
+        self.queues.get(index).map(|queue| &queue.config)
     }
 
-    fn queue_events(&self) -> &[EventFd] {
-        &self.queue_evts
+    fn queue_config_mut(&mut self, index: usize) -> Option<&mut QueueConfig> {
+        self.queues.get_mut(index).map(|queue| &mut queue.config)
+    }
+
+    fn queue_event(&self, index: usize) -> Option<&EventFd> {
+        self.queue_evts.get(index)
     }
 
     fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
@@ -397,6 +401,16 @@ where
         // https://github.com/firecracker-microvm/firecracker/issues/6277
         false
     }
+
+    fn reset_queues(&mut self) {
+        self.queues.iter_mut().for_each(Queue::reset);
+    }
+
+    fn commit_dirty(&self) {
+        for queue in &self.queues {
+            queue.commit_dirty();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -411,26 +425,30 @@ mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
-    use crate::devices::virtio::block::virtio::device::FileEngineType;
+    use crate::devices::virtio::block::virtio::device::{DiskImageFormat, FileEngineType};
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
     use crate::devices::virtio::transport::mmio::VIRTIO_MMIO_INT_CONFIG;
     use crate::devices::virtio::vhost_user::tests::create_mem;
     use crate::test_utils::create_tmp_socket;
+    use crate::vmm_config::enclave::DmbSizeMib;
     use crate::vstate::memory::GuestAddress;
 
     #[test]
     fn test_from_config() {
-        let block_config = BlockDeviceConfig {
+        let mut block_config = BlockDeviceConfig {
             drive_id: "".to_string(),
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: None,
             discard: None,
+            num_queues: None,
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -438,17 +456,43 @@ mod tests {
         };
         VhostUserBlockConfig::try_from(&block_config).unwrap();
 
+        for image_format in [DiskImageFormat::Raw, DiskImageFormat::Vmdk] {
+            let config = BlockDeviceConfig {
+                image_format: Some(image_format),
+                ..block_config.clone()
+            };
+            assert!(matches!(
+                VhostUserBlockConfig::try_from(&config),
+                Err(VhostUserBlockError::Config)
+            ));
+        }
+
+        block_config.dmb_size_mib = Some(DmbSizeMib::try_from(2).unwrap());
+        assert!(matches!(
+            VhostUserBlockConfig::try_from(&block_config),
+            Err(VhostUserBlockError::Config)
+        ));
+
+        let block_config = BlockDeviceConfig {
+            num_queues: std::num::NonZeroU16::new(1),
+            ..block_config
+        };
+        VhostUserBlockConfig::try_from(&block_config).unwrap_err();
+
         let block_config = BlockDeviceConfig {
             drive_id: "".to_string(),
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(true),
             discard: None,
+            num_queues: None,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -461,12 +505,15 @@ mod tests {
             partuuid: None,
             is_root_device: false,
             cache_type: CacheType::Unsafe,
+            dmb_size_mib: None,
 
             is_read_only: Some(true),
             discard: None,
+            num_queues: None,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
+            image_format: None,
             blk_size: None,
             topology: None,
 
@@ -707,13 +754,16 @@ mod tests {
         vhost_block.write_config(0x69, &[0]);
         assert_eq!(vhost_block.config_space, vec![0x69, 0x69, 0x69]);
 
+        // Before device is active, update_config should error out
+        vhost_block.update_config().unwrap_err();
+
         // Testing [`config_update`]
         vhost_block.device_state = DeviceState::Activated(ActiveState {
             mem: default_mem(),
             interrupt: default_interrupt(),
         });
         vhost_block.config_space = vec![];
-        vhost_block.config_update().unwrap();
+        vhost_block.update_config().unwrap();
         assert_eq!(vhost_block.config_space, vec![0x69, 0x69, 0x69]);
         assert_eq!(
             vhost_block.interrupt_status().load(Ordering::SeqCst),

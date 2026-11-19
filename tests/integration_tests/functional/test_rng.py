@@ -6,6 +6,11 @@ import pytest
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.utils import check_entropy
+from framework.vm_backend import (
+    VM_BACKEND_ENCLAVE_DIRECT,
+    VM_BACKEND_KVM,
+    pin_vm_backend,
+)
 from host_tools.network import SSHConnection
 
 
@@ -78,6 +83,9 @@ def test_rng_not_present(uvm_configured):
     ), "virtio_rng device should not be available in the uvm"
 
 
+# Confidential enclaves disallow the entropy device (errno 291) that this
+# module's `uvm_booted` attaches.
+@pin_vm_backend([VM_BACKEND_KVM, VM_BACKEND_ENCLAVE_DIRECT])
 def test_rng_present(uvm_any):
     """
     Test a guest microVM with an entropy defined configured and ensure
@@ -205,6 +213,8 @@ def _rate_limiter_id(rate_limiter):
     ],
     ids=_rate_limiter_id,
 )
+# Confidential enclaves disallow the entropy device (errno 291).
+@pin_vm_backend([VM_BACKEND_KVM, VM_BACKEND_ENCLAVE_DIRECT])
 def test_rng_bw_rate_limiter(uvm_configured, rate_limiter):
     """
     Test that rate limiter without initial burst budget works
@@ -224,6 +234,10 @@ def test_rng_bw_rate_limiter(uvm_configured, rate_limiter):
     _check_entropy_rate_limited(vm.ssh, size, expected_kbps)
 
 
+# The enclave transport does not handle virtio device reset: it never consumes
+# reset_count from the info-page device entry header, so a guest driver rebind
+# leaves the parent with stale queue state.
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_device_reset(uvm):
     """
     Test that virtio-rng device reset works.

@@ -142,10 +142,13 @@ After starting, the Jailer goes through the following operations:
   current working directory to the new root, unmount the old root mount point,
   and call `chroot` into the current directory.
 - Use `mknod` to create a `/dev/net/tun` equivalent inside the jail.
-- Use `mknod` to create a `/dev/kvm` equivalent inside the jail.
+- Use `mknod` to create a `/dev/kvm` equivalent inside the jail. When
+  `/dev/nitro_enclaves` is present on the host, create an equivalent for it too,
+  so the jail can run [Nitro Sandboxes](nitro-sandboxes/README.md).
 - Use `chown` to change ownership of the `<chroot_dir>` (root path `/` as seen
-  by the jailed firecracker), `/dev/net/tun`, `/dev/kvm`. The ownership is
-  changed to the provided `<uid>:<gid>`.
+  by the jailed firecracker), `/dev/net/tun`, `/dev/kvm`, and
+  `/dev/nitro_enclaves` when present. The ownership is changed to the provided
+  `<uid>:<gid>`.
 - If `--netns <netns>` is present, attempt to join the specified network
   namespace.
 - If `--daemonize` is specified, call `setsid()` and redirect `STDIN`, `STDOUT`,

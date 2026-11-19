@@ -3,7 +3,6 @@
 """Integration tests for Firecracker's huge pages support"""
 
 import signal
-import time
 
 import pytest
 
@@ -12,8 +11,12 @@ from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.properties import global_props
 from framework.utils_ftrace import ftrace_events
 from framework.utils_hugepages import HugePagesConfig
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
-pytestmark = pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+pytestmark = [
+    pin_vm_backend(VM_BACKEND_KVM),
+    pin_guest_kernel(GUEST_KERNEL_DEFAULT),
+]
 
 
 def check_hugetlbfs_in_use(pid: int, allocation_name: str):
@@ -203,8 +206,8 @@ def test_ept_violation_count(
         # Verify if guest can run commands, and also wake up the fast page fault helper to trigger page faults.
         vm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
 
-        # Give the helper time to touch all its pages
-        time.sleep(5)
+        # Wait for the helper to touch all its pages and exit.
+        utils.wait_for_fast_page_fault_helper_output(vm.ssh, pid)
 
         if global_props.cpu_architecture == "x86_64":
             trace_entry = "reason EPT_VIOLATION"

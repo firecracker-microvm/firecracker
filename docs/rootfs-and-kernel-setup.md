@@ -14,6 +14,11 @@ images as well as `bzImage` images, while on aarch64 it supports PE formatted
 > recommended. A `bzImage` is compressed and is decompressed by the guest at
 > boot, which costs additional boot time and guest memory (and therefore host
 > memory) compared to booting the equivalent uncompressed `vmlinux`.
+>
+> A [Nitro Sandbox](nitro-sandboxes/README.md) is the exception: it boots
+> through UEFI, so on x86_64 it requires an EFI-stub `bzImage` and cannot boot a
+> `vmlinux`. See its
+> [guest kernel requirements](nitro-sandboxes/getting-started.md#guest-kernel).
 
 Here's a quick step-by-step guide to building your own kernel that Firecracker
 can boot:

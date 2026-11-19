@@ -11,9 +11,8 @@ from pathlib import Path
 from subprocess import check_output
 
 import psutil
-from tenacity import retry, stop_after_attempt, wait_fixed
 
-from framework import utils
+from framework import utils, utils_wait
 
 MB = 1024 * 1024
 
@@ -88,20 +87,13 @@ class VhostUserBlkBackend(ABC):
         assert (
             proc is not None and proc.poll() is None
         ), f"backend is not up. Backend log:\n{self.log_data}"
-        self._wait_for_socket()
+        utils_wait.wait_for_unix_socket_on_host("", self.socket_path)
 
         os.chown(self.socket_path, uid, gid)
 
         self.proc = proc
 
         return str(Path("/") / os.path.basename(self.socket_path))
-
-    @retry(wait=wait_fixed(0.1), stop=stop_after_attempt(50), reraise=True)
-    def _wait_for_socket(self):
-        """Wait for the backend socket to appear (up to 5s)."""
-        assert (
-            self.socket_path.exists()
-        ), f"socket {self.socket_path} not ready. Backend log:\n{self.log_data}"
 
     @abstractmethod
     def _spawn_cmd(self):

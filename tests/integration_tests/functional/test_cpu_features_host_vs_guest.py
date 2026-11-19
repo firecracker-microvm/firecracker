@@ -18,6 +18,9 @@ import os
 from framework import utils
 from framework.properties import global_props
 from framework.utils_cpuid import CPU_FEATURES_CMD, CpuModel
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
+
+pytestmark = pin_vm_backend(VM_BACKEND_KVM)
 
 CPU_MODEL = global_props.cpu_codename
 

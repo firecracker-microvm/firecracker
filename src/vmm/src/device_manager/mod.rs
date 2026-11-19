@@ -29,6 +29,7 @@ use vmm_sys_util::eventfd::EventFd;
 
 use crate::EventManager;
 use crate::device_manager::acpi::ACPIDeviceError;
+use crate::device_manager::nitro_enclave::NeDevices;
 #[cfg(target_arch = "x86_64")]
 use crate::devices::legacy::I8042Device;
 use crate::devices::legacy::SerialDevice;
@@ -45,16 +46,18 @@ use crate::devices::virtio::mem::persist::VirtioMemPersistError;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::net::persist::NetPersistError;
 use crate::devices::virtio::pmem::device::Pmem;
-use crate::devices::virtio::pmem::persist::PmemPersistError;
+use crate::devices::virtio::pmem::persist::{PmemConstructorArgs, PmemPersistError, PmemState};
 use crate::devices::virtio::rng::persist::EntropyPersistError;
 use crate::devices::virtio::vsock::{VsockError, VsockUnixBackendError};
-use crate::logger::{error, info, warn};
+use crate::logger::{info, warn};
+use crate::nitro_enclave::enclave_vm::EnclaveVm;
 use crate::pci::bus::MAX_PCI_BUSES;
 use crate::rate_limiter::TokenBucket;
 use crate::resources::VmResources;
 use crate::rpc_interface::VmmActionError;
+use crate::seccomp::BpfProgram;
 use crate::snapshot::Persist;
-use crate::utils::open_file_nonblock;
+use crate::utils::{open_file_nonblock, set_stdout_nonblocking};
 use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
 use crate::vmm_config::mmds::MmdsConfigError;
@@ -70,6 +73,8 @@ pub mod acpi;
 pub mod legacy;
 /// Memory Mapped I/O Manager.
 pub mod mmio;
+/// Nitro Enclave device manager.
+pub mod nitro_enclave;
 /// PCIe device manager
 pub mod pci_mngr;
 /// Device managers (de)serialization support.
@@ -109,6 +114,8 @@ pub enum AttachDeviceError {
     CreateGpioPl061(#[from] PL061Error),
     /// Error attach PCI device: {0}
     PciTransport(#[from] PciManagerError),
+    /// Error attach Nitro Enclave device: {0}
+    EnclaveTransport(#[from] nitro_enclave::NeDeviceError),
     /// Operation not supported on this VM type
     NotSupported,
 }
@@ -130,26 +137,13 @@ pub struct DeviceManager {
     pub legacy_devices: Option<PortIODeviceManager>,
     /// ACPI devices
     pub acpi_devices: ACPIDeviceManager,
-    /// Virtio devices (MMIO or PCI)
+    /// Virtio devices (MMIO, PCI, or Nitro Enclave)
     pub virtio_devices: VirtioDevices,
+    /// Seccomp filter installed on block worker threads
+    pub blk_worker_filter: Option<Arc<BpfProgram>>,
 }
 
 impl DeviceManager {
-    // Adds `O_NONBLOCK` to the stdout flags.
-    fn set_stdout_nonblocking() {
-        // SAFETY: Call is safe since parameters are valid.
-        let flags = unsafe { libc::fcntl(libc::STDOUT_FILENO, libc::F_GETFL, 0) };
-        if flags < 0 {
-            error!("Could not get Firecracker stdout flags.");
-        }
-        // SAFETY: Call is safe since parameters are valid.
-        let rc =
-            unsafe { libc::fcntl(libc::STDOUT_FILENO, libc::F_SETFL, flags | libc::O_NONBLOCK) };
-        if rc < 0 {
-            error!("Could not set Firecracker stdout to non-blocking.");
-        }
-    }
-
     /// Sets up the serial device.
     fn setup_serial_device(
         event_manager: &mut EventManager,
@@ -166,7 +160,7 @@ impl DeviceManager {
                 ),
             ),
             None => {
-                Self::set_stdout_nonblocking();
+                set_stdout_nonblocking();
 
                 (
                     Some(std::io::stdin()),
@@ -235,6 +229,7 @@ impl DeviceManager {
     }
 
     #[cfg_attr(target_arch = "aarch64", allow(unused))]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         event_manager: &mut EventManager,
         vcpus_exit_evt: &EventFd,
@@ -243,6 +238,7 @@ impl DeviceManager {
         serial_rate_limiter: Option<TokenBucket>,
         pci_enabled: bool,
         pcie_hotplug_ports: u8,
+        blk_worker_filter: Option<Arc<BpfProgram>>,
     ) -> Result<Self, DeviceManagerCreateError> {
         #[cfg(target_arch = "x86_64")]
         let legacy_devices = Self::create_legacy_devices(
@@ -260,6 +256,7 @@ impl DeviceManager {
             legacy_devices: Some(legacy_devices),
             acpi_devices: ACPIDeviceManager::default(),
             virtio_devices: Self::create_virtio_devices(pci_enabled, vm, pcie_hotplug_ports)?,
+            blk_worker_filter,
         })
     }
 
@@ -281,8 +278,9 @@ impl DeviceManager {
             VirtioDevices::Pci(pci_devices) => pci_devices
                 .attach_root_ports(vm)
                 .map_err(AttachDeviceError::from),
-            // The option cannot be set without PCI enabled.
-            VirtioDevices::Mmio(_) => Ok(()),
+            // The option cannot be set without PCI enabled, and an enclave's root
+            // ports come from the NE hypervisor.
+            VirtioDevices::Mmio(_) | VirtioDevices::Enclave(_) => Ok(()),
         }
     }
 
@@ -306,6 +304,8 @@ impl DeviceManager {
             VirtioDevices::Pci(pci_devices) => pci_devices
                 .attach_pci_virtio_device(vm, id, device, event_manager, PciPlacement::PrimaryBus)
                 .map_err(AttachDeviceError::from),
+            // Unreachable in practice: enclave VMs fail the as_kvm() check above.
+            VirtioDevices::Enclave(_) => Err(AttachDeviceError::NotSupported),
         }
     }
 
@@ -343,6 +343,7 @@ impl DeviceManager {
         match &self.virtio_devices {
             VirtioDevices::Mmio(devices) => devices.append_aml_bytes(dsdt_data)?,
             VirtioDevices::Pci(devices) => devices.append_aml_bytes(dsdt_data)?,
+            VirtioDevices::Enclave(_) => (),
         }
 
         self.acpi_devices.append_aml_bytes(dsdt_data)
@@ -352,14 +353,37 @@ impl DeviceManager {
     pub(crate) fn mmio_virtio_devices(&self) -> Option<&MMIOVirtioDevices> {
         match &self.virtio_devices {
             VirtioDevices::Mmio(mmio_devices) => Some(mmio_devices),
-            VirtioDevices::Pci(_) => None,
+            VirtioDevices::Pci(_) | VirtioDevices::Enclave(_) => None,
         }
     }
 
     pub(crate) fn pci_devices(&self) -> Option<&PciDevices> {
         match &self.virtio_devices {
             VirtioDevices::Pci(pci_devices) => Some(pci_devices),
-            VirtioDevices::Mmio(_) => None,
+            VirtioDevices::Mmio(_) | VirtioDevices::Enclave(_) => None,
+        }
+    }
+
+    pub(crate) fn enclave_devices(&mut self) -> Option<&mut NeDevices> {
+        match &mut self.virtio_devices {
+            VirtioDevices::Enclave(enclave_devices) => Some(enclave_devices),
+            VirtioDevices::Mmio(_) | VirtioDevices::Pci(_) => None,
+        }
+    }
+
+    /// Attaches a boot-time VirtioDevice over the Nitro Enclave transport.
+    pub(crate) fn attach_ne_virtio_device(
+        &mut self,
+        device: Arc<Mutex<dyn VirtioDevice>>,
+        enclave_vm: &EnclaveVm,
+        event_manager: &mut EventManager,
+    ) -> Result<(), AttachDeviceError> {
+        if let Some(enclave_devices) = self.enclave_devices() {
+            enclave_devices
+                .attach_ne_virtio_device(device, enclave_vm, event_manager)
+                .map_err(AttachDeviceError::from)
+        } else {
+            Err(AttachDeviceError::NotSupported)
         }
     }
 
@@ -422,6 +446,7 @@ impl DeviceManager {
         match &self.virtio_devices {
             VirtioDevices::Mmio(devices) => devices.get_device(device_type, device_id),
             VirtioDevices::Pci(devices) => devices.get_device(device_type, device_id),
+            VirtioDevices::Enclave(devices) => devices.get_device(device_type, device_id),
         }
     }
 
@@ -447,6 +472,9 @@ impl DeviceManager {
         match &self.virtio_devices {
             VirtioDevices::Mmio(mmio_devices) => mmio_devices.for_each_virtio_device(&mut f),
             VirtioDevices::Pci(pci_devices) => pci_devices.for_each_virtio_device(&mut f),
+            VirtioDevices::Enclave(enclave_devices) => {
+                enclave_devices.for_each_virtio_device(&mut f);
+            }
         }
     }
 
@@ -461,13 +489,16 @@ impl DeviceManager {
             VirtioDevices::Pci(pci_devices) => {
                 pci_devices.for_each_virtio_device_mut(&mut f);
             }
+            VirtioDevices::Enclave(enclave_devices) => {
+                enclave_devices.for_each_virtio_device_mut(&mut f);
+            }
         }
     }
 
     /// Attaches a device after VM start
     pub fn hotplug_device(
         &mut self,
-        vm: Arc<KvmVm>,
+        vm: &Vm,
         config: HotplugDeviceConfig,
         event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
@@ -481,10 +512,28 @@ impl DeviceManager {
                     return Err(VmmActionError::DeviceIdInUse);
                 }
             }
+            VirtioDevices::Enclave(enclave_devices) => {
+                let enclave_vm = vm
+                    .as_enclave()
+                    .expect("Enclave virtio transport requires enclave VM");
+
+                if !enclave_vm.hotplug_enabled() {
+                    return Err(VmmActionError::NotSupported(
+                        "Device hotplug requires the enclave to be started with hotplug_mode"
+                            .to_string(),
+                    ));
+                }
+                if enclave_devices.contains_virtio_device(&device_id) {
+                    return Err(VmmActionError::DeviceIdInUse);
+                }
+            }
             VirtioDevices::Mmio(_) => return Err(VmmActionError::PciNotEnabled),
         }
 
-        if config.is_vhost_user() && !vm.vhost_user_memory_shareable() {
+        if let Some(kvm_vm) = vm.as_kvm()
+            && config.is_vhost_user()
+            && !kvm_vm.vhost_user_memory_shareable()
+        {
             return Err(VmmActionError::NotSupported(
                 "vhost-user hotplug requires guest memory that a backend can map shared, for \
                  example a microVM booted with a vhost-user device"
@@ -493,16 +542,24 @@ impl DeviceManager {
         }
 
         let device = match config {
-            HotplugDeviceConfig::Block(cfg) => Self::hotplug_make_block(cfg)?,
-            HotplugDeviceConfig::Pmem(cfg) => Self::hotplug_make_pmem(vm.clone(), cfg)?,
+            HotplugDeviceConfig::Block(cfg) => self.hotplug_make_block(cfg)?,
+            HotplugDeviceConfig::Pmem(cfg) => {
+                let kvm_vm = vm.as_kvm().ok_or_else(|| {
+                    VmmActionError::NotSupported(
+                        "pmem hot-add is not supported for enclaves".to_string(),
+                    )
+                })?;
+                Self::hotplug_make_pmem(kvm_vm.clone(), cfg)?
+            }
             HotplugDeviceConfig::Net(cfg) => self.hotplug_make_net(cfg)?,
         };
 
         match &mut self.virtio_devices {
             VirtioDevices::Pci(pci_devices) => {
+                let kvm_vm = vm.as_kvm().expect("PCI virtio transport requires KVM VM");
                 pci_devices
                     .attach_pci_virtio_device(
-                        &vm,
+                        kvm_vm,
                         dev_id,
                         device,
                         event_manager,
@@ -525,18 +582,31 @@ impl DeviceManager {
 
                 Ok(())
             }
+            VirtioDevices::Enclave(ne_devices) => {
+                let enclave_vm = vm
+                    .as_enclave()
+                    .expect("Enclave virtio transport requires enclave VM");
+                ne_devices
+                    .attach_ne_virtio_device(device, enclave_vm, event_manager)
+                    .map_err(VmmActionError::NeDevice)
+            }
             VirtioDevices::Mmio(_) => Err(VmmActionError::PciNotEnabled),
         }
     }
 
     fn hotplug_make_block(
+        &self,
         config: BlockDeviceConfig,
     ) -> Result<Arc<Mutex<dyn VirtioDevice>>, VmmActionError> {
         if config.is_root_device {
             return Err(DriveError::RootBlockDeviceAlreadyAdded.into());
         }
 
-        let block = Block::new(config).map_err(DriveError::CreateBlockDevice)?;
+        let mut block = Block::new(config).map_err(DriveError::CreateBlockDevice)?;
+        block
+            .spawn_worker(self.blk_worker_filter.clone())
+            .map_err(DriveError::CreateBlockDevice)?;
+
         Ok(Arc::new(Mutex::new(block)))
     }
 
@@ -606,6 +676,9 @@ impl DeviceManager {
                 }
             }
             VirtioDevices::Mmio(_) => Err(VmmActionError::PciNotEnabled),
+            VirtioDevices::Enclave(_) => Err(VmmActionError::NotSupported(
+                "device hot-unplug is not supported on the Nitro Enclave transport".to_string(),
+            )),
         }
     }
 
@@ -615,7 +688,7 @@ impl DeviceManager {
             VirtioDevices::Pci(pci_devices) => {
                 Some(&pci_devices.pci_segment.hotplug_completion.evt)
             }
-            VirtioDevices::Mmio(_) => None,
+            VirtioDevices::Mmio(_) | VirtioDevices::Enclave(_) => None,
         }
     }
 
@@ -665,6 +738,7 @@ impl DeviceManager {
 pub enum VirtioDevices {
     Mmio(MMIOVirtioDevices),
     Pci(PciDevices),
+    Enclave(NeDevices),
 }
 
 impl Default for VirtioDevices {
@@ -681,7 +755,7 @@ impl Default for VirtioDevices {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VirtioDevicesState {
     /// Virtio devices attached over the MMIO transport.
-    Mmio(persist::DeviceStates),
+    Mmio(persist::DeviceStates<persist::MMIODeviceState>),
     /// Virtio devices attached over the PCI transport.
     Pci(pci_mngr::PciDevicesState),
 }
@@ -704,6 +778,42 @@ pub struct DevicesState {
     pub acpi_state: persist::ACPIDeviceManagerState,
     /// Serial device state
     pub serial_state: Option<persist::SerialState>,
+}
+
+impl DevicesState {
+    /// Restore the pmem devices of this state. Each one registers a memslot, so this runs before
+    /// the vCPUs are created and the result is handed to [`DeviceManager::restore`], see
+    /// [`KvmVm::create_vcpus`].
+    pub fn restore_pmem_devices(
+        &self,
+        vm: &Arc<KvmVm>,
+        mem: &GuestMemoryMmap,
+    ) -> Result<Vec<Pmem>, DeviceManagerPersistError> {
+        let states: Vec<&PmemState> = match &self.virtio_state {
+            VirtioDevicesState::Mmio(state) => {
+                state.pmem_devices.iter().map(|s| &s.device_state).collect()
+            }
+            VirtioDevicesState::Pci(state) => state
+                .virtio_devices
+                .pmem_devices
+                .iter()
+                .map(|s| &s.device_state)
+                .collect(),
+        };
+        states
+            .into_iter()
+            .map(|state| {
+                Pmem::restore(
+                    PmemConstructorArgs {
+                        mem,
+                        vm: vm.clone(),
+                    },
+                    state,
+                )
+                .map_err(DeviceManagerPersistError::PmemRestore)
+            })
+            .collect()
+    }
 }
 
 /// Errors for (de)serialization of the devices.
@@ -737,8 +847,6 @@ pub enum DevicePersistError {
     MmdsConfig(#[from] MmdsConfigError),
     /// Entropy: {0}
     Entropy(#[from] EntropyPersistError),
-    /// Pmem: {0}
-    Pmem(#[from] PmemPersistError),
     /// virtio-mem: {0}
     VirtioMem(#[from] VirtioMemPersistError),
     /// Could not activate device: {0}
@@ -760,6 +868,8 @@ pub enum DeviceManagerPersistError {
     Bus(#[from] BusError),
     /// Error creating DeviceManager: {0}
     DeviceManager(#[from] DeviceManagerCreateError),
+    /// Error restoring pmem devices: {0}
+    PmemRestore(#[from] PmemPersistError),
 }
 
 pub struct DeviceRestoreArgs<'a> {
@@ -769,6 +879,9 @@ pub struct DeviceRestoreArgs<'a> {
     pub vcpus_exit_evt: &'a EventFd,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
+    pub blk_worker_filter: Option<Arc<BpfProgram>>,
+    /// Pmem devices already restored with [`DevicesState::restore_pmem_devices`].
+    pub pmem_devices: Vec<Pmem>,
 }
 
 impl std::fmt::Debug for DeviceRestoreArgs<'_> {
@@ -778,6 +891,7 @@ impl std::fmt::Debug for DeviceRestoreArgs<'_> {
             .field("vm", &self.vm)
             .field("vm_resources", &self.vm_resources)
             .field("instance_id", &self.instance_id)
+            .field("pmem_devices", &self.pmem_devices)
             .finish()
     }
 }
@@ -791,6 +905,9 @@ impl<'a> Persist<'a> for DeviceManager {
         let virtio_state = match &self.virtio_devices {
             VirtioDevices::Mmio(mmio_devices) => VirtioDevicesState::Mmio(mmio_devices.save()),
             VirtioDevices::Pci(pci_devices) => VirtioDevicesState::Pci(pci_devices.save()),
+            // Enclaves are not snapshottable; mirror the previous behaviour of saving an
+            // empty MMIO state.
+            VirtioDevices::Enclave(_) => VirtioDevicesState::default(),
         };
 
         DevicesState {
@@ -841,6 +958,8 @@ impl<'a> Persist<'a> for DeviceManager {
                     vm_resources: constructor_args.vm_resources,
                     instance_id: constructor_args.instance_id,
                     event_manager: constructor_args.event_manager,
+                    blk_worker_filter: constructor_args.blk_worker_filter.clone(),
+                    pmem_devices: constructor_args.pmem_devices,
                 };
                 let pci_devices = PciDevices::restore(pci_ctor_args, pci_state)
                     .map_err(DeviceManagerPersistError::PciRestore)?;
@@ -853,6 +972,8 @@ impl<'a> Persist<'a> for DeviceManager {
                     event_manager: constructor_args.event_manager,
                     vm_resources: constructor_args.vm_resources,
                     instance_id: constructor_args.instance_id,
+                    blk_worker_filter: constructor_args.blk_worker_filter.clone(),
+                    pmem_devices: constructor_args.pmem_devices,
                 };
                 let mmio_virtio_devices = MMIOVirtioDevices::restore(mmio_ctor_args, mmio_state)
                     .map_err(DeviceManagerPersistError::MmioRestore)?;
@@ -866,15 +987,16 @@ impl<'a> Persist<'a> for DeviceManager {
             legacy_devices: Some(legacy_devices),
             acpi_devices,
             virtio_devices,
+            blk_worker_filter: constructor_args.blk_worker_filter,
         })
     }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
     use vmm_sys_util::tempfile::TempFile;
 
+    use super::*;
     use crate::builder::tests::{
         CustomBlockConfig, default_kernel_cmdline, default_vmm, default_vmm_with_hotplug_ports,
         default_vmm_with_pci, insert_block_devices,
@@ -885,6 +1007,7 @@ pub(crate) mod tests {
     use crate::rpc_interface::VmmActionError;
     use crate::vmm_config::HotplugDeviceConfig;
     use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
+    use crate::vmm_config::machine_config::MachineConfigError;
     use crate::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceError};
     use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
     use crate::vstate::resources::ResourceAllocator;
@@ -914,6 +1037,7 @@ pub(crate) mod tests {
             legacy_devices: Some(legacy_devices),
             acpi_devices,
             virtio_devices,
+            blk_worker_filter: None,
         }
     }
 
@@ -1033,12 +1157,15 @@ pub(crate) mod tests {
             cache_type: CacheType::Unsafe,
             is_read_only: Some(false),
             discard: None,
+            num_queues: None,
             path_on_host: Some(f.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: None,
+            image_format: None,
             blk_size: None,
             topology: None,
             socket: None,
+            dmb_size_mib: None,
         }
     }
 
@@ -1047,6 +1174,16 @@ pub(crate) mod tests {
         let mut evt_manager = EventManager::new().unwrap();
         let mut vmm = default_vmm_with_hotplug_ports(2);
         let f = TempFile::new().unwrap();
+
+        // Queue count cannot exceed the vCPU count.
+        let mut invalid_cfg = make_hotplug_block_cfg("invalid", &f, false);
+        invalid_cfg.num_queues = std::num::NonZeroU16::new(2);
+        assert!(matches!(
+            vmm.hotplug_device(HotplugDeviceConfig::Block(invalid_cfg), &mut evt_manager),
+            Err(VmmActionError::MachineConfig(
+                MachineConfigError::InvalidQueueCount(id, 2, 1)
+            )) if id == "invalid"
+        ));
 
         // Successful case
         let cfg = HotplugDeviceConfig::Block(make_hotplug_block_cfg("block0", &f, false));
@@ -1129,6 +1266,7 @@ pub(crate) mod tests {
         use crate::arch::host_page_size;
         use vm_memory::GuestMemoryBackend;
 
+        use crate::devices::virtio::block::device::Block;
         use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt};
         use crate::test_utils::single_region_mem_dirty_tracking;
         use crate::utils::{u64_to_usize, usize_to_u64};
@@ -1153,10 +1291,13 @@ pub(crate) mod tests {
             .virtio_device();
         {
             let mut device = device.lock().unwrap();
-            device.queues_mut()[0] = vq.create_queue();
+            *device.queue_config_mut(0).unwrap() = vq.create_queue().config;
             device.activate(mem.clone(), default_interrupt()).unwrap();
             mem.reset_dirty();
-            device.queues_mut()[0].add_used(0, 0).unwrap();
+            let Block::Virtio(block) = device.as_mut_any().downcast_mut::<Block>().unwrap() else {
+                unreachable!("block0 is a virtio block device");
+            };
+            block.resources_mut()[0].queue.add_used(0, 0).unwrap();
         }
         drop(device);
         let used_ring = u64_to_usize(vq.used_start().raw_value());
@@ -1303,6 +1444,7 @@ pub(crate) mod tests {
             mtu: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
+            dmb_size_mib: None,
         });
         vmm.hotplug_device(cfg, &mut evt_manager).unwrap();
         assert!(
@@ -1319,6 +1461,7 @@ pub(crate) mod tests {
             mtu: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
+            dmb_size_mib: None,
         });
         assert!(matches!(
             vmm.hotplug_device(cfg2, &mut evt_manager),

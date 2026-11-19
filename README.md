@@ -22,11 +22,12 @@ speed and flexibility of containers.
 
 The main component of Firecracker is a virtual machine monitor (VMM) that uses
 the Linux Kernel Virtual Machine (KVM) to create and run microVMs. Firecracker
-has a minimalist design. It excludes unnecessary devices and guest-facing
-functionality to reduce the memory footprint and attack surface area of each
-microVM. This improves security, decreases the startup time, and increases
-hardware utilization. Firecracker has also been integrated in container
-runtimes, for example
+can also run a guest as a [Nitro Sandbox](docs/nitro-sandboxes/README.md),
+isolated by the AWS Nitro System instead of KVM. Firecracker has a minimalist
+design. It excludes unnecessary devices and guest-facing functionality to reduce
+the memory footprint and attack surface area of each microVM. This improves
+security, decreases the startup time, and increases hardware utilization.
+Firecracker has also been integrated in container runtimes, for example
 [Kata Containers](https://github.com/kata-containers/kata-containers) and
 [Flintlock](https://github.com/liquidmetal-dev/flintlock).
 
@@ -118,6 +119,9 @@ The **API endpoint** can be used to:
 - Configure and manage [memory hotplugging](docs/memory-hotplug.md).
 - `[Developer Preview]` [Hot-plug and hot-unplug](docs/device-hotplug.md) virtio
   PCI devices while the VM is running.
+- Run the guest as a [Nitro Sandbox](docs/nitro-sandboxes/README.md) on an EC2
+  instance, isolated by the AWS Nitro System rather than by KVM, with optional
+  attestation.
 - Start the microVM using a given kernel image, root file system, and boot
   arguments.
 - [x86_64 only] Stop the microVM.

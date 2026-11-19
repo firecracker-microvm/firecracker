@@ -7,12 +7,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde_json::Value;
 use utils::time::{ClockType, get_time_us};
 
-use super::builder::build_and_boot_microvm;
+use super::builder::{StartMicrovmError, build_and_boot_microvm};
 use super::persist::{create_snapshot, restore_from_snapshot};
 use super::resources::VmResources;
 use super::{Vmm, VmmError};
 use crate::EventManager;
-use crate::builder::StartMicrovmError;
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
 use crate::device_manager::pci_mngr::PciManagerError;
 use crate::devices::virtio::balloon::device::{HintingStatus, StartHintingCmd};
@@ -30,6 +29,7 @@ use crate::vmm_config::balloon::{
 };
 use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
+use crate::vmm_config::enclave::{EnclaveConfig, EnclaveConfigError};
 use crate::vmm_config::entropy::{EntropyDeviceConfig, EntropyDeviceError};
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError, MachineConfigUpdate};
@@ -130,6 +130,10 @@ pub enum VmmAction {
     /// Updates the memory hotplug device using `MemoryHotplugConfigUpdate` as input. This action
     /// can only be called after the microVM has booted.
     UpdateMemoryHotplugSize(MemoryHotplugSizeUpdate),
+    /// Set the enclave configuration. This action can only be called before the microVM has booted.
+    SetEnclaveConfig(EnclaveConfig),
+    /// Get the enclave configuration.
+    GetEnclaveConfig,
     /// Launch the microVM. This action can only be called before the microVM has booted.
     StartMicroVm,
     /// Send an external graceful shutdown input to the microVM.
@@ -212,6 +216,8 @@ pub enum VmmActionError {
     StartMicrovm(#[from] StartMicrovmError),
     /// Vsock config error: {0}
     VsockConfig(#[from] VsockConfigError),
+    /// Enclave config error: {0}
+    EnclaveConfig(#[from] EnclaveConfigError),
     /// Device ID in use
     DeviceIdInUse,
     /// Device not found
@@ -224,6 +230,8 @@ pub enum VmmActionError {
     PciNotEnabled,
     /// PCI manager error: {0}
     PciManager(#[from] PciManagerError),
+    /// Enclave device error: {0}
+    NeDevice(#[from] crate::device_manager::nitro_enclave::NeDeviceError),
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
@@ -247,6 +255,8 @@ pub enum VmmData {
     InstanceInformation(InstanceInfo),
     /// The microVM version.
     VmmVersion(String),
+    /// The enclave configuration.
+    EnclaveConfiguration(EnclaveConfig),
     /// The status of the memory hotplug device.
     VirtioMemStatus(VirtioMemStatus),
     /// The status of the virtio-balloon hinting run
@@ -503,6 +513,15 @@ impl<'a> PrebootApiController<'a> {
             SetMmdsConfiguration(config) => self.set_mmds_config(config),
             StartMicroVm => self.start_microvm(),
             UpdateMachineConfiguration(config) => self.update_machine_config(config),
+            SetEnclaveConfig(config) => self.set_enclave_config(config),
+            GetEnclaveConfig => self
+                .vm_resources
+                .enclave
+                .clone()
+                .map(VmmData::EnclaveConfiguration)
+                .ok_or(VmmActionError::EnclaveConfig(
+                    EnclaveConfigError::NotConfigured,
+                )),
             SetEntropyDevice(config) => self.set_entropy_device(config),
             SetMemoryHotplugDevice(config) => self.set_memory_hotplug_device(config),
             // Operations not allowed pre-boot.
@@ -536,6 +555,9 @@ impl<'a> PrebootApiController<'a> {
 
     fn insert_block_device(&mut self, cfg: BlockDeviceConfig) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
+        self.vm_resources
+            .machine_config
+            .validate_num_queues(&cfg.drive_id, cfg.num_queues)?;
         self.vm_resources
             .set_block_device(cfg)
             .map(|()| VmmData::Empty)
@@ -627,20 +649,42 @@ impl<'a> PrebootApiController<'a> {
         Ok(VmmData::Empty)
     }
 
+    fn set_enclave_config(&mut self, cfg: EnclaveConfig) -> Result<VmmData, VmmActionError> {
+        self.boot_path = true;
+        self.vm_resources.set_enclave_config(cfg);
+        Ok(VmmData::Empty)
+    }
+
     // On success, this command will end the pre-boot stage and this controller
     // will be replaced by a runtime controller.
     fn start_microvm(&mut self) -> Result<VmmData, VmmActionError> {
-        build_and_boot_microvm(
-            &self.instance_info,
-            self.vm_resources,
-            self.event_manager,
-            self.seccomp_filters,
-        )
-        .map(|vmm| {
-            self.built_vmm = Some(vmm);
-            VmmData::Empty
-        })
-        .map_err(VmmActionError::StartMicrovm)
+        if let Some(enclave_config) = &self.vm_resources.enclave {
+            let enclave_config = enclave_config.clone();
+            crate::nitro_enclave::enclave_builder::build_and_boot_enclave(
+                &self.instance_info,
+                self.vm_resources,
+                &enclave_config,
+                self.event_manager,
+                self.seccomp_filters,
+            )
+            .map(|vmm| {
+                self.built_vmm = Some(vmm);
+                VmmData::Empty
+            })
+            .map_err(|e| VmmActionError::StartMicrovm(StartMicrovmError::from(e)))
+        } else {
+            build_and_boot_microvm(
+                &self.instance_info,
+                self.vm_resources,
+                self.event_manager,
+                self.seccomp_filters,
+            )
+            .map(|vmm| {
+                self.built_vmm = Some(vmm);
+                VmmData::Empty
+            })
+            .map_err(VmmActionError::StartMicrovm)
+        }
     }
 
     // On success, this command will end the pre-boot stage and this controller
@@ -839,6 +883,16 @@ impl RuntimeApiController {
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::BalloonUpdate),
             UpdateBlockDevice(new_cfg) => self.update_block_device(new_cfg),
+            GetEnclaveConfig => {
+                let vmm = self.vmm.lock().expect("Poisoned lock");
+                vmm.enclave_config()
+                    .map(VmmData::EnclaveConfiguration)
+                    .ok_or_else(|| {
+                        VmmActionError::InternalVmm(VmmError::NotSupportedOnVmType(
+                            vmm.vm.type_name(),
+                        ))
+                    })
+            }
             UpdateNetworkInterface(netif_update) => self.update_net_rate_limiters(netif_update),
             UpdatePmemDevice(new_cfg) => self.update_pmem_device(new_cfg),
             UpdateMemoryHotplugSize(cfg) => self
@@ -856,6 +910,7 @@ impl RuntimeApiController {
             | LoadSnapshot(_)
             | PutCpuConfiguration(_)
             | SetBalloonDevice(_)
+            | SetEnclaveConfig(_)
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
             | SetEntropyDevice(_)
@@ -1096,6 +1151,22 @@ mod tests {
     }
 
     #[test]
+    fn test_preboot_get_enclave_config_without_enclave() {
+        // A VM that was never configured as an enclave has no enclave config to
+        // report, and must not be handed a fabricated default.
+        let err = preboot_request(VmmAction::GetEnclaveConfig).unwrap_err();
+        assert!(matches!(
+            err,
+            VmmActionError::EnclaveConfig(EnclaveConfigError::NotConfigured)
+        ));
+    }
+
+    #[test]
+    fn test_runtime_get_enclave_config_on_kvm_vm() {
+        runtime_request(VmmAction::GetEnclaveConfig).unwrap_err();
+    }
+
+    #[test]
     fn test_preboot_get_mmds() {
         assert_eq!(
             preboot_request(VmmAction::GetMMDS).unwrap(),
@@ -1314,6 +1385,7 @@ mod tests {
                 vsock_id: Some(String::new()),
                 guest_cid: 0,
                 uds_path: String::new(),
+                dmb_size_mib: None,
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetBalloonDevice(
@@ -1324,6 +1396,7 @@ mod tests {
                 vsock_id: Some(String::new()),
                 guest_cid: 0,
                 uds_path: String::new(),
+                dmb_size_mib: None,
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetMmdsConfiguration(
@@ -1348,6 +1421,8 @@ mod tests {
                 resume_vm: false,
                 network_overrides: vec![],
                 vsock_override: None,
+                drive_overrides: vec![],
+                pmem_overrides: vec![],
                 clock_realtime: false,
                 huge_pages: SnapshotLoadHugePageConfig::Snapshot,
             },
@@ -1357,6 +1432,9 @@ mod tests {
         )));
         check_unsupported(runtime_request(VmmAction::SetMemoryHotplugDevice(
             MemoryHotplugConfig::default(),
+        )));
+        check_unsupported(runtime_request(VmmAction::SetEnclaveConfig(
+            EnclaveConfig::default(),
         )));
     }
 }

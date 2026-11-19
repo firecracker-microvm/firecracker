@@ -17,7 +17,9 @@ use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, Vir
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecBufferMut;
-use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue};
+use crate::devices::virtio::queue::{
+    FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue, QueueConfig,
+};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::impl_device_type;
 use crate::logger::{IncMetric, debug, error};
@@ -265,16 +267,20 @@ impl VirtioDevice for Entropy {
         ENTROPY_DEV_ID
     }
 
-    fn queues(&self) -> &[Queue] {
-        &self.queues
+    fn num_queues(&self) -> usize {
+        self.queues.len()
     }
 
-    fn queues_mut(&mut self) -> &mut [Queue] {
-        &mut self.queues
+    fn queue_config(&self, index: usize) -> Option<&QueueConfig> {
+        self.queues.get(index).map(|queue| &queue.config)
     }
 
-    fn queue_events(&self) -> &[EventFd] {
-        &self.queue_events
+    fn queue_config_mut(&mut self, index: usize) -> Option<&mut QueueConfig> {
+        self.queues.get_mut(index).map(|queue| &mut queue.config)
+    }
+
+    fn queue_event(&self, index: usize) -> Option<&EventFd> {
+        self.queue_events.get(index)
     }
 
     fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
@@ -315,6 +321,16 @@ impl VirtioDevice for Entropy {
         true
     }
 
+    fn reset_queues(&mut self) {
+        self.queues.iter_mut().for_each(Queue::reset);
+    }
+
+    fn commit_dirty(&self) {
+        for queue in &self.queues {
+            queue.commit_dirty();
+        }
+    }
+
     fn activate(
         &mut self,
         mem: GuestMemoryMmap,
@@ -353,7 +369,7 @@ mod tests {
             self.queues = queues;
         }
 
-        fn num_queues(&self) -> usize {
+        fn num_queues_supported(&self) -> usize {
             RNG_NUM_QUEUES
         }
     }
@@ -432,7 +448,7 @@ mod tests {
         let mut entropy_dev = th.device();
 
         // This should succeed, we just added two descriptors
-        let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop().unwrap().unwrap();
+        let desc = entropy_dev.queues[RNG_QUEUE].pop().unwrap().unwrap();
         assert!(matches!(
             // SAFETY: This descriptor chain is only loaded into one buffer
             unsafe { IoVecBufferMut::<256>::from_descriptor_chain(&mem, desc) },
@@ -440,7 +456,7 @@ mod tests {
         ));
 
         // This should succeed, we should have one more descriptor
-        let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop().unwrap().unwrap();
+        let desc = entropy_dev.queues[RNG_QUEUE].pop().unwrap().unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
         entropy_dev.buffer = unsafe { IoVecBufferMut::from_descriptor_chain(&mem, desc).unwrap() };
         Entropy::handle_one(&mem, &mut entropy_dev.buffer).unwrap();

@@ -248,6 +248,8 @@ class Microvm:
             new_pid_ns=True,
             **jailer_kwargs,
         )
+        self.netns.tap_uid = self.jailer.uid
+        self.netns.tap_gid = self.jailer.gid
 
         self.pci_enabled = pci
         if pci:
@@ -279,6 +281,9 @@ class Microvm:
 
         # The spawn/basic_config/start verbs delegate to the configured backend.
         self.backend = backend
+        # Enclave CPU allocation, populated by basic_config() and consumed in
+        # start(). Unused on KVM.
+        self.enclave_cpu_ids = None
 
         # device dictionaries
         self.iface = {}
@@ -288,6 +293,8 @@ class Microvm:
         self.vcpus_count = None
         self.mem_size_bytes = None
         self.cpu_template_name = "None"
+        # Set by start(); None until the VM is started with a net iface.
+        self.time_to_ssh_up_us = None
         # The given custom CPU template will be set in basic_config() but could
         # be overwritten via set_cpu_template().
         self.custom_cpu_template = custom_cpu_template
@@ -353,6 +360,11 @@ class Microvm:
             or might_be_dead
         ), self.log_data
 
+        # Exiting closes the TAPs one by one and each close takes the RTNL
+        # mutex, so when the host is busy tearing down other network
+        # namespaces (e.g. containers) the exit can take seconds.
+        kill_timeout = 10.0 + 2.0 * len(self.iface)
+
         # Kill Firecracker and the screen wrapper independently so that one
         # already being dead (ProcessLookupError) doesn't leak the other.
         for pid_to_kill in (self.firecracker_pid, self.screen_pid):
@@ -361,7 +373,7 @@ class Microvm:
             try:
                 os.kill(pid_to_kill, signal.SIGKILL)
                 try:
-                    utils.wait_process_termination(pid_to_kill)
+                    utils.wait_process_termination(pid_to_kill, kill_timeout)
                 except TimeoutError:
                     utils.dump_proc_state(pid_to_kill)
                     raise
@@ -543,6 +555,7 @@ class Microvm:
             "vcpus": str(self.vcpus_count),
             "guest_memory": f"{self.mem_size_bytes / (1024 * 1024)}MB",
             "pci": f"{self.pci_enabled}",
+            "backend": str(self.backend),
         }
 
     @property
@@ -550,7 +563,8 @@ class Microvm:
         """Concrete boot image this VM boots.
 
         Uses `boot_image` when explicitly selected; otherwise the backend
-        derives the image from the logical `guest_kernel`.
+        derives the image from the logical `guest_kernel`: KVM boots the
+        vmlinux, the enclave backend the EFI image.
         """
         if self.boot_image is not None:
             return Path(self.boot_image)
@@ -647,27 +661,41 @@ class Microvm:
             return True
         return False
 
-    def pin_threads(self, first_cpu):
-        """
-        Pins all microvm threads (VMM, API and vCPUs) to consecutive physical cpu core, starting with "first_cpu"
+    def pin_block_workers(self, drive_id: str, first_cpu: int) -> int:
+        """Pin the worker threads of a threaded virtio-block drive to consecutive cores,
+        one per queue in queue order, starting with "first_cpu".
 
         Return next "free" cpu core.
         """
-        for vcpu, pcpu in enumerate(range(first_cpu, first_cpu + self.vcpus_count)):
-            assert self.pin_vcpu(
-                vcpu, pcpu
-            ), f"Failed to pin fc_vcpu {vcpu} thread to core {pcpu}."
-        # The cores first_cpu,...,first_cpu + self.vcpus_count - 1 are assigned to the individual vCPU threads,
-        # So the remaining two threads (VMM and API) get first_cpu + self.vcpus_count
-        # and first_cpu + self.vcpus_count + 1
-        assert self.pin_vmm(
-            first_cpu + self.vcpus_count
-        ), "Failed to pin firecracker thread."
-        assert self.pin_api(
-            first_cpu + self.vcpus_count + 1
-        ), "Failed to pin fc_api thread."
+        workers = {}
+        for thread_name, thread_pids in utils.get_threads(self.firecracker_pid).items():
+            match = re.fullmatch(rf"fc_q(\d+)_{re.escape(drive_id)}", thread_name)
+            if match:
+                workers[int(match.group(1))] = thread_pids
+        for cpu, queue in enumerate(sorted(workers), start=first_cpu):
+            for pid in workers[queue]:
+                utils.set_cpu_affinity(pid, [cpu])
+        return first_cpu + len(workers)
 
-        return first_cpu + self.vcpus_count + 2
+    def pin_threads(self, first_cpu):
+        """
+        Pins parent Firecracker threads (VMM, API and KVM vCPUs) to consecutive physical cpu core, starting with "first_cpu"
+
+        Return next "free" cpu core.
+        """
+        next_cpu = first_cpu
+        if self.backend.has_parent_vcpu_threads:
+            for vcpu, pcpu in enumerate(range(first_cpu, first_cpu + self.vcpus_count)):
+                assert self.pin_vcpu(
+                    vcpu, pcpu
+                ), f"Failed to pin fc_vcpu {vcpu} thread to core {pcpu}."
+            next_cpu = first_cpu + self.vcpus_count
+
+        # The cores first_cpu,...,next_cpu - 1 are assigned to individual vCPU threads when the backend exposes them.
+        # So the remaining two threads (VMM and API) get next_cpu and next_cpu + 1.
+        assert self.pin_vmm(next_cpu), "Failed to pin firecracker thread."
+        assert self.pin_api(next_cpu + 1), "Failed to pin fc_api thread."
+        return next_cpu + 2
 
     def add_pre_cmd(self, pre_cmd):
         """Prepends commands to the command line to launch the microVM
@@ -693,12 +721,19 @@ class Microvm:
         Set `expect_failure` when Firecracker is meant to exit during startup:
         no readiness check is then performed, and it is up to the caller to
         assert on the failure.
+
+        Spawning is backend-agnostic apart from the API timing policy declared by
+        ``backend.enforces_api_timing``. A KVM VM and a Nitro Enclave start the
+        same parent process; an enclave diverges later, in ``start``.
         """
         # pylint: disable=subprocess-run-check
         # pylint: disable=too-many-branches
         # Firecracker matches `--level` case-insensitively, so normalise the
         # value to the one spelling the comparisons below are written against.
         log_level = log_level.capitalize()
+        if not self.backend.enforces_api_timing:
+            self.time_api_requests = False
+
         self.jailer.setup()
         self.api = Api(
             self.jailer.api_socket_path(),
@@ -810,16 +845,9 @@ class Microvm:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
             sock.connect(str(self.jailer.api_socket_path()))
 
-    # Firecracker typically prints this within a few milliseconds of being
-    # spawned, so poll frequently: a coarse fixed delay here adds directly to
-    # the wall time of every test that boots a VM. Keep the total budget at
-    # ~1 second.
-    @retry(wait=wait_fixed(0.01), stop=stop_after_delay(1.0), reraise=True)
     def check_log_message(self, message):
         """Wait until `message` appears in logging output."""
-        assert (
-            message in self.log_data
-        ), f'Message ("{message}") not found in log data ("{self.log_data}").'
+        self.check_any_log_message([message])
 
     @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
     def get_exit_code(self):
@@ -833,14 +861,18 @@ class Microvm:
             return exit_code
         raise AssertionError(f"unable to find exit code from the log: {self.log_data}")
 
-    @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
+    # Firecracker typically prints these within a few milliseconds of being
+    # spawned, so poll frequently: a coarse fixed delay here adds directly to
+    # the wall time of every test that boots a VM. Keep the total budget at
+    # ~1 second.
+    @retry(wait=wait_fixed(0.01), stop=stop_after_delay(1.0), reraise=True)
     def check_any_log_message(self, messages):
         """Wait until any message in `messages` appears in logging output."""
         for message in messages:
             if message in self.log_data:
                 return
         raise AssertionError(
-            f"`{messages}` were not found in this log: {self.log_data}"
+            f"None of {messages} was found in this log: {self.log_data}"
         )
 
     def serial_input(self, input_string):
@@ -876,6 +908,9 @@ class Microvm:
         io_engine=None,
         topology=None,
         blk_size=None,
+        num_queues=None,
+        image_format=None,
+        **kwargs,
     ):
         """Add a block device."""
 
@@ -891,6 +926,9 @@ class Microvm:
             io_engine=io_engine,
             topology=topology,
             blk_size=blk_size,
+            num_queues=num_queues,
+            image_format=image_format,
+            **kwargs,
         )
         self.disks[drive_id] = path_on_host
 
@@ -987,6 +1025,7 @@ class Microvm:
         assert self.state == "Not started"
 
         self.backend.prepare_start(self, *args, **kwargs)
+        started_at = time.perf_counter()
         self.api.actions.put(action_type="InstanceStart")
 
         # Check that the VM has started
@@ -994,6 +1033,9 @@ class Microvm:
 
         if self.iface:
             self.wait_for_ssh_up()
+            # Covers guest boot plus sshd coming up, so it is only comparable
+            # against itself - but it is the only boot signal enclaves have.
+            self.time_to_ssh_up_us = int((time.perf_counter() - started_at) * 1_000_000)
 
     def pause(self):
         """Pauses the microVM"""
@@ -1044,6 +1086,7 @@ class Microvm:
                 "kernel_file": str(self.guest_kernel.vmlinux),
                 "rootfs_file": str(self.rootfs_file) if self.rootfs_file else None,
                 "vcpus_count": self.vcpus_count,
+                "pci_enabled": self.pci_enabled,
             },
         )
 
@@ -1067,10 +1110,18 @@ class Microvm:
         vsock_override: str = None,
         clock_realtime: bool = False,
         *,
+        drive_overrides: Optional[dict] = None,
+        pmem_overrides: Optional[dict] = None,
         huge_pages: Optional[HugePagesConfig] = None,
         uffd_handler_name: str = None,
     ):
-        """Restore a snapshot"""
+        """Restore a snapshot
+
+        `drive_overrides` and `pmem_overrides` map drive and pmem device IDs to
+        the host paths of the files that back them instead of the files recorded
+        in the snapshot.
+        """
+        self.backend.require_restore_support()
 
         jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
 
@@ -1084,12 +1135,16 @@ class Microvm:
         jailed_mem = Path("/") / jailed_snapshot.mem.name
         jailed_vmstate = Path("/") / jailed_snapshot.vmstate.name
 
-        snapshot_disks = [v for k, v in jailed_snapshot.disks.items()]
-        assert len(snapshot_disks) > 0, "Snapshot requires at least one disk."
-        jailed_disks = []
-        for disk in snapshot_disks:
-            jailed_disks.append(self.create_jailed_resource(disk))
-        self.disks = jailed_snapshot.disks
+        # Jail overridden disks only from their new paths, so that the restored
+        # microVM cannot fall back on the paths recorded in the snapshot.
+        drive_overrides = drive_overrides or {}
+        pmem_overrides = pmem_overrides or {}
+        self.disks = jailed_snapshot.disks | drive_overrides | pmem_overrides
+        assert len(self.disks) > 0, "Snapshot requires at least one disk."
+        jailed_disks = {
+            disk_id: self.create_jailed_resource(path)
+            for disk_id, path in self.disks.items()
+        }
         self.ssh_key = jailed_snapshot.ssh_key
 
         # Create network interfaces.
@@ -1136,6 +1191,18 @@ class Microvm:
 
         if vsock_override is not None:
             optional_kwargs["vsock_override"] = {"uds_path": vsock_override}
+
+        if drive_overrides:
+            optional_kwargs["drive_overrides"] = [
+                {"drive_id": drive_id, "path_on_host": jailed_disks[drive_id]}
+                for drive_id in drive_overrides
+            ]
+
+        if pmem_overrides:
+            optional_kwargs["pmem_overrides"] = [
+                {"id": pmem_id, "path_on_host": jailed_disks[pmem_id]}
+                for pmem_id in pmem_overrides
+            ]
 
         if clock_realtime:
             optional_kwargs["clock_realtime"] = clock_realtime
@@ -1358,7 +1425,11 @@ class MicroVMFactory:
     def build_from_snapshot(
         self, snapshot: Snapshot, uffd_handler_name=None, clock_realtime=False
     ):
-        """Build a microvm from a snapshot"""
+        """Build a microvm from a snapshot
+
+        Backends that cannot restore raise here before anything is spawned.
+        """
+        self.backend.require_restore_support()
         vm = self.build()
         vm.spawn()
         vm.restore_from_snapshot(
@@ -1388,8 +1459,10 @@ class MicroVMFactory:
     def build_restored(self, kernel, rootfs, *, pci=False, **basic_config_kwargs):
         """build_booted, then snapshot + kill + restore.
 
+        Raises before booting on backends that cannot restore.
         Extra keyword arguments are forwarded to `Microvm.basic_config`.
         """
+        self.backend.require_restore_support()
         booted = self.build_booted(kernel, rootfs, pci=pci, **basic_config_kwargs)
         snapshot = booted.snapshot_full()
         booted.kill()
@@ -1410,6 +1483,8 @@ class MicroVMFactory:
         """A generator of `n` microvms restored, either all restored from the same given snapshot
         (incremental=False), or created by taking successive snapshots of restored VMs
         """
+        self.backend.require_restore_support()
+
         last_snapshot = None
         for _ in range(nr_vms):
             microvm = self.build(
@@ -1485,11 +1560,11 @@ class Serial:
             # serial already opened
             return
 
-        attempt = 0
-        while not Path(self._vm.screen_log).exists() and attempt < 5:
-            time.sleep(0.2)
-            attempt += 1
-
+        for attempt in Retrying(
+            wait=wait_fixed(0.1), stop=stop_after_delay(5.0), reraise=True
+        ):
+            with attempt:
+                assert Path(self._vm.screen_log).exists(), "screen log not created"
         serial_log_fd = os.open(self._vm.screen_log, os.O_RDONLY)
         self._poller = select.poll()
         self._poller.register(serial_log_fd, select.POLLIN | select.POLLHUP)

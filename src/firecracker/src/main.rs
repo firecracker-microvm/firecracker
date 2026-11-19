@@ -108,7 +108,7 @@ fn main() -> ExitCode {
     let result = main_exec();
     if let Err(err) = result {
         error_unrestricted!("{err}");
-        eprintln!("Error: {err:?}");
+        eprintln!("Error: {err}");
         let exit_code = FcExitCode::from(err) as u8;
         error_unrestricted!("Firecracker exiting with error. exit_code={exit_code}");
         ExitCode::from(exit_code)
@@ -594,8 +594,10 @@ fn build_microvm_from_json(
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
 ) -> Result<Arc<Mutex<vmm::Vmm>>, BuildFromJsonError> {
-    let mut vm_resources = VmResources::from_json(
-        &config_json,
+    let vmm_config = serde_json::from_slice(config_json.as_bytes())
+        .map_err(|err| BuildFromJsonError::ParseFromJson(err.into()))?;
+    let mut vm_resources = VmResources::from_config(
+        vmm_config,
         &instance_info,
         mmds_size_limit,
         metadata_json,
@@ -603,12 +605,23 @@ fn build_microvm_from_json(
     )
     .map_err(BuildFromJsonError::ParseFromJson)?;
     vm_resources.boot_timer = boot_timer_enabled;
-    let vmm = vmm::builder::build_and_boot_microvm(
-        &instance_info,
-        &vm_resources,
-        event_manager,
-        seccomp_filters,
-    )
+    let vmm = if let Some(enclave_config) = &vm_resources.enclave {
+        vmm::nitro_enclave::enclave_builder::build_and_boot_enclave(
+            &instance_info,
+            &vm_resources,
+            enclave_config,
+            event_manager,
+            seccomp_filters,
+        )
+        .map_err(StartMicrovmError::from)
+    } else {
+        vmm::builder::build_and_boot_microvm(
+            &instance_info,
+            &vm_resources,
+            event_manager,
+            seccomp_filters,
+        )
+    }
     .map_err(BuildFromJsonError::StartMicroVM)?;
 
     info_unrestricted!("Successfully started microvm that was configured from one single json");

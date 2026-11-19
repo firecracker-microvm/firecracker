@@ -349,9 +349,9 @@ fn verify_create_snapshot(
         }
         VirtioDevicesState::Pci(state) => {
             assert!(pci_enabled);
-            assert_eq!(state.block_devices.len(), 0);
-            assert_eq!(state.net_devices.len(), 0);
-            assert!(state.vsock_device.is_none());
+            assert_eq!(state.virtio_devices.block_devices.len(), 0);
+            assert_eq!(state.virtio_devices.net_devices.len(), 0);
+            assert!(state.virtio_devices.vsock_device.is_none());
         }
     }
     assert_eq!(restored_microvm_state.vcpu_states.len(), 1);
@@ -387,6 +387,8 @@ fn verify_load_snapshot(
             resume_vm: true,
             network_overrides: vec![],
             vsock_override: None,
+            drive_overrides: vec![],
+            pmem_overrides: vec![],
             clock_realtime: false,
             huge_pages,
         }))
@@ -459,6 +461,8 @@ fn test_load_snapshot_rejects_hugetlbfs_with_file_backend() {
             resume_vm: false,
             network_overrides: vec![],
             vsock_override: None,
+            drive_overrides: vec![],
+            pmem_overrides: vec![],
             clock_realtime: false,
             huge_pages: SnapshotLoadHugePageConfig::Hugetlbfs2M,
         }))
@@ -532,6 +536,8 @@ fn verify_load_snap_disallowed_after_boot_resources(res: VmmAction, res_name: &s
         resume_vm: false,
         network_overrides: vec![],
         vsock_override: None,
+        drive_overrides: vec![],
+        pmem_overrides: vec![],
         clock_realtime: false,
         huge_pages: SnapshotLoadHugePageConfig::Snapshot,
     });
@@ -565,13 +571,16 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
 
         is_read_only: Some(false),
         discard: None,
+        num_queues: None,
         path_on_host: Some(tmp_file),
         rate_limiter: None,
         file_engine_type: None,
+        image_format: None,
         blk_size: None,
         topology: None,
 
         socket: None,
+        dmb_size_mib: None,
     };
 
     let req = VmmAction::InsertBlockDevice(config);
@@ -584,6 +593,7 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
         mtu: None,
         rx_rate_limiter: None,
         tx_rate_limiter: None,
+        dmb_size_mib: None,
     });
     verify_load_snap_disallowed_after_boot_resources(req, "InsertNetworkDevice");
 
@@ -594,6 +604,7 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
         vsock_id: Some(String::new()),
         guest_cid: 0,
         uds_path: String::new(),
+        dmb_size_mib: None,
     });
     verify_load_snap_disallowed_after_boot_resources(req, "SetVsockDevice");
 

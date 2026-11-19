@@ -29,6 +29,7 @@ use vmm_sys_util::terminal::Terminal;
 use crate::arch::{GSI_MSI_END, host_page_size};
 pub use crate::arch::{KvmVm, KvmVmError, VmState};
 use crate::logger::{debug, info};
+use crate::nitro_enclave::enclave_vm::EnclaveVm;
 use crate::pci::PciSBDF;
 use crate::pci::msix::MsixTableEntry;
 use crate::persist::CreateSnapshotError;
@@ -43,6 +44,19 @@ use crate::vstate::memory::{
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::{StartThreadedError, VcpuError, VcpuHandle};
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
+
+/// Maximum number of vCPUs supported by a KVM microVM.
+///
+/// The value is arbitrary, and far below what KVM allows (1024 on x86_64, 512 on aarch64).
+/// Raising it hits, on x86_64: Intel's CPUID leaf 0x4 EAX[31:26] encodes the core ID in 6 bits, so
+/// 64 cores; CPUID leaf 0x1 EBX[23:16] rejects counts above 128; and the MP table and ACPI MADT
+/// both identify a CPU by an 8-bit APIC ID. On aarch64 none of these exist, and the bound is the
+/// kernel VGIC, at 512 vCPUs.
+pub const MAX_SUPPORTED_KVM_VCPUS: u16 = 32;
+
+/// The KVM vCPU plumbing narrows the count to a `u8`, so the limit must fit in
+/// one for that narrowing to be infallible.
+const _: () = assert!(MAX_SUPPORTED_KVM_VCPUS <= u8::MAX as u16);
 
 /// Error type for [`KvmVm::start_vcpus`].
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -118,11 +132,14 @@ pub enum VmError {
     MemoryError(#[from] MemoryError),
 }
 
-/// VM abstraction: either a KVM-based VM or (in the future) a Nitro Enclave.
+/// VM abstraction: either a KVM-based VM or a Nitro Enclave.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Vm {
     /// KVM-backed virtual machine.
     Kvm(Arc<KvmVm>),
+    /// Nitro Enclave-backed virtual machine.
+    Enclave(EnclaveVm),
 }
 
 impl Vm {
@@ -130,6 +147,7 @@ impl Vm {
     pub fn type_name(&self) -> &'static str {
         match self {
             Vm::Kvm(_) => "Kvm",
+            Vm::Enclave(_) => "Enclave",
         }
     }
 
@@ -137,6 +155,15 @@ impl Vm {
     pub fn as_kvm(&self) -> Option<&Arc<KvmVm>> {
         match self {
             Vm::Kvm(v) => Some(v),
+            Vm::Enclave(_) => None,
+        }
+    }
+
+    /// Returns a reference to the inner EnclaveVm, or `None` if this is not an Enclave VM.
+    pub fn as_enclave(&self) -> Option<&EnclaveVm> {
+        match self {
+            Vm::Kvm(_) => None,
+            Vm::Enclave(e) => Some(e),
         }
     }
 }
@@ -203,7 +230,14 @@ impl KvmVm {
     /// Creates the specified number of [`Vcpu`]s.
     ///
     /// Each vCPU gets a clone of the `vcpus_exit_evt` EventFd stored on this KvmVm.
-    pub fn create_vcpus(&mut self, vcpu_count: u8) -> Result<Vec<Vcpu>, VmError> {
+    ///
+    /// This also creates the irqchip, which KVM registers on its io bus. Since Linux 6.18 (commit
+    /// 7d9a0273c459, "KVM: Avoid synchronize_srcu() in kvm_io_bus_register_dev()") that
+    /// registration starts an SRCU grace period, and a memslot update issued right after it waits
+    /// for the grace period to end (tens of ms), so register every memslot before calling this.
+    /// Intel hosts still wait once: KVM adds its own APIC access page memslot while creating the
+    /// first vCPU.
+    pub fn create_vcpus(&self, vcpu_count: u8) -> Result<Vec<Vcpu>, VmError> {
         self.arch_pre_create_vcpus(vcpu_count)?;
 
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
@@ -428,7 +462,7 @@ impl KvmVm {
         region: kvm_userspace_memory_region,
     ) -> Result<(), VmError> {
         #[cfg(test)]
-        if self.common.fail_set_user_memory_region_in.fetch_update(
+        if self.common.fail_set_user_memory_region_in.try_update(
             Ordering::Relaxed,
             Ordering::Relaxed,
             |n| (n > 0).then(|| n - 1),
@@ -852,7 +886,7 @@ pub(crate) mod tests {
         // memfd-backed: what a VM configured with a vhost-user block before boot
         // gets.
         let mut vm = setup_vm();
-        let regions = arch::arch_memory_regions(mib_to_bytes(128));
+        let regions = arch::arch_memory_regions(mib_to_bytes(128)).unwrap();
         let total: u64 = regions.iter().map(|&(_, size)| size as u64).sum();
         let gm = crate::vstate::memory::MemfdBacking::new(total, HugePageConfig::None)
             .unwrap()
@@ -865,7 +899,7 @@ pub(crate) mod tests {
         // rejected.
         let mut vm = setup_vm();
         let file = vmm_sys_util::tempfile::TempFile::new().unwrap().into_file();
-        let regions = arch::arch_memory_regions(mib_to_bytes(128));
+        let regions = arch::arch_memory_regions(mib_to_bytes(128)).unwrap();
         let total: u64 = regions.iter().map(|&(_, size)| size as u64).sum();
         file.set_len(total).unwrap();
         let gm = crate::vstate::memory::snapshot_file(file, &regions, false, HugePageConfig::None)
@@ -937,14 +971,14 @@ pub(crate) mod tests {
     #[test]
     fn test_create_vcpus() {
         let vcpu_count = 2;
-        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
 
         let vcpu_vec = vm.create_vcpus(vcpu_count).unwrap();
 
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }
 
-    fn enable_irqchip(vm: &mut KvmVm) {
+    fn enable_irqchip(vm: &KvmVm) {
         #[cfg(target_arch = "x86_64")]
         vm.setup_irqchip().unwrap();
         #[cfg(target_arch = "aarch64")]
@@ -968,8 +1002,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_disable() {
-        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
-        enable_irqchip(&mut vm);
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&vm);
         let vm = Arc::new(vm);
         let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
 
@@ -990,8 +1024,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_trigger() {
-        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
-        enable_irqchip(&mut vm);
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&vm);
 
         let vm = Arc::new(vm);
         let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
@@ -1020,8 +1054,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_update_invalid_vector() {
-        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
-        enable_irqchip(&mut vm);
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&vm);
         let vm = Arc::new(vm);
         let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
         let sbdf = PciSBDF::from(0xafa);
@@ -1041,8 +1075,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_update() {
-        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
-        enable_irqchip(&mut vm);
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&vm);
         let vm = Arc::new(vm);
         assert!(vm.common.interrupts.lock().unwrap().is_empty());
         let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
@@ -1136,8 +1170,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_persistence() {
-        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
-        enable_irqchip(&mut vm);
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&vm);
         let vm = Arc::new(vm);
         let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
 
@@ -1167,8 +1201,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_restore_rejects_out_of_range_gsi() {
-        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
-        enable_irqchip(&mut vm);
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&vm);
         let vm = Arc::new(vm);
 
         // A snapshot with a GSI outside the managed MSI range must be rejected rather than panic
@@ -1179,8 +1213,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_drop_frees_gsis() {
-        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
-        enable_irqchip(&mut vm);
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&vm);
         let vm = Arc::new(vm);
 
         let gsis_before = vm.resource_allocator().allocate_gsi_msi(1).unwrap();
@@ -1219,7 +1253,7 @@ pub(crate) mod tests {
     fn test_restore_state_resource_allocator() {
         use vm_allocator::AllocPolicy;
 
-        let mut vm = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
         // Allocate a GSI and some memory.

@@ -118,12 +118,54 @@ def pytest_report_header():
 
 
 @pytest.hookimpl(trylast=True)
-def pytest_collection_modifyitems(items):
-    """Fail only when the selected tests require an unavailable VM backend."""
-    if not available_vm_backends() and any(
+def pytest_collection_modifyitems(config, items):
+    """Remove unsupported VM parameterisations from collection.
+
+    Fail cleanly when selected tests require a VM backend but this host has
+    none. Otherwise deselect what cannot run here: availability is a host
+    fact decided below, and each backend answers for the parametrisations it
+    cannot express.
+    """
+    available_backends = set(available_vm_backends())
+    if not available_backends and any(
         "vm_backend" in getattr(item, "fixturenames", ()) for item in items
     ):
-        pytest.exit("No VM backends are available on this host", returncode=5)
+        pytest.exit(
+            "No VM backends are available on this host\n"
+            + "\n".join(vm_backend_probe_report()),
+            returncode=5,
+        )
+
+    selected = []
+    deselected = []
+
+    for item in items:
+        callspec = getattr(item, "callspec", None)
+        params = callspec.params if callspec is not None else {}
+        backend = params.get("vm_backend")
+
+        # Tests that don't require a VM to run (e.g. style tests) should always be collected.
+        if backend is None:
+            selected.append(item)
+            continue
+
+        backend = get_vm_backend(backend)
+        if backend not in available_backends:
+            deselected.append(item)
+        elif backend.deselect_reason(
+            kernel=params.get("guest_kernel"),
+            pci_enabled=params.get("pci_enabled"),
+            huge_pages=params.get("huge_pages"),
+            lifecycle=params.get("uvm_lifecycle"),
+            cpu_template=params.get("cpu_template"),
+        ):
+            deselected.append(item)
+        else:
+            selected.append(item)
+
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = selected
 
 
 @pytest.hookimpl(wrapper=True, tryfirst=True)
@@ -505,6 +547,12 @@ def io_engine(request):
     return request.param
 
 
+@pytest.fixture(params=[None, 1], ids=["inline", "threaded"])
+def num_queues(request):
+    """Block device queue count. `None` keeps the queue on the VMM thread."""
+    return request.param
+
+
 @pytest.fixture(
     params=[SnapshotType.DIFF, SnapshotType.DIFF_MINCORE, SnapshotType.FULL]
 )
@@ -585,8 +633,11 @@ def huge_pages(request):
 def vm_backend(request, record_property):
     """Backend used by the `uvm*` fixtures.
 
-    Tests are auto-multiplied over the backends this host can actually run
-    (`available_vm_backends`).
+    By default a test is auto-multiplied only over the backends this host can
+    actually run (`available_vm_backends`), so e.g. a KVM-only host generates no
+    enclave variants. A test pinned with `pin_vm_backend` to a backend the host
+    lacks is deselected during collection, so an unavailable backend reaching
+    fixture setup means that filtering failed: fail loudly rather than skip.
     """
     if request.param not in available_vm_backends():
         pytest.fail(f"Backend {request.param!r} not available on this host")
@@ -611,7 +662,8 @@ def vm_backend(request, record_property):
 # defaults baked into their bodies. Override a dim with
 # `@pytest.mark.parametrize(<dim>, [...], indirect=True)` or use the helpers
 # from `framework.artifacts` (`pin_guest_kernel`, `pin_rootfs_mode`,
-# `pin_pci`) and `framework.utils_cpu_templates` (`pin_cpu_template`).
+# `pin_pci`), `framework.vm_backend` (`pin_vm_backend`), and
+# `framework.utils_cpu_templates` (`pin_cpu_template`).
 #
 # Module-level `pytestmark` works for tests that don't override that same
 # dim per-test — pytest's parametrize markers do NOT merge: a pytestmark +
@@ -634,14 +686,20 @@ def vm_backend(request, record_property):
 # (stage overrides), `test_sysgenid.py` (stage decoration) and
 # `test_fips.py` (custom boot args via a `uvm_configured` override).
 #
+# Backend ownership is local to the test file or test case: by default tests run
+# on every VM backend, and KVM-only coverage should opt out with
+# `pin_vm_backend(VM_BACKEND_KVM)`.
+#
 # Dimensions:
 #   guest_kernel  Logical guest kernel variant                 auto-multiplied
 #                                                              over ALL_GUEST_KERNELS
 #   rootfs_mode   "ro" | "rw"                                  default "ro"
 #   rootfs        Path to a rootfs disk, composed from         (composed)
 #                 guest_kernel + rootfs_mode (Ubuntu for 5.10, AL2023 otherwise)
-#   pci_enabled   True / False                                 auto-multiplied
-#   vm_backend    "kvm"                                        auto-multiplied
+#   pci_enabled   True / False                                 auto-multiplied;
+#                                                              enclaves PCI_ON only
+#   vm_backend    "kvm" | "enclave-direct" |                   auto-multiplied
+#                 "enclave-confidential"
 #   pcie_hotplug_ports  int                                    default 0
 #   cpu_template  None | static name | custom dict             default None
 #   huge_pages    HugePagesConfig                              default NONE
@@ -693,7 +751,11 @@ def rootfs(guest_kernel, rootfs_mode):
 
 @pytest.fixture
 def uvm(microvm_factory, vm_backend, guest_kernel, rootfs, pci_enabled):
-    """Built microVM (chroot only). Caller drives spawn/basic_config/start."""
+    """Built microVM (chroot only). Caller drives spawn/basic_config/start.
+
+    The VM is bound to `vm_backend`, so its spawn/basic_config/start verbs drive
+    either the KVM or the Nitro Enclave lifecycle transparently.
+    """
     return microvm_factory.build(
         guest_kernel,
         rootfs,
@@ -727,8 +789,14 @@ def uvm_booted(uvm_configured):
 
 
 @pytest.fixture
-def uvm_restored(uvm_booted, microvm_factory):
-    """Booted microVM, snapshotted, restored from the snapshot."""
+def uvm_restored(vm_backend, uvm_booted, microvm_factory):
+    """Booted microVM, snapshotted, restored from the snapshot.
+
+    Enclave `uvm_any` restored variants are deselected at collection. Keep the
+    backend guard for direct `uvm_restored` consumers, which should fail loudly
+    rather than be silently skipped.
+    """
+    vm_backend.require_restore_support()
     snapshot = uvm_booted.snapshot_full()
     uvm_booted.kill()
     restored = microvm_factory.build_from_snapshot(snapshot)

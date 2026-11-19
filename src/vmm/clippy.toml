@@ -15,4 +15,6 @@ disallowed-methods = [
     { path = "vm_memory::ReadVolatile::read_exact_volatile", reason = "marks the whole slice dirty on a failed read" },
     { path = "vm_memory::Bytes::read_volatile_from", reason = "marks the whole range dirty on a failed read" },
     { path = "vm_memory::Bytes::read_exact_volatile_from", reason = "marks the whole range dirty on a failed read" },
+    { path = "imago::io_buffers::IoVectorMut::from_volatile_slice", reason = "marks unwritten memory dirty on a failed read", allow-invalid = true },
+    { path = "imago::io_buffers::IoVectorMut::from_volatile_slice_one", reason = "marks unwritten memory dirty on a failed read", allow-invalid = true },
 ]

@@ -19,7 +19,13 @@ from framework.artifacts import pin_pci
 from framework.microvm import MicroVMFactory
 from framework.properties import global_props
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 from framework.vm_lifecycle import VmLifecycle
+
+# Guest tests use CPU templates and MMIO mode, which enclaves cannot express.
+# Host tests only matter on metal KVM hosts: enclaves run on EC2 virtualised
+# instances, where EC2 owns host vulnerability management.
+pytestmark = pin_vm_backend(VM_BACKEND_KVM)
 
 CHECKER_URL = "https://raw.githubusercontent.com/speed47/spectre-meltdown-checker/master/spectre-meltdown-checker.sh"
 CHECKER_FILENAME = "spectre-meltdown-checker.sh"
@@ -163,6 +169,8 @@ def _download_checker_script():
     global_props.buildkite_pr or global_props.is_dev_env,
     reason="Test depends solely on factors external to GitHub repository",
 )
+# Consume the module pin's vm_backend parameter so collection succeeds.
+@pytest.mark.usefixtures("vm_backend")
 def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     """Test with the spectre / meltdown checker on host."""
     report = spectre_meltdown_checker.get_report_for_host()
@@ -174,6 +182,8 @@ def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     global_props.buildkite_pr or global_props.is_dev_env,
     reason="Test depends solely on factors external to GitHub repository",
 )
+# Consume the module pin's vm_backend parameter so collection succeeds.
+@pytest.mark.usefixtures("vm_backend")
 def test_vulnerabilities_on_host():
     """Test vulnerability files on host."""
     res = utils.run_cmd(f"grep -r Vulnerable {VULN_DIR}")

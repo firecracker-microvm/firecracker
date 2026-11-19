@@ -12,6 +12,9 @@ import framework.utils_cpuid as utils
 from framework.artifacts import pin_pci
 from framework.properties import global_props
 from framework.utils import get_kernel_version
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
+
+pytestmark = pin_vm_backend(VM_BACKEND_KVM)
 
 TOPOLOGY_STR = {1: "0", 2: "0,1", 16: "0-15"}
 PLATFORM = platform.machine()

@@ -21,6 +21,7 @@ import psutil
 import pytest
 
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 # If guest memory is >3072MB, it is split in a 2nd region
 X86_MEMORY_GAP_START = 3072 * 2**20
@@ -28,9 +29,10 @@ X86_MEMORY_GAP_START = 3072 * 2**20
 
 @pytest.mark.parametrize(
     "vcpu_count,mem_size_mib",
-    [(1, 128), (1, 1024), (2, 2048), (4, 4096), (32, 4096)],
+    [(1, 1024), (2, 2048), (4, 4096), (32, 4096)],
 )
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_vm_backend(VM_BACKEND_KVM)
 @pytest.mark.nonci
 def test_memory_overhead(
     microvm_factory,

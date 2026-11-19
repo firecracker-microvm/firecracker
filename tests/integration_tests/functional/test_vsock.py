@@ -14,13 +14,13 @@ In order to test the vsock device connection state machine, these tests will:
 """
 
 import os.path
+import signal
 import socket
 import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack
-from pathlib import Path
 from socket import timeout as SocketTimeout
 
 import pytest
@@ -46,6 +46,8 @@ from framework.utils_vsock import (
     start_guest_echo_server,
     vsock_connect_to_guest,
 )
+from framework.utils_wait import start_guest_process, wait_for_unix_socket_on_host
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 from host_tools.fcmetrics import validate_fc_metrics
 
 NEGATIVE_TEST_CONNECTION_COUNT = 100
@@ -65,7 +67,6 @@ def vsock_uvm(uvm, request):
         mem_size_mib=1024,
         log_level="Info",
         emit_metrics=True,
-        pin_threads=True,
     )
 
 
@@ -241,6 +242,7 @@ def test_vsock_epipe(vsock_uvm_any, bin_vsock_path, test_fc_session_root_path):
     validate_fc_metrics(metrics)
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_vsock_bare_pause_resume(
     vsock_uvm_any, bin_vsock_path, test_fc_session_root_path
 ):
@@ -283,6 +285,7 @@ def test_vsock_bare_pause_resume(
 
 
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_vm_backend(VM_BACKEND_KVM)
 @pytest.mark.parametrize("vsock_uvm", [1, 2], indirect=True, ids=["1vcpu", "2vcpu"])
 def test_vsock_transport_reset_h2g(
     vsock_uvm, microvm_factory, bin_vsock_path, test_fc_session_root_path
@@ -369,6 +372,7 @@ def test_vsock_transport_reset_h2g(
 
 
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_vm_backend(VM_BACKEND_KVM)
 @pytest.mark.parametrize("vsock_uvm", [1, 2], indirect=True, ids=["1vcpu", "2vcpu"])
 def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
     """
@@ -400,28 +404,25 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
             "STDOUT",
         ]
         host_socat = subprocess.Popen(
-            host_socat_commmand, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            host_socat_commmand,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
         )
 
         try:
-            # Waiting for the host socat to create socket
-            for attempt in Retrying(
-                wait=wait_fixed(0.1), stop=stop_after_delay(1.0), reraise=True
-            ):
-                with attempt:
-                    assert Path(host_socket_path).exists()
+            wait_for_unix_socket_on_host("", host_socket_path)
 
             new_vm.create_jailed_resource(host_socket_path)
 
-            # Create a socat process in the guest which will connect to the host socat
-            guest_socat_commmand = (
-                f"tmux new -d 'socat - vsock-connect:2:{ECHO_SERVER_PORT}'"
+            # Create a socat process in the guest which will connect to the
+            # host socat and wait until it is connected. Without a tty, stdin
+            # hits EOF right away, so tell socat to ignore it.
+            start_guest_process(
+                new_vm,
+                f"socat -d -d -,ignoreeof vsock-connect:2:{ECHO_SERVER_PORT}",
+                "starting data transfer loop",
             )
-            new_vm.ssh.run(guest_socat_commmand)
-
-            # socat should be running in the guest now
-            code, _, _ = new_vm.ssh.run("pidof socat")
-            assert code == 0
 
             # Create snapshot.
             snapshot = new_vm.snapshot_full()
@@ -436,17 +437,19 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
                     code, _, _ = new_vm.ssh.run("pidof socat")
                     assert code == 1
         finally:
-            # Kill host socat as it is not useful anymore. Done in `finally`
-            # so that an assertion failure earlier in the iteration does not
-            # leak a `socat` process into the next iteration (or the next
-            # test).
-            host_socat.kill()
-            host_socat.communicate()
+            # Kill host socat as it is not useful anymore, together with the
+            # child it forked for the guest connection, which would otherwise
+            # keep `communicate()` waiting. Done in `finally` so that an
+            # assertion failure earlier in the iteration does not leak a
+            # `socat` process into the next iteration (or the next test).
+            os.killpg(host_socat.pid, signal.SIGKILL)
+            host_socat.communicate(timeout=10)
 
             # Terminate VM.
             new_vm.kill()
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_vsock_after_override(
     uvm, microvm_factory, bin_vsock_path, test_fc_session_root_path
 ):
@@ -500,6 +503,7 @@ def test_vsock_after_override(
     validate_fc_metrics(metrics)
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_vsock_override_fails_without_device(uvm, microvm_factory):
     """
     Providing an override should fail if there is no vsock device.
@@ -528,8 +532,10 @@ def test_vsock_override_fails_without_device(uvm, microvm_factory):
 
 
 @pytest.mark.nonci
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_vsock_post_restore_connect_storm(
     microvm_factory,
+    vm_backend,
     guest_kernel,
     rootfs,
     bin_vsock_path,
@@ -543,7 +549,7 @@ def test_vsock_post_restore_connect_storm(
     blob_path, _blob_hash = make_blob(test_fc_session_root_path)
     vm_blob_path = "/tmp/vsock/test.blob"
 
-    test_vm = microvm_factory.build(guest_kernel, rootfs, pci=True)
+    test_vm = microvm_factory.build(guest_kernel, rootfs, pci=True, backend=vm_backend)
     test_vm.spawn()
     test_vm.basic_config(vcpu_count=4, mem_size_mib=256)
     test_vm.add_net_iface()
@@ -621,6 +627,7 @@ def test_vsock_post_restore_connect_storm(
             vm.kill()
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_snapshot_restore_with_inflight_vsock_tx(
     vsock_uvm, bin_vsock_path, tmp_path, microvm_factory
@@ -667,6 +674,10 @@ def test_snapshot_restore_with_inflight_vsock_tx(
     check_guest_connections(new_vm, path, vm_blob_path, blob_hash)
 
 
+# The enclave transport does not handle virtio device reset: it never consumes
+# reset_count from the info-page device entry header, so a guest driver rebind
+# leaves the parent with stale queue state.
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_device_reset(uvm):
     """
     Test that virtio-vsock device reset works.
@@ -701,11 +712,9 @@ def test_device_reset(uvm):
     ret = vm.ssh.run("ls /sys/bus/virtio/drivers/vmw_vsock_virtio_transport/virtio*")
     assert ret.returncode != 0
 
-    # Rebind and verify the data path works by starting a guest echo server
-    # and sending data from the host through the vsock.
+    # Rebind and verify the data path works by sending data from the host
+    # to the echo server, whose listening socket survives the reset.
     vm.ssh.check_output(
         f"echo {virtio_dev} > /sys/bus/virtio/drivers/vmw_vsock_virtio_transport/bind"
     )
-    uds_path = start_guest_echo_server(vm)
-    blob_path, blob_hash = make_blob(vm.path)
     check_host_connections(uds_path, blob_path, blob_hash)
