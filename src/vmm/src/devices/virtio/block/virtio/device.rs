@@ -22,7 +22,7 @@ use vm_memory::ByteValued;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::io::FileEngine;
-use super::worker::{BlockWorker, FlushMode, WorkerHandle};
+use super::worker::{BlockWorker, WorkerHandle};
 use super::{
     BLOCK_QUEUE_SIZE, DEFAULT_BLOCK_NUM_QUEUES, MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE,
     VirtioBlockError,
@@ -472,6 +472,20 @@ impl BlockResources {
     }
 }
 
+/// Flushes the backing file of a drive whose queues all completed their pending I/O.
+///
+/// Every queue writes through its own descriptor of the same file, and one fsync covers what all of
+/// them wrote, so it is enough to flush through any one queue: the first.
+fn flush_disk<'a>(queues: impl IntoIterator<Item = &'a mut BlockResources>) {
+    let Some(queue) = queues.into_iter().next() else {
+        return;
+    };
+    // Nothing is in flight, so the drain returns at once.
+    if let Err(err) = queue.disk.file_engine.drain_and_flush(false) {
+        error!("Failed to flush block device: {:?}", err);
+    }
+}
+
 impl VirtioBlock {
     /// Create a new virtio block device that operates on the given file.
     ///
@@ -733,26 +747,28 @@ impl VirtioBlock {
     /// Prepare device for being snapshotted.
     pub fn prepare_save(&mut self) {
         match &mut self.state {
-            BlockRuntimeState::Inline(worker) => worker.prepare_save(FlushMode::DrainAndFlush),
-            // Take every worker back, so their queues cannot move under the snapshot. A second
-            // snapshot of the same pause finds them paused already.
+            BlockRuntimeState::Inline(worker) => {
+                worker.prepare_save();
+                flush_disk([&mut worker.resources]);
+            }
+            // Take every worker back, so their queues cannot move under the snapshot, then flush
+            // once all of them drained. A second snapshot of the same pause finds them paused
+            // already.
             BlockRuntimeState::Threaded(active) => {
                 if let ThreadedWorkers::Running(handles) = &mut active.workers {
-                    let mut handles = std::mem::take(handles);
-                    let last = handles
-                        .pop()
-                        .expect("threaded block device must have at least one worker");
-                    let mut paused: Vec<_> = handles
+                    let paused = std::mem::take(handles)
                         .into_iter()
                         .map(|handle| {
-                            let worker = handle.hand_back(FlushMode::Drain);
+                            let worker = handle.hand_back();
                             (handle, worker)
                         })
                         .collect();
-                    let worker = last.hand_back(FlushMode::DrainAndFlush);
-                    paused.push((last, worker));
                     active.workers = ThreadedWorkers::Paused(paused);
                 }
+                let ThreadedWorkers::Paused(paused) = &mut active.workers else {
+                    unreachable!("the workers were taken back above");
+                };
+                flush_disk(paused.iter_mut().map(|(_, worker)| &mut worker.resources));
             }
             BlockRuntimeState::Configuring(_, _) => {}
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
@@ -776,7 +792,7 @@ impl VirtioBlock {
                     Ok(queue_evt) => queue_evt,
                     Err(err) => {
                         for handle in spawned {
-                            handle.finish(FlushMode::Drain);
+                            handle.finish();
                         }
                         return Err(VirtioBlockError::EventFd(err));
                     }
@@ -787,7 +803,7 @@ impl VirtioBlock {
                     Ok(worker) => worker,
                     Err(err) => {
                         for handle in spawned {
-                            handle.finish(FlushMode::Drain);
+                            handle.finish();
                         }
                         return Err(VirtioBlockError::ThreadSpawn(err));
                     }
@@ -1077,72 +1093,50 @@ impl VirtioDevice for VirtioBlock {
 
 impl Drop for VirtioBlock {
     fn drop(&mut self) {
-        let flush_mode = match self.config.cache_type {
-            CacheType::Unsafe => FlushMode::Drain,
-            CacheType::Writeback => FlushMode::DrainAndFlush,
-        };
+        let flush = self.config.cache_type == CacheType::Writeback;
 
-        match std::mem::replace(&mut self.state, BlockRuntimeState::Placeholder) {
-            BlockRuntimeState::Inline(mut worker) => match flush_mode {
-                FlushMode::Drain => worker.drain(true),
-                FlushMode::DrainAndFlush => worker.drain_and_flush(true),
-            },
-            BlockRuntimeState::Threaded(ThreadedActive {
-                workers: ThreadedWorkers::Running(mut handles),
-                ..
-            }) => {
-                let last = handles
-                    .pop()
-                    .expect("threaded block device must have at least one worker");
-                for handle in handles {
-                    handle.finish(FlushMode::Drain);
+        // Every queue completes its pending I/O first, then the drive flushes once.
+        let mut resources: Vec<_> =
+            match std::mem::replace(&mut self.state, BlockRuntimeState::Placeholder) {
+                BlockRuntimeState::Inline(mut worker) => {
+                    if let Err(err) = worker.resources.disk.file_engine.drain(true) {
+                        error!("Failed to drain block IO engine on drop: {:?}", err);
+                    }
+                    vec![worker.resources]
                 }
-                last.finish(flush_mode);
-            }
-            // Paused workers drained when they were handed back; the last queue flushes, as on
-            // their threads before.
-            BlockRuntimeState::Threaded(ThreadedActive {
-                workers: ThreadedWorkers::Paused(paused),
-                ..
-            }) => {
-                let mut workers: Vec<_> = paused
+                // A running worker drains on its thread and returns its queue as it exits.
+                BlockRuntimeState::Threaded(ThreadedActive {
+                    workers: ThreadedWorkers::Running(handles),
+                    ..
+                }) => handles
+                    .into_iter()
+                    .filter_map(WorkerHandle::finish)
+                    .collect(),
+                // Paused workers drained when they were handed back.
+                BlockRuntimeState::Threaded(ThreadedActive {
+                    workers: ThreadedWorkers::Paused(paused),
+                    ..
+                }) => paused
                     .into_iter()
                     .map(|(handle, worker)| {
                         // a parked worker owns no runtime resources, it just joins the thread
-                        handle.finish(FlushMode::Drain);
-                        worker
+                        handle.finish();
+                        worker.resources
                     })
-                    .collect();
-                let last = workers
-                    .last_mut()
-                    .expect("threaded block device must have at least one worker");
-                if let FlushMode::DrainAndFlush = flush_mode {
-                    last.drain_and_flush(true);
-                }
-            }
-            BlockRuntimeState::Configuring(mut resources, worker_handles) => {
-                let (last, rest) = resources
-                    .split_last_mut()
-                    .expect("block device must have at least one queue");
-                for resource in rest {
-                    if let Err(err) = resource.disk.file_engine.drain(true) {
-                        error!("Failed to drain ops on drop: {:?}", err);
+                    .collect(),
+                // Nothing was submitted since activation or the reset, which drained every queue.
+                BlockRuntimeState::Configuring(resources, worker_handles) => {
+                    for handle in worker_handles {
+                        // a parked worker owns no runtime resources, it just joins the thread
+                        handle.finish();
                     }
+                    resources
                 }
-                let result = match flush_mode {
-                    FlushMode::Drain => last.disk.file_engine.drain(true),
-                    FlushMode::DrainAndFlush => last.disk.file_engine.drain_and_flush(true),
-                };
-                if let Err(err) = result {
-                    error!("Failed to drain ops and flush block data: {:?}", err);
-                }
-                for handle in worker_handles {
-                    // a parked worker owns no runtime resources, it just joins the thread
-                    handle.finish(FlushMode::Drain);
-                }
-            }
-            BlockRuntimeState::Placeholder => {}
-        };
+                BlockRuntimeState::Placeholder => return,
+            };
+        if flush {
+            flush_disk(&mut resources);
+        }
     }
 }
 
@@ -2540,6 +2534,12 @@ mod tests {
     }
 
     #[test]
+    fn test_flush_disk_without_queues() {
+        // A drive always has a queue, but an empty list must not panic.
+        flush_disk(std::iter::empty());
+    }
+
+    #[test]
     fn test_threaded_rate_limiter_event() {
         let mut block = default_threaded_block(FileEngineType::Sync);
         let mem = default_mem();
@@ -2607,6 +2607,79 @@ mod tests {
         assert!(!used_ring_dirty());
         block.commit_dirty();
         assert!(used_ring_dirty());
+    }
+
+    #[test]
+    fn test_mq_async_snapshot_and_drop() {
+        use std::os::unix::fs::FileExt;
+
+        use crate::devices::virtio::block::virtio::test_utils::default_config;
+        use crate::snapshot::Persist;
+
+        let f = TempFile::new().unwrap();
+        f.as_file().set_len(0x1000).unwrap();
+        let mut config = default_config(
+            f.as_path().to_str().unwrap().to_string(),
+            FileEngineType::Async,
+        );
+        config.num_queues = NonZeroU16::new(2);
+        config.cache_type = CacheType::Writeback;
+        let mut block = VirtioBlock::new(config).unwrap();
+        block.spawn_worker(Arc::new(vec![])).unwrap();
+
+        let mem = default_mem();
+        let vqs = [
+            VirtQueue::new(GuestAddress(0), &mem, 16),
+            VirtQueue::new(GuestAddress(0x4000), &mem, 16),
+        ];
+        for (idx, vq) in vqs.iter().enumerate() {
+            set_queue(&mut block, idx, vq.create_queue());
+        }
+        block.activate(mem.clone(), default_interrupt()).unwrap();
+
+        // One write per queue, each to its own sector from its own buffers.
+        let status_addr = |idx: u8| GuestAddress(0xa000 + 0x4000 * u64::from(idx));
+        for (idx, vq) in (0u8..).zip(&vqs) {
+            let header_addr = 0x8000 + 0x4000 * u64::from(idx);
+            read_blk_req_descriptors(vq);
+            vq.dtable[0].set(header_addr, 0x1000, VIRTQ_DESC_F_NEXT, 1);
+            vq.dtable[1].set(header_addr + 0x1000, 0x200, VIRTQ_DESC_F_NEXT, 2);
+            vq.dtable[2].set(status_addr(idx).0, 0x1000, VIRTQ_DESC_F_WRITE, 3);
+            mem.write_obj(
+                RequestHeader::new(VIRTIO_BLK_T_OUT, u64::from(idx)),
+                GuestAddress(header_addr),
+            )
+            .unwrap();
+            mem.write_slice(&[0xa0 + idx; 0x200], GuestAddress(header_addr + 0x1000))
+                .unwrap();
+        }
+
+        // Both workers submit their write; the snapshot pauses them while the writes may still
+        // be in flight, and every request is completed by the time it returns.
+        block.kick();
+        block.prepare_save();
+        for (idx, vq) in (0u8..).zip(&vqs) {
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(
+                u32::from(mem.read_obj::<u8>(status_addr(idx)).unwrap()),
+                VIRTIO_BLK_S_OK
+            );
+        }
+        let BlockRuntimeState::Threaded(active) = &block.state else {
+            unreachable!()
+        };
+        assert!(matches!(&active.workers, ThreadedWorkers::Paused(paused) if paused.len() == 2));
+        assert_eq!(block.save().virtio_state.queues.len(), 2);
+
+        // Dropping the paused writeback drive finishes both threads; both writes are in the file.
+        drop(block);
+        let mut sector = [0u8; 0x200];
+        for idx in 0u8..2 {
+            f.as_file()
+                .read_exact_at(&mut sector, u64::from(idx) * 0x200)
+                .unwrap();
+            assert_eq!(sector, [0xa0 + idx; 0x200]);
+        }
     }
 
     #[test]

@@ -54,10 +54,10 @@ enum ControlMsg {
     Start(BlockWorker),
     UpdateDiskImage { path: String, read_only: bool },
     Reset,
-    HandBack(FlushMode),
+    HandBack,
     CommitDirty,
     Kick,
-    Finish(FlushMode),
+    Finish,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -67,6 +67,7 @@ enum ControlResponse {
     Reset(BlockResources),
     HandedBack(BlockWorker),
     DirtyCommitted,
+    Finished(Option<BlockResources>),
 }
 
 /// VMM-side handle for controlling and joining a block worker thread.
@@ -77,13 +78,6 @@ pub(crate) struct WorkerHandle {
     control_evt: EventFd,
     join: JoinHandle<()>,
     queue_evt: EventFd,
-}
-
-/// Determines how pending I/O is handled when a worker is handed back or finishes.
-#[derive(Clone, Copy)]
-pub(crate) enum FlushMode {
-    Drain,
-    DrainAndFlush,
 }
 
 macro_rules! unwrap_async_file_engine_or_return {
@@ -272,34 +266,12 @@ impl BlockWorker {
         }
     }
 
-    pub(crate) fn drain_and_flush(&mut self, discard: bool) {
-        if let Err(err) = self.resources.disk.file_engine.drain_and_flush(discard) {
-            error!("Failed to drain ops and flush block data: {:?}", err);
-        }
-    }
-
-    pub(crate) fn drain(&mut self, discard: bool) {
-        if let Err(err) = self.resources.disk.file_engine.drain(discard) {
-            error!("Failed to drain ops: {:?}", err);
-        }
-    }
-
-    /// Prepare device for being snapshotted.
-    pub(crate) fn prepare_save(&mut self, flush_mode: FlushMode) {
-        // Fsync errors are non-fatal; other drain errors are broken invariants.
-        let result = match flush_mode {
-            FlushMode::Drain => self.resources.disk.file_engine.drain(false),
-            FlushMode::DrainAndFlush => self.resources.disk.file_engine.drain_and_flush(false),
-        };
-        match result {
-            Ok(()) => {}
-            Err(BlockIoError::Async(async_io::AsyncIoError::SyncAll(err))) => {
-                error!("Failed to flush block data for snapshot: {:?}", err);
-            }
-            Err(BlockIoError::Sync(err)) => {
-                error!("Failed to flush block data for snapshot: {:?}", err);
-            }
-            Err(err) => panic!("Failed to drain block IO engine for snapshot: {err:?}"),
+    /// Prepare the queue for being snapshotted: complete its pending I/O. The device flushes the
+    /// backing file once every queue did (see `VirtioBlock::prepare_save`).
+    pub(crate) fn prepare_save(&mut self) {
+        // Drain errors are broken invariants.
+        if let Err(err) = self.resources.disk.file_engine.drain(false) {
+            panic!("Failed to drain block IO engine for snapshot: {err:?}");
         }
         if matches!(&self.resources.disk.file_engine, FileEngine::Async(_)) {
             self.process_async_completion_queue();
@@ -407,8 +379,8 @@ impl WorkerHandle {
 
     /// Stop data-path processing after completing pending I/O and take the worker back from its
     /// thread, which stays parked until the worker is started again.
-    pub(crate) fn hand_back(&self, flush_mode: FlushMode) -> BlockWorker {
-        match self.request_response(ControlMsg::HandBack(flush_mode)) {
+    pub(crate) fn hand_back(&self) -> BlockWorker {
+        match self.request_response(ControlMsg::HandBack) {
             ControlResponse::HandedBack(worker) => worker,
             response => panic!("Unexpected block worker hand back response: {response:?}"),
         }
@@ -427,19 +399,31 @@ impl WorkerHandle {
         self.request(ControlMsg::Kick);
     }
 
-    /// Stop the worker and wait for its thread to exit.
-    pub(crate) fn finish(self, flush_mode: FlushMode) {
-        if let Err(err) = self.to_worker.send(ControlMsg::Finish(flush_mode)) {
+    /// Stop the worker and wait for its thread to exit. A running worker completes its pending
+    /// I/O first and returns its resources.
+    pub(crate) fn finish(self) -> Option<BlockResources> {
+        // A thread that already exited cannot take the request, but dropped its sender, so the
+        // wait below fails instead of blocking.
+        if let Err(err) = self.to_worker.send(ControlMsg::Finish) {
             error!("Block worker receiver already dropped: {:?}", err);
         }
-
         if let Err(err) = self.control_evt.write(1) {
             error!("Block worker control event is closed: {:?}", err);
         }
 
+        let resources = match self
+            .from_worker
+            .recv()
+            .expect("Failed to receive block worker response")
+        {
+            ControlResponse::Finished(resources) => resources,
+            response => panic!("Unexpected block worker finish response: {response:?}"),
+        };
+
         self.join.join().unwrap_or_else(|err| {
             error!("Block worker thread panicked during teardown: {:?}", err);
         });
+        resources
     }
 }
 
@@ -505,11 +489,11 @@ impl ThreadedWorker {
                 ControlMsg::UpdateDiskImage { path, read_only } => {
                     self.update_disk_image(path, read_only)
                 }
-                ControlMsg::HandBack(flush_mode) => self.hand_back(flush_mode, ops),
+                ControlMsg::HandBack => self.hand_back(ops),
                 ControlMsg::CommitDirty => self.commit_dirty(),
                 ControlMsg::Kick => self.kick_worker(),
                 ControlMsg::Reset => self.reset_worker(ops),
-                ControlMsg::Finish(flush_mode) => self.finish_worker(flush_mode, ops),
+                ControlMsg::Finish => self.finish_worker(ops),
             }
 
             if self.is_finished() {
@@ -564,7 +548,7 @@ impl ThreadedWorker {
         self.reply(ControlResponse::Reset(worker.resources));
     }
 
-    fn hand_back(&mut self, flush_mode: FlushMode, ops: &mut EventOps) {
+    fn hand_back(&mut self, ops: &mut EventOps) {
         let WorkerState::Running(mut worker) =
             std::mem::replace(&mut self.state, WorkerState::Parked)
         else {
@@ -572,7 +556,7 @@ impl ThreadedWorker {
         };
 
         Self::unregister_runtime_events(&worker.resources, ops);
-        worker.prepare_save(flush_mode);
+        worker.prepare_save();
         self.reply(ControlResponse::HandedBack(worker));
     }
 
@@ -596,22 +580,20 @@ impl ThreadedWorker {
             .unwrap_or_else(|err| error!("Failed to kick block worker queue: {:?}", err));
     }
 
-    fn finish_worker(&mut self, flush_mode: FlushMode, ops: &mut EventOps) {
-        match std::mem::replace(&mut self.state, WorkerState::Finished) {
-            WorkerState::Running(worker) => {
+    fn finish_worker(&mut self, ops: &mut EventOps) {
+        let resources = match std::mem::replace(&mut self.state, WorkerState::Finished) {
+            WorkerState::Running(mut worker) => {
                 Self::unregister_runtime_events(&worker.resources, ops);
-                Self::flush_worker(worker, flush_mode);
+                // Complete in-flight I/O here, while the worker still holds the guest memory it
+                // targets. The device flushes once every queue is back.
+                if let Err(err) = worker.resources.disk.file_engine.drain(true) {
+                    error!("Failed to drain block IO engine on finish: {:?}", err);
+                }
+                Some(worker.resources)
             }
-            WorkerState::Parked | WorkerState::Finished => {}
-        }
-    }
-
-    fn flush_worker(mut worker: BlockWorker, flush_mode: FlushMode) {
-        match flush_mode {
-            FlushMode::Drain => worker.drain(true),
-            FlushMode::DrainAndFlush => worker.drain_and_flush(true),
-        }
-        worker.resources.is_io_engine_throttled = false;
+            WorkerState::Parked | WorkerState::Finished => None,
+        };
+        self.reply(ControlResponse::Finished(resources));
     }
 
     fn is_finished(&self) -> bool {
@@ -723,20 +705,20 @@ mod tests {
         let handle = WorkerHandle::spawn(Arc::new(vec![]), queue_evt, "fc_test".into()).unwrap();
 
         handle.to_worker.send(ControlMsg::Start(worker)).unwrap();
-        handle
-            .to_worker
-            .send(ControlMsg::HandBack(FlushMode::DrainAndFlush))
-            .unwrap();
+        handle.to_worker.send(ControlMsg::HandBack).unwrap();
         handle.control_evt.write(1).unwrap();
 
         match handle.from_worker.recv_timeout(RECV_TIMEOUT_SEC).unwrap() {
             ControlResponse::HandedBack(worker) => {
                 assert_eq!(worker.resources.queue.save(), expected_queue_state);
+                // Finishing a running worker completes its I/O on its thread and returns its
+                // resources.
+                handle.start(worker);
             }
             response => panic!("Unexpected block worker response: {response:?}"),
         }
 
-        handle.finish(FlushMode::Drain);
+        assert!(handle.finish().is_some());
     }
 
     #[test]
@@ -766,7 +748,7 @@ mod tests {
         let handle = WorkerHandle::spawn(Arc::new(vec![]), queue_evt, "fc_test".into()).unwrap();
 
         handle.start(worker);
-        let worker = handle.hand_back(FlushMode::DrainAndFlush);
+        let worker = handle.hand_back();
 
         read_blk_req_descriptors(&vq);
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -783,14 +765,30 @@ mod tests {
         // Started again, the next kick processes the pending request.
         handle.start(worker);
         handle.kick();
-        let worker = handle.hand_back(FlushMode::DrainAndFlush);
+        let worker = handle.hand_back();
         assert_eq!(vq.used.idx.get(), 1);
         assert_eq!(vq.used.ring[0].get().id, 0);
         assert_eq!(vq.used.ring[0].get().len, VIRTIO_BLK_ID_BYTES + 1);
         assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
 
         drop(worker);
-        handle.finish(FlushMode::Drain);
+        assert!(handle.finish().is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to receive block worker response")]
+    fn test_finish_after_worker_panic() {
+        let handle = WorkerHandle::spawn(
+            Arc::new(vec![]),
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+            "fc_test".into(),
+        )
+        .unwrap();
+
+        // A parked worker has nothing to hand back, so its thread panics. Finishing it afterwards
+        // panics too, as every other request to a dead worker does, instead of waiting.
+        handle.request(ControlMsg::HandBack);
+        handle.finish();
     }
 
     #[test]
