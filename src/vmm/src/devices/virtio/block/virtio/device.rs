@@ -22,7 +22,7 @@ use vm_memory::ByteValued;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::io::FileEngine;
-use super::worker::{BlockWorker, FlushMode, WorkerHandle};
+use super::worker::BlockWorker;
 use super::{
     BLOCK_QUEUE_SIZE, DEFAULT_BLOCK_NUM_QUEUES, MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE,
     VirtioBlockError,
@@ -39,6 +39,10 @@ use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue, QueueConfig};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
+use crate::devices::virtio::worker::{
+    QueueGroupWorker, WorkerError, WorkerHandle, commit_dirty_all, finish_all, hand_back_all,
+    reset_all,
+};
 use crate::impl_device_type;
 use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter, SharedRateLimiter};
@@ -402,7 +406,7 @@ pub struct VirtioBlock {
 pub(crate) enum BlockRuntimeState {
     // Vmm owns the runtime resources before activation
     // In threaded mode, it also owns parked worker threads
-    Configuring(Vec<BlockResources>, Vec<WorkerHandle>),
+    Configuring(Vec<BlockResources>, Vec<WorkerHandle<BlockWorker>>),
     // Data path on VMM thread (single thread)
     Inline(BlockWorker),
     // Data path on a dedicated worker thread (multi thread)
@@ -414,9 +418,36 @@ pub(crate) enum BlockRuntimeState {
 /// VMM-side state when data paths run on worker threads
 #[derive(Debug)]
 pub(crate) struct ThreadedActive {
-    pub(crate) worker_handles: Vec<WorkerHandle>,
+    pub(crate) workers: ThreadedWorkers,
     interrupt: Arc<dyn VirtioInterrupt>,
     queue_configs: Vec<QueueConfig>,
+}
+
+/// Where the workers of an activated threaded device are, one per queue.
+#[derive(Debug)]
+pub(crate) enum ThreadedWorkers {
+    /// On their threads, reached through their handles.
+    Running(Vec<WorkerHandle<BlockWorker>>),
+    /// Handed back to the device for a snapshot (see `VirtioBlock::prepare_save`), each with the
+    /// handle of its thread, parked meanwhile. Nothing serves their queues until the next kick
+    /// starts them again.
+    Paused(Vec<(WorkerHandle<BlockWorker>, BlockWorker)>),
+}
+
+impl ThreadedWorkers {
+    fn len(&self) -> usize {
+        match self {
+            Self::Running(handles) => handles.len(),
+            Self::Paused(paused) => paused.len(),
+        }
+    }
+
+    fn handle(&self, index: usize) -> Option<&WorkerHandle<BlockWorker>> {
+        match self {
+            Self::Running(handles) => handles.get(index),
+            Self::Paused(paused) => paused.get(index).map(|(handle, _)| handle),
+        }
+    }
 }
 
 /// Runtime resources used by the block data path.
@@ -431,7 +462,7 @@ pub(crate) struct BlockResources {
 
 impl BlockResources {
     /// Drain pending I/O and clear engine throttling
-    fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         // The guest may reuse its buffers once the reset completes, so wait for every operation
         // still in flight. The wait retries EINTR; any other error leaves the engine in an unknown
         // state, so stop rather than complete the reset with operations in flight.
@@ -442,6 +473,20 @@ impl BlockResources {
             .drain(true)
             .expect("Failed to reset block IO engine");
         self.is_io_engine_throttled = false;
+    }
+}
+
+/// Flushes the backing file of a drive whose queues all completed their pending I/O.
+///
+/// Every queue writes through its own descriptor of the same file, and one fsync covers what all of
+/// them wrote, so it is enough to flush through any one queue: the first.
+fn flush_disk<'a>(queues: impl IntoIterator<Item = &'a mut BlockResources>) {
+    let Some(queue) = queues.into_iter().next() else {
+        return;
+    };
+    // Nothing is in flight, so the drain returns at once.
+    if let Err(err) = queue.disk.file_engine.drain_and_flush(false) {
+        error!("Failed to flush block device: {:?}", err);
     }
 }
 
@@ -575,6 +620,7 @@ impl VirtioBlock {
         &self.resources()[0].disk
     }
 
+    #[cfg(test)]
     pub(crate) fn is_threaded_active(&self) -> bool {
         matches!(self.state, BlockRuntimeState::Threaded(_))
     }
@@ -582,7 +628,8 @@ impl VirtioBlock {
     /// Process a single event in the Virtio queue.
     ///
     /// This function is called by the event manager when the guest notifies us
-    /// about new buffers in the queue.
+    /// about new buffers in the queue. Production events reach the inline worker directly.
+    #[cfg(test)]
     pub(crate) fn process_queue_event(&mut self) {
         if let BlockRuntimeState::Inline(worker) = &mut self.state {
             worker.process_queue_event();
@@ -610,16 +657,26 @@ impl VirtioBlock {
             BlockRuntimeState::Inline(worker) => {
                 worker.process_queue().unwrap();
             }
-            BlockRuntimeState::Threaded(active) => {
-                for handle in &active.worker_handles {
-                    handle.kick(false);
+            BlockRuntimeState::Threaded(ThreadedActive {
+                workers: ThreadedWorkers::Running(handles),
+                ..
+            }) => {
+                for handle in handles {
+                    if let Err(err) = handle.kick() {
+                        error!("Failed to kick a block worker after a rate limiter event: {err}");
+                    }
                 }
             }
+            // Workers are paused only while the VM is paused, when rate limiter events are not
+            // polled; resuming kicks them.
+            BlockRuntimeState::Threaded(_) => {}
             BlockRuntimeState::Configuring(_, _) => {}
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
         }
     }
 
+    /// See [`Self::process_queue_event`].
+    #[cfg(test)]
     pub fn process_async_completion_event(&mut self) {
         if let BlockRuntimeState::Inline(worker) = &mut self.state {
             worker.process_async_completion_event();
@@ -628,8 +685,22 @@ impl VirtioBlock {
 
     /// Update the backing file and the config space of the block device.
     pub fn update_disk_image(&mut self, disk_image_path: String) -> Result<(), VirtioBlockError> {
+        // Worker threads run the disk. Take the workers back as for a snapshot, switch them below,
+        // and start them again: on the old disk if the switch failed.
+        if let BlockRuntimeState::Threaded(ThreadedActive {
+            workers: ThreadedWorkers::Running(_),
+            ..
+        }) = &self.state
+        {
+            self.prepare_save();
+            let result = self.update_disk_image(disk_image_path);
+            self.kick();
+            return result;
+        }
+
         let config_path = disk_image_path.clone();
         let read_only = self.config.is_read_only;
+        let file_engine_type = self.config.file_engine_type;
         let nsectors = match &mut self.state {
             BlockRuntimeState::Configuring(resources, _) => {
                 let (last, rest) = resources
@@ -644,16 +715,27 @@ impl VirtioBlock {
             BlockRuntimeState::Inline(worker) => {
                 worker.update_disk_image(disk_image_path, read_only)?
             }
-            BlockRuntimeState::Threaded(active) => {
-                let (last, rest) = active
-                    .worker_handles
-                    .split_last()
-                    .expect("threaded block device must have at least one worker");
-                for handle in rest {
-                    handle.update_disk_image(disk_image_path.clone(), read_only)?;
+            // The paused workers, taken back for a snapshot or above. Every queue opens its own
+            // descriptor of the new file before any is switched, so that a failure leaves them all
+            // on the old one.
+            BlockRuntimeState::Threaded(ThreadedActive {
+                workers: ThreadedWorkers::Paused(paused),
+                ..
+            }) => {
+                let disks = paused
+                    .iter()
+                    .map(|_| DiskProperties::new(&disk_image_path, read_only, file_engine_type))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let nsectors = disks
+                    .last()
+                    .expect("threaded block device must have at least one worker")
+                    .nsectors;
+                for ((_, worker), disk) in paused.iter_mut().zip(disks) {
+                    worker.resources.disk = disk;
                 }
-                last.update_disk_image(disk_image_path, read_only)?
+                nsectors
             }
+            BlockRuntimeState::Threaded(_) => unreachable!("running workers were taken back above"),
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
         };
         self.config_space.capacity = nsectors.to_le();
@@ -685,53 +767,66 @@ impl VirtioBlock {
     /// Prepare device for being snapshotted.
     pub fn prepare_save(&mut self) {
         match &mut self.state {
-            BlockRuntimeState::Inline(worker) => worker.prepare_save(FlushMode::DrainAndFlush),
+            BlockRuntimeState::Inline(worker) => {
+                worker.prepare_save();
+                flush_disk([&mut worker.resources]);
+            }
+            // Take every worker back, so their queues cannot move under the snapshot, then flush
+            // once all of them drained. A second snapshot of the same pause finds them paused
+            // already.
             BlockRuntimeState::Threaded(active) => {
-                let (last, rest) = active
-                    .worker_handles
-                    .split_last()
-                    .expect("threaded block device must have at least one worker");
-                for handle in rest {
-                    handle.pause(FlushMode::Drain);
+                if let ThreadedWorkers::Running(handles) = &mut active.workers {
+                    let handles = std::mem::take(handles);
+                    let workers = hand_back_all(&handles)
+                        .expect("an active block worker must answer a hand-back");
+                    let paused = handles
+                        .into_iter()
+                        .zip(workers)
+                        .map(|(handle, worker)| {
+                            let worker =
+                                worker.expect("an active block worker must hand its worker back");
+                            (handle, worker)
+                        })
+                        .collect();
+                    active.workers = ThreadedWorkers::Paused(paused);
                 }
-                last.pause(FlushMode::DrainAndFlush);
+                let ThreadedWorkers::Paused(paused) = &mut active.workers else {
+                    unreachable!("the workers were taken back above");
+                };
+                flush_disk(paused.iter_mut().map(|(_, worker)| &mut worker.resources));
             }
             BlockRuntimeState::Configuring(_, _) => {}
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
         }
     }
 
-    /// Spawn a parked worker thread for the next activation.
-    pub(crate) fn spawn_worker(
+    /// Spawns one parked worker thread per queue, for the next activation.
+    pub(crate) fn spawn_workers(
         &mut self,
-        seccomp_filter: Arc<BpfProgram>,
-    ) -> Result<(), VirtioBlockError> {
+        seccomp_filter: &Arc<BpfProgram>,
+    ) -> Result<(), WorkerError> {
         if let BlockRuntimeState::Configuring(resources, worker_handles) = &mut self.state {
             if !worker_handles.is_empty() {
                 assert_eq!(worker_handles.len(), resources.len());
                 return Ok(());
             }
 
-            let mut spawned: Vec<WorkerHandle> = Vec::with_capacity(resources.len());
+            let mut spawned: Vec<WorkerHandle<BlockWorker>> = Vec::with_capacity(resources.len());
             for resource in resources {
-                let queue_evt = match resource.queue_evt.try_clone() {
-                    Ok(queue_evt) => queue_evt,
-                    Err(err) => {
-                        for handle in spawned {
-                            handle.finish(FlushMode::Drain);
-                        }
-                        return Err(VirtioBlockError::EventFd(err));
-                    }
-                };
-
                 let name = format!("fc_q{}_{}", resource.queue_idx, self.config.drive_id);
-                let worker = match WorkerHandle::spawn(seccomp_filter.clone(), queue_evt, name) {
+                // The transport keeps writing to the queue eventfd after the original moved into
+                // the worker, so the handle keeps a clone of it.
+                let worker = match resource
+                    .queue_evt
+                    .try_clone()
+                    .map_err(WorkerError::Spawn)
+                    .and_then(|queue_evt| {
+                        WorkerHandle::spawn(seccomp_filter.clone(), name, vec![queue_evt])
+                    }) {
                     Ok(worker) => worker,
                     Err(err) => {
-                        for handle in spawned {
-                            handle.finish(FlushMode::Drain);
-                        }
-                        return Err(VirtioBlockError::ThreadSpawn(err));
+                        finish_all(spawned);
+                        return Err(err);
                     }
                 };
                 spawned.push(worker);
@@ -803,10 +898,11 @@ impl VirtioDevice for VirtioBlock {
             BlockRuntimeState::Inline(worker) => {
                 (index == 0).then_some(&worker.resources.queue_evt)
             }
+            // One queue per worker: the transport's clone is the handle's only queue eventfd.
             BlockRuntimeState::Threaded(active) => active
-                .worker_handles
-                .get(index)
-                .map(WorkerHandle::queue_event),
+                .workers
+                .handle(index)
+                .and_then(|handle| handle.queue_evt(0)),
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
         }
     }
@@ -878,6 +974,8 @@ impl VirtioDevice for VirtioBlock {
                 discard_supported: self.acked_features & (1u64 << VIRTIO_BLK_F_DISCARD) != 0,
                 active_state: ActiveState { mem, interrupt },
                 metrics: self.metrics.clone(),
+                #[cfg(test)]
+                test_event: None,
             });
         } else {
             assert_eq!(
@@ -896,10 +994,12 @@ impl VirtioDevice for VirtioBlock {
                         interrupt: interrupt.clone(),
                     },
                     metrics: self.metrics.clone(),
-                });
+                    #[cfg(test)]
+                    test_event: None,
+                })?;
             }
             self.state = BlockRuntimeState::Threaded(ThreadedActive {
-                worker_handles,
+                workers: ThreadedWorkers::Running(worker_handles),
                 interrupt,
                 queue_configs,
             });
@@ -919,23 +1019,42 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn _reset(&mut self) -> bool {
+        // Resources coming back from workers were drained by `BlockWorker::into_resources`; only
+        // the ones that never left the device still need it.
         let state = std::mem::replace(&mut self.state, BlockRuntimeState::Placeholder);
-        let (mut resources, worker_handles) = match state {
+        let (resources, worker_handles) = match state {
             BlockRuntimeState::Threaded(active) => {
                 assert_eq!(
-                    active.worker_handles.len(),
+                    active.workers.len(),
                     active.queue_configs.len(),
                     "active block queues must have one worker each"
                 );
-                let resources = active
-                    .worker_handles
-                    .iter()
-                    .map(WorkerHandle::reset)
-                    .collect();
-                (resources, active.worker_handles)
+                match active.workers {
+                    ThreadedWorkers::Running(handles) => {
+                        let resources = reset_all(&handles)
+                            .expect("an active queue group worker must answer a reset")
+                            .into_iter()
+                            .map(|resources| {
+                                resources.expect(
+                                    "an active queue group worker must return its resources",
+                                )
+                            })
+                            .collect();
+                        (resources, handles)
+                    }
+                    // Not reached in production: workers are paused only while the VM is paused,
+                    // when the guest cannot reset the device, or inside a disk update, which
+                    // restarts them before returning. Kept so that a reset there would still
+                    // recover every queue.
+                    ThreadedWorkers::Paused(paused) => paused
+                        .into_iter()
+                        .map(|(handle, worker)| (worker.into_resources(), handle))
+                        .unzip(),
+                }
             }
-            BlockRuntimeState::Inline(worker) => (vec![worker.resources], Vec::new()),
-            BlockRuntimeState::Configuring(resources, worker_handles) => {
+            BlockRuntimeState::Inline(worker) => (vec![worker.into_resources()], Vec::new()),
+            BlockRuntimeState::Configuring(mut resources, worker_handles) => {
+                resources.iter_mut().for_each(BlockResources::reset);
                 (resources, worker_handles)
             }
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
@@ -946,10 +1065,6 @@ impl VirtioDevice for VirtioBlock {
             self.num_queues(),
             "reset must recover every block queue"
         );
-
-        for resource in &mut resources {
-            resource.reset();
-        }
 
         self.state = BlockRuntimeState::Configuring(resources, worker_handles);
         true
@@ -964,10 +1079,28 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn kick(&mut self) {
-        match &self.state {
+        match &mut self.state {
             BlockRuntimeState::Threaded(active) => {
-                for handle in &active.worker_handles {
-                    handle.kick(true);
+                // Paused workers go back to their threads first, as activation hands them over.
+                if let ThreadedWorkers::Paused(paused) = &mut active.workers {
+                    let handles = std::mem::take(paused)
+                        .into_iter()
+                        .map(|(handle, worker)| {
+                            if let Err(err) = handle.start(worker) {
+                                error!("Failed to restart a block worker: {err}");
+                            }
+                            handle
+                        })
+                        .collect();
+                    active.workers = ThreadedWorkers::Running(handles);
+                }
+                let ThreadedWorkers::Running(handles) = &active.workers else {
+                    unreachable!("the workers were started above");
+                };
+                for handle in handles {
+                    if let Err(err) = handle.kick() {
+                        error!("Failed to kick a block worker: {err}");
+                    }
                 }
             }
             BlockRuntimeState::Inline(_) => self.notify_queue_events(),
@@ -984,11 +1117,20 @@ impl VirtioDevice for VirtioBlock {
                 }
             }
             BlockRuntimeState::Inline(worker) => worker.resources.queue.commit_dirty(),
-            BlockRuntimeState::Threaded(active) => {
-                for handle in &active.worker_handles {
-                    handle.commit_dirty();
+            BlockRuntimeState::Threaded(active) => match &active.workers {
+                ThreadedWorkers::Running(handles) => {
+                    for result in commit_dirty_all(handles) {
+                        if let Err(err) = result {
+                            error!("Failed to commit the dirty pages of a block worker: {err}");
+                        }
+                    }
                 }
-            }
+                ThreadedWorkers::Paused(paused) => {
+                    for (_, worker) in paused {
+                        worker.resources.queue.commit_dirty();
+                    }
+                }
+            },
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
         }
     }
@@ -996,49 +1138,43 @@ impl VirtioDevice for VirtioBlock {
 
 impl Drop for VirtioBlock {
     fn drop(&mut self) {
-        let flush_mode = match self.config.cache_type {
-            CacheType::Unsafe => FlushMode::Drain,
-            CacheType::Writeback => FlushMode::DrainAndFlush,
-        };
+        let flush = self.config.cache_type == CacheType::Writeback;
 
-        match std::mem::replace(&mut self.state, BlockRuntimeState::Placeholder) {
-            BlockRuntimeState::Inline(mut worker) => match flush_mode {
-                FlushMode::Drain => worker.drain(true),
-                FlushMode::DrainAndFlush => worker.drain_and_flush(true),
-            },
-            BlockRuntimeState::Threaded(mut active) => {
-                let last = active
-                    .worker_handles
-                    .pop()
-                    .expect("threaded block device must have at least one worker");
-                for handle in active.worker_handles {
-                    handle.finish(FlushMode::Drain);
-                }
-                last.finish(flush_mode);
-            }
-            BlockRuntimeState::Configuring(mut resources, worker_handles) => {
-                let (last, rest) = resources
-                    .split_last_mut()
-                    .expect("block device must have at least one queue");
-                for resource in rest {
-                    if let Err(err) = resource.disk.file_engine.drain(true) {
-                        error!("Failed to drain ops on drop: {:?}", err);
+        // Every queue completes its pending I/O first, then the drive flushes once.
+        let mut resources: Vec<_> =
+            match std::mem::replace(&mut self.state, BlockRuntimeState::Placeholder) {
+                BlockRuntimeState::Inline(mut worker) => {
+                    if let Err(err) = worker.resources.disk.file_engine.drain(true) {
+                        error!("Failed to drain block IO engine on drop: {:?}", err);
                     }
+                    vec![worker.resources]
                 }
-                let result = match flush_mode {
-                    FlushMode::Drain => last.disk.file_engine.drain(true),
-                    FlushMode::DrainAndFlush => last.disk.file_engine.drain_and_flush(true),
-                };
-                if let Err(err) = result {
-                    error!("Failed to drain ops and flush block data: {:?}", err);
+                // A running worker drains on its thread and returns its queue as it exits.
+                BlockRuntimeState::Threaded(ThreadedActive {
+                    workers: ThreadedWorkers::Running(handles),
+                    ..
+                }) => finish_all(handles).into_iter().flatten().collect(),
+                // Paused workers drained when they were handed back. A parked thread owns no
+                // runtime resources: finishing only joins it.
+                BlockRuntimeState::Threaded(ThreadedActive {
+                    workers: ThreadedWorkers::Paused(paused),
+                    ..
+                }) => {
+                    let (handles, workers): (Vec<_>, Vec<_>) = paused.into_iter().unzip();
+                    finish_all(handles);
+                    workers.into_iter().map(|worker| worker.resources).collect()
                 }
-                for handle in worker_handles {
-                    // a parked worker owns no runtime resources, it just joins the thread
-                    handle.finish(FlushMode::Drain);
+                // Nothing was submitted since activation or the reset, which drained every queue.
+                BlockRuntimeState::Configuring(resources, worker_handles) => {
+                    // A parked thread owns no runtime resources: finishing only joins it.
+                    finish_all(worker_handles);
+                    resources
                 }
-            }
-            BlockRuntimeState::Placeholder => {}
-        };
+                BlockRuntimeState::Placeholder => return,
+            };
+        if flush {
+            flush_disk(&mut resources);
+        }
     }
 }
 
@@ -2382,12 +2518,113 @@ mod tests {
         assert!(block.queue_event(0).is_some());
     }
 
+    /// How many workers of the threaded `block` are paused, taken back from their threads.
+    fn paused_workers(block: &VirtioBlock) -> usize {
+        let BlockRuntimeState::Threaded(active) = &block.state else {
+            panic!("the block device must be active on worker threads");
+        };
+        match &active.workers {
+            ThreadedWorkers::Running(_) => 0,
+            ThreadedWorkers::Paused(paused) => paused.len(),
+        }
+    }
+
+    /// Puts a `VIRTIO_BLK_T_GET_ID` request on `vq` without notifying the device, and returns
+    /// where the device writes the ID.
+    fn queue_get_id(vq: &VirtQueue, mem: &GuestMemoryMmap) -> GuestAddress {
+        read_blk_req_descriptors(vq);
+        vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
+        mem.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(vq.dtable[0].addr.get()))
+            .unwrap();
+        GuestAddress(vq.dtable[1].addr.get())
+    }
+
+    /// Kicks the threaded `block` and waits until its workers have served what they found: the
+    /// hand-back is answered after the kick.
+    fn serve(block: &mut VirtioBlock) {
+        block.kick();
+        block.prepare_save();
+    }
+
+    /// The ID the device served at `addr`, which is that of the disk it read it from.
+    fn served_id(mem: &GuestMemoryMmap, addr: GuestAddress) -> [u8; VIRTIO_BLK_ID_BYTES as usize] {
+        let mut id = [0; VIRTIO_BLK_ID_BYTES as usize];
+        mem.read_slice(&mut id, addr).unwrap();
+        id
+    }
+
+    #[test]
+    fn test_threaded_update_disk_while_running() {
+        // After an update the running worker serves from the new disk. That the update takes it
+        // back and completes in-flight I/O first is shown by
+        // test_mq_update_disk_while_running_completes_writes.
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let mut block = default_threaded_block(engine);
+            let mem = default_mem();
+            let interrupt = default_interrupt();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.activate(mem.clone(), interrupt.clone()).unwrap();
+
+            let disk = TempFile::new().unwrap();
+            disk.as_file().set_len(0x2000).unwrap();
+            block
+                .update_disk_image(disk.as_path().to_str().unwrap().to_string())
+                .unwrap();
+            assert_eq!(paused_workers(&block), 0);
+            assert_eq!(u64::from_le(block.config_space.capacity), 16);
+            // Taking the worker back completes its pending I/O, which may signal the used ring.
+            interrupt.ack_interrupt(VirtioInterruptType::Queue(0));
+            assert!(interrupt.has_pending_interrupt(VirtioInterruptType::Config));
+
+            let id_addr = queue_get_id(&vq, &mem);
+            serve(&mut block);
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(
+                served_id(&mem, id_addr),
+                DiskProperties::build_disk_image_id(disk.as_file())
+            );
+        }
+    }
+
+    #[test]
+    fn test_threaded_update_disk_while_paused() {
+        // Workers taken back for a snapshot are switched where the device holds them, and only
+        // the resume starts them again.
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let mut block = default_threaded_block(engine);
+            let mem = default_mem();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.activate(mem.clone(), default_interrupt()).unwrap();
+            block.prepare_save();
+            let id_addr = queue_get_id(&vq, &mem);
+
+            let disk = TempFile::new().unwrap();
+            disk.as_file().set_len(0x2000).unwrap();
+            block
+                .update_disk_image(disk.as_path().to_str().unwrap().to_string())
+                .unwrap();
+            assert_eq!(paused_workers(&block), 1);
+            assert_eq!(u64::from_le(block.config_space.capacity), 16);
+            assert_eq!(vq.used.idx.get(), 0);
+
+            serve(&mut block);
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(
+                served_id(&mem, id_addr),
+                DiskProperties::build_disk_image_id(disk.as_file())
+            );
+        }
+    }
+
     #[test]
     fn test_threaded_update_disk_error() {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_threaded_block(engine);
             let original_config = block.config();
             let original_capacity = block.config_space.capacity;
+            let original_id = block.disk().image_id;
 
             let mem = default_mem();
             let interrupt = default_interrupt();
@@ -2403,6 +2640,13 @@ mod tests {
             assert_eq!(block.config(), original_config);
             assert_eq!(block.config_space.capacity, original_capacity);
             assert!(!interrupt.has_pending_interrupt(VirtioInterruptType::Config));
+
+            // The worker is running again, and still serves from the old disk.
+            assert_eq!(paused_workers(&block), 0);
+            let id_addr = queue_get_id(&vq, &mem);
+            serve(&mut block);
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(served_id(&mem, id_addr), original_id);
         }
     }
 
@@ -2433,6 +2677,50 @@ mod tests {
         assert_eq!(block.config().rate_limiter, None);
         assert!(block.rate_limiter.lock().bandwidth().is_none());
         assert!(block.rate_limiter.lock().ops().is_none());
+    }
+
+    #[test]
+    fn test_flush_disk_without_queues() {
+        // A drive always has a queue, but an empty list must not panic.
+        flush_disk(std::iter::empty());
+    }
+
+    #[test]
+    fn test_reset_before_activation() {
+        // A drive the driver never activated keeps its resources on the device, and a reset
+        // clears them in place.
+        let mut block = default_mq_block(FileEngineType::Sync, 2);
+        block.resources_mut()[1].is_io_engine_throttled = true;
+        assert!(block.reset());
+        assert!(!block.is_activated());
+        assert!(block.resources().iter().all(|r| !r.is_io_engine_throttled));
+    }
+
+    #[test]
+    fn test_threaded_rate_limiter_event() {
+        let mut block = default_threaded_block(FileEngineType::Sync);
+        let mem = default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        // One op per 100 ms, already spent: the limiter is blocked and its refill timer armed.
+        let clock = MockClock::new();
+        let mut limiter = RateLimiter::new_mocked(0, 0, 0, 1, 0, 100, &clock);
+        assert!(limiter.consume(1, TokenType::Ops));
+        assert!(!limiter.consume(1, TokenType::Ops));
+        set_rate_limiter(&mut block, limiter);
+        block.activate(mem.clone(), default_interrupt()).unwrap();
+
+        read_blk_req_descriptors(&vq);
+        vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
+        mem.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(vq.dtable[0].addr.get()))
+            .unwrap();
+
+        // The request waits for the limiter, then the unblock kicks the running worker.
+        block.kick();
+        clock.advance(Duration::from_millis(100));
+        block.process_rate_limiter_event();
+        block.prepare_save();
+        assert_eq!(vq.used.idx.get(), 1);
     }
 
     #[test]
@@ -2479,6 +2767,115 @@ mod tests {
     }
 
     #[test]
+    fn test_threaded_finish_commits_dirty() {
+        use vm_memory::GuestMemoryBackend;
+
+        use crate::test_utils::single_region_mem_dirty_tracking;
+        use crate::utils::u64_to_usize;
+        use crate::vstate::memory::{Bitmap, GuestMemoryExtension};
+
+        let mut block = default_threaded_block(FileEngineType::Sync);
+        let mem = single_region_mem_dirty_tracking(0x10000);
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        block.activate(mem.clone(), default_interrupt()).unwrap();
+
+        // As on teardown, the VMM commits while the worker runs, and the worker then completes a
+        // request before it is asked to finish.
+        block.commit_dirty();
+        read_blk_req_descriptors(&vq);
+        vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
+        mem.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(vq.dtable[0].addr.get()))
+            .unwrap();
+        mem.reset_dirty();
+        block.kick();
+
+        // The worker commits its used ring write before the device drops the queue; an
+        // uncommitted one fails the assert in `GuestMemorySliceMut::drop`.
+        drop(block);
+        assert_eq!(vq.used.idx.get(), 1);
+        assert!(
+            mem.find_region(GuestAddress(0))
+                .unwrap()
+                .bitmap()
+                .dirty_at(u64_to_usize(vq.used_start().raw_value()))
+        );
+    }
+
+    #[test]
+    fn test_mq_async_snapshot_and_drop() {
+        use std::os::unix::fs::FileExt;
+
+        use crate::devices::virtio::block::virtio::test_utils::default_config;
+        use crate::snapshot::Persist;
+
+        let f = TempFile::new().unwrap();
+        f.as_file().set_len(0x1000).unwrap();
+        let mut config = default_config(
+            f.as_path().to_str().unwrap().to_string(),
+            FileEngineType::Async,
+        );
+        config.num_queues = NonZeroU16::new(2);
+        config.cache_type = CacheType::Writeback;
+        let mut block = VirtioBlock::new(config).unwrap();
+        block.spawn_workers(&Arc::new(vec![])).unwrap();
+
+        let mem = default_mem();
+        let vqs = [
+            VirtQueue::new(GuestAddress(0), &mem, 16),
+            VirtQueue::new(GuestAddress(0x4000), &mem, 16),
+        ];
+        for (idx, vq) in vqs.iter().enumerate() {
+            set_queue(&mut block, idx, vq.create_queue());
+        }
+        block.activate(mem.clone(), default_interrupt()).unwrap();
+
+        // One write per queue, each to its own sector from its own buffers.
+        let status_addr = |idx: u8| GuestAddress(0xa000 + 0x4000 * u64::from(idx));
+        for (idx, vq) in (0u8..).zip(&vqs) {
+            let header_addr = 0x8000 + 0x4000 * u64::from(idx);
+            read_blk_req_descriptors(vq);
+            vq.dtable[0].set(header_addr, 0x1000, VIRTQ_DESC_F_NEXT, 1);
+            vq.dtable[1].set(header_addr + 0x1000, 0x200, VIRTQ_DESC_F_NEXT, 2);
+            vq.dtable[2].set(status_addr(idx).0, 0x1000, VIRTQ_DESC_F_WRITE, 3);
+            mem.write_obj(
+                RequestHeader::new(VIRTIO_BLK_T_OUT, u64::from(idx)),
+                GuestAddress(header_addr),
+            )
+            .unwrap();
+            mem.write_slice(&[0xa0 + idx; 0x200], GuestAddress(header_addr + 0x1000))
+                .unwrap();
+        }
+
+        // Both workers submit their write; the snapshot pauses them while the writes may still
+        // be in flight, and every request is completed by the time it returns.
+        block.kick();
+        block.prepare_save();
+        for (idx, vq) in (0u8..).zip(&vqs) {
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(
+                u32::from(mem.read_obj::<u8>(status_addr(idx)).unwrap()),
+                VIRTIO_BLK_S_OK
+            );
+        }
+        let BlockRuntimeState::Threaded(active) = &block.state else {
+            unreachable!()
+        };
+        assert!(matches!(&active.workers, ThreadedWorkers::Paused(paused) if paused.len() == 2));
+        assert_eq!(block.save().virtio_state.queues.len(), 2);
+
+        // Dropping the paused writeback drive finishes both threads; both writes are in the file.
+        drop(block);
+        let mut sector = [0u8; 0x200];
+        for idx in 0u8..2 {
+            f.as_file()
+                .read_exact_at(&mut sector, u64::from(idx) * 0x200)
+                .unwrap();
+            assert_eq!(sector, [0xa0 + idx; 0x200]);
+        }
+    }
+
+    #[test]
     fn test_threaded_resume() {
         let mut block = default_threaded_block(FileEngineType::Sync);
         let mem = default_mem();
@@ -2504,33 +2901,15 @@ mod tests {
         assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
     }
 
-    #[test]
-    fn test_threaded_reset_paused() {
-        for engine in [FileEngineType::Sync, FileEngineType::Async] {
-            let mut block = default_threaded_block(engine);
-            let mem = default_mem();
-            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
-            set_queue(&mut block, 0, vq.create_queue());
-            block.set_acked_features(1);
-            block.activate(mem, default_interrupt()).unwrap();
-            block.prepare_save();
-
-            assert!(block.reset());
-            assert!(!block.is_activated());
-            assert_eq!(block.acked_features(), 0);
-            assert!(!block.queue_config(0).unwrap().ready);
-        }
-    }
-
     // The worker thread dies asynchronously, so the panic can come from `start` or from
     // `reset`. Both name the block worker.
     #[test]
-    #[should_panic(expected = "block worker")]
+    #[should_panic(expected = "queue group worker")]
     fn test_threaded_worker_failure() {
         let mut block = default_block(FileEngineType::Sync);
         block.config.num_queues = NonZeroU16::new(1);
         block
-            .spawn_worker(Arc::new(vec![0; BPF_MAX_LEN + 1]))
+            .spawn_workers(&Arc::new(vec![0; BPF_MAX_LEN + 1]))
             .unwrap();
 
         let mem = default_mem();
@@ -2622,14 +3001,155 @@ mod tests {
             block.update_disk_image(disk_path.clone()).unwrap();
             assert_eq!(block.config().path_on_host, disk_path);
             assert_eq!(u64::from_le(block.config_space.capacity), 24);
+            // Taking the workers back completes their pending I/O, which may signal the used
+            // rings.
+            interrupt.ack_interrupt(VirtioInterruptType::Queue(0));
             assert!(
                 interrupt.has_pending_interrupt(VirtioInterruptType::Config),
                 "updating an active disk must notify the guest"
             );
 
+            // While the workers are paused for a snapshot, the device updates them itself.
+            block.prepare_save();
+            let disk = TempFile::new().unwrap();
+            disk.as_file().set_len(0x4000).unwrap();
+            block
+                .update_disk_image(disk.as_path().to_str().unwrap().to_string())
+                .unwrap();
+            assert_eq!(u64::from_le(block.config_space.capacity), 32);
+
             assert!(block.reset());
             for resources in block.resources() {
-                assert_eq!(resources.disk.nsectors, 24);
+                assert_eq!(resources.disk.nsectors, 32);
+            }
+        }
+    }
+
+    #[test]
+    fn test_mq_update_disk_while_running_completes_writes() {
+        use std::os::unix::fs::FileExt;
+
+        use crate::devices::virtio::block::virtio::test_utils::default_config;
+
+        let old = TempFile::new().unwrap();
+        old.as_file().set_len(0x1000).unwrap();
+        let mut config = default_config(
+            old.as_path().to_str().unwrap().to_string(),
+            FileEngineType::Async,
+        );
+        config.num_queues = NonZeroU16::new(2);
+        let mut block = VirtioBlock::new(config).unwrap();
+        block.spawn_workers(&Arc::new(vec![])).unwrap();
+
+        let mem = default_mem();
+        let vqs = [
+            VirtQueue::new(GuestAddress(0), &mem, 16),
+            VirtQueue::new(GuestAddress(0x4000), &mem, 16),
+        ];
+        for (idx, vq) in vqs.iter().enumerate() {
+            set_queue(&mut block, idx, vq.create_queue());
+        }
+        block.activate(mem.clone(), default_interrupt()).unwrap();
+
+        // One write per queue, each to its own sector from its own buffers.
+        let status_addr = |idx: u8| GuestAddress(0xa000 + 0x4000 * u64::from(idx));
+        for (idx, vq) in (0u8..).zip(&vqs) {
+            let header_addr = 0x8000 + 0x4000 * u64::from(idx);
+            read_blk_req_descriptors(vq);
+            vq.dtable[0].set(header_addr, 0x1000, VIRTQ_DESC_F_NEXT, 1);
+            vq.dtable[1].set(header_addr + 0x1000, 0x200, VIRTQ_DESC_F_NEXT, 2);
+            vq.dtable[2].set(status_addr(idx).0, 0x1000, VIRTQ_DESC_F_WRITE, 3);
+            mem.write_obj(
+                RequestHeader::new(VIRTIO_BLK_T_OUT, u64::from(idx)),
+                GuestAddress(header_addr),
+            )
+            .unwrap();
+            mem.write_slice(&[0xa0 + idx; 0x200], GuestAddress(header_addr + 0x1000))
+                .unwrap();
+        }
+
+        // Both workers submit their write; the update takes them back, completing the writes,
+        // before it switches the file under them.
+        block.kick();
+        let new = TempFile::new().unwrap();
+        new.as_file().set_len(0x1000).unwrap();
+        block
+            .update_disk_image(new.as_path().to_str().unwrap().to_string())
+            .unwrap();
+        for (idx, vq) in (0u8..).zip(&vqs) {
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(
+                u32::from(mem.read_obj::<u8>(status_addr(idx)).unwrap()),
+                VIRTIO_BLK_S_OK
+            );
+        }
+
+        // The writes are in the old file, and the new one is untouched.
+        let mut sector = [0u8; 0x200];
+        for idx in 0u8..2 {
+            old.as_file()
+                .read_exact_at(&mut sector, u64::from(idx) * 0x200)
+                .unwrap();
+            assert_eq!(sector, [0xa0 + idx; 0x200]);
+            new.as_file()
+                .read_exact_at(&mut sector, u64::from(idx) * 0x200)
+                .unwrap();
+            assert_eq!(sector, [0; 0x200]);
+        }
+
+        // Every queue now runs on the new file.
+        block.prepare_save();
+        let BlockRuntimeState::Threaded(ThreadedActive {
+            workers: ThreadedWorkers::Paused(paused),
+            ..
+        }) = &block.state
+        else {
+            panic!("prepare_save must take every worker back");
+        };
+        let new_id = DiskProperties::build_disk_image_id(new.as_file());
+        assert_eq!(paused.len(), 2);
+        for (_, worker) in paused {
+            assert_eq!(worker.resources.disk.image_id, new_id);
+        }
+    }
+
+    #[test]
+    fn test_mq_update_disk_error_keeps_every_queue() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let mut block = default_mq_block(engine, 2);
+            let original_id = block.disk().image_id;
+            let original_capacity = block.config_space.capacity;
+            let mem = default_mem();
+            let vqs = [
+                VirtQueue::new(GuestAddress(0), &mem, 16),
+                VirtQueue::new(GuestAddress(0x4000), &mem, 16),
+            ];
+            for (idx, vq) in vqs.iter().enumerate() {
+                set_queue(&mut block, idx, vq.create_queue());
+            }
+            block.activate(mem, default_interrupt()).unwrap();
+
+            let mut missing_disk = TempFile::new().unwrap();
+            let missing_path = missing_disk.as_path().to_str().unwrap().to_string();
+            missing_disk.remove().unwrap();
+            assert!(block.update_disk_image(missing_path).is_err());
+            assert_eq!(block.config_space.capacity, original_capacity);
+
+            // No queue switched: both still run on the old file. The update opens the new file
+            // for every queue before it switches any; a missing file fails the first open, the
+            // only failure a test can force without fault injection.
+            assert_eq!(paused_workers(&block), 0);
+            block.prepare_save();
+            let BlockRuntimeState::Threaded(ThreadedActive {
+                workers: ThreadedWorkers::Paused(paused),
+                ..
+            }) = &block.state
+            else {
+                panic!("prepare_save must take every worker back");
+            };
+            assert_eq!(paused.len(), 2);
+            for (_, worker) in paused {
+                assert_eq!(worker.resources.disk.image_id, original_id);
             }
         }
     }
@@ -2641,7 +3161,7 @@ mod tests {
                 let mut block = default_block(engine);
                 if threaded {
                     block.config.num_queues = NonZeroU16::new(1);
-                    block.spawn_worker(Arc::new(vec![])).unwrap();
+                    block.spawn_workers(&Arc::new(vec![])).unwrap();
                 }
 
                 let mem = default_mem();
