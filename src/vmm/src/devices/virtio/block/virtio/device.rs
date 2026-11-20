@@ -311,6 +311,18 @@ fn calculate_blk_size_and_topology(
     Some((attrs.logical_block_size, topology))
 }
 
+/// Discard alignment, in sectors, to advertise for a block device. It is at least the minimum
+/// and optimal I/O size of the device (for example the chunk size of a thin pool), so that the
+/// guest does not send discards smaller than what the device can release.
+fn calculate_discard_sector_alignment(attrs: &BlockDeviceAttributes) -> u32 {
+    attrs
+        .logical_block_size
+        .max(attrs.min_io_size)
+        .max(attrs.opt_io_size)
+        .max(SECTOR_SIZE)
+        .div_ceil(SECTOR_SIZE)
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[repr(C)]
 pub struct VirtioBlkTopology {
@@ -595,13 +607,13 @@ impl VirtioBlock {
             && config.topology.is_none()
             && !matches!(resources[0].disk.file_engine, FileEngine::Vmdk(_))
         {
-            if let Some((blk_size, topology)) =
-                query_blk_attrs(resources[0].disk.file_engine.file())
-                    .and_then(calculate_blk_size_and_topology)
-            {
-                config_space.blk_size = blk_size;
-                config_space.topology = topology;
-                config_space.discard_sector_alignment = blk_size / SECTOR_SIZE;
+            if let Some(attrs) = query_blk_attrs(resources[0].disk.file_engine.file()) {
+                let discard_sector_alignment = calculate_discard_sector_alignment(&attrs);
+                if let Some((blk_size, topology)) = calculate_blk_size_and_topology(attrs) {
+                    config_space.blk_size = blk_size;
+                    config_space.topology = topology;
+                    config_space.discard_sector_alignment = discard_sector_alignment;
+                }
             }
         } else {
             if let Some(blk_size) = config.blk_size {
@@ -1184,6 +1196,29 @@ mod tests {
     use crate::seccomp::BPF_MAX_LEN;
     use crate::vstate::memory::{Address, Bytes, GuestAddress};
     use utils::time::MockClock;
+
+    #[test]
+    fn test_calculate_discard_sector_alignment() {
+        let attrs = |logical_block_size, min_io_size, opt_io_size| BlockDeviceAttributes {
+            logical_block_size,
+            physical_block_size: logical_block_size,
+            min_io_size,
+            opt_io_size,
+        };
+        assert_eq!(calculate_discard_sector_alignment(&attrs(0, 0, 0)), 1);
+        assert_eq!(calculate_discard_sector_alignment(&attrs(512, 0, 0)), 1);
+        assert_eq!(calculate_discard_sector_alignment(&attrs(4096, 0, 0)), 8);
+        assert_eq!(calculate_discard_sector_alignment(&attrs(512, 4096, 0)), 8);
+        // A thin pool with 64 KiB chunks.
+        assert_eq!(
+            calculate_discard_sector_alignment(&attrs(512, 65536, 65536)),
+            128
+        );
+        assert_eq!(
+            calculate_discard_sector_alignment(&attrs(512, 131_072, 262_144)),
+            512
+        );
+    }
 
     #[test]
     fn test_calculate_blk_size_and_topology() {
