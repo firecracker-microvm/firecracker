@@ -377,10 +377,21 @@ impl WorkerHandle {
         }
     }
 
-    /// Stop data-path processing after completing pending I/O and take the worker back from its
-    /// thread, which stays parked until the worker is started again.
-    pub(crate) fn hand_back(&self) -> BlockWorker {
-        match self.request_response(ControlMsg::HandBack) {
+    /// Ask the worker to stop data-path processing after completing pending I/O and to come back
+    /// from its thread; [`WorkerHandle::handed_back`] collects it. Every worker of a device can be
+    /// asked before any is collected, so that they drain in parallel.
+    pub(crate) fn request_hand_back(&self) {
+        self.request(ControlMsg::HandBack);
+    }
+
+    /// Wait for the worker asked back by [`WorkerHandle::request_hand_back`]. Its thread is parked
+    /// until the worker is started again.
+    pub(crate) fn handed_back(&self) -> BlockWorker {
+        match self
+            .from_worker
+            .recv()
+            .expect("Failed to receive block worker response")
+        {
             ControlResponse::HandedBack(worker) => worker,
             response => panic!("Unexpected block worker hand back response: {response:?}"),
         }
@@ -401,16 +412,27 @@ impl WorkerHandle {
 
     /// Stop the worker and wait for its thread to exit. A running worker completes its pending
     /// I/O first and returns its resources.
-    pub(crate) fn finish(self) -> Option<BlockResources> {
-        // A thread that already exited cannot take the request, but dropped its sender, so the
-        // wait below fails instead of blocking.
+    pub(crate) fn stop_and_wait(self) -> Option<BlockResources> {
+        self.request_finish();
+        self.finished()
+    }
+
+    /// Ask the worker to stop; [`WorkerHandle::finished`] waits for it. Every worker of a device
+    /// can be asked before any is waited for, so that they drain in parallel.
+    pub(crate) fn request_finish(&self) {
+        // A thread that already exited cannot take the request, but dropped its sender, so
+        // `finished` fails instead of blocking.
         if let Err(err) = self.to_worker.send(ControlMsg::Finish) {
             error!("Block worker receiver already dropped: {:?}", err);
         }
         if let Err(err) = self.control_evt.write(1) {
             error!("Block worker control event is closed: {:?}", err);
         }
+    }
 
+    /// Wait for the thread asked to stop by [`WorkerHandle::request_finish`] to exit, and take
+    /// back the resources of a worker that was running.
+    pub(crate) fn finished(self) -> Option<BlockResources> {
         let resources = match self
             .from_worker
             .recv()
@@ -718,7 +740,7 @@ mod tests {
             response => panic!("Unexpected block worker response: {response:?}"),
         }
 
-        assert!(handle.finish().is_some());
+        assert!(handle.stop_and_wait().is_some());
     }
 
     #[test]
@@ -748,7 +770,8 @@ mod tests {
         let handle = WorkerHandle::spawn(Arc::new(vec![]), queue_evt, "fc_test".into()).unwrap();
 
         handle.start(worker);
-        let worker = handle.hand_back();
+        handle.request_hand_back();
+        let worker = handle.handed_back();
 
         read_blk_req_descriptors(&vq);
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -765,14 +788,15 @@ mod tests {
         // Started again, the next kick processes the pending request.
         handle.start(worker);
         handle.kick();
-        let worker = handle.hand_back();
+        handle.request_hand_back();
+        let worker = handle.handed_back();
         assert_eq!(vq.used.idx.get(), 1);
         assert_eq!(vq.used.ring[0].get().id, 0);
         assert_eq!(vq.used.ring[0].get().len, VIRTIO_BLK_ID_BYTES + 1);
         assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
 
         drop(worker);
-        assert!(handle.finish().is_none());
+        assert!(handle.stop_and_wait().is_none());
     }
 
     #[test]
@@ -788,7 +812,7 @@ mod tests {
         // A parked worker has nothing to hand back, so its thread panics. Finishing it afterwards
         // panics too, as every other request to a dead worker does, instead of waiting.
         handle.request(ControlMsg::HandBack);
-        handle.finish();
+        handle.stop_and_wait();
     }
 
     #[test]

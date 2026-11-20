@@ -756,10 +756,15 @@ impl VirtioBlock {
             // already.
             BlockRuntimeState::Threaded(active) => {
                 if let ThreadedWorkers::Running(handles) = &mut active.workers {
-                    let paused = std::mem::take(handles)
+                    let handles = std::mem::take(handles);
+                    // Ask every worker before waiting for any, so that they drain in parallel.
+                    for handle in &handles {
+                        handle.request_hand_back();
+                    }
+                    let paused = handles
                         .into_iter()
                         .map(|handle| {
-                            let worker = handle.hand_back();
+                            let worker = handle.handed_back();
                             (handle, worker)
                         })
                         .collect();
@@ -792,7 +797,7 @@ impl VirtioBlock {
                     Ok(queue_evt) => queue_evt,
                     Err(err) => {
                         for handle in spawned {
-                            handle.finish();
+                            handle.stop_and_wait();
                         }
                         return Err(VirtioBlockError::EventFd(err));
                     }
@@ -803,7 +808,7 @@ impl VirtioBlock {
                     Ok(worker) => worker,
                     Err(err) => {
                         for handle in spawned {
-                            handle.finish();
+                            handle.stop_and_wait();
                         }
                         return Err(VirtioBlockError::ThreadSpawn(err));
                     }
@@ -1108,10 +1113,16 @@ impl Drop for VirtioBlock {
                 BlockRuntimeState::Threaded(ThreadedActive {
                     workers: ThreadedWorkers::Running(handles),
                     ..
-                }) => handles
-                    .into_iter()
-                    .filter_map(WorkerHandle::finish)
-                    .collect(),
+                }) => {
+                    // Ask every worker before waiting for any, so that they drain in parallel.
+                    for handle in &handles {
+                        handle.request_finish();
+                    }
+                    handles
+                        .into_iter()
+                        .filter_map(WorkerHandle::finished)
+                        .collect()
+                }
                 // Paused workers drained when they were handed back.
                 BlockRuntimeState::Threaded(ThreadedActive {
                     workers: ThreadedWorkers::Paused(paused),
@@ -1120,7 +1131,7 @@ impl Drop for VirtioBlock {
                     .into_iter()
                     .map(|(handle, worker)| {
                         // a parked worker owns no runtime resources, it just joins the thread
-                        handle.finish();
+                        handle.stop_and_wait();
                         worker.resources
                     })
                     .collect(),
@@ -1128,7 +1139,7 @@ impl Drop for VirtioBlock {
                 BlockRuntimeState::Configuring(resources, worker_handles) => {
                     for handle in worker_handles {
                         // a parked worker owns no runtime resources, it just joins the thread
-                        handle.finish();
+                        handle.stop_and_wait();
                     }
                     resources
                 }
