@@ -1197,6 +1197,45 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_vcpu_restore_fails_on_unknown_msr() {
+        // A snapshot can hold an MSR that the restoring host's KVM does not implement, as one
+        // taken on a newer kernel can. KVM_SET_MSRS stops at the first MSR it cannot set and
+        // returns how many it wrote. The restore has to fail then, or the vCPU would run with
+        // the remaining MSRs unset.
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
+        configure_vcpu(
+            &vm,
+            &mut vcpu,
+            &CustomCpuTemplate::default(),
+            EntryPoint {
+                entry_addr: GuestAddress(0),
+                protocol: BootProtocol::LinuxBoot,
+                setup_header: None,
+            },
+        )
+        .unwrap();
+        let mut state = vcpu.save_state().unwrap();
+
+        // As in `test_get_msrs_with_invalid_msr_index`, KVM does not implement MSR index 2.
+        // Put it second, so that KVM has MSRs to set before and after it.
+        let chunk = &mut state.saved_msrs[0];
+        let mut entries: Vec<_> = chunk
+            .as_slice()
+            .iter()
+            .map(|entry| (entry.index, entry.data))
+            .collect();
+        assert!(entries.len() > 2);
+        entries[1] = (2, 0);
+        *chunk = msrs_from_entries(&entries);
+
+        let (_restored_vm, mut restored_vcpu) = setup_vcpu(0x10000);
+        assert!(matches!(
+            restored_vcpu.restore_state(&state),
+            Err(KvmVcpuError::VcpuSetMsrsIncomplete)
+        ));
+    }
+
+    #[test]
     fn test_empty_cpuid_entries_removed() {
         // Test that `get_cpuid()` removes zeroed empty entries from the `KVM_GET_CPUID2` result.
         let (vm, vcpu) = setup_vcpu(0x10000);
