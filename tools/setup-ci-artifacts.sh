@@ -9,37 +9,45 @@ TOOLS_DIR=$(dirname $0)
 source "$TOOLS_DIR/functions"
 
 say "Setup CI artifacts"
-cd $1
+cd "$1"
 
 say "Generate SSH key to connect from host"
 if [ ! -s id_rsa ]; then
     ssh-keygen -t rsa -b 2048 -f id_rsa -N ""
 fi
 
-for SQUASHFS in *.squashfs; do
-    say "Include SSH key in $SQUASHFS"
-    RSA=$(basename $SQUASHFS .squashfs).id_rsa
-    EXT4=$(basename $SQUASHFS .squashfs).ext4
-    [ -s $SQUASHFS.orig ] && continue
-    unsquashfs $SQUASHFS
-    mkdir -pv squashfs-root/root/.ssh
-    # copy the SSH key into the rootfs
-    if [ ! -s $RSA ]; then
-        # append SSH key to the squashfs image
-        cp -v id_rsa.pub squashfs-root/root/.ssh/authorized_keys
-        cp -v id_rsa $RSA
-    fi
-    # re-squash
-    mv -v $SQUASHFS $SQUASHFS.orig
-    mksquashfs squashfs-root $SQUASHFS -all-root -noappend -comp zstd
+workdir=$(mktemp -d)
+trap 'rm -rf -- "$workdir"' EXIT
 
-    # Create rw ext4 image from ro squashfs
-    [ -f $EXT4 ] && continue
+for SQUASHFS in *.squashfs
+do
+    [ -f "$SQUASHFS" ] || continue
+    say "Include SSH key in $SQUASHFS"
+    RSA="${SQUASHFS%.squashfs}.id_rsa"
+    EXT4="${SQUASHFS%.squashfs}.ext4"
+    unsquashfs -d "$workdir/rootfs" "$SQUASHFS"
+    mkdir -pv "$workdir/rootfs/root/.ssh"
+    if [ ! -s "$RSA" ]
+    then
+        cp -v id_rsa "$RSA"
+    fi
+    # Always inject the public key matching this image's private key. An
+    # existing ".orig" file does not mean a newly downloaded image is staged.
+    ssh-keygen -y -P "" -f "$RSA" > "$workdir/rootfs/root/.ssh/authorized_keys"
+    chmod 700 "$workdir/rootfs/root/.ssh"
+    chmod 600 "$workdir/rootfs/root/.ssh/authorized_keys"
+    mksquashfs "$workdir/rootfs" "$workdir/rootfs.squashfs" \
+        -all-root -noappend -comp zstd
+
+    # Refresh the writable image from the same keyed rootfs.
     say "Converting $SQUASHFS to $EXT4"
-    truncate -s 500M $EXT4
-    mkfs.ext4 -F $EXT4 -d squashfs-root
-    rm -rf squashfs-root
+    truncate -s 500M "$workdir/rootfs.ext4"
+    mkfs.ext4 -F "$workdir/rootfs.ext4" -d "$workdir/rootfs"
+    [ -s "$SQUASHFS.orig" ] || cp -v "$SQUASHFS" "$SQUASHFS.orig"
+    mv -v "$workdir/rootfs.squashfs" "$SQUASHFS"
+    mv -v "$workdir/rootfs.ext4" "$EXT4"
+    rm -rf -- "$workdir/rootfs"
 done
 
 say "Uncompress debuginfo files"
-find . -name "*.debug.gz" -print0 | xargs -P4 -0 -t -n1 gunzip
+find . -name "*.debug.gz" -print0 | xargs -r -P4 -0 -t -n1 gunzip

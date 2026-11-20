@@ -24,6 +24,7 @@ class GuestKernel:
     efi_image: Path | None = None
     debug: bool = False
     bzimage: Path | None = None
+    page_size: int = 4096
 
     @classmethod
     def from_vmlinux(cls, vmlinux: Path):
@@ -32,7 +33,7 @@ class GuestKernel:
         parsed = parse_vmlinux_name(vmlinux.name)
         if parsed is None:
             raise ValueError(f"Unsupported guest kernel artifact: {vmlinux}")
-        version, acpi = parsed
+        version, acpi, page_size = parsed
 
         debug = vmlinux.parent.name == "debug"
 
@@ -42,6 +43,8 @@ class GuestKernel:
             # aarch64 uses Image format, which can boot both directly and via EFI
             efi_image = vmlinux
         elif arch == "x86_64":
+            if page_size != 4096:
+                raise ValueError("64 KiB guest kernels require aarch64")
             # bzImage direct boot also supports the legacy no-ACPI variant.
             path = vmlinux.with_name(vmlinux.name.replace("vmlinux-", "bzImage-", 1))
             bzimage = path if path.exists() else None
@@ -57,6 +60,7 @@ class GuestKernel:
             efi_image=efi_image,
             debug=debug,
             bzimage=bzimage,
+            page_size=page_size,
         )
 
     @property
@@ -72,12 +76,14 @@ class GuestKernel:
         the CloudWatch ``guest_kernel`` dimension stays stable across guest
         kernel patch bumps. This also preserves the historical behavior of
         reporting ACPI and no-ACPI variants under the same dimension.
+        Additional 64 KiB variants carry a ``-64k`` suffix.
 
         >>> GuestKernel("5.10.233", False, Path("vmlinux-5.10.233-no-acpi")).metric_id
         'linux-5.10'
         """
         major_minor = ".".join(self.version.split(".")[:2])
-        return f"linux-{major_minor}"
+        suffix = "-64k" if self.page_size == 65536 else ""
+        return f"linux-{major_minor}{suffix}"
 
 
 # Guest kernel `<major>.<minor>` versions the suite supports.
@@ -88,37 +94,43 @@ SUPPORTED_KERNEL_VERSIONS = {"5.10", "6.1", "6.18"}
 NO_ACPI_KERNEL_VERSIONS = {"5.10"}
 
 
-# vmlinux-<major>.<minor>[.<patch>][-no-acpi]. The single place the artifact
+# vmlinux-<major>.<minor>[.<patch>][-no-acpi|-64k]. The single place the artifact
 # name format is parsed.
-_VMLINUX_NAME_RE = re.compile(r"vmlinux-(\d+\.\d+(?:\.\d+)?)(-no-acpi)?")
+_VMLINUX_NAME_RE = re.compile(r"vmlinux-(\d+\.\d+(?:\.\d+)?)(-no-acpi|-64k)?")
 
 
-def parse_vmlinux_name(name: str) -> tuple[str, bool] | None:
+def parse_vmlinux_name(name: str) -> tuple[str, bool, int] | None:
     """Parse a ``vmlinux-*`` artifact filename.
 
-    Returns ``(version, acpi)`` where ``version`` is the dotted kernel version
-    (e.g. ``"6.1.168"``) and ``acpi`` is ``False`` for a ``-no-acpi`` artifact,
+    Returns ``(version, acpi, page_size)`` with the page size in bytes.
+    ``acpi`` is ``False`` for a ``-no-acpi`` artifact,
     or ``None`` if `name` is not a recognised ``vmlinux-<version>`` artifact.
 
     >>> parse_vmlinux_name("vmlinux-6.1.168")
-    ('6.1.168', True)
+    ('6.1.168', True, 4096)
     >>> parse_vmlinux_name("vmlinux-5.10.233-no-acpi")
-    ('5.10.233', False)
+    ('5.10.233', False, 4096)
+    >>> parse_vmlinux_name("vmlinux-6.1.168-64k")
+    ('6.1.168', True, 65536)
     >>> parse_vmlinux_name("bzImage-6.1.168") is None
     True
     """
     match = _VMLINUX_NAME_RE.fullmatch(name)
     if match is None:
         return None
-    return match.group(1), match.group(2) != "-no-acpi"
+    flavour = match.group(2)
+    return match.group(1), flavour != "-no-acpi", (65536 if flavour == "-64k" else 4096)
 
 
-def kernels(glob, artifact_dir: Path = ARTIFACT_DIR) -> Iterator:
+def kernels(
+    glob, artifact_dir: Path = ARTIFACT_DIR, *, page_size: int = 4096
+) -> Iterator:
     """Yield artifact paths for guest kernels the suite supports.
 
     Supported means: a parseable ``vmlinux-<version>`` artifact, with a patch
     version, whose ``<major>.<minor>`` is in `SUPPORTED_KERNEL_VERSIONS` (and,
     for ``-no-acpi`` artifacts, in `NO_ACPI_KERNEL_VERSIONS`).
+    Select 4 KiB kernels by default; 64 KiB kernels are opt-in.
     """
     for kernel in sorted(artifact_dir.glob(glob)):
         parsed = parse_vmlinux_name(kernel.name)
@@ -126,7 +138,7 @@ def kernels(glob, artifact_dir: Path = ARTIFACT_DIR) -> Iterator:
             if kernel.suffix in {".config", ".debug"}:
                 continue
             raise ValueError(f"Unsupported guest kernel artifact: {kernel}")
-        version, acpi = parsed
+        version, acpi, kernel_page_size = parsed
         # Require a patch version (e.g. 6.1.168, not 6.1).
         if len(version.split(".")) != 3:
             raise ValueError(
@@ -139,6 +151,8 @@ def kernels(glob, artifact_dir: Path = ARTIFACT_DIR) -> Iterator:
             raise ValueError(
                 f"Unsupported non-ACPI guest kernel version {version}: {kernel}"
             )
+        if kernel_page_size != page_size:
+            continue
         yield kernel
 
 
@@ -147,12 +161,15 @@ def disks(glob) -> list:
     return sorted(ARTIFACT_DIR.glob(glob))
 
 
-def kernel_params(glob="vmlinux-*", select=kernels, artifact_dir=ARTIFACT_DIR) -> list:
+def kernel_params(
+    glob="vmlinux-*", select=kernels, artifact_dir=ARTIFACT_DIR, *, page_size=4096
+) -> list:
     """Return supported kernels or a single None if no kernels are found"""
     return [
         pytest.param(kernel, id=kernel.pytest_id)
         for kernel in (
-            GuestKernel.from_vmlinux(path) for path in select(glob, artifact_dir)
+            GuestKernel.from_vmlinux(path)
+            for path in select(glob, artifact_dir, page_size=page_size)
         )
     ] or [pytest.param(None, id="no-kernel-found")]
 
@@ -165,6 +182,11 @@ GUEST_KERNELS_5_10 = list(kernel_params("vmlinux-5.10*"))
 GUEST_KERNELS_6_1 = list(kernel_params("vmlinux-6.1*"))
 GUEST_KERNELS_6_1_DEBUG = list(
     kernel_params("vmlinux-6.1*", artifact_dir=ARTIFACT_DIR / "debug")
+)
+# Additional ARM64 kernels for tests that explicitly cover 64 KiB pages.
+GUEST_KERNELS_64K = kernel_params(page_size=65536)
+GUEST_KERNELS_64K_DEBUG = kernel_params(
+    artifact_dir=ARTIFACT_DIR / "debug", page_size=65536
 )
 # The single canonical kernel used when a test pins to one specific kernel
 # (e.g. tests of Firecracker functionality that don't depend on guest kernel).
