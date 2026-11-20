@@ -611,6 +611,10 @@ impl ThreadedWorker {
                 if let Err(err) = worker.resources.disk.file_engine.drain(true) {
                     error!("Failed to drain block IO engine on finish: {:?}", err);
                 }
+                // The worker can write the used ring after the VMM's last commit (a completion or
+                // a queue event handled before this request), and the VMM drops the queue without
+                // committing again.
+                worker.resources.queue.commit_dirty();
                 Some(worker.resources)
             }
             WorkerState::Parked | WorkerState::Finished => None,

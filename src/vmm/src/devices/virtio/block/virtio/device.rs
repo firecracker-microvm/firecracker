@@ -2621,6 +2621,42 @@ mod tests {
     }
 
     #[test]
+    fn test_threaded_finish_commits_dirty() {
+        use vm_memory::GuestMemoryBackend;
+
+        use crate::test_utils::single_region_mem_dirty_tracking;
+        use crate::utils::u64_to_usize;
+        use crate::vstate::memory::{Bitmap, GuestMemoryExtension};
+
+        let mut block = default_threaded_block(FileEngineType::Sync);
+        let mem = single_region_mem_dirty_tracking(0x10000);
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        block.activate(mem.clone(), default_interrupt()).unwrap();
+
+        // As on teardown, the VMM commits while the worker runs, and the worker then completes a
+        // request before it is asked to finish.
+        block.commit_dirty();
+        read_blk_req_descriptors(&vq);
+        vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
+        mem.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(vq.dtable[0].addr.get()))
+            .unwrap();
+        mem.reset_dirty();
+        block.kick();
+
+        // The worker commits its used ring write before the device drops the queue; an
+        // uncommitted one fails the assert in `GuestMemorySliceMut::drop`.
+        drop(block);
+        assert_eq!(vq.used.idx.get(), 1);
+        assert!(
+            mem.find_region(GuestAddress(0))
+                .unwrap()
+                .bitmap()
+                .dirty_at(u64_to_usize(vq.used_start().raw_value()))
+        );
+    }
+
+    #[test]
     fn test_mq_async_snapshot_and_drop() {
         use std::os::unix::fs::FileExt;
 
