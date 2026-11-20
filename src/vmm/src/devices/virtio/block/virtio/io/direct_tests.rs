@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fs::OpenOptions;
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::{FileExt, OpenOptionsExt};
 
 use utils::time::MockClock;
+use vmm_sys_util::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 use vmm_sys_util::tempfile::TempFile;
 
 use super::direct::DirectIo;
@@ -14,8 +16,7 @@ use crate::devices::virtio::block::virtio::request::{
     RequestHeader, VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT,
 };
 use crate::devices::virtio::block::virtio::test_utils::{
-    default_block, direct_io_test_file, set_queue, set_rate_limiter,
-    simulate_async_completion_event, simulate_queue_event,
+    default_block, direct_io_test_file, set_queue, set_rate_limiter, simulate_queue_event,
 };
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
@@ -178,6 +179,7 @@ fn test_direct_disk_and_ordered_flush() {
 #[test]
 fn test_staged_writes_charge_ops_once() {
     let mut block = default_block(FileEngineType::Async);
+    block.metrics = Default::default();
     let file = TempFile::new().unwrap().into_file();
     file.set_len(4096).unwrap();
     block.resources_mut()[0].disk.file_engine = FileEngine::new(
@@ -214,10 +216,25 @@ fn test_staged_writes_charge_ops_once() {
         vq.avail.ring[usize::from(i)].set(head);
     }
     vq.avail.idx.set(2);
+    let FileEngine::Async(engine) = &block.resources()[0].disk.file_engine else {
+        unreachable!()
+    };
+    let ready = Epoll::new().unwrap();
+    ready
+        .ctl(
+            ControlOperation::Add,
+            engine.completion_evt().as_raw_fd(),
+            EpollEvent::new(EventSet::IN, 0),
+        )
+        .unwrap();
     simulate_queue_event(&mut block, Some(false));
     assert_eq!(block.lock_rate_limiter().ops().unwrap().budget(), 1);
-    simulate_async_completion_event(&mut block, true);
-    simulate_async_completion_event(&mut block, true);
+    for _ in 0..2 {
+        // No new guest kicks or explicit ring drains: the staging operation's own
+        // kernel completion must wake the queue and release the next request.
+        assert_eq!(ready.wait(3000, &mut [EpollEvent::default()]).unwrap(), 1);
+        block.process_async_completion_event();
+    }
     assert_eq!(vq.used.idx.get(), 2);
     assert_eq!(block.lock_rate_limiter().ops().unwrap().budget(), 0);
     assert!(!block.lock_rate_limiter().is_blocked());

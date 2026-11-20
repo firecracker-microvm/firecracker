@@ -1393,6 +1393,7 @@ mod tests {
         let first_path = first.as_path().to_str().unwrap().to_string();
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut config = default_config(first_path.clone(), engine);
+            config.drive_id = "direct_replace".into();
             config.is_read_only = true;
             config.direct_io = true;
             let mut block = VirtioBlock::new(config).unwrap();
@@ -2465,6 +2466,7 @@ mod tests {
         file.as_file().write_all_at(&data, 0).unwrap();
         file.as_file().sync_all().unwrap();
         let mut config = default_config(path.clone(), FileEngineType::Async);
+        config.drive_id = "direct_read_patch".into();
         config.direct_io = true;
         let mut block = VirtioBlock::new(config).unwrap();
 
