@@ -233,6 +233,13 @@ and this project adheres to
   connection, and closes it once the response has been acknowledged. Data the
   guest sends after that resets the connection.
 
+- Fixed snapshots of a microVM that was itself restored from a snapshot leaving
+  out MSRs on x86_64. Booting adds MSRs that KVM does not list to the ones a
+  snapshot saves: those set by a CPU template, and those that follow from the
+  guest CPUID, such as the MTRR and machine-check bank MSRs. A restored microVM
+  only saved the MSRs KVM lists, so its own snapshots lost the others. It now
+  also saves the MSRs it was restored with.
+
 ## [1.18.0]
 
 ### Added
