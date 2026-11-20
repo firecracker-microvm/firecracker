@@ -13,6 +13,38 @@ import itertools
 
 from common import DEFAULT_PLATFORMS, BKPipeline
 
+
+def pack_snapshots(test_name, tarball):
+    """Commands that tar the snapshots a test left in its results directory."""
+    return [
+        # punch holes in mem snapshot tiles and tar them so they are preserved in S3
+        f"find test_results/{test_name} -type f -name mem |xargs -P4 -t -n1 fallocate -d",
+        f"mv -v test_results/{test_name} snapshot_artifacts",
+        "mkdir -pv snapshots",
+        f"tar cSvf {tarball} snapshot_artifacts",
+    ]
+
+
+def restore_step(
+    pipeline, per_instance, tarball, *, label, agents, depends_on, extra_pytest_opts=""
+):
+    """Step that restores the snapshots in a tarball with the restore test."""
+    return {
+        "command": [
+            f"buildkite-agent artifact download {tarball} .",
+            f"tar xSvf {tarball}",
+            *pipeline.devtool_test(
+                pytest_opts=f"-m nonci -n8 --dist worksteal {extra_pytest_opts} integration_tests/functional/test_snapshot_restore_cross_kernel.py",
+            ),
+        ],
+        "label": label,
+        "timeout": 30,
+        "agents": agents,
+        "depends_on": [depends_on],
+        **per_instance,
+    }
+
+
 if __name__ == "__main__":
     pipeline = BKPipeline()
     per_instance = pipeline.per_instance.copy()
@@ -35,11 +67,7 @@ if __name__ == "__main__":
             devtool_opts="--no-archive",
             pytest_opts="-m nonci -n4 integration_tests/functional/test_snapshot_phase1.py",
         ),
-        # punch holes in mem snapshot tiles and tar them so they are preserved in S3
-        "find test_results/test_snapshot_phase1 -type f -name mem |xargs -P4 -t -n1 fallocate -d",
-        "mv -v test_results/test_snapshot_phase1 snapshot_artifacts",
-        "mkdir -pv snapshots",
-        "tar cSvf snapshots/{instance}_{kv}.tar snapshot_artifacts",
+        *pack_snapshots("test_snapshot_phase1", "snapshots/{instance}_{kv}.tar"),
     ]
 
     def create_step_key(instance, kv):
@@ -119,21 +147,17 @@ if __name__ == "__main__":
             "m6a.metal": "",
         }
         k_val = pytest_keyword_for_instance.get(dst_instance, "")
-        step = {
-            "command": [
-                f"buildkite-agent artifact download snapshots/{src_instance}_{src_kv}.tar .",
-                f"tar xSvf snapshots/{src_instance}_{src_kv}.tar",
-                *pipeline.devtool_test(
-                    pytest_opts=f"-m nonci -n8 --dist worksteal {k_val} integration_tests/functional/test_snapshot_restore_cross_kernel.py",
-                ),
-            ],
-            "label": f"snapshot-restore-src-{src_instance}-{src_kv}-dst-{dst_instance}-{dst_kv}",
-            "timeout": 30,
-            "agents": {"instance": dst_instance, "kv": dst_kv, "os": dst_os},
-            "depends_on": [create_step_key(src_instance, src_kv)],
-            **per_instance,
-        }
-        steps.append(step)
+        steps.append(
+            restore_step(
+                pipeline,
+                per_instance,
+                f"snapshots/{src_instance}_{src_kv}.tar",
+                label=f"snapshot-restore-src-{src_instance}-{src_kv}-dst-{dst_instance}-{dst_kv}",
+                agents={"instance": dst_instance, "kv": dst_kv, "os": dst_os},
+                depends_on=create_step_key(src_instance, src_kv),
+                extra_pytest_opts=k_val,
+            )
+        )
     pipeline.add_step(
         {"group": "snapshot-restore-across-instances-and-kernels", "steps": steps}
     )
