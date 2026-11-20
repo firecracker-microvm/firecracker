@@ -109,6 +109,8 @@ def test_snapshot_phase1(
 
     # Copy snapshot files to be published to S3 for the 2nd part of the test
     # Create snapshot artifacts directory specific for the kernel version used.
-    snapshot = vm.snapshot_full()
+    # Pin the artifacts, so that a snapshot taken after restoring one on a newer
+    # host kernel can still be restored on this one.
+    snapshot = vm.snapshot_full(vcpu_registers="Pin")
     snapshot_artifacts_dir.mkdir(parents=True)
     snapshot.save_to(snapshot_artifacts_dir)
