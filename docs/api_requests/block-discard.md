@@ -30,20 +30,24 @@ that points such a drive to a block device. Regular file backends work with the
 
 ## Discard alignment and drive updates
 
-The discard alignment is measured in 512-byte sectors. Firecracker sets it to
-the advertised [logical block size](../block.md#logical-block-size) divided by
-the 512-byte sector size. For a raw block device whose advertised logical
-block size and topology match the backend, Firecracker also takes the backend's
-minimum and optimal I/O sizes into account. For example, the alignment on a
-thin pool can reflect its chunk size. Reusing the drive configuration from
-`GET /vm/config` with the same backend preserves this alignment.
+Firecracker advertises discard alignment in 512-byte sectors. For a regular
+file, the alignment is the advertised
+[logical block size](../block.md#logical-block-size). For a raw block device,
+Firecracker uses the largest of the advertised logical block size and the
+backend's reported logical block size, minimum I/O size, and optimal I/O size.
+This applies even when the drive configuration specifies `blk_size` or
+`topology`. For example, a thin pool that reports a 64 KiB minimum I/O size can
+expose a 64 KiB discard alignment with a 512-byte guest logical block size. The
+minimum and optimal I/O sizes are hints. The backend may reclaim smaller ranges.
+If Firecracker cannot read the backend attributes, it uses the advertised
+logical block size.
 
-For a disk update, the new backend discard alignment must divide the advertised
-alignment. Firecracker does not check this requirement, so the user must provide
-a compatible backend. Otherwise, the backend can reject a valid guest request,
-and Firecracker returns `VIRTIO_BLK_S_IOERR`. For example, replacing a regular
-file with alignment `1` by a block file with 4096-byte logical sectors having
-alignment `8` is invalid because `1 % 8 != 0`.
+For a disk update, the discard alignment required by the new backend must divide
+the advertised alignment. Firecracker does not check this requirement, so the
+user must provide a compatible backend. Otherwise, the backend can reject a
+valid guest request, and Firecracker returns `VIRTIO_BLK_S_IOERR`. For example,
+replacing a regular file with alignment `1` by a block file with 4096-byte
+logical sectors having alignment `8` is invalid because `1 % 8 != 0`.
 
 ## Example configuration
 

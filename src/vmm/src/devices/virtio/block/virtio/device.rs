@@ -311,9 +311,8 @@ fn calculate_blk_size_and_topology(
     Some((attrs.logical_block_size, topology))
 }
 
-/// Discard alignment, in sectors, to advertise for a block device. It is at least the minimum
-/// and optimal I/O size of the device (for example the chunk size of a thin pool), so that the
-/// guest does not send discards smaller than what the device can release.
+/// Discard alignment in 512-byte sectors derived from the backend's logical block size
+/// and I/O hints. For example, a thin pool can report its chunk size as its minimum I/O size.
 fn calculate_discard_sector_alignment(attrs: &BlockDeviceAttributes) -> u32 {
     attrs
         .logical_block_size
@@ -362,22 +361,22 @@ impl ConfigSpace {
     ) {
         if let Some(blk_size) = blk_size {
             self.blk_size = blk_size;
-            self.discard_sector_alignment = blk_size / SECTOR_SIZE;
         }
         if let Some(topology) = topology {
             self.topology = topology;
         }
-
-        if let Some(attrs) = attrs
-            && let Some(geometry) = calculate_blk_size_and_topology(attrs)
+        if blk_size.is_none()
+            && topology.is_none()
+            && let Some(geometry) = attrs.and_then(calculate_blk_size_and_topology)
         {
-            if blk_size.is_none() && topology.is_none() {
-                (self.blk_size, self.topology) = geometry;
-            }
-            // GET /vm/config exports the effective geometry, including autodetected values.
-            if (self.blk_size, self.topology) == geometry {
-                self.discard_sector_alignment = calculate_discard_sector_alignment(attrs);
-            }
+            (self.blk_size, self.topology) = geometry;
+        }
+
+        self.discard_sector_alignment = self.blk_size / SECTOR_SIZE;
+        if let Some(attrs) = attrs {
+            self.discard_sector_alignment = self
+                .discard_sector_alignment
+                .max(calculate_discard_sector_alignment(attrs));
         }
     }
 }
@@ -1257,18 +1256,6 @@ mod tests {
             );
             assert_eq!(replay, automatic);
 
-            // A manual topology can deliberately differ from the backend.
-            let mut manual = ConfigSpace::default();
-            manual.set_geometry(
-                Some(logical_block_size),
-                Some(VirtioBlkTopology::default()),
-                Some(&attrs),
-            );
-            assert_eq!(
-                manual.discard_sector_alignment,
-                logical_block_size / SECTOR_SIZE
-            );
-
             // The same exported hints on a regular file have no underlying block geometry.
             let mut file = ConfigSpace::default();
             file.set_geometry(Some(automatic.blk_size), Some(automatic.topology), None);
@@ -1277,6 +1264,44 @@ mod tests {
                 logical_block_size / SECTOR_SIZE
             );
         }
+    }
+
+    #[test]
+    fn test_discard_alignment_with_explicit_geometry() {
+        let attrs = BlockDeviceAttributes {
+            logical_block_size: 4096,
+            physical_block_size: 4096,
+            min_io_size: 65536,
+            opt_io_size: 0,
+        };
+        let topology = VirtioBlkTopology {
+            min_io_size: 2,
+            ..Default::default()
+        };
+        let defaults = ConfigSpace::default();
+        for (blk_size, topology) in [
+            (Some(512), None),
+            (Some(4096), None),
+            (None, Some(topology)),
+            (Some(4096), Some(topology)),
+        ] {
+            let mut config = defaults;
+            config.set_geometry(blk_size, topology, Some(&attrs));
+            assert_eq!(config.blk_size, blk_size.unwrap_or(defaults.blk_size));
+            assert_eq!(config.topology, topology.unwrap_or(defaults.topology));
+            assert_eq!(config.discard_sector_alignment, 128);
+        }
+
+        // The guest logical block size can also exceed all the backend hints.
+        let attrs = BlockDeviceAttributes {
+            logical_block_size: 512,
+            physical_block_size: 512,
+            min_io_size: 512,
+            opt_io_size: 0,
+        };
+        let mut config = defaults;
+        config.set_geometry(Some(4096), None, Some(&attrs));
+        assert_eq!(config.discard_sector_alignment, 8);
     }
 
     #[test]
