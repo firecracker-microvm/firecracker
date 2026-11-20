@@ -5,11 +5,10 @@
 
 import json
 import logging
-from pathlib import Path
 
 import pytest
 
-from framework.defs import FC_WORKSPACE_DIR
+from framework.artifacts import get_snapshot_dirs
 from framework.utils import (
     check_entropy,
     check_network_data_integrity,
@@ -20,7 +19,6 @@ from framework.utils import (
     make_guest_dirty_memory,
     populate_data_store,
 )
-from framework.utils_cpu_templates import get_supported_cpu_templates
 from framework.utils_vsock import check_vsock_device
 from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
@@ -82,19 +80,6 @@ def _test_mmds(vm, mmds_net_iface):
     cmd = generate_mmds_get_request(mmds_ipv4_address, token=token)
     _, stdout, _ = vm.ssh.run(cmd)
     assert json.loads(stdout) == data_store
-
-
-def get_snapshot_dirs():
-    """Get all the snapshot directories"""
-    snapshot_root_name = "snapshot_artifacts"
-    snapshot_root_dir = Path(FC_WORKSPACE_DIR) / snapshot_root_name
-    cpu_templates = ["None"] + get_supported_cpu_templates()
-    for cpu_template in cpu_templates:
-        for snapshot_dir in snapshot_root_dir.glob(
-            f"**/*_{cpu_template}_guest_snapshot"
-        ):
-            assert snapshot_dir.is_dir()
-            yield pytest.param(snapshot_dir, id=snapshot_dir.name)
 
 
 @pytest.mark.timeout(600)

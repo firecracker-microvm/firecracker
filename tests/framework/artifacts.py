@@ -11,7 +11,8 @@ from typing import Iterator
 
 import pytest
 
-from framework.defs import ARTIFACT_DIR
+from framework.defs import ARTIFACT_DIR, FC_WORKSPACE_DIR
+from framework.utils_cpu_templates import get_supported_cpu_templates
 
 
 @dataclass(frozen=True)
@@ -145,6 +146,19 @@ def kernels(glob, artifact_dir: Path = ARTIFACT_DIR) -> Iterator:
 def disks(glob) -> list:
     """Return supported rootfs"""
     return sorted(ARTIFACT_DIR.glob(glob))
+
+
+def get_snapshot_dirs():
+    """Get all the snapshot directories"""
+    snapshot_root_name = "snapshot_artifacts"
+    snapshot_root_dir = Path(FC_WORKSPACE_DIR) / snapshot_root_name
+    cpu_templates = ["None"] + get_supported_cpu_templates()
+    for cpu_template in cpu_templates:
+        for snapshot_dir in snapshot_root_dir.glob(
+            f"**/*_{cpu_template}_guest_snapshot"
+        ):
+            assert snapshot_dir.is_dir()
+            yield pytest.param(snapshot_dir, id=snapshot_dir.name)
 
 
 def kernel_params(glob="vmlinux-*", select=kernels, artifact_dir=ARTIFACT_DIR) -> list:
