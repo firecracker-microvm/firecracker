@@ -98,6 +98,12 @@ The `io_engine` field selects the host-side IO backend:
 
 See [block-io-engine.md](api_requests/block-io-engine.md) for more information.
 
+### Direct IO
+
+Set `"direct_io": true` to use `O_DIRECT` for reads and writes on a raw,
+single-queue drive. The default is buffered IO. See the
+[host and alignment requirements](api_requests/block-io-engine.md#direct-io).
+
 ### Threaded Mode and Multiqueue
 
 By default, Firecracker processes block requests on the VMM thread and exposes

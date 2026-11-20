@@ -709,6 +709,7 @@ mod tests {
                 path_on_host: Some(tmp_file.as_path().to_str().unwrap().to_string()),
                 rate_limiter: Some(RateLimiterConfig::default()),
                 file_engine_type: None,
+                direct_io: None,
                 image_format: None,
                 blk_size: None,
                 topology: None,

@@ -29,6 +29,34 @@ use crate::rate_limiter::RateLimiter;
 use crate::vmm_config::{RateLimiterConfig, TokenBucketConfig};
 use crate::vstate::memory::{Bytes, GuestAddress};
 
+/// Create a 4 KiB backing image on hosts whose temporary directory supports direct IO.
+#[cfg(test)]
+pub(crate) fn direct_io_test_file() -> Option<TempFile> {
+    use rustix::fs::{AtFlags, StatxFlags, statx};
+    use rustix::io::Errno;
+
+    let file = TempFile::new().unwrap();
+    let stat = match statx(
+        file.as_file(),
+        "",
+        AtFlags::EMPTY_PATH,
+        StatxFlags::DIOALIGN,
+    ) {
+        Ok(stat) => stat,
+        Err(Errno::NOSYS | Errno::NOTSUP) => return None,
+        Err(err) => panic!("statx on temporary backing file: {err}"),
+    };
+    if stat.stx_mask & StatxFlags::DIOALIGN.bits() == 0
+        || ![stat.stx_dio_mem_align, stat.stx_dio_offset_align]
+            .into_iter()
+            .all(|align| align.is_power_of_two() && align <= 4096)
+    {
+        return None;
+    }
+    file.as_file().set_len(4096).unwrap();
+    Some(file)
+}
+
 /// Create a default Block instance to be used in tests.
 pub fn default_block(file_engine_type: FileEngineType) -> VirtioBlock {
     // Create backing file.
@@ -87,6 +115,7 @@ pub fn default_config(path: String, file_engine_type: FileEngineType) -> VirtioB
             }),
         }),
         file_engine_type,
+        direct_io: false,
         image_format: DiskImageFormat::Raw,
         blk_size: None,
         topology: None,

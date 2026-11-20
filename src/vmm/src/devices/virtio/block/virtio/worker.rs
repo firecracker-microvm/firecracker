@@ -135,6 +135,15 @@ impl BlockWorker {
         let mut used_any = false;
 
         while let Some(head) = queue.pop_or_enable_notification()? {
+            // A direct drive has one staging buffer. Wait for it before parsing and
+            // debiting another request. Its CQE will wake this queue.
+            if let FileEngine::Async(engine) = &self.resources.disk.file_engine
+                && engine.has_staged_request()
+            {
+                queue.undo_pop();
+                self.resources.is_io_engine_throttled = true;
+                break;
+            }
             self.metrics.remaining_reqs_count.add(queue.len().into());
             let processing_result =
                 match Request::parse(&head, &self.active_state.mem, self.resources.disk.nsectors) {
@@ -325,6 +334,18 @@ impl BlockWorker {
         disk_image_path: String,
         read_only: bool,
     ) -> Result<u64, VirtioBlockError> {
+        if self.resources.disk.direct_io
+            && matches!(self.resources.disk.file_engine, FileEngine::Async(_))
+        {
+            // The replacement ring only knows the new file. Publish every completion from the
+            // old ring first, including when the guest still has updates in flight during PATCH.
+            self.resources
+                .disk
+                .file_engine
+                .drain(false)
+                .map_err(VirtioBlockError::FileEngine)?;
+            self.process_async_completion_queue();
+        }
         self.resources.disk.update(disk_image_path, read_only)?;
         Ok(self.resources.disk.nsectors)
     }

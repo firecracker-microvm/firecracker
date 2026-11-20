@@ -46,6 +46,40 @@ curl --unix-socket ${socket} -i \
          }"
 ```
 
+## Direct IO
+
+Set `"direct_io": true` on a raw virtio-block drive to open its backing file
+with `O_DIRECT` for both reads and writes. This allows guest IO to bypass the
+host page cache. Omitting the field or setting it to `false` selects buffered
+IO. Both the `Sync` and `Async` engines support direct IO on read-only and
+writable drives. The drive can run on the VMM thread or one dedicated worker
+(`"num_queues": 1`).
+
+Firecracker queries both regular files and block devices for direct IO alignment
+with `statx(STATX_DIOALIGN)` (available starting with Linux 6.1). A regular file
+requires a filesystem that reports these alignments. For a block device on a
+kernel that cannot report them, Firecracker uses the host page size for memory
+alignment and the logical sector size from `BLKSSZGET` for offsets.
+
+The host memory and offset alignments must be powers of two no larger than 4096
+bytes. The backing size must be a multiple of both the host offset alignment and
+the 512-byte virtio sector size. Firecracker checks these requirements when
+opening a drive, replacing its backing path and restoring a snapshot. Snapshots
+retain the drive's IO mode. Restoring a drive saved with direct IO requires a
+Firecracker build that supports it.
+
+Firecracker handles unaligned guest buffers with aligned temporary storage. A
+guest write that changes part of a host block requires a read-modify-write. Give
+a writable drive exclusive write access to its backing storage so that a
+concurrent writer cannot overwrite a change to an adjacent sector. A request
+that needs this alignment handling can block even when using the `Async` engine.
+The guest-facing block size remains configurable through `blk_size`.
+
+Direct IO controls host page-cache use. The existing `cache_type` setting
+controls guest flushes and their durability semantics. For example,
+`"direct_io": true` and `"cache_type": "Writeback"` together request direct IO
+and expose guest flushes.
+
 ## Host requirements
 
 Firecracker requires a minimum host kernel version of 5.10.51 for the `Async` IO

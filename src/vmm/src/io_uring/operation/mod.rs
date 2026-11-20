@@ -113,6 +113,12 @@ impl<T: Debug> Operation<T> {
         }
     }
 
+    /// Delay this operation until all earlier operations in the ring have completed.
+    pub fn drain_before(mut self) -> Self {
+        self.flags |= 1 << io_uring_sqe_flags_bit::IOSQE_IO_DRAIN_BIT;
+        self
+    }
+
     pub(crate) fn fd(&self) -> FixedFd {
         self.fd
     }

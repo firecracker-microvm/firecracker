@@ -1161,6 +1161,7 @@ pub(crate) mod tests {
             path_on_host: Some(f.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: None,
+            direct_io: None,
             image_format: None,
             blk_size: None,
             topology: None,

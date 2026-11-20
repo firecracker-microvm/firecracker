@@ -38,22 +38,29 @@ pub enum FileEngineTypeState {
     Sync,
     /// Async File Engine.
     Async,
+    /// Sync file engine opened with O_DIRECT.
+    SyncDirect,
+    /// Async file engine opened with O_DIRECT.
+    AsyncDirect,
 }
 
-impl From<FileEngineType> for FileEngineTypeState {
-    fn from(file_engine_type: FileEngineType) -> Self {
-        match file_engine_type {
-            FileEngineType::Sync => FileEngineTypeState::Sync,
-            FileEngineType::Async => FileEngineTypeState::Async,
+impl FileEngineTypeState {
+    fn new(engine: FileEngineType, direct_io: bool) -> Self {
+        // Keep the original buffered variants in place so older snapshots decode unchanged.
+        match (engine, direct_io) {
+            (FileEngineType::Sync, false) => Self::Sync,
+            (FileEngineType::Async, false) => Self::Async,
+            (FileEngineType::Sync, true) => Self::SyncDirect,
+            (FileEngineType::Async, true) => Self::AsyncDirect,
         }
     }
-}
 
-impl From<FileEngineTypeState> for FileEngineType {
-    fn from(file_engine_type_state: FileEngineTypeState) -> Self {
-        match file_engine_type_state {
-            FileEngineTypeState::Sync => FileEngineType::Sync,
-            FileEngineTypeState::Async => FileEngineType::Async,
+    fn config(self) -> (FileEngineType, bool) {
+        match self {
+            Self::Sync => (FileEngineType::Sync, false),
+            Self::Async => (FileEngineType::Async, false),
+            Self::SyncDirect => (FileEngineType::Sync, true),
+            Self::AsyncDirect => (FileEngineType::Async, true),
         }
     }
 }
@@ -106,7 +113,10 @@ impl Persist<'_> for VirtioBlock {
             disk_path: self.config.path_on_host.clone(),
             virtio_state,
             rate_limiter_state: self.lock_rate_limiter().save(),
-            file_engine_type: FileEngineTypeState::from(self.file_engine_type()),
+            file_engine_type: FileEngineTypeState::new(
+                self.file_engine_type(),
+                self.config.direct_io,
+            ),
             blk_size: self.config_space.blk_size,
             topology: self.config_space.topology,
             discard_sector_alignment: self.config_space.discard_sector_alignment,
@@ -130,6 +140,7 @@ impl Persist<'_> for VirtioBlock {
         if num_queues > 1 && !mq_offered {
             return Err(VirtioBlockError::Persist(PersistError::InvalidInput));
         }
+        let (file_engine_type, direct_io) = state.file_engine_type.config();
         let config = VirtioBlockConfig {
             drive_id: state.id.clone(),
             partuuid: state.partuuid.clone(),
@@ -141,11 +152,14 @@ impl Persist<'_> for VirtioBlock {
             num_queues: state.num_queues,
             path_on_host: state.disk_path.clone(),
             rate_limiter: rate_limiter_config.into_option(),
-            file_engine_type: state.file_engine_type.into(),
+            file_engine_type,
+            direct_io,
             image_format: state.disk_image_format,
             blk_size: Some(state.blk_size),
             topology: Some(state.topology),
         };
+
+        config.validate_direct_io()?;
 
         let queues = state
             .virtio_state
@@ -165,8 +179,9 @@ impl Persist<'_> for VirtioBlock {
                 disk: DiskProperties::new(
                     &state.disk_path,
                     is_read_only,
-                    state.file_engine_type.into(),
+                    file_engine_type,
                     state.disk_image_format,
+                    direct_io,
                 )?,
                 is_io_engine_throttled: false,
             });
@@ -203,7 +218,7 @@ mod tests {
 
     use super::*;
     use crate::devices::virtio::block::virtio::test_utils::{
-        default_block_with_path, default_config, set_queue,
+        default_block_with_path, default_config, direct_io_test_file, set_queue,
     };
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
@@ -228,6 +243,7 @@ mod tests {
             dmb_size_mib: None,
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            direct_io: false,
             image_format: DiskImageFormat::Raw,
             blk_size: None,
             topology: None,
@@ -242,19 +258,51 @@ mod tests {
 
     #[test]
     fn test_file_engine_type() {
-        // Test conversions between FileEngineType and FileEngineTypeState.
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
+        enum LegacyEngine {
+            Sync,
+            Async,
+        }
+        let legacy = bitcode::serialize(&[LegacyEngine::Sync, LegacyEngine::Async]).unwrap();
+        let buffered: [FileEngineTypeState; 2] = bitcode::deserialize(&legacy).unwrap();
         assert_eq!(
-            FileEngineTypeState::Async,
-            FileEngineTypeState::from(FileEngineType::Async)
+            buffered,
+            [FileEngineTypeState::Sync, FileEngineTypeState::Async]
         );
-        assert_eq!(
-            FileEngineTypeState::Sync,
-            FileEngineTypeState::from(FileEngineType::Sync)
-        );
-        assert_eq!(FileEngineType::Async, FileEngineTypeState::Async.into());
-        assert_eq!(FileEngineType::Sync, FileEngineTypeState::Sync.into());
-        // Test default impl.
+        assert_eq!(bitcode::serialize(&buffered).unwrap(), legacy);
         assert_eq!(FileEngineTypeState::default(), FileEngineTypeState::Sync);
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            for direct_io in [false, true] {
+                assert_eq!(
+                    FileEngineTypeState::new(engine, direct_io).config(),
+                    (engine, direct_io)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_direct_io_persistence() {
+        use rustix::fs::{OFlags, fcntl_getfl};
+        let Some(file) = direct_io_test_file() else {
+            return;
+        };
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let path = file.as_path().to_str().unwrap().to_string();
+            let mut config = default_config(path, engine);
+            config.direct_io = true;
+            let block = VirtioBlock::new(config).unwrap();
+
+            let state = bitcode::deserialize(&bitcode::serialize(&block.save()).unwrap()).unwrap();
+            let restored =
+                VirtioBlock::restore(BlockConstructorArgs { mem: default_mem() }, &state).unwrap();
+            assert_eq!(restored.config(), block.config());
+            assert!(
+                fcntl_getfl(restored.disk().file_engine.file())
+                    .unwrap()
+                    .contains(OFlags::DIRECT)
+            );
+        }
     }
 
     #[test]
@@ -275,6 +323,7 @@ mod tests {
             dmb_size_mib: Some(DmbSizeMib::try_from(32).unwrap()),
             rate_limiter: None,
             file_engine_type: FileEngineType::default(),
+            direct_io: false,
             image_format: DiskImageFormat::Raw,
             blk_size: None,
             topology: None,

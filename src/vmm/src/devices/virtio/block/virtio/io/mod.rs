@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod async_io;
+mod direct;
+#[cfg(test)]
+mod direct_tests;
 pub mod format;
 pub mod sync_io;
 
@@ -33,6 +36,8 @@ pub enum BlockIoError {
     Sync(SyncIoError),
     /// Async error: {0}
     Async(AsyncIoError),
+    /// Direct I/O backing: {0}
+    Direct(std::io::Error),
     /// VMDK error: {0}
     Vmdk(VmdkIoError),
 }
@@ -41,6 +46,7 @@ impl BlockIoError {
     pub fn is_throttling_err(&self) -> bool {
         match self {
             BlockIoError::Async(AsyncIoError::IoUring(err)) => err.is_throttling_err(),
+            BlockIoError::Async(AsyncIoError::BounceInFlight) => true,
             _ => false,
         }
     }
@@ -72,18 +78,55 @@ impl From<&FileEngine> for DiskImageFormat {
 
 impl FileEngine {
     pub fn from_file(file: File, engine_type: FileEngineType) -> Result<FileEngine, BlockIoError> {
+        Self::new(file, engine_type, None)
+    }
+
+    /// Construct a raw engine using a backing opened with O_DIRECT.
+    pub fn from_direct_file(
+        file: File,
+        engine_type: FileEngineType,
+        disk_size: u64,
+    ) -> Result<Self, BlockIoError> {
+        let direct = direct::DirectIo::probe(&file, disk_size).map_err(BlockIoError::Direct)?;
+        Self::new(file, engine_type, Some(direct))
+    }
+
+    fn new(
+        file: File,
+        engine_type: FileEngineType,
+        direct: Option<direct::DirectIo>,
+    ) -> Result<Self, BlockIoError> {
         match engine_type {
-            FileEngineType::Async => Ok(FileEngine::Async(
-                AsyncFileEngine::from_file(file).map_err(BlockIoError::Async)?,
+            FileEngineType::Async => Ok(Self::Async(
+                AsyncFileEngine::from_file(file, direct).map_err(BlockIoError::Async)?,
             )),
-            FileEngineType::Sync => Ok(FileEngine::Sync(SyncFileEngine::from_file(file))),
+            FileEngineType::Sync => Ok(Self::Sync(SyncFileEngine::from_file(file, direct))),
         }
     }
 
+    pub fn update_direct_file_path(
+        &mut self,
+        file: File,
+        disk_size: u64,
+    ) -> Result<(), BlockIoError> {
+        let direct = direct::DirectIo::probe(&file, disk_size).map_err(BlockIoError::Direct)?;
+        self.update_file(file, Some(direct))
+    }
+
     pub fn update_file_path(&mut self, file: File) -> Result<(), BlockIoError> {
+        self.update_file(file, None)
+    }
+
+    fn update_file(
+        &mut self,
+        file: File,
+        direct: Option<direct::DirectIo>,
+    ) -> Result<(), BlockIoError> {
         match self {
-            FileEngine::Async(engine) => engine.update_file(file).map_err(BlockIoError::Async)?,
-            FileEngine::Sync(engine) => engine.update_file(file),
+            FileEngine::Async(engine) => engine
+                .update_file(file, direct)
+                .map_err(BlockIoError::Async)?,
+            FileEngine::Sync(engine) => *engine = SyncFileEngine::from_file(file, direct),
             FileEngine::Vmdk(_) => {
                 return Err(BlockIoError::Vmdk(VmdkIoError::UnsupportedOperation));
             }
@@ -111,13 +154,15 @@ impl FileEngine {
         req: PendingRequest,
     ) -> Result<FileEngineOk, RequestError<BlockIoError>> {
         match self {
-            FileEngine::Async(engine) => match engine.push_read(offset, mem, addr, count, req) {
-                Ok(_) => Ok(FileEngineOk::Submitted),
-                Err(err) => Err(RequestError {
-                    req: err.req,
-                    error: BlockIoError::Async(err.error),
-                }),
-            },
+            FileEngine::Async(engine) => {
+                match engine.transfer(false, offset, mem, addr, count, req) {
+                    Ok(ok) => Ok(ok),
+                    Err(err) => Err(RequestError {
+                        req: err.req,
+                        error: BlockIoError::Async(err.error),
+                    }),
+                }
+            }
             FileEngine::Sync(engine) => match engine.read(offset, mem, addr, count) {
                 Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
                 Err(err) => Err(RequestError {
@@ -144,8 +189,9 @@ impl FileEngine {
         req: PendingRequest,
     ) -> Result<FileEngineOk, RequestError<BlockIoError>> {
         match self {
-            FileEngine::Async(engine) => match engine.push_write(offset, mem, addr, count, req) {
-                Ok(_) => Ok(FileEngineOk::Submitted),
+            FileEngine::Async(engine) => match engine.transfer(true, offset, mem, addr, count, req)
+            {
+                Ok(ok) => Ok(ok),
                 Err(err) => Err(RequestError {
                     req: err.req,
                     error: BlockIoError::Async(err.error),
@@ -291,7 +337,7 @@ pub mod tests {
         }
     }
 
-    fn create_mem() -> GuestMemoryMmap {
+    pub(super) fn create_mem() -> GuestMemoryMmap {
         GuestMemoryMmap::from_regions(
             memory::anonymous(&[(GuestAddress(0), MEM_LEN)], true, HugePageConfig::None)
                 .unwrap()
@@ -302,14 +348,14 @@ pub mod tests {
         .unwrap()
     }
 
-    fn check_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
+    pub(super) fn check_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
         let bitmap = mem.find_region(addr).unwrap().bitmap();
         for offset in addr.0..addr.0 + u64::from(len) {
             assert!(bitmap.dirty_at(u64_to_usize(offset)));
         }
     }
 
-    fn check_clean_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
+    pub(super) fn check_clean_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
         let bitmap = mem.find_region(addr).unwrap().bitmap();
         for offset in addr.0..addr.0 + u64::from(len) {
             assert!(!bitmap.dirty_at(u64_to_usize(offset)));

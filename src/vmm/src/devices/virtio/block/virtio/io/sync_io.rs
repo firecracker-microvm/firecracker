@@ -11,12 +11,15 @@ use vm_memory::{
     WriteVolatile,
 };
 
+use super::direct::DirectIo;
 use crate::vstate::memory::{Bitmap, GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum SyncIoError {
     /// Discard: {0}
     Discard(std::io::Error),
+    /// Direct I/O: {0}
+    Direct(std::io::Error),
     /// Flush: {0}
     Flush(std::io::Error),
     /// Seek: {0}
@@ -30,10 +33,8 @@ pub enum SyncIoError {
 #[derive(Debug)]
 pub struct SyncFileEngine {
     file: File,
+    direct: Option<DirectIo>,
 }
-
-// SAFETY: `File` is send and ultimately a POD.
-unsafe impl Send for SyncFileEngine {}
 
 const BLKDISCARD: libc::Ioctl = 0x1277;
 const FALLOC_FL_KEEP_SIZE: libc::c_int = 0x01;
@@ -82,17 +83,40 @@ pub(super) fn file_discard_range(file: &File, range: (u64, u32)) -> Result<u32, 
 }
 
 impl SyncFileEngine {
-    pub fn from_file(file: File) -> SyncFileEngine {
-        SyncFileEngine { file }
+    pub(super) fn from_file(file: File, direct: Option<DirectIo>) -> SyncFileEngine {
+        SyncFileEngine { file, direct }
     }
 
     pub fn file(&self) -> &File {
         &self.file
     }
 
-    /// Update the backing file of the engine
-    pub fn update_file(&mut self, file: File) {
-        self.file = file
+    // Validate the entire guest range before starting a chunked operation.
+    fn bounce(
+        &mut self,
+        write: bool,
+        offset: u64,
+        mem: &GuestMemoryMmap,
+        addr: GuestAddress,
+        count: u32,
+    ) -> Result<Option<u32>, SyncIoError> {
+        let Some(direct) = &mut self.direct else {
+            return Ok(None);
+        };
+        direct
+            .check_range(offset, count)
+            .map_err(SyncIoError::Direct)?;
+        let slice = mem
+            .get_slice(addr, count as usize)
+            .map_err(SyncIoError::Transfer)?;
+        let ptr = slice.ptr_guard().as_ptr() as usize;
+        if count == 0 || (direct.aligned_buffer(ptr) && direct.aligned_span(offset, count)) {
+            return Ok(None);
+        }
+        direct
+            .transfer(&mut self.file, write, offset, mem, addr, count)
+            .map(Some)
+            .map_err(SyncIoError::Direct)
     }
 
     pub fn read(
@@ -102,6 +126,9 @@ impl SyncFileEngine {
         addr: GuestAddress,
         count: u32,
     ) -> Result<u32, SyncIoError> {
+        if let Some(done) = self.bounce(false, offset, mem, addr, count)? {
+            return Ok(done);
+        }
         self.file
             .seek(SeekFrom::Start(offset))
             .map_err(SyncIoError::Seek)?;
@@ -114,8 +141,8 @@ impl SyncFileEngine {
         let mut unmarked =
             unsafe { VolatileSlice::new(slice.ptr_guard_mut().as_ptr(), count as usize) };
 
-        // Read until the buffer is full, then mark dirty exactly what was read. A failed `read`
-        // writes nothing, so what the earlier ones filled is all there is to mark either way.
+        // Account for completed reads. A failed direct read may also have touched the rest
+        // of the destination, even when the kernel returns no byte count.
         let mut filled = 0;
         let result = loop {
             if unmarked.is_empty() {
@@ -136,10 +163,20 @@ impl SyncFileEngine {
                     unmarked = unmarked.offset(read).unwrap();
                 }
                 Err(VolatileMemoryError::IOError(err)) if err.kind() == ErrorKind::Interrupted => {}
-                Err(err) => break Err(err),
+                Err(err) => {
+                    // A failed direct read may have modified memory without reporting
+                    // how far it got. Preserve every page offered to that read.
+                    if self.direct.is_some() {
+                        slice.bitmap().mark_dirty(filled, unmarked.len());
+                    }
+                    break Err(err);
+                }
             }
         };
         slice.bitmap().mark_dirty(0, filled);
+        if self.direct.is_some() && filled > 0 && result.is_err() {
+            return Ok(u32::try_from(filled).expect("bounded by requested count"));
+        }
         result.map_err(|err| SyncIoError::Transfer(err.into()))?;
         Ok(count)
     }
@@ -151,12 +188,35 @@ impl SyncFileEngine {
         addr: GuestAddress,
         count: u32,
     ) -> Result<u32, SyncIoError> {
+        if let Some(done) = self.bounce(true, offset, mem, addr, count)? {
+            return Ok(done);
+        }
         self.file
             .seek(SeekFrom::Start(offset))
             .map_err(SyncIoError::Seek)?;
-        mem.get_slice(addr, count as usize)
-            .and_then(|slice| Ok(self.file.write_all_volatile(&slice)?))
+        let mut slice = mem
+            .get_slice(addr, count as usize)
             .map_err(SyncIoError::Transfer)?;
+        if self.direct.is_some() {
+            let mut done = 0;
+            while !slice.is_empty() {
+                match self.file.write_volatile(&slice) {
+                    Ok(0) => break,
+                    Ok(written) => {
+                        done += u32::try_from(written).expect("bounded by requested count");
+                        slice = slice.offset(written).unwrap();
+                    }
+                    Err(VolatileMemoryError::IOError(err))
+                        if err.kind() == ErrorKind::Interrupted => {}
+                    Err(_) if done != 0 => break,
+                    Err(err) => return Err(SyncIoError::Transfer(err.into())),
+                }
+            }
+            return Ok(done);
+        }
+        self.file
+            .write_all_volatile(&slice)
+            .map_err(|err| SyncIoError::Transfer(err.into()))?;
         Ok(count)
     }
 

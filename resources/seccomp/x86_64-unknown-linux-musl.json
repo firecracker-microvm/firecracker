@@ -106,6 +106,26 @@
                 "comment": "Used for drive patching & rescanning, for reading the local timezone from /etc/localtime"
             },
             {
+                "syscall": "statx",
+                "comment": "Used to query direct I/O alignment of an open virtio-block backing file",
+                "args": [
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4096,
+                        "comment": "AT_EMPTY_PATH"
+                    },
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 8192,
+                        "comment": "STATX_DIOALIGN"
+                    }
+                ]
+            },
+            {
                 "syscall": "ftruncate",
                 "comment": "Used for snapshotting"
             },
@@ -1965,6 +1985,19 @@
             },
             {
                 "syscall": "ioctl",
+                "comment": "Used to query the logical sector size when patching a direct I/O virtio-block backing device",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4712,
+                        "comment": "BLKSSZGET"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
                 "comment": "Used by the VirtIO block device to pass discard through to block-device backing files",
                 "args": [
                     {
@@ -2031,6 +2064,26 @@
                         "op": "eq",
                         "val": 1,
                         "comment": "FCNTL_FD_CLOEXEC"
+                    }
+                ]
+            },
+            {
+                "syscall": "statx",
+                "comment": "Used to query direct I/O alignment of an open virtio-block backing file",
+                "args": [
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4096,
+                        "comment": "AT_EMPTY_PATH"
+                    },
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 8192,
+                        "comment": "STATX_DIOALIGN"
                     }
                 ]
             },

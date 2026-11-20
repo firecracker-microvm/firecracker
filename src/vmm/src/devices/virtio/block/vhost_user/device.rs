@@ -82,6 +82,7 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
+            direct_io: None,
             image_format: None,
             blk_size: None,
             topology: None,
@@ -448,6 +449,7 @@ mod tests {
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: None,
+            direct_io: None,
             image_format: None,
             blk_size: None,
             topology: None,
@@ -455,6 +457,14 @@ mod tests {
             socket: Some("sock".to_string()),
         };
         VhostUserBlockConfig::try_from(&block_config).unwrap();
+
+        for direct_io in [false, true] {
+            let config = BlockDeviceConfig {
+                direct_io: Some(direct_io),
+                ..block_config.clone()
+            };
+            VhostUserBlockConfig::try_from(&config).unwrap_err();
+        }
 
         for image_format in [DiskImageFormat::Raw, DiskImageFormat::Vmdk] {
             let config = BlockDeviceConfig {
@@ -492,6 +502,7 @@ mod tests {
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
+            direct_io: None,
             image_format: None,
             blk_size: None,
             topology: None,
@@ -513,6 +524,7 @@ mod tests {
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
+            direct_io: None,
             image_format: None,
             blk_size: None,
             topology: None,

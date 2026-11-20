@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for guest-side operations on /drives resources."""
 
+import hashlib
 import os
 
 import pytest
@@ -344,6 +345,52 @@ def test_no_flush(uvm, io_engine, num_queues):
     # dropping the caches.
     fc_metrics = test_microvm.flush_metrics()
     assert fc_metrics["block"]["flush_count"] == 0
+
+
+@pin_vm_backend(VM_BACKEND_KVM)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_direct_io_partial_sector(uvm, io_engine, tmp_path):
+    """A 512-byte guest write must preserve adjacent data on a 4 KiB backing."""
+    image = tmp_path / "disk.raw"
+    original = bytes(range(256)) * 32
+    image.write_bytes(original)
+    with image.open("ab") as backing:
+        backing.truncate(2 * MB)
+
+    _, loop, _ = utils.check_output(
+        ["losetup", "--find", "--show", "--sector-size", "4096", str(image)]
+    )
+    loop = loop.strip()
+    try:
+        uvm.spawn()
+        uvm.basic_config()
+        uvm.add_net_iface()
+        uvm.add_drive(
+            "scratch",
+            loop,
+            io_engine=io_engine,
+            direct_io=True,
+            cache_type="Writeback",
+            blk_size=512,
+            num_queues=1,
+        )
+        uvm.start()
+        uvm.ssh.check_output(
+            "dd if=/dev/zero of=/dev/vdb bs=512 seek=7 count=2 "
+            "oflag=direct conv=notrunc,fsync status=none"
+        )
+        _, digest, _ = uvm.ssh.check_output(
+            "dd if=/dev/vdb bs=4096 count=2 iflag=direct status=none | sha256sum"
+        )
+        expected = original[:3584] + bytes(1024) + original[4608:]
+        assert digest.split()[0] == hashlib.sha256(expected).hexdigest()
+        with image.open("rb") as backing:
+            assert backing.read(len(expected)) == expected
+    finally:
+        try:
+            uvm.kill()
+        finally:
+            utils.check_output(["losetup", "--detach", loop])
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)

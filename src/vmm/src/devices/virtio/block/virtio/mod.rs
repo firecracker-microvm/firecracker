@@ -54,6 +54,10 @@ pub enum VirtioBlockError {
     InvalidDataLength,
     /// The requested operation would cause a seek beyond disk end.
     InvalidOffset,
+    /// Direct IO requires a raw block image.
+    DirectIoRequiresRaw,
+    /// Direct IO requires a single virtio queue.
+    DirectIoRequiresSingleQueue,
     /// Discard is not supported with the async IO engine.
     DiscardAsyncUnsupported,
     /// Discard is not supported with read-only drives.
