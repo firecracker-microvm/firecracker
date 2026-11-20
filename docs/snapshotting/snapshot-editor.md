@@ -116,6 +116,21 @@ Firecracker snapshot consists of 2 files:
 > ./snapshot-editor info-vmstate vcpu-states --vmstate-path ./vmstate_file
 > ```
 
+#### `check-vcpu-register-pin` subcommand
+
+Use this command to check whether a re-snapshot retained the source snapshot's
+vCPU register pin:
+
+```bash
+snapshot-editor info-vmstate check-vcpu-register-pin \
+    --source-path ./source/vmstate --vmstate-path ./resnapshot/vmstate
+```
+
+It exits successfully only if both snapshots are pinned and every vCPU has the
+same register IDs in the same order. On aarch64, it also compares the pinned
+feature ID values. It does not compare mutable register values or test whether
+the destination host can restore the snapshot.
+
 #### `vm-state` subcommand
 
 > This command is used to print the vmstate of snapshot file in readable format

@@ -1423,6 +1423,7 @@ dependencies = [
  "clap",
  "clap-num",
  "displaydoc",
+ "kvm-bindings",
  "libc",
  "log-instrument",
  "thiserror 2.0.21",

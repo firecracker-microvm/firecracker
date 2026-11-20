@@ -58,6 +58,9 @@ and this project adheres to
   pinned aarch64 CPU feature ID values. Without a pin, `Inherit` leaves the
   snapshot unpinned. Neither mode changes the running microVM's pin. Storing the
   pin in the snapshot bumps the snapshot version again, to `14.0.0`.
+- Added `snapshot-editor info-vmstate check-vcpu-register-pin` to check whether
+  a re-snapshot retained the source snapshot's vCPU register pin. See the
+  [snapshot editor guide](docs/snapshotting/snapshot-editor.md#check-vcpu-register-pin-subcommand).
 
 ### Changed
 

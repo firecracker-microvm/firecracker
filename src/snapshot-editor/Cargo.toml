@@ -26,5 +26,8 @@ vmm-sys-util = "0.15.0"
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 clap-num = "1.2.0"
 
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+kvm-bindings = { version = "0.14.0", features = ["fam-wrappers", "serde"] }
+
 [lints]
 workspace = true
