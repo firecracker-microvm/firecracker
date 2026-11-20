@@ -148,17 +148,22 @@ def disks(glob) -> list:
     return sorted(ARTIFACT_DIR.glob(glob))
 
 
-def get_snapshot_dirs():
-    """Get all the snapshot directories"""
-    snapshot_root_name = "snapshot_artifacts"
-    snapshot_root_dir = Path(FC_WORKSPACE_DIR) / snapshot_root_name
-    cpu_templates = ["None"] + get_supported_cpu_templates()
-    for cpu_template in cpu_templates:
-        for snapshot_dir in snapshot_root_dir.glob(
-            f"**/*_{cpu_template}_guest_snapshot"
-        ):
+def get_snapshot_dirs(*, all_artifacts=False):
+    """Select snapshot directories, filtering for destination CPU support by default."""
+    snapshot_root_dir = FC_WORKSPACE_DIR / "snapshot_artifacts"
+    patterns = ["*_guest_snapshot"]
+    if not all_artifacts:
+        patterns = [
+            f"*_{template}_guest_snapshot"
+            for template in ["None", *get_supported_cpu_templates()]
+        ]
+
+    params = []
+    for pattern in patterns:
+        for snapshot_dir in sorted(snapshot_root_dir.rglob(pattern)):
             assert snapshot_dir.is_dir()
-            yield pytest.param(snapshot_dir, id=snapshot_dir.name)
+            params.append(pytest.param(snapshot_dir, id=snapshot_dir.name))
+    return params
 
 
 def kernel_params(glob="vmlinux-*", select=kernels, artifact_dir=ARTIFACT_DIR) -> list:

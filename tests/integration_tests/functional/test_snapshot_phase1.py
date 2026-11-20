@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Creates snapshots for other tests like test_snapshot_restore_cross_kernel.py
+Creates snapshots for test_snapshot_restore_cross_kernel.py and
+test_snapshot_resnapshot_cross_kernel.py.
 """
 
 import json

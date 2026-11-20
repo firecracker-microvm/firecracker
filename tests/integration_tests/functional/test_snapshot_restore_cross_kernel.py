@@ -82,8 +82,18 @@ def _test_mmds(vm, mmds_net_iface):
     assert json.loads(stdout) == data_store
 
 
+def pytest_generate_tests(metafunc):
+    """The round-trip tarball contains only snapshots from the destination instance type."""
+    if "snapshot_dir" in metafunc.fixturenames:
+        metafunc.parametrize(
+            "snapshot_dir",
+            get_snapshot_dirs(
+                all_artifacts=metafunc.config.getoption("--all-snapshot-artifacts")
+            ),
+        )
+
+
 @pytest.mark.timeout(600)
-@pytest.mark.parametrize("snapshot_dir", get_snapshot_dirs())
 def test_snap_restore_from_artifacts(
     microvm_factory, bin_vsock_path, test_fc_session_root_path, snapshot_dir
 ):

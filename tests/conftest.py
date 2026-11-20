@@ -105,6 +105,12 @@ def pytest_addoption(parser):
         type=Path,
     )
 
+    parser.addoption(
+        "--all-snapshot-artifacts",
+        action="store_true",
+        help="Restore every snapshot from a same-instance tarball without filtering CPU templates",
+    )
+
 
 def pytest_report_header():
     """Pytest hook to print relevant metadata in the logs"""
