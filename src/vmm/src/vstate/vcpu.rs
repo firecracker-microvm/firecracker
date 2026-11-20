@@ -704,9 +704,9 @@ pub(crate) mod tests {
     struct DummyDevice;
 
     impl BusDevice for DummyDevice {
-        fn read(&mut self, _base: u64, _offset: u64, _data: &mut [u8]) {}
+        fn read(&mut self, _tag: u8, _offset: u64, _data: &mut [u8]) {}
 
-        fn write(&mut self, _base: u64, _offset: u64, _data: &[u8]) -> Option<Arc<Barrier>> {
+        fn write(&mut self, _tag: u8, _offset: u64, _data: &[u8]) -> Option<Arc<Barrier>> {
             None
         }
     }
@@ -813,7 +813,7 @@ pub(crate) mod tests {
 
         let bus = Arc::new(Bus::new());
         let dummy = Arc::new(Mutex::new(DummyDevice));
-        bus.insert(dummy, 0x10, 0x10).unwrap();
+        bus.insert(dummy, 0x10, 0x10, 0).unwrap();
         vcpu.set_mmio_bus(bus);
         let addr = 0x10;
 

@@ -96,6 +96,7 @@ impl PciSegment {
             pci_config_mmio.clone(),
             mmio_config_address,
             PCI_MMIO_CONFIG_SIZE_PER_SEGMENT,
+            0,
         )?;
 
         let resource_allocator = vm.resource_allocator();
@@ -142,6 +143,7 @@ impl PciSegment {
             pci_config_io.clone(),
             PCI_CONFIG_IO_PORT,
             PCI_CONFIG_IO_PORT_SIZE,
+            0,
         )?;
 
         segment.pci_config_io = Some(pci_config_io);
@@ -265,7 +267,7 @@ impl PciSegment {
 
         vm.common
             .mmio_bus
-            .insert(root_port.clone(), msix_bar_addr, ROOT_PORT_MSIX_BAR_SIZE)?;
+            .insert(root_port.clone(), msix_bar_addr, ROOT_PORT_MSIX_BAR_SIZE, 0)?;
 
         info!(
             "pci: added PCIe root port: {sbdf}, secondary bus {secondary_bus}, MSI-X BAR \

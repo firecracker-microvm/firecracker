@@ -58,11 +58,13 @@ impl PortIODeviceManager {
             self.stdio_serial.clone(),
             Self::SERIAL_PORT_ADDRESS,
             Self::SERIAL_PORT_SIZE,
+            0,
         )?;
         io_bus.insert(
             self.i8042.clone(),
             Self::I8042_KDB_DATA_REGISTER_ADDRESS,
             Self::I8042_KDB_DATA_REGISTER_SIZE,
+            0,
         )?;
 
         vm.register_irq(
