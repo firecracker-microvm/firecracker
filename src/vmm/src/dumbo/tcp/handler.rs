@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::num::NonZeroUsize;
+use std::time::Instant;
 
 use micro_http::{Request, Response};
 
@@ -132,7 +133,7 @@ pub struct TcpIPv4Handler {
     active_connections: HashSet<ConnectionTuple>,
     // Remembers the closest timestamp into the future when one of the connections has to deal
     // with an RTO trigger.
-    next_timeout: Option<(u64, ConnectionTuple)>,
+    next_timeout: Option<(Instant, ConnectionTuple)>,
     // RST segments awaiting to be sent.
     rst_queue: Vec<(ConnectionTuple, RstConfig)>,
     // Maximum size of the RST queue.
@@ -282,7 +283,7 @@ impl TcpIPv4Handler {
         }
     }
 
-    fn check_timeout(&mut self, value: u64, tuple: ConnectionTuple) {
+    fn check_timeout(&mut self, value: Instant, tuple: ConnectionTuple) {
         match self.next_timeout {
             Some((t, _)) if t > value => self.next_timeout = Some((value, tuple)),
             None => self.next_timeout = Some((value, tuple)),
@@ -728,10 +729,9 @@ mod tests {
         assert_eq!(h.active_connections.len(), 0);
         if let Some((t, tuple)) = h.next_timeout {
             assert_eq!(tuple, remote_tuple);
-            // The current Endpoint implementation gets timestamps using timestamp_cycles(), which
-            // increases VERY fast so the following inequality is guaranteed to be true. If the
-            // timestamp source gets coarser at some point, we might need an explicit wait before
-            // the previous h.receive_packet() :-s
+            // `Endpoint` timestamps segments with `Instant::now()`, whose nanosecond resolution
+            // makes the two readings differ. If the clock source ever gets coarser, an explicit
+            // wait before the previous `h.receive_packet()` would be needed.
             assert!(t > old_timeout_value);
         } else {
             panic!("missing second expected timeout");
@@ -793,7 +793,7 @@ mod tests {
         h.connections
             .get_mut(&remote_tuple2)
             .unwrap()
-            .set_eviction_threshold(0);
+            .set_eviction_threshold(std::time::Duration::ZERO);
 
         // The new connection will replace the old one.
         assert_eq!(

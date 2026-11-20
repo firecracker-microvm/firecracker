@@ -7,7 +7,8 @@
 //! [`Connection`]: struct.Connection.html
 
 use std::fmt::Debug;
-use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
+use std::num::{NonZeroU16, NonZeroUsize, Wrapping};
+use std::time::{Duration, Instant};
 
 use bitflags::bitflags;
 #[cfg(not(feature = "fuzzing"))]
@@ -202,10 +203,10 @@ pub struct Connection {
     // The last time we received an ACK which advanced the receive window. Only makes sense as
     // long as we seq_after(first_not_sent, highest_ack_received), and if we sent something that
     // takes up sequence number space.
-    rto_start: u64,
+    rto_start: Instant,
     // How much time can pass after rto_start, without making progress in the ACK space, before a
     // retransmission is triggered.
-    rto_period: u64,
+    rto_period: Duration,
     // How many retransmissions triggered before receiving a valid ACK from the other endpoint.
     rto_count: u16,
     // When rto_count reaches this value, the next retransmission will actually reset the
@@ -253,15 +254,24 @@ impl Connection {
     /// * `segment` - The incoming `SYN`.
     /// * `local_rwnd_size` - Initial size of the local receive window.
     /// * `rto_period` - How long the connection waits before a retransmission timeout fires for the
-    ///   first segment which has not been acknowledged yet. This uses an opaque time unit.
+    ///   first segment which has not been acknowledged yet.
     /// * `rto_count_max` - How many consecutive timeout-based retransmission may occur before the
     ///   connection resets itself.
+    /// * `now` - The current time.
+    ///
+    /// # Panics
+    ///
+    /// If `rto_period` is zero.
     pub fn passive_open<T: NetworkBytes + Debug>(
         segment: &TcpSegment<T>,
         local_rwnd_size: u32,
-        rto_period: NonZeroU64,
+        rto_period: Duration,
         rto_count_max: NonZeroU16,
+        now: Instant,
     ) -> Result<Self, PassiveOpenError> {
+        // A zero period would retransmit on every write.
+        assert!(!rto_period.is_zero());
+
         // We don't accepting anything other than a SYN segment here.
         if !is_valid_syn(segment) {
             return Err(PassiveOpenError::InvalidSyn);
@@ -291,8 +301,8 @@ impl Connection {
             // We have no information about this yet. It will get updated as the connection reaches
             // the ESTABLISHED state.
             remote_rwnd_edge,
-            rto_start: 0,
-            rto_period: rto_period.get(),
+            rto_start: now,
+            rto_period,
             rto_count: 0,
             rto_count_max: rto_count_max.get(),
             fin_received: None,
@@ -362,8 +372,8 @@ impl Connection {
         self.send_rst.is_some()
     }
 
-    fn rto_expired(&self, now: u64) -> bool {
-        now - self.rto_start >= self.rto_period
+    fn rto_expired(&self, now: Instant) -> bool {
+        now.saturating_duration_since(self.rto_start) >= self.rto_period
     }
 
     // We send a FIN control segment if every data byte up to the self.send_fin sequence number
@@ -549,7 +559,7 @@ impl Connection {
         &mut self,
         s: &TcpSegment<T>,
         buf: &mut [u8],
-        now: u64,
+        now: Instant,
     ) -> Result<(Option<NonZeroUsize>, RecvStatusFlags), RecvError> {
         if self.rst_pending() || self.is_reset() {
             return Err(RecvError::ConnectionReset);
@@ -838,7 +848,7 @@ impl Connection {
         buf: &'a mut [u8],
         mss_reserved: u16,
         payload_src: PayloadSource,
-        now: u64,
+        now: Instant,
     ) -> Result<Option<Incomplete<TcpSegment<'a, &'a mut [u8]>>>, WriteNextError> {
         if self.is_reset() {
             return Err(WriteNextError::ConnectionReset);
@@ -1094,9 +1104,9 @@ pub(crate) mod tests {
         pub mss_reserved: u16,
         local_rwnd_size: u32,
         remote_isn: u32,
-        pub rto_period: u64,
+        pub rto_period: Duration,
         rto_count_max: u16,
-        now: u64,
+        now: Instant,
     }
 
     impl ConnectionTester {
@@ -1110,9 +1120,9 @@ pub(crate) mod tests {
                 mss_reserved: 0,
                 local_rwnd_size: 10000,
                 remote_isn: 12_345_678,
-                rto_period: 100_000,
+                rto_period: Duration::from_micros(100),
                 rto_count_max: 3,
-                now: 0,
+                now: Instant::now(),
             }
         }
 
@@ -1123,8 +1133,9 @@ pub(crate) mod tests {
             Connection::passive_open(
                 s,
                 self.local_rwnd_size,
-                NonZeroU64::new(self.rto_period).unwrap(),
+                self.rto_period,
                 NonZeroU16::new(self.rto_count_max).unwrap(),
+                self.now,
             )
         }
 
@@ -1462,7 +1473,7 @@ pub(crate) mod tests {
         // Also, we now have a RTO pending.
         assert_eq!(
             c.control_segment_or_timeout_status(),
-            NextSegmentStatus::Timeout(t.rto_period)
+            NextSegmentStatus::Timeout(t.now + t.rto_period)
         );
 
         // However, if we advance the time until just after the RTO, a SYNACK is retransmitted.
@@ -1471,7 +1482,7 @@ pub(crate) mod tests {
 
         assert_eq!(
             c.control_segment_or_timeout_status(),
-            NextSegmentStatus::Timeout(2 * t.rto_period)
+            NextSegmentStatus::Timeout(t.now + t.rto_period)
         );
 
         // Re-receiving a valid SYN moves the connection back to SYN_RECEIVED.
@@ -1746,10 +1757,10 @@ pub(crate) mod tests {
 
         // Btw, let's also make sure another retransmission will happen after another time-out,
         // but not earlier.
-        t.now += t.rto_period - 1;
+        t.now += t.rto_period - Duration::from_nanos(1);
         assert!(t.write_next_segment(&mut c, payload_src).unwrap().is_none());
 
-        t.now += 1;
+        t.now += Duration::from_nanos(1);
         {
             let s = t.write_next_segment(&mut c, payload_src).unwrap().unwrap();
             assert_eq!(s.sequence_number(), ctrl.ack_number());
@@ -1796,9 +1807,9 @@ pub(crate) mod tests {
         }
         // And let's do one more retransmission timing check.
         assert!(t.write_next_segment(&mut c, payload_src).unwrap().is_none());
-        t.now += t.rto_period - 1;
+        t.now += t.rto_period - Duration::from_nanos(1);
         assert!(t.write_next_segment(&mut c, payload_src).unwrap().is_none());
-        t.now += 1;
+        t.now += Duration::from_nanos(1);
         {
             let s = t.write_next_segment(&mut c, payload_src).unwrap().unwrap();
             assert_eq!(s.sequence_number(), ctrl.ack_number());
