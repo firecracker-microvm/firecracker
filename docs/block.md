@@ -156,9 +156,10 @@ Setting `is_read_only` to `true` causes Firecracker to open the backing file
 ### Discard
 
 The `discard` field enables the `VIRTIO_BLK_F_DISCARD` feature for a drive.
-Discard is disabled by default and is available only for writable drives that
-use the `Sync` IO engine. See [block-discard.md](api_requests/block-discard.md)
-for configuration details and backend behavior.
+Discard is disabled by default and is available only for writable drives. With
+the `Async` IO engine, a block device backend requires host kernel 6.12 or
+newer. See [block-discard.md](api_requests/block-discard.md) for configuration
+details and backend behavior.
 
 ### Rate Limiting
 

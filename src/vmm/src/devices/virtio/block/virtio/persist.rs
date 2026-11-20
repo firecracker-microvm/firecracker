@@ -167,6 +167,7 @@ impl Persist<'_> for VirtioBlock {
                     is_read_only,
                     state.file_engine_type.into(),
                     state.disk_image_format,
+                    config.discard,
                 )?,
                 is_io_engine_throttled: false,
             });
@@ -269,7 +270,7 @@ mod tests {
             is_root_device: false,
             partuuid: None,
             is_read_only: false,
-            discard: false,
+            discard: true,
             num_queues: None,
             cache_type: CacheType::Unsafe,
             dmb_size_mib: Some(DmbSizeMib::try_from(32).unwrap()),
@@ -280,7 +281,10 @@ mod tests {
             topology: None,
         };
 
-        let block = VirtioBlock::new(config).unwrap();
+        let mut block = VirtioBlock::new(config).unwrap();
+        // Model a snapshot taken with a 64 KiB backend. The backing file used to
+        // restore it has no geometry from which the saved alignment could be inferred.
+        block.config_space.discard_sector_alignment = 128;
         let guest_mem = default_mem();
 
         // Save the block device.
@@ -303,6 +307,7 @@ mod tests {
         assert!(!block.is_activated());
         assert!(!restored_block.is_activated());
 
+        assert_eq!(restored_block.config_space.discard_sector_alignment, 128);
         assert_eq!(restored_block.dmb_size_mib(), None);
         // Test that block specific fields are the same.
         assert_eq!(

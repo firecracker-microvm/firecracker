@@ -10,6 +10,11 @@ and this project adheres to
 
 ### Added
 
+- [#5935](https://github.com/firecracker-microvm/firecracker/pull/5935): Added
+  virtio-blk discard support for drives using the `Async` IO engine. Regular
+  backing files use `IORING_OP_FALLOCATE`; block devices use
+  `BLOCK_URING_CMD_DISCARD` and require host kernel 6.12 or newer. See the
+  [block discard documentation](docs/api_requests/block-discard.md).
 - [#6226](https://github.com/firecracker-microvm/firecracker/pull/6226),
   [#6227](https://github.com/firecracker-microvm/firecracker/pull/6227),
   [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228),
@@ -54,6 +59,9 @@ and this project adheres to
 
 ### Changed
 
+- [#5935](https://github.com/firecracker-microvm/firecracker/pull/5935): The
+  virtio-blk discard alignment advertised for a block device backend is now at
+  least the device's minimum and optimal I/O size.
 - [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228): Device
   hotplug now requires `pcie_hotplug_ports` to be set in the machine
   configuration, and only devices behind a PCIe root port can be hot-unplugged.

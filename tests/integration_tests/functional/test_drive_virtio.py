@@ -3,12 +3,20 @@
 """Tests for guest-side operations on /drives resources."""
 
 import os
+import time
 
 import pytest
 
 import host_tools.drive as drive_tools
 from framework import utils
-from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_rootfs_mode
+from framework.artifacts import (
+    GUEST_KERNEL_DEFAULT,
+    pin_guest_kernel,
+    pin_hotplug_ports,
+    pin_pci,
+    pin_rootfs_mode,
+)
+from framework.properties import global_props
 from framework.utils_drive import partuuid_and_disk_path
 from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
@@ -346,8 +354,30 @@ def test_no_flush(uvm, io_engine, num_queues):
     assert fc_metrics["block"]["flush_count"] == 0
 
 
+def discard_and_check_blocks(vm, backing_file):
+    """Fill the guest's /dev/vdb, discard it and check that the backing file shrinks."""
+    _, stdout, stderr = vm.ssh.run("cat /sys/block/vdb/queue/discard_granularity")
+    assert stderr == ""
+    assert int(stdout.strip()) > 0
+
+    _, _, stderr = vm.ssh.run(
+        "dd if=/dev/zero of=/dev/vdb bs=1M count=32 oflag=direct conv=fsync status=none",
+        timeout=30.0,
+    )
+    assert stderr == ""
+
+    blocks_before = os.stat(backing_file).st_blocks
+    assert blocks_before > 0
+
+    _, _, stderr = vm.ssh.run("blkdiscard -f /dev/vdb", timeout=30.0)
+    assert stderr in ("", "blkdiscard: Operation forced, data will be lost!\n")
+
+    blocks_after = os.stat(backing_file).st_blocks
+    assert blocks_after < blocks_before
+
+
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
-def test_discard(uvm, num_queues):
+def test_discard(uvm, io_engine, num_queues):
     """
     Verify discard is advertised and punches holes in a file-backed drive.
     """
@@ -361,31 +391,122 @@ def test_discard(uvm, num_queues):
         os.path.join(test_microvm.fsfiles, "discard"), size=64
     )
     test_microvm.add_drive(
-        "discard", fs.path, discard=True, io_engine="Sync", num_queues=num_queues
+        "discard", fs.path, discard=True, io_engine=io_engine, num_queues=num_queues
     )
 
     test_microvm.start()
 
-    _, stdout, stderr = test_microvm.ssh.run(
-        "cat /sys/block/vdb/queue/discard_granularity"
+    discard_and_check_blocks(test_microvm, fs.path)
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_discard_block_device(uvm, io_engine, num_queues):
+    """
+    Verify discard on a block device backend reaches the device.
+
+    The drive is backed by a loop device, which punches holes in its own
+    backing file for discard requests.
+    """
+    if io_engine == "Async" and global_props.host_linux_version_tpl < (6, 12):
+        pytest.skip("BLOCK_URING_CMD_DISCARD requires host kernel 6.12 or newer")
+
+    test_microvm = uvm
+    test_microvm.spawn()
+
+    test_microvm.basic_config(vcpu_count=1)
+    test_microvm.add_net_iface()
+
+    fs = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.fsfiles, "discard_block"), size=64
     )
-    assert stderr == ""
-    assert int(stdout.strip()) > 0
+    _, stdout, _ = utils.check_output(["losetup", "--find", "--show", fs.path])
+    loop_device = stdout.strip()
+    try:
+        test_microvm.add_drive(
+            "discard",
+            loop_device,
+            discard=True,
+            io_engine=io_engine,
+            num_queues=num_queues,
+        )
+        test_microvm.start()
 
-    _, _, stderr = test_microvm.ssh.run(
-        "dd if=/dev/zero of=/dev/vdb bs=1M count=32 oflag=direct conv=fsync status=none",
-        timeout=30.0,
+        discard_and_check_blocks(test_microvm, fs.path)
+    finally:
+        test_microvm.kill()
+        utils.check_output(["losetup", "--detach", loop_device])
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_discard_patch_to_block_device(uvm, io_engine, num_queues):
+    """
+    Verify discard after patching a file-backed discard drive to a block device.
+    """
+    if io_engine == "Async" and global_props.host_linux_version_tpl < (6, 12):
+        pytest.skip("BLOCK_URING_CMD_DISCARD requires host kernel 6.12 or newer")
+
+    test_microvm = uvm
+    test_microvm.spawn()
+
+    test_microvm.basic_config(vcpu_count=1)
+    test_microvm.add_net_iface()
+
+    fs1 = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.fsfiles, "discard_file"), size=64
     )
-    assert stderr == ""
+    test_microvm.add_drive(
+        "discard", fs1.path, discard=True, io_engine=io_engine, num_queues=num_queues
+    )
+    test_microvm.start()
 
-    blocks_before = os.stat(fs.path).st_blocks
-    assert blocks_before > 0
+    fs2 = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.fsfiles, "discard_block"), size=64
+    )
+    _, stdout, _ = utils.check_output(["losetup", "--find", "--show", fs2.path])
+    loop_device = stdout.strip()
+    try:
+        test_microvm.api.drive.patch(
+            drive_id="discard",
+            path_on_host=test_microvm.create_jailed_resource(loop_device),
+        )
 
-    _, _, stderr = test_microvm.ssh.run("blkdiscard -f /dev/vdb", timeout=30.0)
-    assert stderr in ("", "blkdiscard: Operation forced, data will be lost!\n")
+        discard_and_check_blocks(test_microvm, fs2.path)
+    finally:
+        test_microvm.kill()
+        utils.check_output(["losetup", "--detach", loop_device])
 
-    blocks_after = os.stat(fs.path).st_blocks
-    assert blocks_after < blocks_before
+
+@pin_pci(True)
+@pin_vm_backend(VM_BACKEND_KVM)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_hotplug_ports(1)
+def test_discard_hotplug_block_device(uvm_any, io_engine):
+    """
+    Verify discard on a hot-plugged drive backed by a block device.
+    """
+    if io_engine == "Async" and global_props.host_linux_version_tpl < (6, 12):
+        pytest.skip("BLOCK_URING_CMD_DISCARD requires host kernel 6.12 or newer")
+
+    vm = uvm_any
+    fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "discard_block"), size=64)
+    _, stdout, _ = utils.check_output(["losetup", "--find", "--show", fs.path])
+    loop_device = stdout.strip()
+    try:
+        vm.api.drive.put(
+            drive_id="discard",
+            path_on_host=vm.create_jailed_resource(loop_device),
+            is_root_device=False,
+            is_read_only=False,
+            discard=True,
+            io_engine=io_engine,
+        )
+        # The guest's pciehp driver waits 120ms after a hot-plug.
+        time.sleep(0.4)
+
+        discard_and_check_blocks(vm, fs.path)
+    finally:
+        vm.kill()
+        utils.check_output(["losetup", "--detach", loop_device])
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
