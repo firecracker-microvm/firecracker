@@ -32,10 +32,11 @@ that points such a drive to a block device. Regular file backends work with the
 
 The discard alignment is measured in 512-byte sectors. Firecracker sets it to
 the advertised [logical block size](../block.md#logical-block-size) divided by
-the 512-byte sector size. When the logical block size is read from a block
-device backend, the alignment is also raised to the device's minimum and optimal
-I/O size, so that the guest does not send discards smaller than what the device
-can release (for example the chunk size of a thin pool).
+the 512-byte sector size. For a raw block device whose advertised logical
+block size and topology match the backend, Firecracker also takes the backend's
+minimum and optimal I/O sizes into account. For example, the alignment on a
+thin pool can reflect its chunk size. Reusing the drive configuration from
+`GET /vm/config` with the same backend preserves this alignment.
 
 For a disk update, the new backend discard alignment must divide the advertised
 alignment. Firecracker does not check this requirement, so the user must provide
