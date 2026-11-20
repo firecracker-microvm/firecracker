@@ -281,7 +281,7 @@ fn query_blk_attrs(file: &File) -> Option<BlockDeviceAttributes> {
 
 /// Try to convert block attributes into the topology value for the virtio-block device
 fn calculate_blk_size_and_topology(
-    attrs: BlockDeviceAttributes,
+    attrs: &BlockDeviceAttributes,
 ) -> Option<(u32, VirtioBlkTopology)> {
     // It is used as a divisor, so check just in case
     if attrs.logical_block_size == 0 {
@@ -351,6 +351,35 @@ pub struct ConfigSpace {
     pub max_discard_sectors: u32,
     pub max_discard_seg: u32,
     pub discard_sector_alignment: u32,
+}
+
+impl ConfigSpace {
+    fn set_geometry(
+        &mut self,
+        blk_size: Option<u32>,
+        topology: Option<VirtioBlkTopology>,
+        attrs: Option<&BlockDeviceAttributes>,
+    ) {
+        if let Some(blk_size) = blk_size {
+            self.blk_size = blk_size;
+            self.discard_sector_alignment = blk_size / SECTOR_SIZE;
+        }
+        if let Some(topology) = topology {
+            self.topology = topology;
+        }
+
+        if let Some(attrs) = attrs
+            && let Some(geometry) = calculate_blk_size_and_topology(attrs)
+        {
+            if blk_size.is_none() && topology.is_none() {
+                (self.blk_size, self.topology) = geometry;
+            }
+            // GET /vm/config exports the effective geometry, including autodetected values.
+            if (self.blk_size, self.topology) == geometry {
+                self.discard_sector_alignment = calculate_discard_sector_alignment(attrs);
+            }
+        }
+    }
 }
 
 impl Default for ConfigSpace {
@@ -603,27 +632,14 @@ impl VirtioBlock {
             ..Default::default()
         };
 
-        if config.blk_size.is_none()
-            && config.topology.is_none()
-            && !matches!(resources[0].disk.file_engine, FileEngine::Vmdk(_))
-        {
-            if let Some(attrs) = query_blk_attrs(resources[0].disk.file_engine.file()) {
-                let discard_sector_alignment = calculate_discard_sector_alignment(&attrs);
-                if let Some((blk_size, topology)) = calculate_blk_size_and_topology(attrs) {
-                    config_space.blk_size = blk_size;
-                    config_space.topology = topology;
-                    config_space.discard_sector_alignment = discard_sector_alignment;
-                }
-            }
+        let engine = &resources[0].disk.file_engine;
+        let auto_geometry = config.blk_size.is_none() && config.topology.is_none();
+        let attrs = if (auto_geometry || config.discard) && !matches!(engine, FileEngine::Vmdk(_)) {
+            query_blk_attrs(engine.file())
         } else {
-            if let Some(blk_size) = config.blk_size {
-                config_space.blk_size = blk_size;
-                config_space.discard_sector_alignment = blk_size / SECTOR_SIZE;
-            }
-            if let Some(topology) = config.topology {
-                config_space.topology = topology;
-            }
-        }
+            None
+        };
+        config_space.set_geometry(config.blk_size, config.topology, attrs.as_ref());
 
         config.blk_size = Some(config_space.blk_size);
         config.topology = Some(config_space.topology);
@@ -1221,6 +1237,49 @@ mod tests {
     }
 
     #[test]
+    fn test_discard_alignment_on_geometry_replay() {
+        for (logical_block_size, chunk_size) in [(512, 65536), (4096, 1048576)] {
+            let attrs = BlockDeviceAttributes {
+                logical_block_size,
+                physical_block_size: logical_block_size,
+                min_io_size: chunk_size,
+                opt_io_size: chunk_size,
+            };
+            let mut automatic = ConfigSpace::default();
+            automatic.set_geometry(None, None, Some(&attrs));
+            assert_eq!(automatic.discard_sector_alignment, chunk_size / SECTOR_SIZE);
+
+            let mut replay = ConfigSpace::default();
+            replay.set_geometry(
+                Some(automatic.blk_size),
+                Some(automatic.topology),
+                Some(&attrs),
+            );
+            assert_eq!(replay, automatic);
+
+            // A manual topology can deliberately differ from the backend.
+            let mut manual = ConfigSpace::default();
+            manual.set_geometry(
+                Some(logical_block_size),
+                Some(VirtioBlkTopology::default()),
+                Some(&attrs),
+            );
+            assert_eq!(
+                manual.discard_sector_alignment,
+                logical_block_size / SECTOR_SIZE
+            );
+
+            // The same exported hints on a regular file have no underlying block geometry.
+            let mut file = ConfigSpace::default();
+            file.set_geometry(Some(automatic.blk_size), Some(automatic.topology), None);
+            assert_eq!(
+                file.discard_sector_alignment,
+                logical_block_size / SECTOR_SIZE
+            );
+        }
+    }
+
+    #[test]
     fn test_calculate_blk_size_and_topology() {
         let attrs = BlockDeviceAttributes {
             logical_block_size: 0,
@@ -1228,7 +1287,7 @@ mod tests {
             min_io_size: 0,
             opt_io_size: 0,
         };
-        assert!(calculate_blk_size_and_topology(attrs).is_none());
+        assert!(calculate_blk_size_and_topology(&attrs).is_none());
 
         let attrs = BlockDeviceAttributes {
             logical_block_size: 512,
@@ -1236,7 +1295,7 @@ mod tests {
             min_io_size: 64 * 512,
             opt_io_size: 128 * 512,
         };
-        let (logical_size, topology) = calculate_blk_size_and_topology(attrs).unwrap();
+        let (logical_size, topology) = calculate_blk_size_and_topology(&attrs).unwrap();
         assert_eq!(logical_size, 512);
         assert_eq!(topology.physical_block_exp, 3);
         assert_eq!(topology.alignment_offset, 0);
