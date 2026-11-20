@@ -124,6 +124,9 @@ and this project adheres to
   the maximum number of vCPUs of a KVM microVM from 32 to 64. CPUID leaf 0xB
   (and 0x1F where present) subleaf 1 `EAX[4:0]` now reports 6 instead of 5 for
   every microVM; the topology a guest reports is unchanged.
+- [#5935](https://github.com/firecracker-microvm/firecracker/pull/5935): The
+  virtio-blk discard alignment advertised for a block device backend is now at
+  least the device's minimum and optimal I/O size.
 
 ### Deprecated
 
