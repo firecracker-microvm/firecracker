@@ -4,7 +4,7 @@
 //! Emulation of a PCI Express root port with native hot-plug support.
 
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use vm_allocator::RangeInclusive;
@@ -27,7 +27,7 @@ use crate::pci::pcie_cap::{
     PciExpressCap,
 };
 use crate::pci::{PciBridgeSubclass, PciClassCode, PciDevice, PciSBDF};
-use crate::vstate::bus::BusDevice;
+use crate::vstate::bus::{BusDevice, BusWriteAction};
 use crate::vstate::interrupts::{InterruptError, MsixVectorGroup};
 use crate::vstate::vm::KvmVm;
 
@@ -367,12 +367,7 @@ impl PciRootPort {
 }
 
 impl PciDevice for PciRootPort {
-    fn write_config_register(
-        &mut self,
-        reg_idx: u16,
-        offset: u8,
-        data: &[u8],
-    ) -> Option<Arc<Barrier>> {
+    fn write_config_register(&mut self, reg_idx: u16, offset: u8, data: &[u8]) -> BusWriteAction {
         let in_bars = (BAR0_REG_IDX..BAR0_REG_IDX + ROOT_PORT_NUM_BARS).contains(&reg_idx);
         // Only capture writes in the first 4 bytes of the capability,
         // everything else is served from `self.configuration`.
@@ -404,7 +399,7 @@ impl PciDevice for PciRootPort {
             self.configuration
                 .write_config_register(reg_idx, offset, data);
         }
-        None
+        BusWriteAction::Continue
     }
 
     fn read_config_register(&mut self, reg_idx: u16) -> u32 {
@@ -441,7 +436,7 @@ impl PciDevice for PciRootPort {
         }
     }
 
-    fn write_bar(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write_bar(&mut self, _base: u64, offset: u64, data: &[u8]) -> BusWriteAction {
         let table_end = u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)
             + u64::from(ROOT_PORT_MSIX_VECTORS) * MSIX_TABLE_ENTRY_SIZE;
         if (u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)..table_end).contains(&offset) {
@@ -455,7 +450,7 @@ impl PciDevice for PciRootPort {
                 .expect("Poisoned lock")
                 .write_pba(offset - u64::from(ROOT_PORT_MSIX_PBA_OFFSET), data);
         }
-        None
+        BusWriteAction::Continue
     }
 }
 
@@ -464,7 +459,7 @@ impl BusDevice for PciRootPort {
         self.read_bar(base, offset, data)
     }
 
-    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> BusWriteAction {
         self.write_bar(base, offset, data)
     }
 }

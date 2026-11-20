@@ -467,6 +467,7 @@ mod tests {
     use crate::pci::{PciClassCode, PciDevice, PciMassStorageSubclass};
     #[cfg(target_arch = "x86_64")]
     use crate::utils::u64_to_usize;
+    use crate::vstate::bus::BusWriteAction;
 
     struct PciDevMock(PciConfiguration);
     impl PciDevice for PciDevMock {
@@ -475,9 +476,9 @@ mod tests {
             reg_idx: u16,
             offset: u8,
             data: &[u8],
-        ) -> Option<Arc<std::sync::Barrier>> {
+        ) -> BusWriteAction {
             self.0.write_config_register(reg_idx, offset, data);
-            None
+            BusWriteAction::Continue
         }
         fn read_config_register(&mut self, reg_idx: u16) -> u32 {
             self.0.read_reg(reg_idx)

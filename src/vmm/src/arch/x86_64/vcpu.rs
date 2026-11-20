@@ -28,9 +28,9 @@ use crate::arch::x86_64::msr::{MsrError, create_boot_msr_entries};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::cpu_config::x86_64::{CpuConfiguration, cpuid};
 use crate::logger::{IncMetric, METRICS, error, warn};
-use crate::vstate::bus::Bus;
+use crate::vstate::bus::{Bus, BusWriteAction};
 use crate::vstate::memory::GuestMemoryMmap;
-use crate::vstate::vcpu::{VcpuEmulation, VcpuError};
+use crate::vstate::vcpu::{VcpuEmulation, VcpuError, handle_bus_write_action};
 use crate::vstate::vm::KvmVm;
 
 // Tolerance for TSC frequency expected variation.
@@ -824,14 +824,18 @@ impl Peripherals {
                 Ok(VcpuEmulation::Handled)
             }
             VcpuExit::IoOut(addr, data) => {
-                if let Some(pio_bus) = &self.pio_bus {
+                let action = if let Some(pio_bus) = &self.pio_bus {
                     let _metric = METRICS.vcpu.exit_io_out_agg.record_latency_metrics();
-                    if let Err(err) = pio_bus.write(u64::from(addr), data) {
+                    let action = pio_bus.write(u64::from(addr), data).unwrap_or_else(|err| {
                         warn!("vcpu: IO write @ {addr:#x}:{:#x} failed: {err}", data.len());
-                    }
+                        BusWriteAction::Continue
+                    });
                     METRICS.vcpu.exit_io_out.inc();
-                }
-                Ok(VcpuEmulation::Handled)
+                    action
+                } else {
+                    BusWriteAction::Continue
+                };
+                Ok(handle_bus_write_action(action))
             }
             unexpected_exit => {
                 METRICS.vcpu.failures.inc();

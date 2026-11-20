@@ -7,13 +7,12 @@
 
 use std::io;
 use std::num::Wrapping;
-use std::sync::{Arc, Barrier};
 
 use serde::Serialize;
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::logger::{IncMetric, SharedIncMetric, error, warn};
-use crate::vstate::bus::BusDevice;
+use crate::vstate::bus::{BusDevice, BusWriteAction};
 
 /// Errors thrown by the i8042 device.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -245,11 +244,11 @@ impl BusDevice for I8042Device {
         }
     }
 
-    fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> BusWriteAction {
         // All our ports are byte-wide. We don't know how to handle any wider data.
         if data.len() != 1 {
             METRICS.missed_write_count.inc();
-            return None;
+            return BusWriteAction::Continue;
         }
 
         let mut write_ok = true;
@@ -336,7 +335,7 @@ impl BusDevice for I8042Device {
             METRICS.missed_write_count.inc();
         }
 
-        None
+        BusWriteAction::Continue
     }
 }
 

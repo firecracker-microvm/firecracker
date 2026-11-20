@@ -1,8 +1,6 @@
 // Copyright 2026 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::{Arc, Barrier};
-
 use serde::{Deserialize, Serialize};
 use vm_superio::Trigger;
 use vmm_sys_util::eventfd::EventFd;
@@ -10,7 +8,7 @@ use vmm_sys_util::eventfd::EventFd;
 use crate::devices::legacy::EventFdTrigger;
 use crate::logger::{IncMetric, SharedIncMetric, warn};
 use crate::utils::u64_to_usize;
-use crate::vstate::bus::BusDevice;
+use crate::vstate::bus::{BusDevice, BusWriteAction};
 
 /// Size of the PL061 MMIO register window.
 const PL061_REGISTER_SPACE_SIZE: u64 = 0x1000;
@@ -418,9 +416,9 @@ impl BusDevice for PL061Device {
         self.bus_read(offset, data);
     }
 
-    fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> BusWriteAction {
         self.bus_write(offset, data);
-        None
+        BusWriteAction::Continue
     }
 }
 

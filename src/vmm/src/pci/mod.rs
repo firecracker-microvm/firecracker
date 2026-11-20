@@ -14,10 +14,10 @@ pub mod msix;
 /// PCI Express Capability structure
 pub mod pcie_cap;
 
-use std::fmt::{Debug, Display};
-use std::sync::{Arc, Barrier};
-
 use serde::{Deserialize, Serialize};
+use std::fmt::{Debug, Display};
+
+use crate::vstate::bus::BusWriteAction;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 /// Parameters for performing a BAR reprogramming operation
@@ -35,12 +35,7 @@ pub trait PciDevice: Send {
     /// Sets a register in the configuration space.
     /// * `reg_idx` - The index of the config register to modify.
     /// * `offset` - Offset into the register.
-    fn write_config_register(
-        &mut self,
-        reg_idx: u16,
-        offset: u8,
-        data: &[u8],
-    ) -> Option<Arc<Barrier>>;
+    fn write_config_register(&mut self, reg_idx: u16, offset: u8, data: &[u8]) -> BusWriteAction;
     /// Gets a register from the configuration space.
     /// * `reg_idx` - The index of the config register to read.
     fn read_config_register(&mut self, reg_idx: u16) -> u32;
@@ -51,8 +46,8 @@ pub trait PciDevice: Send {
     /// Writes to a BAR region mapped into the device.
     /// * `addr` - The guest address inside the BAR.
     /// * `data` - The data to write.
-    fn write_bar(&mut self, _base: u64, _offset: u64, _data: &[u8]) -> Option<Arc<Barrier>> {
-        None
+    fn write_bar(&mut self, _base: u64, _offset: u64, _data: &[u8]) -> BusWriteAction {
+        BusWriteAction::Continue
     }
 }
 

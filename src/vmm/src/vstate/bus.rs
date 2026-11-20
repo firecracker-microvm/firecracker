@@ -15,6 +15,18 @@ use slab::Slab;
 
 use crate::utils::usize_to_u64;
 
+/// Action for the vCPU to perform after a device write.
+#[derive(Debug, Default)]
+pub enum BusWriteAction {
+    /// Continue guest execution.
+    #[default]
+    Continue,
+    /// Wait for device synchronization after releasing the bus and device locks.
+    WaitFor(Arc<Barrier>),
+    /// Complete pending KVM I/O, then pause the current vCPU without an unsolicited response.
+    PauseVcpu,
+}
+
 /// Trait for devices that respond to reads or writes in an arbitrary address space.
 ///
 /// The device does not care where it exists in address space as each method is only given an offset
@@ -24,8 +36,8 @@ pub trait BusDevice: Send {
     /// Reads at `offset` from this device
     fn read(&mut self, base: u64, offset: u64, data: &mut [u8]) {}
     /// Writes at `offset` into this device
-    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
-        None
+    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> BusWriteAction {
+        BusWriteAction::Continue
     }
 }
 
@@ -253,7 +265,7 @@ impl Bus {
     }
 
     /// Writes `data` to the device that owns the range containing `addr`.
-    pub fn write(&self, addr: u64, data: &[u8]) -> Result<Option<Arc<Barrier>>, BusError> {
+    pub fn write(&self, addr: u64, data: &[u8]) -> Result<BusWriteAction, BusError> {
         self.with_device(addr, usize_to_u64(data.len()), |dev, base, offset| {
             dev.write(base, offset, data)
         })
@@ -277,12 +289,12 @@ mod tests {
         }
 
         #[allow(clippy::cast_possible_truncation)]
-        fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+        fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> BusWriteAction {
             for (i, v) in data.iter().enumerate() {
                 assert_eq!(*v, (offset as u8) + (i as u8))
             }
 
-            None
+            BusWriteAction::Continue
         }
     }
 
