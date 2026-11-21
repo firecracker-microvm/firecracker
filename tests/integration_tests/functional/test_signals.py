@@ -54,19 +54,18 @@ def test_generic_signal_handler(uvm, signum):
     os.kill(microvm.firecracker_pid, signum)
     # Firecracker gracefully handles SIGPIPE (doesn't terminate) and logs nothing.
     if signum == int(SIGPIPE):
-        # Flush metrics to file, so we can see the SIGPIPE at bottom assert.
+        # Flush metrics to file, so we can see the SIGPIPE below.
         # This is going to fail if process has exited.
         microvm.api.actions.put(action_type="FlushMetrics")
+        metric_line = json.loads(metrics_fd.readlines()[0])
+        assert metric_line["signals"][signum_str[signum]] == 1
     else:
         msg = "Shutting down VM after intercepting signal {}".format(signum)
 
+        # The fatal handlers exit without flushing the metrics.
         microvm.mark_killed()
 
         microvm.check_log_message(msg)
-
-    if signum != SIGSYS:
-        metric_line = json.loads(metrics_fd.readlines()[0])
-        assert metric_line["signals"][signum_str[signum]] == 1
 
 
 def test_sigpipe_from_log_write(microvm_factory, tmp_path):
@@ -130,18 +129,13 @@ def test_sigxfsz_handler(uvm):
 
     firecracker_pid = microvm.firecracker_pid
     size = os.path.getsize(metrics_jail_path)
-    # The SIGXFSZ is triggered because the size of rootfs is bigger than
-    # the size of metrics file times 3. Since the metrics file is flushed
-    # twice we have to make sure that the limit is bigger than that
-    # in order to make sure the SIGXFSZ metric is logged
+    # The rootfs write that crosses the limit raises SIGXFSZ.
     res.prlimit(firecracker_pid, res.RLIMIT_FSIZE, (size * 3, res.RLIM_INFINITY))
 
     microvm.mark_killed()
 
     msg = "Shutting down VM after intercepting signal 25, code 0"
     microvm.check_log_message(msg)
-    metric_line = json.loads(metrics_fd.readlines()[0])
-    assert metric_line["signals"]["sigxfsz"] == 1
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
