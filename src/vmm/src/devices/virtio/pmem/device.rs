@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use kvm_bindings::{KVM_MEM_READONLY, kvm_userspace_memory_region};
 use serde::{Deserialize, Serialize};
-use vm_allocator::{AllocPolicy, RangeInclusive};
 use vm_memory::GuestMemoryError;
 use vmm_sys_util::eventfd::EventFd;
 
@@ -25,6 +24,7 @@ use crate::logger::{IncMetric, error, info, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use crate::utils::u64_to_usize;
 use crate::vmm_config::pmem::PmemConfig;
+use crate::vstate::address_allocator::AllocPolicy;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};
 use crate::vstate::vm::{KvmVm, VmError};
 use crate::{align_up, impl_device_type};
@@ -97,7 +97,6 @@ impl GuestPmemRegion {
                 .past_mmio64_memory
                 .allocate(size, Pmem::ALIGNMENT, AllocPolicy::FirstMatch)
                 .map_err(|_| PmemError::AllocationFailed)?
-                .start()
         };
         Ok(Self {
             vm,
@@ -113,13 +112,10 @@ impl GuestPmemRegion {
 
 impl Drop for GuestPmemRegion {
     fn drop(&mut self) {
-        let range = RangeInclusive::new(
-            self.config_space.start,
-            self.config_space.start + self.config_space.size - 1,
-        )
-        .expect("Invalid config_space range");
         let mut alloc = self.vm.resource_allocator();
-        _ = alloc.past_mmio64_memory.free(&range);
+        _ = alloc
+            .past_mmio64_memory
+            .free(self.config_space.start, self.config_space.size);
     }
 }
 

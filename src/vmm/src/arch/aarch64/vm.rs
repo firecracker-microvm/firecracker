@@ -13,6 +13,7 @@ use crate::Kvm;
 use crate::arch::aarch64::gic::GicState;
 use crate::logger::warn;
 use crate::snapshot::Persist;
+use crate::vstate::address_allocator::AllocatorError;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
 use crate::vstate::resources::{ResourceAllocator, ResourceAllocatorState};
 use crate::vstate::vm::{VmCommon, VmError};
@@ -46,7 +47,7 @@ pub enum KvmVmError {
     /// Failed to restore the VM's GIC state: {0}
     RestoreGic(crate::arch::aarch64::gic::GicError),
     /// Failed to restore resource allocator: {0}
-    ResourceAllocator(#[from] vm_allocator::Error),
+    ResourceAllocator(#[from] AllocatorError),
 }
 
 impl KvmVm {

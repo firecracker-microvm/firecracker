@@ -13,7 +13,6 @@ use event_manager::SubscriberOps;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
-use vm_allocator::AllocPolicy;
 use vm_memory::GuestAddress;
 
 #[cfg(target_arch = "aarch64")]
@@ -54,6 +53,7 @@ use crate::vmm_config::boot_source::{
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError};
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
+use crate::vstate::address_allocator::{AllocPolicy, AllocatorError};
 use crate::vstate::kvm::{Kvm, KvmError};
 use crate::vstate::memory::GuestRegionMmap;
 #[cfg(target_arch = "aarch64")]
@@ -127,7 +127,7 @@ pub enum StartMicrovmError {
     /// Cannot create the entropy device: {0}
     CreateEntropyDevice(crate::devices::virtio::rng::EntropyError),
     /// Failed to allocate guest resource: {0}
-    AllocateResources(#[from] vm_allocator::Error),
+    AllocateResources(#[from] AllocatorError),
     /// Error starting GDB debug session: {0}
     #[cfg(feature = "gdb")]
     GdbServer(gdb::target::GdbTargetError),
@@ -638,14 +638,13 @@ const STEALTIME_STRUCT_MEM_SIZE: u64 = 64;
 fn allocate_pvtime_region(
     resource_allocator: &mut ResourceAllocator,
     vcpu_count: usize,
-    policy: vm_allocator::AllocPolicy,
+    policy: AllocPolicy,
 ) -> Result<GuestAddress, StartMicrovmError> {
     let size = STEALTIME_STRUCT_MEM_SIZE * vcpu_count as u64;
     let addr = resource_allocator
         .system_memory
         .allocate(size, STEALTIME_STRUCT_MEM_SIZE, policy)
-        .map_err(StartMicrovmError::AllocateResources)?
-        .start();
+        .map_err(StartMicrovmError::AllocateResources)?;
     Ok(GuestAddress(addr))
 }
 
@@ -656,11 +655,8 @@ fn setup_pvtime(
     vcpus: &mut [Vcpu],
 ) -> Result<(), StartMicrovmError> {
     // Alloc sys mem for steal time region
-    let pvtime_mem: GuestAddress = allocate_pvtime_region(
-        resource_allocator,
-        vcpus.len(),
-        vm_allocator::AllocPolicy::LastMatch,
-    )?;
+    let pvtime_mem: GuestAddress =
+        allocate_pvtime_region(resource_allocator, vcpus.len(), AllocPolicy::LastMatch)?;
 
     // Register all vcpus with pvtime device
     for (i, vcpu) in vcpus.iter_mut().enumerate() {
@@ -701,15 +697,11 @@ fn allocate_virtio_mem_address(
     vm: &KvmVm,
     total_size_mib: u32,
 ) -> Result<GuestAddress, StartMicrovmError> {
-    let addr = vm
-        .resource_allocator()
-        .past_mmio64_memory
-        .allocate(
-            u32_mib_to_bytes(total_size_mib),
-            u32_mib_to_bytes(VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB),
-            AllocPolicy::FirstMatch,
-        )?
-        .start();
+    let addr = vm.resource_allocator().past_mmio64_memory.allocate(
+        u32_mib_to_bytes(total_size_mib),
+        u32_mib_to_bytes(VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB),
+        AllocPolicy::FirstMatch,
+    )?;
     Ok(GuestAddress(addr))
 }
 
