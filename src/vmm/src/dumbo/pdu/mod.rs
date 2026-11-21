@@ -91,12 +91,12 @@ fn compute_checksum<T: NetworkBytes + Debug>(
     sum += protocol as usize;
     sum += len;
 
-    for i in 0..len / 2 {
-        sum += usize::from(bytes.ntohs_unchecked(i * 2));
+    let (words, rest) = bytes.as_chunks::<2>();
+    for word in words {
+        sum += usize::from(u16::from_be_bytes(*word));
     }
-
-    if !len.is_multiple_of(2) {
-        sum += usize::from(bytes[len - 1]) << 8;
+    if let [last] = rest {
+        sum += usize::from(*last) << 8;
     }
 
     while sum >> 16 != 0 {
@@ -111,4 +111,82 @@ fn compute_checksum<T: NetworkBytes + Debug>(
     }
 
     csum
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    // Long enough for a TCP header of any size (20 to 60 bytes) followed by some payload, and for
+    // segments of even and of odd length. The time the solver needs grows steeply with this bound.
+    const MAX_LEN: usize = 64;
+
+    /// Adds to `sum` the 16-bit words RFC 1071 divides `bytes` into: adjacent bytes pair up with
+    /// the most significant one first, and an odd last byte is paired with a zero.
+    fn add_words(mut sum: u64, bytes: &[u8]) -> u64 {
+        let mut i = 0;
+        while i < bytes.len() {
+            let high = u64::from(bytes[i]);
+            let low = if i + 1 < bytes.len() {
+                u64::from(bytes[i + 1])
+            } else {
+                0
+            };
+            sum += high << 8 | low;
+            i += 2;
+        }
+        sum
+    }
+
+    /// The checksum as RFC 9293, Sec. 3.1, and RFC 768 define it: the ones' complement of the
+    /// ones' complement sum of the 16-bit words in the pseudo-header and in the segment.
+    fn checksum_spec(
+        bytes: &[u8],
+        src_addr: Ipv4Addr,
+        dst_addr: Ipv4Addr,
+        protocol: ChecksumProto,
+    ) -> u16 {
+        let [s0, s1, s2, s3] = src_addr.octets();
+        let [d0, d1, d2, d3] = dst_addr.octets();
+        let [l0, l1] = u16::try_from(bytes.len()).unwrap().to_be_bytes();
+        let pseudo_header = [s0, s1, s2, s3, d0, d1, d2, d3, 0, protocol as u8, l0, l1];
+
+        let mut sum = add_words(add_words(0, &pseudo_header), bytes);
+        // A ones' complement addition brings the carry out of the top bit back in at the bottom.
+        while sum > 0xffff {
+            sum = (sum & 0xffff) + (sum >> 16);
+        }
+        let checksum = !u16::try_from(sum).unwrap();
+
+        // In UDP a checksum field of zero means that there is no checksum, so a computed zero is
+        // sent as all ones, which is the same number in ones' complement arithmetic.
+        if protocol == ChecksumProto::Udp && checksum == 0 {
+            0xffff
+        } else {
+            checksum
+        }
+    }
+
+    /// For any addresses, either protocol and any segment of up to `MAX_LEN` bytes,
+    /// `compute_checksum` does not panic or overflow, and returns the checksum the RFCs define.
+    #[kani::proof]
+    // Enough to run the loops over the 32 words of the longest segment to their end.
+    #[kani::unwind(34)]
+    fn verify_compute_checksum() {
+        let buffer: [u8; MAX_LEN] = kani::Arbitrary::any_array::<MAX_LEN>();
+        let len: usize = kani::any();
+        kani::assume(len <= MAX_LEN);
+        let bytes = &buffer[..len];
+        let src_addr = Ipv4Addr::from(kani::any::<u32>());
+        let dst_addr = Ipv4Addr::from(kani::any::<u32>());
+        let protocol = if kani::any() {
+            ChecksumProto::Tcp
+        } else {
+            ChecksumProto::Udp
+        };
+
+        let checksum = compute_checksum(&bytes, src_addr, dst_addr, protocol);
+
+        assert_eq!(checksum, checksum_spec(bytes, src_addr, dst_addr, protocol));
+    }
 }
