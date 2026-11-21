@@ -129,7 +129,6 @@ pub(crate) mod tests {
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::vsock::test_utils::{TestBackend, TestContext};
-    use crate::utils::byte_order;
 
     impl Persist<'_> for TestBackend {
         type State = VsockBackendState;
@@ -225,6 +224,6 @@ pub(crate) mod tests {
         // Validate config_as_bytes returns the CID in little-endian.
         let config = restored_device.config_as_bytes();
         assert_eq!(config.len(), 8);
-        assert_eq!(byte_order::read_le_u64(config), ctx.cid);
+        assert_eq!(u64::from_le_bytes(config.try_into().unwrap()), ctx.cid);
     }
 }

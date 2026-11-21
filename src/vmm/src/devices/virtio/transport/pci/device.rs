@@ -970,7 +970,7 @@ impl VirtioInterrupt for VirtioInterruptMsix {
         // Instead, the Pending Bit Array table is updated to reflect there
         // is a pending interrupt for this specific vector.
         if config.masked || entry.masked() {
-            config.set_pba_bit(vector, false);
+            config.set_pba_bit(vector, true);
             return Ok(());
         }
 

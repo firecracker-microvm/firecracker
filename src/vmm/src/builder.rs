@@ -55,6 +55,7 @@ use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError};
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vstate::kvm::{Kvm, KvmError};
+use crate::vstate::memory;
 use crate::vstate::memory::GuestRegionMmap;
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::resources::ResourceAllocator;
@@ -182,9 +183,16 @@ pub fn build_microvm_for_boot(
         .as_ref()
         .ok_or(StartMicrovmError::MissingKernelConfig)?;
 
-    let (guest_memory, mut memfd_backing) = vm_resources
-        .allocate_guest_memory()
-        .map_err(StartMicrovmError::GuestMemory)?;
+    let hotplug_size = vm_resources
+        .memory_hotplug
+        .as_ref()
+        .map_or(0, |cfg| u32_mib_to_bytes(cfg.total_size_mib));
+    let (guest_memory, mut memfd_backing) = memory::allocate_guest_memory(
+        &vm_resources.machine_config,
+        hotplug_size,
+        vm_resources.memfd_required(),
+    )
+    .map_err(StartMicrovmError::GuestMemory)?;
 
     // Clone the command-line so that a failed boot doesn't pollute the original.
     // If the user didn't provide boot_args, use the KVM-specific default.
@@ -209,13 +217,13 @@ pub fn build_microvm_for_boot(
     // before they clone the GuestMemoryMmap object
     let virtio_mem_addr = if let Some(memory_hotplug) = &vm_resources.memory_hotplug {
         let addr = allocate_virtio_mem_address(&vm, memory_hotplug.total_size_mib)?;
-        let hotplug_memory_region = vm_resources
-            .allocate_memory_region(
-                addr,
-                u64_to_usize(u32_mib_to_bytes(memory_hotplug.total_size_mib)),
-                memfd_backing.as_mut(),
-            )
-            .map_err(StartMicrovmError::GuestMemory)?;
+        let hotplug_memory_region = memory::allocate_memory_region(
+            &vm_resources.machine_config,
+            addr,
+            u64_to_usize(hotplug_size),
+            memfd_backing.as_mut(),
+        )
+        .map_err(StartMicrovmError::GuestMemory)?;
         vm.register_hotpluggable_memory_region(
             hotplug_memory_region,
             u64_to_usize(u32_mib_to_bytes(memory_hotplug.slot_size_mib)),
@@ -1082,7 +1090,7 @@ pub(crate) mod tests {
                         .unwrap()
                         .to_string(),
                 ),
-                rate_limiter: None,
+                rate_limiter_config: None,
                 file_engine_type: None,
                 image_format: None,
                 blk_size: None,
@@ -1289,8 +1297,8 @@ pub(crate) mod tests {
             host_dev_name: String::from("hostname"),
             guest_mac: None,
             mtu: None,
-            rx_rate_limiter: None,
-            tx_rate_limiter: None,
+            rx_rate_limiter_config: None,
+            tx_rate_limiter_config: None,
             dmb_size_mib: None,
         };
 

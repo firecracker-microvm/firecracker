@@ -1036,7 +1036,7 @@ impl RuntimeApiController {
         let mut vmm = self.vmm.lock().expect("Poisoned lock");
 
         // vhost-user-block updates
-        if new_cfg.path_on_host.is_none() && new_cfg.rate_limiter.is_none() {
+        if new_cfg.path_on_host.is_none() && new_cfg.rate_limiter_config.is_none() {
             vmm.update_vhost_user_block_config(&new_cfg.drive_id)
                 .map_err(DriveError::DeviceUpdate)?;
         }
@@ -1046,11 +1046,11 @@ impl RuntimeApiController {
             vmm.update_block_device_path(&new_cfg.drive_id, new_path)
                 .map_err(DriveError::DeviceUpdate)?;
         }
-        if new_cfg.rate_limiter.is_some() {
+        if new_cfg.rate_limiter_config.is_some() {
             vmm.update_block_rate_limiter(
                 &new_cfg.drive_id,
-                RateLimiterUpdate::from(new_cfg.rate_limiter).bandwidth,
-                RateLimiterUpdate::from(new_cfg.rate_limiter).ops,
+                RateLimiterUpdate::from(new_cfg.rate_limiter_config).bandwidth,
+                RateLimiterUpdate::from(new_cfg.rate_limiter_config).ops,
             )
             .map_err(DriveError::DeviceUpdate)?;
         }
@@ -1062,14 +1062,14 @@ impl RuntimeApiController {
         &mut self,
         new_cfg: PmemDeviceUpdateConfig,
     ) -> Result<VmmData, VmmActionError> {
-        if new_cfg.rate_limiter.is_some() {
+        if new_cfg.rate_limiter_config.is_some() {
             self.vmm
                 .lock()
                 .expect("Poisoned lock")
                 .update_pmem_rate_limiter(
                     &new_cfg.id,
-                    RateLimiterUpdate::from(new_cfg.rate_limiter).bandwidth,
-                    RateLimiterUpdate::from(new_cfg.rate_limiter).ops,
+                    RateLimiterUpdate::from(new_cfg.rate_limiter_config).bandwidth,
+                    RateLimiterUpdate::from(new_cfg.rate_limiter_config).ops,
                 )
                 .map_err(PmemConfigError::DeviceUpdate)?;
         }
@@ -1086,10 +1086,10 @@ impl RuntimeApiController {
             .expect("Poisoned lock")
             .update_net_rate_limiters(
                 &new_cfg.iface_id,
-                RateLimiterUpdate::from(new_cfg.rx_rate_limiter).bandwidth,
-                RateLimiterUpdate::from(new_cfg.rx_rate_limiter).ops,
-                RateLimiterUpdate::from(new_cfg.tx_rate_limiter).bandwidth,
-                RateLimiterUpdate::from(new_cfg.tx_rate_limiter).ops,
+                RateLimiterUpdate::from(new_cfg.rx_rate_limiter_config).bandwidth,
+                RateLimiterUpdate::from(new_cfg.rx_rate_limiter_config).ops,
+                RateLimiterUpdate::from(new_cfg.tx_rate_limiter_config).bandwidth,
+                RateLimiterUpdate::from(new_cfg.tx_rate_limiter_config).ops,
             )
             .map(|()| VmmData::Empty)
             .map_err(NetworkInterfaceError::DeviceUpdate)
@@ -1318,8 +1318,8 @@ mod tests {
         check_unsupported(preboot_request(VmmAction::UpdateNetworkInterface(
             NetworkInterfaceUpdateConfig {
                 iface_id: String::new(),
-                rx_rate_limiter: None,
-                tx_rate_limiter: None,
+                rx_rate_limiter_config: None,
+                tx_rate_limiter_config: None,
             },
         )));
         check_unsupported(preboot_request(VmmAction::CreateSnapshot(
