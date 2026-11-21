@@ -264,7 +264,7 @@ sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/logger"
 
-KERNEL="./$(ls vmlinux* | tail -1)"
+KERNEL="$(readlink -e vmlinux* | tail -1)"
 KERNEL_BOOT_ARGS="console=ttyS0 reboot=k panic=1"
 
 ARCH=$(uname -m)
@@ -281,7 +281,7 @@ sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/boot-source"
 
-ROOTFS="./$(ls *.ext4 | tail -1)"
+ROOTFS="$(readlink -e *.ext4 | tail -1)"
 
 # Set rootfs
 sudo curl -X PUT --unix-socket "${API_SOCKET}" \
