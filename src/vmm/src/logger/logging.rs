@@ -88,6 +88,14 @@ impl Logger {
 
         Ok(())
     }
+
+    /// Whether logs go to a log file rather than to stdout. Returns `false`
+    /// if the configuration is being updated.
+    pub fn logs_to_file(&self) -> bool {
+        self.0
+            .try_read()
+            .is_ok_and(|config| config.target.is_some())
+    }
 }
 
 #[derive(Debug)]
@@ -408,6 +416,27 @@ mod tests {
         );
 
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_logs_to_file() {
+        let logger = Logger(RwLock::new(LoggerConfiguration {
+            target: None,
+            filter: LogFilter { module: None },
+            format: LogFormat {
+                show_level: false,
+                show_log_origin: false,
+            },
+        }));
+        assert!(!logger.logs_to_file());
+
+        let file = vmm_sys_util::tempfile::TempFile::new().unwrap();
+        logger.0.write().unwrap().target = Some(file.as_file().try_clone().unwrap());
+        assert!(logger.logs_to_file());
+
+        // The handler can run on the thread that is in update().
+        let _guard = logger.0.write().unwrap();
+        assert!(!logger.logs_to_file());
     }
 
     #[test]
