@@ -21,6 +21,7 @@ use crate::vstate::memory::GuestMemoryMmap;
 pub struct BalloonConfigSpaceState {
     num_pages: u32,
     actual_pages: u32,
+    poison_val: u32,
 }
 
 /// Information about the balloon stats that are saved
@@ -126,6 +127,7 @@ impl Persist<'_> for Balloon {
             config_space: BalloonConfigSpaceState {
                 num_pages: self.config_space.num_pages,
                 actual_pages: self.config_space.actual_pages,
+                poison_val: self.config_space.poison_val,
             },
             virtio_state: VirtioDeviceState::from_device(self, &self.queues),
         }
@@ -183,6 +185,7 @@ impl Persist<'_> for Balloon {
             actual_pages: state.config_space.actual_pages,
             // On restore allow the guest to reclaim pages
             free_page_hint_cmd_id: FREE_PAGE_HINT_DONE,
+            poison_val: state.config_space.poison_val,
         };
         balloon.hinting_state = state.hinting_state;
 
@@ -235,6 +238,10 @@ mod tests {
         assert_eq!(
             restored_balloon.config_space.free_page_hint_cmd_id,
             FREE_PAGE_HINT_DONE
+        );
+        assert_eq!(
+            restored_balloon.config_space.poison_val,
+            balloon.config_space.poison_val
         );
         assert!(
             restored_balloon
