@@ -200,15 +200,16 @@ impl BlockWorker {
                 }
             }
         }
-        queue.advance_used_ring_idx();
-
-        if used_any && queue.prepare_kick() {
-            self.active_state
-                .interrupt
-                .trigger(VirtioInterruptType::Queue(self.resources.queue_idx))
-                .unwrap_or_else(|_| {
-                    self.metrics.event_fails.inc();
-                });
+        if used_any {
+            queue.advance_used_ring_idx();
+            if queue.prepare_kick() {
+                self.active_state
+                    .interrupt
+                    .trigger(VirtioInterruptType::Queue(self.resources.queue_idx))
+                    .unwrap_or_else(|_| {
+                        self.metrics.event_fails.inc();
+                    });
+            }
         }
 
         if let FileEngine::Async(ref mut engine) = self.resources.disk.file_engine
