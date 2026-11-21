@@ -78,7 +78,9 @@ The guest-facing block size remains configurable through `blk_size`.
 Direct IO controls host page-cache use. The existing `cache_type` setting
 controls guest flushes and their durability semantics. For example,
 `"direct_io": true` and `"cache_type": "Writeback"` together request direct IO
-and expose guest flushes.
+and expose guest flushes. If the driver declines the offered FLUSH feature,
+Firecracker waits for each direct write to reach stable storage before returning
+success.
 
 ## Host requirements
 

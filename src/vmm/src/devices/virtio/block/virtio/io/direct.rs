@@ -31,6 +31,7 @@ pub(super) struct DirectIo {
     mem_align: usize,
     offset_align: usize,
     size: u64,
+    pub(super) write_through: bool,
     buffer: Option<Box<Buffer>>,
 }
 
@@ -95,6 +96,7 @@ impl DirectIo {
             mem_align,
             offset_align,
             size,
+            write_through: false,
             buffer: None,
         })
     }
@@ -121,6 +123,13 @@ impl DirectIo {
     pub(super) fn buffer(&mut self) -> &mut Buffer {
         self.buffer
             .get_or_insert_with(|| Box::new(Buffer([0; BUFFER_SIZE])))
+    }
+
+    pub(super) fn finish_write(&self, file: &File, count: u32) -> io::Result<u32> {
+        if self.write_through && count != 0 {
+            file.sync_all()?;
+        }
+        Ok(count)
     }
 
     /// Stage an unaligned request in whole host blocks. Only the start and end of the
@@ -180,7 +189,11 @@ impl DirectIo {
                 Err(err) => return Err(err),
             }
         }
-        Ok(done)
+        if write {
+            self.finish_write(file, done)
+        } else {
+            Ok(done)
+        }
     }
 }
 
@@ -190,5 +203,23 @@ fn retry_interrupted<T>(mut f: impl FnMut() -> io::Result<T>) -> io::Result<T> {
             Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
             result => return result,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_write_through_reports_sync_error() {
+        let mut direct = DirectIo::new(4096, 4096, 4096).unwrap();
+        let disk = File::options().write(true).open("/dev/null").unwrap();
+        assert_eq!(direct.finish_write(&disk, 512).unwrap(), 512);
+        direct.write_through = true;
+        assert_eq!(direct.finish_write(&disk, 0).unwrap(), 0);
+        assert_eq!(
+            direct.finish_write(&disk, 512).unwrap_err().raw_os_error(),
+            Some(libc::EINVAL)
+        );
     }
 }

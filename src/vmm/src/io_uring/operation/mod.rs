@@ -50,6 +50,7 @@ pub struct Operation<T> {
     pub(crate) addr: Option<usize>,
     pub(crate) len: Option<u32>,
     flags: u8,
+    rw_flags: i32,
     pub(crate) offset: Option<u64>,
     pub(crate) user_data: T,
 }
@@ -82,6 +83,7 @@ impl<T: Debug> Operation<T> {
             addr: Some(addr),
             len: Some(len),
             flags: 0,
+            rw_flags: 0,
             offset: Some(offset),
             user_data,
         }
@@ -95,9 +97,17 @@ impl<T: Debug> Operation<T> {
             addr: Some(addr),
             len: Some(len),
             flags: 0,
+            rw_flags: 0,
             offset: Some(offset),
             user_data,
         }
+    }
+
+    /// Require data and the metadata needed to retrieve it to reach stable storage.
+    pub fn write_through(fd: FixedFd, addr: usize, len: u32, offset: u64, user_data: T) -> Self {
+        let mut op = Self::write(fd, addr, len, offset, user_data);
+        op.rw_flags = libc::RWF_DSYNC;
+        op
     }
 
     /// Construct a fsync operation.
@@ -108,6 +118,7 @@ impl<T: Debug> Operation<T> {
             addr: None,
             len: None,
             flags: 0,
+            rw_flags: 0,
             offset: None,
             user_data,
         }
@@ -137,6 +148,7 @@ impl<T: Debug> Operation<T> {
         let mut inner: io_uring_sqe = unsafe { std::mem::zeroed() };
 
         inner.opcode = self.opcode as u8;
+        inner.__bindgen_anon_3.rw_flags = self.rw_flags;
         inner.fd = i32::try_from(self.fd).unwrap();
         // Simplifying assumption that we only used pre-registered FDs.
         inner.flags = self.flags | (1 << io_uring_sqe_flags_bit::IOSQE_FIXED_FILE_BIT);
@@ -155,5 +167,27 @@ impl<T: Debug> Operation<T> {
         inner.user_data = slab.insert(self.user_data) as u64;
 
         Sqe::new(inner)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_write_through_sets_the_per_write_sync_flag() {
+        let mut slab = slab::Slab::new();
+        for (op, flags) in [
+            (Operation::write(0, 4096, 4096, 8192, ()), 0),
+            (
+                Operation::write_through(0, 4096, 4096, 8192, ()),
+                libc::RWF_DSYNC,
+            ),
+        ] {
+            let sqe = op.into_sqe(&mut slab);
+            assert_eq!(sqe.0.opcode, OpCode::Write as u8);
+            // SAFETY: writes use the rw_flags member of this union.
+            assert_eq!(unsafe { sqe.0.__bindgen_anon_3.rw_flags }, flags);
+        }
     }
 }

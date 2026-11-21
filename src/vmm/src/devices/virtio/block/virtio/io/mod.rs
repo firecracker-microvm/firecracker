@@ -104,12 +104,33 @@ impl FileEngine {
         }
     }
 
+    pub(super) fn direct_write_through(&self) -> bool {
+        let direct = match self {
+            Self::Sync(engine) => &engine.direct,
+            Self::Async(engine) => &engine.direct,
+            Self::Vmdk(_) => return false,
+        };
+        direct.as_ref().is_some_and(|d| d.write_through)
+    }
+
+    pub(super) fn set_direct_write_through(&mut self, enabled: bool) {
+        let direct = match self {
+            Self::Sync(engine) => &mut engine.direct,
+            Self::Async(engine) => &mut engine.direct,
+            Self::Vmdk(_) => return,
+        };
+        if let Some(direct) = direct {
+            direct.write_through = enabled;
+        }
+    }
+
     pub fn update_direct_file_path(
         &mut self,
         file: File,
         disk_size: u64,
     ) -> Result<(), BlockIoError> {
-        let direct = direct::DirectIo::probe(&file, disk_size).map_err(BlockIoError::Direct)?;
+        let mut direct = direct::DirectIo::probe(&file, disk_size).map_err(BlockIoError::Direct)?;
+        direct.write_through = self.direct_write_through();
         self.update_file(file, Some(direct))
     }
 

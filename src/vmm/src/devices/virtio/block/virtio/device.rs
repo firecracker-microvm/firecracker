@@ -989,6 +989,12 @@ impl VirtioDevice for VirtioBlock {
         assert!(!self.is_activated());
 
         let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
+        // CONFIG_WCE is never offered. A driver that declines an offered FLUSH
+        // relies on write completion for persistence.
+        let direct_write_through = self.config.direct_io
+            && self.config.cache_type == CacheType::Writeback
+            && self.avail_features & (1u64 << VIRTIO_BLK_F_FLUSH) != 0
+            && !self.has_feature(u64::from(VIRTIO_BLK_F_FLUSH));
 
         let BlockRuntimeState::Configuring(resources, _) = &mut self.state else {
             unreachable!("inactive device is not configurable");
@@ -996,6 +1002,10 @@ impl VirtioDevice for VirtioBlock {
 
         // The driver can use fewer queues than the device exposes.
         for resource in resources.iter_mut() {
+            resource
+                .disk
+                .file_engine
+                .set_direct_write_through(direct_write_through);
             if resource.queue.config.ready {
                 resource
                     .queue
@@ -1379,6 +1389,49 @@ mod tests {
             VirtioBlock::new(direct_config),
             Err(VirtioBlockError::DirectIoRequiresRaw)
         ));
+    }
+
+    #[test]
+    fn test_write_through_after_negotiation_replacement_and_restore() {
+        use crate::devices::virtio::block::persist::BlockConstructorArgs;
+        use crate::snapshot::Persist;
+
+        let Some(backing) = direct_io_test_file() else {
+            return;
+        };
+        let path = backing.as_path().to_str().unwrap().to_string();
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            for (cache, ack_flush, stable) in [
+                (CacheType::Unsafe, false, false),
+                (CacheType::Writeback, true, false),
+                (CacheType::Writeback, false, true),
+            ] {
+                let mut config = default_config(path.clone(), engine);
+                config.direct_io = true;
+                config.cache_type = cache;
+                let mut block = VirtioBlock::new(config).unwrap();
+                let mem = default_mem();
+                let queue = VirtQueue::new(GuestAddress(0), &mem, BLOCK_QUEUE_SIZE);
+                set_queue(&mut block, 0, queue.create_queue());
+                let features = if ack_flush {
+                    1u64 << VIRTIO_BLK_F_FLUSH
+                } else {
+                    0
+                };
+                block.set_acked_features((1u64 << VIRTIO_F_VERSION_1) | features);
+                block.activate(mem.clone(), default_interrupt()).unwrap();
+                assert_eq!(block.disk().file_engine.direct_write_through(), stable);
+                block.update_disk_image(path.clone()).unwrap();
+                assert_eq!(block.disk().file_engine.direct_write_through(), stable);
+                block.prepare_save();
+                let state = block.save();
+                let mut restored =
+                    VirtioBlock::restore(BlockConstructorArgs { mem: mem.clone() }, &state)
+                        .unwrap();
+                restored.activate(mem, default_interrupt()).unwrap();
+                assert_eq!(restored.disk().file_engine.direct_write_through(), stable);
+            }
+        }
     }
 
     #[test]

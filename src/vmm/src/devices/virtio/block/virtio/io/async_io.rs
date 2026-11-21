@@ -44,7 +44,7 @@ pub struct AsyncFileEngine {
     ring: IoUring<WrappedRequest>,
     completion_evt: EventFd,
     // The ring is dropped before its staging buffer.
-    direct: Option<DirectIo>,
+    pub(super) direct: Option<DirectIo>,
     bounce_in_flight: bool,
     // ActiveState keeps one memory map from activation until reset. Reset discards CQEs
     // after dropping ActiveState, so keep the map for dirty tracking on that path too.
@@ -220,7 +220,9 @@ impl AsyncFileEngine {
             bounced,
             req,
         };
-        let op = if write {
+        let op = if write && self.direct.as_ref().is_some_and(|d| d.write_through) {
+            Operation::write_through(0, ptr, count, offset, data)
+        } else if write {
             Operation::write(0, ptr, count, offset, data)
         } else {
             Operation::read(0, ptr, count, offset, data)

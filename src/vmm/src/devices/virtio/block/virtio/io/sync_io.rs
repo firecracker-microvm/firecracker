@@ -33,7 +33,7 @@ pub enum SyncIoError {
 #[derive(Debug)]
 pub struct SyncFileEngine {
     file: File,
-    direct: Option<DirectIo>,
+    pub(super) direct: Option<DirectIo>,
 }
 
 const BLKDISCARD: libc::Ioctl = 0x1277;
@@ -197,7 +197,7 @@ impl SyncFileEngine {
         let mut slice = mem
             .get_slice(addr, count as usize)
             .map_err(SyncIoError::Transfer)?;
-        if self.direct.is_some() {
+        if let Some(direct) = &self.direct {
             let mut done = 0;
             while !slice.is_empty() {
                 match self.file.write_volatile(&slice) {
@@ -212,7 +212,9 @@ impl SyncFileEngine {
                     Err(err) => return Err(SyncIoError::Transfer(err.into())),
                 }
             }
-            return Ok(done);
+            return direct
+                .finish_write(&self.file, done)
+                .map_err(SyncIoError::SyncAll);
         }
         self.file
             .write_all_volatile(&slice)
