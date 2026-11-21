@@ -1224,6 +1224,7 @@ class Microvm:
         if self.memory_monitor:
             response = self.api.machine_config.get()
             self.mem_size_bytes = int(response.json()["mem_size_mib"]) * 2**20
+            self.vcpus_count = response.json()["vcpu_count"]
             # Notify monitor that this is a restored VM
             self.memory_monitor.set_threshold_for_restored_vm()
             self.memory_monitor.start()

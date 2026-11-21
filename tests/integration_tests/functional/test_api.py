@@ -23,7 +23,7 @@ from framework.artifacts import (
     pin_guest_kernel,
     pin_rootfs_mode,
 )
-from framework.kvm import default_boot_args
+from framework.kvm import MAX_SUPPORTED_VCPUS, default_boot_args
 from framework.utils import get_firecracker_version_from_toml
 from framework.utils_cpu_templates import (
     CUSTOM_CPU_TEMPLATES,
@@ -467,6 +467,17 @@ def test_api_machine_config(uvm):
 
     # Test valid mem_size_mib.
     test_microvm.api.machine_config.patch(mem_size_mib=256)
+
+    # Test a vcpu_count above the KVM microVM limit is rejected at start.
+    over = MAX_SUPPORTED_VCPUS + 1
+    test_microvm.api.machine_config.patch(vcpu_count=over)
+    fail_msg = re.escape(
+        f"The number of vCPUs ({over}) exceeds the maximum for a KVM microVM "
+        f"({MAX_SUPPORTED_VCPUS})."
+    )
+    with pytest.raises(RuntimeError, match=fail_msg):
+        test_microvm.start()
+    test_microvm.api.machine_config.patch(vcpu_count=2)
 
     # Set the cpu template
     if len(SUPPORTED_CPU_TEMPLATES) == 0:

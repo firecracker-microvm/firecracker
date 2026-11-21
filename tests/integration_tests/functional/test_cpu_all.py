@@ -11,6 +11,7 @@ are operating identically, except for the expected differences.
 
 import pytest
 
+from framework.kvm import MAX_SUPPORTED_VCPUS
 from framework.utils import CpuMap
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
 
@@ -29,8 +30,7 @@ MAX_GUEST_VCPUS = 64
 def vcpu_count(vm_backend):
     """The most vCPUs this backend can be given on this host."""
     if not vm_backend.is_enclave:
-        # KVM caps at MAX_SUPPORTED_KVM_VCPUS.
-        return min(CpuMap.len(), 32)
+        return min(CpuMap.len(), MAX_SUPPORTED_VCPUS)
     # An enclave goes above the KVM cap, but this one asks for no NUMA placement
     # and so lands wholly on parent node 0. test_enclave_max_vcpus covers a
     # host-sized count spread over every node.
