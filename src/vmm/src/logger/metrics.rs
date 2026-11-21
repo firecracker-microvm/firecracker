@@ -71,7 +71,7 @@ use std::fmt::Debug;
 use std::io::Write;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, TryLockError};
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
@@ -150,15 +150,39 @@ impl Metrics {
     pub fn write(&self) -> Result<bool, MetricsError> {
         if let Some(lock) = self.metrics_buf.get() {
             let mut writer = lock.lock().expect("poisoned lock");
-            serde_json::to_writer(writer.by_ref(), &self.app_metrics)
-                .map_err(|err| MetricsError::Serde(err.to_string()))?;
-            writer.write_all(b"\n").map_err(MetricsError::Write)?;
-            Ok(true)
+            self.write_to(&mut writer)
         } else {
             // If the metrics are not initialized, no error is thrown but we do let the user know
             // that metrics were not written.
             Ok(false)
         }
+    }
+
+    /// Same as [`Metrics::write`], but returns `Ok(false)` without writing anything if the
+    /// metrics are being written at the same time, instead of waiting for that write to finish.
+    ///
+    /// Signal handlers that exit the process use this: the signal may have been raised by a
+    /// metrics write on the same thread (e.g. `SIGXFSZ`), which still holds the lock. In that
+    /// case no final line is written, so everything since the last complete flush is lost,
+    /// including the signal metric, and the interrupted line may be left truncated.
+    pub fn try_write(&self) -> Result<bool, MetricsError> {
+        if let Some(lock) = self.metrics_buf.get() {
+            let mut writer = match lock.try_lock() {
+                Ok(writer) => writer,
+                Err(TryLockError::WouldBlock) => return Ok(false),
+                Err(TryLockError::Poisoned(_)) => panic!("poisoned lock"),
+            };
+            self.write_to(&mut writer)
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn write_to(&self, writer: &mut M) -> Result<bool, MetricsError> {
+        serde_json::to_writer(writer.by_ref(), &self.app_metrics)
+            .map_err(|err| MetricsError::Serde(err.to_string()))?;
+        writer.write_all(b"\n").map_err(MetricsError::Write)?;
+        Ok(true)
     }
 }
 
@@ -1126,6 +1150,19 @@ mod tests {
         let f = TempFile::new().expect("Failed to create temporary metrics file");
 
         m.init(LineWriter::new(f.into_file())).unwrap_err();
+    }
+
+    #[test]
+    fn test_try_write_while_writing() {
+        let m = &Metrics::<_, FcLineWriter>::new(FirecrackerMetrics::new());
+        let f = TempFile::new().expect("Failed to create temporary metrics file");
+        m.init(LineWriter::new(f.into_file())).unwrap();
+        assert!(m.try_write().unwrap());
+
+        // A signal raised by a metrics write (e.g. SIGXFSZ) runs its handler on
+        // the thread that holds metrics_buf.
+        let _guard = m.metrics_buf.get().unwrap().lock().unwrap();
+        assert!(!m.try_write().unwrap());
     }
 
     #[test]

@@ -20,8 +20,9 @@ const SYS_SECCOMP_CODE: i32 = 1;
 
 #[inline]
 fn exit_with_code(exit_code: FcExitCode) {
-    // Write the metrics before exiting.
-    if let Err(err) = METRICS.write() {
+    // Write the metrics before exiting. Do not wait for the metrics lock: the
+    // signal may have been raised by a metrics write on this thread.
+    if let Err(err) = METRICS.try_write() {
         error_unrestricted!("Failed to write metrics while stopping: {}", err);
     }
     // SAFETY: Safe because we're terminating the process anyway.
