@@ -77,7 +77,7 @@
 //! in Net so that metrics are accessible to be flushed even from signal handlers.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, TryLockError};
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
@@ -120,7 +120,17 @@ static METRICS: RwLock<NetMetricsPerDevice> = RwLock::new(NetMetricsPerDevice {
 /// This function facilitates aggregation and serialization of
 /// per net device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
-    let net_metrics = METRICS.read().unwrap();
+    let net_metrics = match METRICS.try_read() {
+        Ok(net_metrics) => net_metrics,
+        // A signal can interrupt `alloc` while it holds the write lock.
+        // Skip these devices instead of waiting; a fatal exit loses their metrics.
+        Err(TryLockError::WouldBlock) => {
+            let mut seq = serializer.serialize_map(Some(1))?;
+            seq.serialize_entry("net", &NetDeviceMetrics::default())?;
+            return seq.end();
+        }
+        Err(TryLockError::Poisoned(_)) => panic!("poisoned lock"),
+    };
     let metrics_len = net_metrics.metrics.len();
     // +1 to accommodate aggregate net metrics
     let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
@@ -258,6 +268,17 @@ impl NetDeviceMetrics {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+
+    #[test]
+    fn test_flush_metrics_while_allocating() {
+        // The thread holding the write lock in `alloc` can run a signal
+        // handler that flushes the metrics.
+        let _guard = METRICS.write().unwrap();
+        let mut buf = Vec::new();
+        flush_metrics(&mut serde_json::Serializer::new(&mut buf)).unwrap();
+        let aggregate = serde_json::to_string(&NetDeviceMetrics::default()).unwrap();
+        assert_eq!(buf, format!(r#"{{"net":{aggregate}}}"#).as_bytes());
+    }
 
     #[test]
     fn test_max_net_dev_metrics() {

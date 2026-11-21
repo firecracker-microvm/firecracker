@@ -74,7 +74,7 @@
 //! vhost_user_metrics::METRICS is.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, TryLockError};
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
@@ -116,7 +116,13 @@ static METRICS: RwLock<VhostUserMetricsPerDevice> = RwLock::new(VhostUserMetrics
 
 /// This function facilitates serialization of vhost_user device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
-    let vhost_user_metrics = METRICS.read().unwrap();
+    let vhost_user_metrics = match METRICS.try_read() {
+        Ok(vhost_user_metrics) => vhost_user_metrics,
+        // A signal can interrupt `alloc` while it holds the write lock.
+        // Skip these devices instead of waiting; a fatal exit loses their metrics.
+        Err(TryLockError::WouldBlock) => return serializer.serialize_map(Some(0))?.end(),
+        Err(TryLockError::Poisoned(_)) => panic!("poisoned lock"),
+    };
     let metrics_len = vhost_user_metrics.metrics.len();
     let mut seq = serializer.serialize_map(Some(metrics_len))?;
 
@@ -148,6 +154,16 @@ pub mod tests {
 
     use super::*;
     use crate::logger::{IncMetric, StoreMetric};
+
+    #[test]
+    fn test_flush_metrics_while_allocating() {
+        // The thread holding the write lock in `alloc` can run a signal
+        // handler that flushes the metrics.
+        let _guard = METRICS.write().unwrap();
+        let mut buf = Vec::new();
+        flush_metrics(&mut serde_json::Serializer::new(&mut buf)).unwrap();
+        assert_eq!(buf, b"{}");
+    }
 
     // vhost-user metrics has both SharedIncMetrics and SharedStoreMetrics
     // In this test we try to test one field for each type by creating a
