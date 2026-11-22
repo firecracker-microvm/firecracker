@@ -6,10 +6,12 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions};
-use std::io::{Seek, Write};
+use std::fs::{File, Metadata, OpenOptions};
+use std::io::{Seek, SeekFrom, Write};
+use std::os::fd::AsRawFd;
+use std::os::linux::fs::MetadataExt;
 use std::path::Path;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Barrier, Mutex, MutexGuard};
 
 #[cfg(target_arch = "x86_64")]
@@ -93,6 +95,10 @@ pub struct VmCommon {
     pub kvm: Kvm,
     /// Userfaultfd kept open for snapshot restore.
     pub uffd: Option<Uffd>,
+    /// Whether the dirty log has already been cleared by a previous snapshot.
+    /// Until cleared on a freshly booted anonymous VM with dirty page tracking,
+    /// the dirty bitmap covers every page written since boot.
+    dirty_log_cleared: AtomicBool,
     /// Handles to vCPU threads.
     pub vcpus_handles: Mutex<Vec<VcpuHandle>>,
     /// Event fd written to by vCPUs on exit.
@@ -220,6 +226,7 @@ impl KvmVm {
             mmio_bus: Arc::new(Bus::new()),
             kvm,
             uffd: None,
+            dirty_log_cleared: AtomicBool::new(false),
             vcpus_handles: Mutex::new(Vec::new()),
             vcpus_exit_evt,
             #[cfg(test)]
@@ -622,6 +629,7 @@ impl KvmVm {
             guest_memory.store_dirty_bitmap(&dirty_bitmap);
             return Err(err);
         }
+        self.common.dirty_log_cleared.store(true, Ordering::Relaxed);
         Ok(dirty_bitmap)
     }
 
@@ -656,12 +664,27 @@ impl KvmVm {
             .collect()
     }
 
+    /// Returns `true` if `file_meta` refers to the same inode as any file backing guest memory.
+    ///
+    /// Conservatively returns `true` if a backing file's metadata cannot be read, so callers
+    /// never truncate a file that might still back an active guest memory mapping.
+    fn is_memory_backing_file(&self, file_meta: &Metadata) -> bool {
+        self.guest_memory().iter().any(|region| {
+            region.file_offset().is_some_and(|fo| {
+                fo.file().metadata().map_or(true, |m| {
+                    m.st_dev() == file_meta.st_dev() && m.st_ino() == file_meta.st_ino()
+                })
+            })
+        })
+    }
+
     /// Takes a snapshot of the virtual machine running inside the given [`Vmm`] and saves it to
     /// `mem_file_path`.
     ///
     /// If `snapshot_type` is [`SnapshotType::Diff`], and `mem_file_path` exists and is a snapshot
     /// file of matching size, then the diff snapshot will be directly merged into the existing
-    /// snapshot. Otherwise, existing files are simply overwritten.
+    /// snapshot. Otherwise, existing files are cleared and overwritten (unless `mem_file_path`
+    /// backs this microVM's own guest memory, in which case it is overwritten in place).
     pub(crate) fn snapshot_memory_to_path(
         &self,
         mem_file_path: &Path,
@@ -669,9 +692,6 @@ impl KvmVm {
         sync_snapshot_files: bool,
     ) -> Result<(), CreateSnapshotError> {
         use self::CreateSnapshotError::*;
-
-        // Need to check this here, as we create the file in the line below
-        let file_existed = mem_file_path.exists();
 
         let mut file = OpenOptions::new()
             .write(true)
@@ -683,31 +703,53 @@ impl KvmVm {
         // Determine what size our total memory area is.
         let mem_size_mib = mem_size_mib(self.guest_memory());
         let expected_size = mem_size_mib * 1024 * 1024;
+        let file_meta = file
+            .metadata()
+            .map_err(|e| MemoryBackingFile("get_metadata", e))?;
+        let file_size = file_meta.len();
 
-        if file_existed {
-            let file_size = file
-                .metadata()
-                .map_err(|e| MemoryBackingFile("get_metadata", e))?
-                .len();
-
-            // Here we only truncate the file if the size mismatches.
-            // - For full snapshots, the entire file's contents will be overwritten anyway. We have
-            //   to avoid truncating here to deal with the edge case where it represents the
-            //   snapshot file from which this very microVM was loaded (as modifying the memory file
-            //   would be reflected in the mmap of the file, meaning a truncate operation would zero
-            //   out guest memory, and thus corrupt the VM).
-            // - For diff snapshots, we want to merge the diff layer directly into the file.
-            if file_size != expected_size {
-                file.set_len(0)
-                    .map_err(|err| MemoryBackingFile("truncate", err))?;
+        // For full snapshots we clear any existing file that does not back this VM's own guest
+        // memory, so `set_len(expected_size)` yields an all-zero sparse destination and zero pages
+        // can be skipped via seeks. When overwriting the VM's own backing file, we must not clear
+        // or truncate (which would zero out the active mmap and corrupt the VM) and must overwrite
+        // every page in place.
+        // For diff snapshots we preserve matching-size files to merge in place, and only
+        // truncate on a size mismatch.
+        let is_sparse_dest = match snapshot_type {
+            SnapshotType::Full => {
+                if self.is_memory_backing_file(&file_meta) {
+                    if file_size != expected_size {
+                        file.set_len(0)
+                            .map_err(|err| MemoryBackingFile("truncate", err))?;
+                    }
+                    false
+                } else {
+                    if file_size != 0 || file_meta.st_blocks() != 0 {
+                        clear_snapshot_file(&file, file_size.max(expected_size))
+                            .map_err(|err| MemoryBackingFile("truncate", err))?;
+                    }
+                    true
+                }
             }
-        }
+            SnapshotType::Diff => {
+                if file_size != expected_size && file_size != 0 {
+                    file.set_len(0)
+                        .map_err(|err| MemoryBackingFile("truncate", err))?;
+                }
+                false
+            }
+        };
 
         // Set the length of the file to the full size of the memory area.
         file.set_len(expected_size)
             .map_err(|e| MemoryBackingFile("set_length", e))?;
 
-        self.snapshot_memory_to_file(&mut file, snapshot_type, sync_snapshot_files)
+        self.snapshot_memory_to_file(
+            &mut file,
+            snapshot_type,
+            sync_snapshot_files,
+            is_sparse_dest,
+        )
     }
 
     /// Writes guest memory to `file` as a snapshot of `snapshot_type`, taking the dirty pages it
@@ -718,22 +760,33 @@ impl KvmVm {
         file: &mut F,
         snapshot_type: SnapshotType,
         sync_snapshot_files: bool,
+        is_sparse_dest: bool,
     ) -> Result<(), CreateSnapshotError> {
         use self::CreateSnapshotError::{Memory, MemoryBackingFile};
 
         let guest_memory = self.guest_memory();
+        let had_cleared_dirty_log = self.common.dirty_log_cleared.load(Ordering::Relaxed);
         let dirty_bitmap = match (snapshot_type, self.tracks_dirty_pages()) {
             (_, true) => self.take_dirty_bitmap()?,
             (SnapshotType::Diff, false) => self.resident_pages()?,
             (SnapshotType::Full, false) => DirtyBitmap::new(),
         };
-        let put_back = |_: &CreateSnapshotError| guest_memory.store_dirty_bitmap(&dirty_bitmap);
+        let put_back = |_: &CreateSnapshotError| {
+            guest_memory.store_dirty_bitmap(&dirty_bitmap);
+            if !had_cleared_dirty_log {
+                self.common
+                    .dirty_log_cleared
+                    .store(false, Ordering::Relaxed);
+            }
+        };
 
         match snapshot_type {
-            SnapshotType::Diff => guest_memory.dump_dirty(file, &dirty_bitmap),
-            SnapshotType::Full => guest_memory.dump(file),
+            SnapshotType::Diff => guest_memory.dump_dirty(file, &dirty_bitmap).map_err(Memory),
+            SnapshotType::Full if is_sparse_dest => {
+                self.dump_full_sparse(file, &dirty_bitmap, !had_cleared_dirty_log)
+            }
+            SnapshotType::Full => guest_memory.dump(file).map_err(Memory),
         }
-        .map_err(Memory)
         .inspect_err(put_back)?;
         file.flush()
             .map_err(|err| MemoryBackingFile("flush", err))
@@ -743,6 +796,64 @@ impl KvmVm {
                 .map_err(|err| MemoryBackingFile("sync_all", err))
                 .inspect_err(put_back)?;
         }
+        Ok(())
+    }
+
+    /// Writes a full snapshot to a freshly created or cleared all-zero file, leaving zero pages
+    /// as sparse holes.
+    fn dump_full_sparse<F: MemoryFile>(
+        &self,
+        file: &mut F,
+        dirty_bitmap: &DirtyBitmap,
+        dirty_bitmap_is_complete: bool,
+    ) -> Result<(), CreateSnapshotError> {
+        use self::CreateSnapshotError::Memory;
+
+        let guest_memory = self.guest_memory();
+        let has_uffd = self.common.uffd.is_some();
+
+        // On the first snapshot of a freshly booted anonymous VM with dirty page tracking, the
+        // dirty bitmap already covers every page written since boot (including pages that may
+        // have been swapped out by the host), so we can dump it directly without faulting
+        // untouched pages.
+        if dirty_bitmap_is_complete
+            && self.tracks_dirty_pages()
+            && !has_uffd
+            && guest_memory.iter().all(|r| r.file_offset().is_none())
+        {
+            return guest_memory.dump_dirty(file, dirty_bitmap).map_err(Memory);
+        }
+
+        let page_size = host_page_size();
+        for region in guest_memory.iter() {
+            // Explicit hugetlbfs pages (MAP_HUGETLB) cannot be swapped out by Linux. On a
+            // non-UFFD, non-file-backed (or shared memfd) mapping, `mincore(2)` accurately reports
+            // every allocated huge page without reading untouched pages (which would otherwise
+            // allocate real 2 MiB huge pages, since huge pages have no shared zero page).
+            let use_mincore = region.is_hugetlb()
+                && !has_uffd
+                && (region.file_offset().is_none() || region.is_shared());
+
+            for (mem_slot, plugged) in region.slots() {
+                if !plugged {
+                    let ilen = i64::try_from(mem_slot.slice.len())
+                        .map_err(|_| Memory(MemoryError::SlotSizeTooLarge))?;
+                    file.seek(SeekFrom::Current(ilen))
+                        .map_err(|err| Memory(MemoryError::SeekError(err)))?;
+                } else if use_mincore {
+                    let slot_bitmap = mincore_bitmap(
+                        mem_slot.slice.ptr_guard_mut().as_ptr(),
+                        mem_slot.slice.len(),
+                    )?;
+                    mem_slot
+                        .dump_dirty(file, &slot_bitmap, page_size)
+                        .map_err(Memory)?;
+                } else {
+                    mem_slot.dump_sparse(file, page_size).map_err(Memory)?;
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -857,6 +968,40 @@ impl MemoryFile for File {
     fn sync_all(&self) -> std::io::Result<()> {
         File::sync_all(self)
     }
+}
+
+/// Clears an existing non-empty snapshot file to sparse zeros before writing a full snapshot.
+///
+/// Prefers `fallocate(FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE)` over `ftruncate(0)` because
+/// ext4's `auto_da_alloc` heuristic marks truncated-to-zero inodes with `EXT4_STATE_DA_ALLOC_CLOSE`,
+/// causing `close(2)` to synchronously flush dirty pages (~75 ms on 64 MiB even with
+/// `sync_snapshot_files: false`). Falls back to `set_len(0)` on filesystems without hole punching.
+fn clear_snapshot_file(file: &File, file_size: u64) -> std::io::Result<()> {
+    if let Ok(len) = libc::off_t::try_from(file_size) {
+        // JUSTIFICATION: Rust std does not expose `fallocate`; punching holes avoids ext4's
+        // truncate-then-close synchronous flush (~75 ms regression on overwrite with
+        // `sync_snapshot_files: false`).
+        // SAFETY: `file` is a valid open file descriptor and `fallocate` retains no references.
+        let ret = unsafe {
+            libc::fallocate(
+                file.as_raw_fd(),
+                libc::FALLOC_FL_KEEP_SIZE | libc::FALLOC_FL_PUNCH_HOLE,
+                0,
+                len,
+            )
+        };
+        if ret == 0 {
+            return Ok(());
+        }
+        let err = std::io::Error::last_os_error();
+        if !matches!(
+            err.raw_os_error(),
+            Some(libc::EOPNOTSUPP | libc::ENOSYS | libc::EINVAL)
+        ) {
+            return Err(err);
+        }
+    }
+    file.set_len(0)
 }
 
 /// Use `mincore(2)` to overapproximate the dirty bitmap for the given memslot. To be used
@@ -1022,13 +1167,13 @@ pub(crate) mod tests {
                     file: TempFile::new().unwrap().into_file(),
                     state: TestMemoryFileState::Fails(fails),
                 };
-                vm.snapshot_memory_to_file(&mut file, snapshot_type, true)
+                vm.snapshot_memory_to_file(&mut file, snapshot_type, true, true)
                     .unwrap_err();
                 assert!(is_dirty(), "{snapshot_type:?}: {fails} failed");
             }
 
             let mut file = TempFile::new().unwrap().into_file();
-            vm.snapshot_memory_to_file(&mut file, snapshot_type, true)
+            vm.snapshot_memory_to_file(&mut file, snapshot_type, true, true)
                 .unwrap();
             assert!(!is_dirty(), "{snapshot_type:?} succeeded");
         }
@@ -1063,7 +1208,7 @@ pub(crate) mod tests {
                     value: 2,
                 },
             };
-            vm.snapshot_memory_to_file(&mut racing_file, snapshot_type, false)
+            vm.snapshot_memory_to_file(&mut racing_file, snapshot_type, false, false)
                 .unwrap();
             file = racing_file.file;
             let is_dirty = vm
@@ -1073,13 +1218,286 @@ pub(crate) mod tests {
             assert!(is_dirty, "{snapshot_type:?}");
 
             file.rewind().unwrap();
-            vm.snapshot_memory_to_file(&mut file, SnapshotType::Diff, false)
+            vm.snapshot_memory_to_file(&mut file, SnapshotType::Diff, false, false)
                 .unwrap();
             let mut byte = [0];
             file.read_exact_at(&mut byte, page_size as u64).unwrap();
             assert_eq!(byte, [2], "{snapshot_type:?}");
             file.rewind().unwrap();
         }
+    }
+
+    #[test]
+    fn test_full_snapshot_is_sparse_on_fresh_and_overwritten_files() {
+        use std::io::Read;
+
+        use vmm_sys_util::tempfile::TempFile;
+
+        use crate::vstate::memory::Bytes;
+
+        let page_size = host_page_size();
+        let mem_size = mib_to_bytes(2);
+
+        for track_dirty_pages in [false, true] {
+            let mut vm = setup_vm();
+            let regions = anonymous(
+                &[(GuestAddress(0), mem_size)],
+                track_dirty_pages,
+                HugePageConfig::None,
+            )
+            .unwrap();
+            vm.register_dram_memory_regions(regions).unwrap();
+
+            // Dirty only 2 pages out of 2 MiB.
+            vm.guest_memory()
+                .write(&[0xAA; 64], GuestAddress(0))
+                .unwrap();
+            vm.guest_memory()
+                .write(&[0xBB; 64], GuestAddress(mib_to_bytes(1) as u64))
+                .unwrap();
+
+            // 1st Full snapshot to a fresh file.
+            let snap1 = TempFile::new().unwrap();
+            vm.snapshot_memory_to_path(snap1.as_path(), SnapshotType::Full, false)
+                .unwrap();
+            let meta1 = snap1.as_file().metadata().unwrap();
+            assert_eq!(meta1.len(), mem_size as u64);
+            assert!(
+                meta1.st_blocks() * 512 < (mem_size / 2) as u64,
+                "track_dirty_pages={track_dirty_pages}: expected sparse 1st full snapshot, got {} bytes allocated",
+                meta1.st_blocks() * 512
+            );
+
+            // Dirty one more page and take a 2nd Full snapshot overwriting the same non-backing
+            // file; both previously written pages and the new page must be preserved and the
+            // output must stay sparse.
+            vm.guest_memory()
+                .write(
+                    &[0xCC; 64],
+                    GuestAddress((mib_to_bytes(1) + page_size) as u64),
+                )
+                .unwrap();
+            vm.snapshot_memory_to_path(snap1.as_path(), SnapshotType::Full, false)
+                .unwrap();
+            let meta2 = snap1.as_file().metadata().unwrap();
+            assert_eq!(meta2.len(), mem_size as u64);
+            assert!(
+                meta2.st_blocks() * 512 < (mem_size / 2) as u64,
+                "track_dirty_pages={track_dirty_pages}: expected sparse 2nd full snapshot, got {} bytes allocated",
+                meta2.st_blocks() * 512
+            );
+
+            let mut contents = Vec::new();
+            File::open(snap1.as_path())
+                .unwrap()
+                .read_to_end(&mut contents)
+                .unwrap();
+            assert_eq!(&contents[..64], &[0xAA; 64]);
+            assert_eq!(
+                &contents[mib_to_bytes(1)..mib_to_bytes(1) + 64],
+                &[0xBB; 64]
+            );
+            assert_eq!(
+                &contents[mib_to_bytes(1) + page_size..mib_to_bytes(1) + page_size + 64],
+                &[0xCC; 64]
+            );
+            assert!(contents[page_size..mib_to_bytes(1)].iter().all(|&b| b == 0));
+
+            // Overwriting both a tiny sub-block file and an oversized non-zero file must produce
+            // an exact, sparse snapshot of `mem_size`.
+            for pre_existing in [vec![0xFFu8; 5], vec![0xEEu8; mem_size * 2]] {
+                let target = TempFile::new().unwrap();
+                target.as_file().write_all(&pre_existing).unwrap();
+                vm.snapshot_memory_to_path(target.as_path(), SnapshotType::Full, false)
+                    .unwrap();
+                let meta = target.as_file().metadata().unwrap();
+                assert_eq!(meta.len(), mem_size as u64);
+                assert!(
+                    meta.st_blocks() * 512 < (mem_size / 2) as u64,
+                    "track_dirty_pages={track_dirty_pages}, pre_len={}: expected sparse snapshot, got {} bytes allocated",
+                    pre_existing.len(),
+                    meta.st_blocks() * 512
+                );
+                let mut overwritten = Vec::new();
+                File::open(target.as_path())
+                    .unwrap()
+                    .read_to_end(&mut overwritten)
+                    .unwrap();
+                assert_eq!(overwritten, contents);
+            }
+        }
+    }
+
+    #[test]
+    fn test_full_snapshot_from_file_backed_vm_preserves_unfaulted_and_self_overwrite() {
+        use std::io::Read;
+        use std::os::unix::fs::FileExt;
+
+        use vmm_sys_util::tempfile::TempFile;
+
+        use crate::vstate::memory::Bytes;
+
+        let mem_size = mib_to_bytes(2);
+        let base_file = TempFile::new().unwrap();
+        base_file.as_file().set_len(mem_size as u64).unwrap();
+        // Write non-zero data at offset 1 MiB in the base snapshot file, leaving the rest sparse.
+        base_file
+            .as_file()
+            .write_all_at(&[0x5A; 128], mib_to_bytes(1) as u64)
+            .unwrap();
+
+        let mut vm = setup_vm();
+        let regions = crate::vstate::memory::snapshot_file(
+            File::open(base_file.as_path()).unwrap(),
+            &[(GuestAddress(0), mem_size)],
+            true,
+            HugePageConfig::None,
+        )
+        .unwrap();
+        vm.register_dram_memory_regions(regions).unwrap();
+
+        // Write one page in the restored VM without touching offset 1 MiB.
+        vm.guest_memory()
+            .write(&[0x33; 64], GuestAddress(0))
+            .unwrap();
+
+        // Full snapshot to a new path must preserve the unfaulted page at 1 MiB and stay sparse.
+        let out_file = TempFile::new().unwrap();
+        vm.snapshot_memory_to_path(out_file.as_path(), SnapshotType::Full, false)
+            .unwrap();
+        let meta = out_file.as_file().metadata().unwrap();
+        assert_eq!(meta.len(), mem_size as u64);
+        assert!(meta.st_blocks() * 512 < (mem_size / 2) as u64);
+
+        let mut out_bytes = Vec::new();
+        File::open(out_file.as_path())
+            .unwrap()
+            .read_to_end(&mut out_bytes)
+            .unwrap();
+        assert_eq!(&out_bytes[..64], &[0x33; 64]);
+        assert_eq!(
+            &out_bytes[mib_to_bytes(1)..mib_to_bytes(1) + 128],
+            &[0x5A; 128]
+        );
+        assert!(out_bytes[64..mib_to_bytes(1)].iter().all(|&b| b == 0));
+
+        // Overwriting the VM's own backing file must NOT truncate it (must preserve unfaulted
+        // guest memory at 1 MiB and include the new write at 0).
+        vm.snapshot_memory_to_path(base_file.as_path(), SnapshotType::Full, false)
+            .unwrap();
+        let mut self_bytes = Vec::new();
+        File::open(base_file.as_path())
+            .unwrap()
+            .read_to_end(&mut self_bytes)
+            .unwrap();
+        assert_eq!(&self_bytes[..64], &[0x33; 64]);
+        assert_eq!(
+            &self_bytes[mib_to_bytes(1)..mib_to_bytes(1) + 128],
+            &[0x5A; 128]
+        );
+    }
+
+    #[test]
+    fn test_full_snapshot_retry_after_failure_preserves_complete_memory() {
+        use std::io::Read;
+
+        use vmm_sys_util::tempfile::TempFile;
+
+        use crate::vstate::memory::Bytes;
+
+        let page_size = host_page_size();
+        let mem_size = mib_to_bytes(1);
+        let mut vm = setup_vm();
+        let regions =
+            anonymous(&[(GuestAddress(0), mem_size)], true, HugePageConfig::None).unwrap();
+        vm.register_dram_memory_regions(regions).unwrap();
+
+        vm.guest_memory()
+            .write(&[0x11; 32], GuestAddress(0))
+            .unwrap();
+
+        // Fail the first Full snapshot during write; dirty_log_cleared must roll back to false.
+        let mut failing = TestMemoryFile {
+            file: TempFile::new().unwrap().into_file(),
+            state: TestMemoryFileState::Fails("write"),
+        };
+        vm.snapshot_memory_to_file(&mut failing, SnapshotType::Full, false, true)
+            .unwrap_err();
+        assert!(!vm.common.dirty_log_cleared.load(Ordering::Relaxed));
+
+        // Retrying Full snapshot must still capture the page dirtied before the failure.
+        let snap1 = TempFile::new().unwrap();
+        vm.snapshot_memory_to_path(snap1.as_path(), SnapshotType::Full, false)
+            .unwrap();
+        assert!(vm.common.dirty_log_cleared.load(Ordering::Relaxed));
+
+        // Dirty a second page and take another Full snapshot; both pages must be present.
+        vm.guest_memory()
+            .write(&[0x22; 32], GuestAddress(page_size as u64))
+            .unwrap();
+        let snap2 = TempFile::new().unwrap();
+        vm.snapshot_memory_to_path(snap2.as_path(), SnapshotType::Full, false)
+            .unwrap();
+
+        let mut buf = Vec::new();
+        File::open(snap2.as_path())
+            .unwrap()
+            .read_to_end(&mut buf)
+            .unwrap();
+        assert_eq!(&buf[..32], &[0x11; 32]);
+        assert_eq!(&buf[page_size..page_size + 32], &[0x22; 32]);
+    }
+
+    #[test]
+    fn test_full_snapshot_on_hugetlb_does_not_fault_untouched_pages() {
+        use std::io::Read;
+
+        use vmm_sys_util::tempfile::TempFile;
+
+        use crate::vstate::memory::Bytes;
+
+        if crate::vstate::memory::tests::free_hugepages_2m() < 2 {
+            println!("Skipping: fewer than two free 2 MiB hugepages available");
+            return;
+        }
+
+        let huge_size = HugePageConfig::Hugetlbfs2M.page_size();
+        let mem_size = 2 * huge_size;
+        let mut vm = setup_vm();
+        let regions = anonymous(
+            &[(GuestAddress(0), mem_size)],
+            false,
+            HugePageConfig::Hugetlbfs2M,
+        )
+        .unwrap();
+        vm.register_dram_memory_regions(regions).unwrap();
+
+        // Touch only the first 2 MiB huge page; the second must remain unallocated.
+        vm.guest_memory()
+            .write(&[0x77; 64], GuestAddress(0))
+            .unwrap();
+
+        let snap = TempFile::new().unwrap();
+        vm.snapshot_memory_to_path(snap.as_path(), SnapshotType::Full, false)
+            .unwrap();
+
+        // Verify the untouched second 2 MiB huge page was never faulted in.
+        let resident = vm.resident_pages().unwrap();
+        let words_per_huge = (huge_size / host_page_size()) / 64;
+        assert!(resident[0][..words_per_huge].iter().any(|&w| w != 0));
+        assert!(resident[0][words_per_huge..].iter().all(|&w| w == 0));
+
+        // Verify file is sparse and contents match.
+        let meta = snap.as_file().metadata().unwrap();
+        assert_eq!(meta.len(), mem_size as u64);
+        assert!(meta.st_blocks() * 512 <= huge_size as u64);
+        let mut buf = Vec::new();
+        File::open(snap.as_path())
+            .unwrap()
+            .read_to_end(&mut buf)
+            .unwrap();
+        assert_eq!(&buf[..64], &[0x77; 64]);
+        assert!(buf[64..].iter().all(|&b| b == 0));
     }
 
     #[test]
