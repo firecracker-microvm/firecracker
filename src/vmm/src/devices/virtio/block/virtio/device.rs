@@ -1702,9 +1702,26 @@ mod tests {
 
     #[test]
     fn test_discard_request() {
+        use vmm_sys_util::fallocate::{FallocateMode, fallocate};
+
+        const LEN: usize = 0x2000;
+        let len = u64::try_from(LEN).unwrap();
+        let original = [0xab; LEN];
+
+        // Probe a separate populated file on the same filesystem as the test drives.
+        let control = TempFile::new().unwrap();
+        control.as_file().write_all_at(&original, 0).unwrap();
+        control.as_file().sync_all().unwrap();
+        let (expected_status, expected_byte) =
+            match fallocate(control.as_file(), FallocateMode::PunchHole, true, 0, len) {
+                Ok(()) => (VIRTIO_BLK_S_OK, 0),
+                Err(err) if err.errno() == libc::EOPNOTSUPP => (VIRTIO_BLK_S_IOERR, 0xab),
+                Err(err) => panic!("control file hole punch failed: {err}"),
+            };
+
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
-            let f = TempFile::new().unwrap();
-            f.as_file().write_all_at(&[0xab; 0x2000], 0).unwrap();
+            let f = TempFile::new_in(control.as_path().parent().unwrap()).unwrap();
+            f.as_file().write_all_at(&original, 0).unwrap();
             f.as_file().sync_all().unwrap();
             let blocks_before = f.as_file().metadata().unwrap().st_blocks();
             let config = VirtioBlockConfig {
@@ -1751,11 +1768,18 @@ mod tests {
             assert_eq!(
                 mem.read_obj::<u8>(GuestAddress(chain.status_desc.addr.get()))
                     .unwrap(),
-                u8::try_from(VIRTIO_BLK_S_OK).unwrap()
+                u8::try_from(expected_status).unwrap()
             );
             let metadata = f.as_file().metadata().unwrap();
-            assert_eq!(metadata.len(), 0x2000);
-            assert!(metadata.st_blocks() < blocks_before);
+            assert_eq!(metadata.len(), len);
+            let mut contents = [0; LEN];
+            f.as_file().read_exact_at(&mut contents, 0).unwrap();
+            assert!(contents.iter().all(|&byte| byte == expected_byte));
+            if expected_status == VIRTIO_BLK_S_OK {
+                assert!(metadata.st_blocks() < blocks_before);
+            } else {
+                assert_eq!(metadata.st_blocks(), blocks_before);
+            }
         }
     }
 
