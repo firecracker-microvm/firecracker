@@ -1200,9 +1200,10 @@ mod tests {
     use crate::devices::virtio::block::virtio::io::format::vmdk::tests::create_test_vmdk;
     use crate::devices::virtio::block::virtio::request::*;
     use crate::devices::virtio::block::virtio::test_utils::{
-        RequestDescriptorChain, default_block, default_mq_block, default_threaded_block,
-        read_blk_req_descriptors, set_queue, set_rate_limiter, simulate_async_completion_event,
-        simulate_queue_and_async_completion_events, simulate_queue_event,
+        RequestDescriptorChain, default_block, default_config, default_mq_block,
+        default_threaded_block, read_blk_req_descriptors, set_queue, set_rate_limiter,
+        simulate_async_completion_event, simulate_queue_and_async_completion_events,
+        simulate_queue_event,
     };
     use crate::devices::virtio::block::virtio::{DEFAULT_BLOCK_NUM_QUEUES, IO_URING_NUM_ENTRIES};
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
@@ -2816,6 +2817,56 @@ mod tests {
             );
             assert_eq!(block.disk().image_id, id.as_slice());
         }
+    }
+
+    #[test]
+    fn test_async_disk_update_completes_pending_discard() {
+        let original = TempFile::new().unwrap();
+        original.as_file().set_len(0x1000).unwrap();
+        let mut config = default_config(
+            original.as_path().to_str().unwrap().to_owned(),
+            FileEngineType::Async,
+        );
+        config.discard = true;
+        let mut block = VirtioBlock::new(config).unwrap();
+        block.set_acked_features(block.avail_features);
+        let mem = default_mem();
+        let interrupt = default_interrupt();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        block.activate(mem.clone(), interrupt.clone()).unwrap();
+
+        let chain = RequestDescriptorChain::new(&vq);
+        chain.set_header(RequestHeader::new(VIRTIO_BLK_T_DISCARD, 0));
+        chain.data_desc.flags.set(VIRTQ_DESC_F_NEXT);
+        chain.data_desc.len.set(16);
+        let mut range = [0_u8; 16];
+        range[8..12].copy_from_slice(&8_u32.to_le_bytes());
+        mem.write_slice(&range, GuestAddress(chain.data_desc.addr.get()))
+            .unwrap();
+        let status = GuestAddress(chain.status_desc.addr.get());
+        mem.write_obj(0xff_u8, status).unwrap();
+
+        // Submit without dispatching the completion event.
+        simulate_queue_event(&mut block, Some(false));
+        assert_eq!(vq.used.idx.get(), 0);
+
+        let replacement = TempFile::new().unwrap();
+        replacement.as_file().set_len(0x1000).unwrap();
+        block
+            .update_disk_image(replacement.as_path().to_str().unwrap().to_owned())
+            .unwrap();
+
+        assert_eq!(vq.used.idx.get(), 1);
+        assert_eq!(vq.used.ring[0].get().id, 0);
+        assert_eq!(vq.used.ring[0].get().len, 1);
+        // Hole punching can be unsupported by the backing filesystem.
+        assert!(matches!(
+            u32::from(mem.read_obj::<u8>(status).unwrap()),
+            VIRTIO_BLK_S_OK | VIRTIO_BLK_S_IOERR
+        ));
+        interrupt.ack_interrupt(VirtioInterruptType::Config);
+        assert!(interrupt.has_pending_interrupt(VirtioInterruptType::Queue(0)));
     }
 
     #[test]

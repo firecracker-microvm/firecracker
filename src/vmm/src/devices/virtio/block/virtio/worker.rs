@@ -325,6 +325,15 @@ impl BlockWorker {
         disk_image_path: String,
         read_only: bool,
     ) -> Result<u64, VirtioBlockError> {
+        if let FileEngine::Async(engine) = &mut self.resources.disk.file_engine
+            && engine.has_pending_ops()
+        {
+            // Publish completions from the old ring before replacing it.
+            engine
+                .drain(false)
+                .map_err(|err| VirtioBlockError::FileEngine(BlockIoError::Async(err)))?;
+            self.process_async_completion_queue();
+        }
         self.resources.disk.update(disk_image_path, read_only)?;
         Ok(self.resources.disk.nsectors)
     }

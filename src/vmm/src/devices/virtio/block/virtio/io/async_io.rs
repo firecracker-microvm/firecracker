@@ -318,6 +318,10 @@ impl AsyncFileEngine {
             .map_err(AsyncIoError::IoUring)
     }
 
+    pub(crate) fn has_pending_ops(&self) -> bool {
+        self.ring.num_ops() != 0
+    }
+
     pub fn drain(&mut self, discard_cqes: bool) -> Result<(), AsyncIoError> {
         self.ring
             .submit_and_wait_all()
