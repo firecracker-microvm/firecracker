@@ -612,6 +612,35 @@ mod tests {
     }
 
     #[test]
+    fn test_vectored_request_rejects_oversized_length() {
+        use super::super::MAX_VECTORED_BYTES;
+        use super::super::device::FileEngineType;
+        use super::super::io::{BlockIoError, FileEngine, RequestError};
+
+        for engine_type in [FileEngineType::Sync, FileEngineType::Async] {
+            let file = vmm_sys_util::tempfile::TempFile::new().unwrap();
+            let file = file.as_file().try_clone().unwrap();
+            let mut engine = FileEngine::from_file(file, engine_type).unwrap();
+            let req = PendingRequest {
+                r#type: RequestType::Out,
+                data_len: MAX_VECTORED_BYTES + SECTOR_SIZE,
+                ..Default::default()
+            };
+            let segments = vec![
+                (GuestAddress(0), MAX_VECTORED_BYTES),
+                (GuestAddress(0), SECTOR_SIZE),
+            ];
+            assert!(matches!(
+                engine.transfer_vectored(true, 0, &default_mem(), segments, req),
+                Err(RequestError {
+                    error: BlockIoError::VectorTooLarge,
+                    ..
+                })
+            ));
+        }
+    }
+
+    #[test]
     fn test_scatter_gather_segment_limit_and_direction() {
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 64);

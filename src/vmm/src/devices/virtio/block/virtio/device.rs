@@ -24,8 +24,8 @@ pub use super::io::DiskImageFormat;
 use super::io::{self as block_io, FileEngine};
 use super::worker::{BlockWorker, FlushMode, WorkerHandle};
 use super::{
-    BLOCK_QUEUE_SIZE, DEFAULT_BLOCK_NUM_QUEUES, MAX_DATA_SEGMENTS, MAX_DISCARD_SECTORS,
-    SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError,
+    BLOCK_QUEUE_SIZE, DEFAULT_BLOCK_NUM_QUEUES, MAX_DATA_SEGMENT_SIZE, MAX_DATA_SEGMENTS,
+    MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError,
 };
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::block::CacheType;
@@ -33,7 +33,8 @@ use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMe
 use crate::devices::virtio::device::{ActiveState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_F_BLK_SIZE, VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_MQ,
-    VIRTIO_BLK_F_RO, VIRTIO_BLK_F_SEG_MAX, VIRTIO_BLK_F_TOPOLOGY, VIRTIO_BLK_ID_BYTES,
+    VIRTIO_BLK_F_RO, VIRTIO_BLK_F_SEG_MAX, VIRTIO_BLK_F_SIZE_MAX, VIRTIO_BLK_F_TOPOLOGY,
+    VIRTIO_BLK_ID_BYTES,
 };
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
@@ -623,18 +624,16 @@ impl VirtioBlock {
             avail_features |= 1u64 << VIRTIO_BLK_F_DISCARD;
         }
 
-        let seg_max = if config.image_format == DiskImageFormat::Raw {
-            avail_features |= 1u64 << VIRTIO_BLK_F_SEG_MAX;
-            MAX_DATA_SEGMENTS
-        } else {
-            0
-        };
         let mut config_space = ConfigSpace {
             capacity: resources[0].disk.nsectors.to_le(),
-            seg_max: seg_max.to_le(),
             num_queues: num_queues.to_le(),
             ..Default::default()
         };
+        if config.image_format == DiskImageFormat::Raw {
+            avail_features |= (1u64 << VIRTIO_BLK_F_SEG_MAX) | (1u64 << VIRTIO_BLK_F_SIZE_MAX);
+            config_space.seg_max = MAX_DATA_SEGMENTS.to_le();
+            config_space.size_max = MAX_DATA_SEGMENT_SIZE.to_le();
+        }
 
         if config.blk_size.is_none()
             && config.topology.is_none()
@@ -1598,7 +1597,8 @@ mod tests {
                 | (1u64 << VIRTIO_BLK_F_BLK_SIZE)
                 | (1u64 << VIRTIO_BLK_F_TOPOLOGY)
                 | (1u64 << VIRTIO_BLK_F_MQ)
-                | (1u64 << VIRTIO_BLK_F_SEG_MAX);
+                | (1u64 << VIRTIO_BLK_F_SEG_MAX)
+                | (1u64 << VIRTIO_BLK_F_SIZE_MAX);
 
             assert_eq!(
                 block.avail_features_by_page(0),
@@ -1761,6 +1761,7 @@ mod tests {
             // The block's backing file size is 0x1000, so there are 8 (4096/512) sectors.
             let expected_config_space = ConfigSpace {
                 capacity: 8,
+                size_max: MAX_DATA_SEGMENT_SIZE.to_le(),
                 seg_max: MAX_DATA_SEGMENTS.to_le(),
                 ..Default::default()
             };

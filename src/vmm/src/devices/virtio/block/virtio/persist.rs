@@ -21,6 +21,7 @@ use crate::devices::virtio::block::virtio::metrics::BlockMetricsPerDevice;
 use crate::devices::virtio::device::VirtioDeviceType;
 use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_MQ, VIRTIO_BLK_F_RO, VIRTIO_BLK_F_SEG_MAX,
+    VIRTIO_BLK_F_SIZE_MAX,
 };
 use crate::devices::virtio::persist::{PersistError, VirtioDeviceState};
 use crate::rate_limiter::RateLimiter;
@@ -198,6 +199,11 @@ impl Persist<'_> for VirtioBlock {
             } else {
                 0
             },
+            size_max: if state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_SIZE_MAX) != 0 {
+                super::MAX_DATA_SEGMENT_SIZE.to_le()
+            } else {
+                0
+            },
             ..Default::default()
         };
 
@@ -354,13 +360,19 @@ mod tests {
             restored_block.config_space.seg_max,
             super::super::MAX_DATA_SEGMENTS.to_le()
         );
+        assert_eq!(
+            restored_block.config_space.size_max,
+            super::super::MAX_DATA_SEGMENT_SIZE.to_le()
+        );
 
         // An old snapshot must keep the original guest-visible limits after restore.
         let mut old_state = block_state.clone();
-        old_state.virtio_state.avail_features &= !(1 << VIRTIO_BLK_F_SEG_MAX);
+        old_state.virtio_state.avail_features &=
+            !((1 << VIRTIO_BLK_F_SEG_MAX) | (1 << VIRTIO_BLK_F_SIZE_MAX));
         let old_block =
             VirtioBlock::restore(BlockConstructorArgs { mem: default_mem() }, &old_state).unwrap();
         assert_eq!(old_block.config_space.seg_max, 0);
+        assert_eq!(old_block.config_space.size_max, 0);
         assert_eq!(old_block.avail_features() & (1 << VIRTIO_BLK_F_SEG_MAX), 0);
         assert_eq!(
             restored_block.resources()[0].queue.save(),

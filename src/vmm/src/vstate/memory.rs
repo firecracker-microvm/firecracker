@@ -24,7 +24,8 @@ pub use vm_memory::{
     MemoryRegionAddress, MmapRegion, address,
 };
 use vm_memory::{
-    GuestMemoryBackend, GuestMemoryError, GuestMemoryRegionBytes, VolatileSlice, WriteVolatile,
+    GuestMemoryBackend, GuestMemoryError, GuestMemoryRegionBytes, VolatileMemoryError,
+    VolatileSlice, WriteVolatile,
 };
 
 use crate::arch::host_page_size;
@@ -603,8 +604,17 @@ impl GuestRegionMmapExt {
         caddr: MemoryRegionAddress,
         len: usize,
     ) -> Result<(), GuestMemoryError> {
+        self.with_range_plugged(caddr, len, || Ok(()))
+    }
+
+    fn with_range_plugged(
+        &self,
+        caddr: MemoryRegionAddress,
+        len: usize,
+        access: impl FnOnce() -> Result<(), GuestMemoryError>,
+    ) -> Result<(), GuestMemoryError> {
         if len == 0 {
-            return Ok(());
+            return access();
         }
         let start = u64_to_usize(caddr.raw_value());
         let last = start
@@ -622,9 +632,11 @@ impl GuestRegionMmapExt {
                 .get(start / self.slot_size..=last / self.slot_size)
                 .is_some_and(|bits| bits.all())
         };
-        available
-            .then_some(())
-            .ok_or(GuestMemoryError::HostAddressNotAvailable)
+        if !available {
+            return Err(GuestMemoryError::HostAddressNotAvailable);
+        }
+        // update_slot holds the same lock while changing the mapping's protection.
+        access()
     }
 
     pub(crate) fn slot_cnt(&self) -> u32 {
@@ -1447,6 +1459,23 @@ impl GuestMemoryExtension for GuestMemoryMmap {
             region.check_range_plugged(offset, chunk_len)
         })
     }
+}
+
+/// Perform a userspace copy within a single guest memory region while its slots stay plugged.
+pub(crate) fn with_plugged_slice(
+    mem: &GuestMemoryMmap,
+    addr: GuestAddress,
+    len: usize,
+    access: impl FnOnce(
+        VolatileSlice<'_, BS<'_, Option<AtomicBitmap>>>,
+    ) -> Result<(), VolatileMemoryError>,
+) -> Result<(), GuestMemoryError> {
+    let region = mem
+        .find_region(addr)
+        .ok_or(GuestMemoryError::InvalidGuestAddress(addr))?;
+    let offset = region.to_region_addr(addr).unwrap();
+    let slice = region.get_slice(offset, len)?;
+    region.with_range_plugged(offset, len, || access(slice).map_err(Into::into))
 }
 
 fn create_memfd(
@@ -3038,6 +3067,22 @@ mod tests {
 
         ext.plugged.lock().unwrap().set(0, false);
         assert!(ext.check_range_plugged(MemoryRegionAddress(0), 1).is_err());
+
+        let mem = GuestMemoryMmap::from_regions(vec![ext]).unwrap();
+        let addr = GuestAddress(0x10_1000);
+        with_plugged_slice(&mem, addr, 1, |slice| {
+            assert!(matches!(
+                mem.find_region(addr).unwrap().plugged.try_lock(),
+                Err(std::sync::TryLockError::WouldBlock)
+            ));
+            slice.write_slice(&[0x2a], 0)
+        })
+        .unwrap();
+        assert_eq!(mem.read_obj::<u8>(addr).unwrap(), 0x2a);
+        assert!(matches!(
+            with_plugged_slice(&mem, GuestAddress(0x10_2000), 1, |_| unreachable!()),
+            Err(GuestMemoryError::HostAddressNotAvailable)
+        ));
     }
 
     /// Returns the (start, end) of the VMA containing `addr` in `/proc/self/maps`, if any.

@@ -17,7 +17,9 @@ use crate::io_uring::operation::{Cqe, OpCode, Operation};
 use crate::io_uring::restriction::Restriction;
 use crate::io_uring::{IoUring, IoUringError};
 use crate::logger::log_dev_preview_warning;
-use crate::vstate::memory::{GuestAddress, GuestMemoryExtension, GuestMemoryMmap};
+use crate::vstate::memory::{
+    GuestAddress, GuestMemoryExtension, GuestMemoryMmap, with_plugged_slice,
+};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum AsyncIoError {
@@ -226,7 +228,11 @@ impl AsyncFileEngine {
                     };
                 }
                 let buffer = &mut direct.buffer().0[..count as usize];
-                if write && let Err(err) = mem.read_slice(buffer, addr) {
+                if write
+                    && let Err(err) = with_plugged_slice(mem, addr, buffer.len(), |slice| {
+                        slice.read_slice(buffer, 0)
+                    })
+                {
                     return Err(RequestError {
                         req,
                         error: AsyncIoError::GuestMemory(err),
@@ -434,16 +440,20 @@ impl AsyncFileEngine {
             data.mark_vector_dirty(count, failed);
             if data.bounced {
                 self.bounce_in_flight = false;
-                if let Some(addr) = data.addr {
+                if count != 0
+                    && let Some(addr) = data.addr
+                {
                     let direct = self
                         .direct
                         .as_mut()
                         .expect("staged I/O belongs to a direct drive");
-                    // get_slice validated the entire destination at submission. Only copy
-                    // successful bytes, including a short read's prefix, and mark them dirty.
-                    copy_error = mem
-                        .write_slice(&direct.buffer().0[..count as usize], addr)
-                        .is_err();
+                    // The slot may have been unplugged since submission. Copy only the bytes
+                    // returned by the read and mark them dirty.
+                    let buffer = &direct.buffer().0[..count as usize];
+                    copy_error = with_plugged_slice(mem, addr, buffer.len(), |slice| {
+                        slice.write_slice(buffer, 0)
+                    })
+                    .is_err();
                 }
             } else {
                 data.mark_read_dirty(mem, count, failed);

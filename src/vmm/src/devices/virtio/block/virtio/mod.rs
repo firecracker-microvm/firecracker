@@ -30,6 +30,10 @@ pub const SECTOR_SIZE: u32 = (0x01_u32) << SECTOR_SHIFT;
 pub const MAX_DISCARD_SECTORS: u32 = (128_u32 << 20) / SECTOR_SIZE;
 /// Maximum number of data descriptors in a native virtio-blk read or write.
 const MAX_DATA_SEGMENTS: u32 = 32;
+// Linux caps each readv/writev to INT_MAX rounded down to a host page boundary.
+// Account for hosts with up to 64 KiB base pages.
+const MAX_VECTORED_BYTES: u32 = 0x7fff_0000;
+const MAX_DATA_SEGMENT_SIZE: u32 = MAX_VECTORED_BYTES / MAX_DATA_SEGMENTS;
 /// The number of queues of block device.
 pub const DEFAULT_BLOCK_NUM_QUEUES: u16 = 1;
 

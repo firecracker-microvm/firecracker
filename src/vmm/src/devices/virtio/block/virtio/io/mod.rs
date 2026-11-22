@@ -12,8 +12,8 @@ pub use self::async_io::{AsyncFileEngine, AsyncIoError};
 pub use self::format::{DiskImageFormat, VmdkFileEngine, VmdkIoError};
 pub use self::sync_io::{SyncFileEngine, SyncIoError};
 pub(super) use self::vectored::DataSegment;
-use crate::devices::virtio::block::virtio::PendingRequest;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
+use crate::devices::virtio::block::virtio::{MAX_VECTORED_BYTES, PendingRequest};
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug)]
@@ -38,6 +38,8 @@ pub enum BlockIoError {
     Direct(std::io::Error),
     /// VMDK error: {0}
     Vmdk(VmdkIoError),
+    /// Vectored request exceeds the host I/O limit
+    VectorTooLarge,
 }
 
 impl BlockIoError {
@@ -241,6 +243,12 @@ impl FileEngine {
         segments: Vec<DataSegment>,
         req: PendingRequest,
     ) -> Result<FileEngineOk, RequestError<BlockIoError>> {
+        if req.data_len() > MAX_VECTORED_BYTES {
+            return Err(RequestError {
+                req,
+                error: BlockIoError::VectorTooLarge,
+            });
+        }
         match self {
             FileEngine::Async(engine) => engine
                 .transfer_vectored(write, offset, mem, segments, req)
@@ -693,7 +701,7 @@ mod direct {
     use vm_memory::Bytes;
 
     use super::DataSegment;
-    use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
+    use crate::vstate::memory::{GuestAddress, GuestMemoryMmap, with_plugged_slice};
 
     pub(super) const BUFFER_SIZE: usize = 64 * 1024;
 
@@ -865,7 +873,11 @@ mod direct {
                             segments,
                             done,
                             &mut buf[head..head + n],
-                            |addr, part| mem.read_slice(part, addr),
+                            |addr, part| {
+                                with_plugged_slice(mem, addr, part.len(), |slice| {
+                                    slice.read_slice(part, 0)
+                                })
+                            },
                         )?;
                         file.seek(SeekFrom::Start(start))?;
                         let written = retry_interrupted(|| file.write(&buf[..span]))?;
@@ -878,7 +890,11 @@ mod direct {
                             segments,
                             done,
                             &mut buf[head..head + available],
-                            |addr, part| mem.write_slice(part, addr),
+                            |addr, part| {
+                                with_plugged_slice(mem, addr, part.len(), |slice| {
+                                    slice.write_slice(part, 0)
+                                })
+                            },
                         )?;
                         Ok(available)
                     }
