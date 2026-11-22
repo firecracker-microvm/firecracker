@@ -59,28 +59,30 @@ Firecracker queries both regular files and block devices for direct IO alignment
 with `statx(STATX_DIOALIGN)` (available starting with Linux 6.1). A regular file
 requires a filesystem that reports these alignments. For a block device on a
 kernel that cannot report them, Firecracker uses the host page size for memory
-alignment and the logical sector size from `BLKSSZGET` for offsets.
+alignment and the logical sector size from `BLKSSZGET` for offsets. On Linux
+5.10 without a backport of `STATX_DIOALIGN`, only block device backings can use
+direct IO. The page-size fallback requires host pages of at most 4096 bytes.
 
 The host memory and offset alignments must be powers of two no larger than 4096
 bytes. The backing size must be a multiple of both the host offset alignment and
 the 512-byte virtio sector size. Firecracker checks these requirements when
-opening a drive, replacing its backing path and restoring a snapshot. Snapshots
-retain the drive's IO mode. Format 13.1 added the
-direct IO engine variants. It can still load format 13.0 buffered snapshots.
-This build writes format 13.2, which also preserves the offered and negotiated
-scatter-gather feature. Older snapshots keep their original queue geometry.
+opening a drive and replacing its backing path. Snapshots keep the drive's IO
+mode and negotiated features. On restore Firecracker checks the backing again,
+so it must still support the saved IO mode.
 
 Raw drives offer up to 32 data segments per read or write. The queue size is
-unchanged. Guests that decline `VIRTIO_BLK_F_SEG_MAX` keep the single-segment path.
+unchanged. Guests that decline `VIRTIO_BLK_F_SEG_MAX` keep the single-segment
+path.
 
 Firecracker handles unaligned guest buffers with aligned temporary storage. A
 guest write that changes part of a host block requires a read-modify-write. Give
 a writable drive exclusive write access to its backing storage so that a
 concurrent writer cannot overwrite a change to an adjacent sector. A request
 that needs this alignment handling can block even when using the `Async` engine.
-Set `"num_queues": 1` to run this work on a dedicated disk worker instead of the
-VMM event thread.
-The guest-facing block size remains configurable through `blk_size`.
+The queue waits for a pending staged operation before taking new requests. Set
+`"num_queues": 1` to run this work on a dedicated disk worker instead of the VMM
+event thread. The guest-facing block size remains configurable through
+`blk_size`.
 
 Direct IO controls host page-cache use. The existing `cache_type` setting
 controls guest flushes and their durability semantics. For example,

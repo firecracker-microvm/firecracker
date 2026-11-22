@@ -29,7 +29,7 @@ pub fn block_request_benchmark(c: &mut Criterion) {
     c.bench_function("request_parse", |b| {
         b.iter(|| {
             let desc = std::hint::black_box(&desc);
-            _ = Request::parse(desc, &mem, 1024);
+            _ = Request::parse(desc, &mem, 1024, false);
         })
     });
 }

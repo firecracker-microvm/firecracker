@@ -10,10 +10,11 @@ and this project adheres to
 
 ### Added
 
-- Added the optional `direct_io` drive setting for raw, single-queue
-  virtio-block devices using the Sync or Async IO engine. See the
+- [#6459](https://github.com/firecracker-microvm/firecracker/pull/6459): Added
+  the optional `direct_io` drive setting for raw, single-queue virtio-block
+  devices using the Sync or Async IO engine. It opens the backing with
+  `O_DIRECT` for reads and writes. See the
   [direct IO documentation](docs/api_requests/block-io-engine.md#direct-io).
-- Raw virtio-block drives can accept up to 32 data segments per read or write.
 - [#6226](https://github.com/firecracker-microvm/firecracker/pull/6226),
   [#6227](https://github.com/firecracker-microvm/firecracker/pull/6227),
   [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228),
@@ -58,6 +59,10 @@ and this project adheres to
 
 ### Changed
 
+- [#6459](https://github.com/firecracker-microvm/firecracker/pull/6459): Raw
+  virtio-block drives offer up to 32 data segments per read or write. The
+  snapshot version is `13.2.0`, which records the IO mode and retains the
+  scatter-gather feature of saved raw drives.
 - [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228): Device
   hotplug now requires `pcie_hotplug_ports` to be set in the machine
   configuration, and only devices behind a PCIe root port can be hot-unplugged.

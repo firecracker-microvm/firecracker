@@ -54,6 +54,10 @@
                 "syscall": "fsync"
             },
             {
+                "syscall": "fdatasync",
+                "comment": "Commit direct block writes when the guest declines flushes"
+            },
+            {
                 "syscall": "fallocate",
                 "comment": "Used by the VirtIO block device to punch holes for discard on regular backing files",
                 "args": [
@@ -1977,6 +1981,10 @@
             },
             {
                 "syscall": "fsync"
+            },
+            {
+                "syscall": "fdatasync",
+                "comment": "Commit direct block writes when the guest declines flushes"
             },
             {
                 "syscall": "fallocate",

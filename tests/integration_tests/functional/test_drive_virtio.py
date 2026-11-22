@@ -374,7 +374,14 @@ def test_direct_io_partial_sector(uvm, io_engine, tmp_path):
             blk_size=512,
             num_queues=1,
         )
+        config = uvm.api.vm_config.get().json()
+        scratch = next(
+            drive for drive in config["drives"] if drive["drive_id"] == "scratch"
+        )
+        assert scratch["direct_io"] is True
         uvm.start()
+        _, segments, _ = uvm.ssh.check_output("cat /sys/block/vdb/queue/max_segments")
+        assert int(segments) == 32
         uvm.ssh.check_output(
             "dd if=/dev/zero of=/dev/vdb bs=512 seek=7 count=2 "
             "oflag=direct conv=notrunc,fsync status=none"

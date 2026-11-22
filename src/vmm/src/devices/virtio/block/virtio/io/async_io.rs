@@ -365,6 +365,8 @@ impl AsyncFileEngine {
         };
         let mut op = Operation::fsync(0, data);
         if self.direct.is_some() {
+            // Include earlier writes submitted to this queue even if their CQEs have
+            // not arrived yet. The drain also orders later requests after this flush.
             op = op.drain_before();
         }
         self.ring.push(op).map_err(|(err, data)| RequestError {

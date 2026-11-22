@@ -776,7 +776,9 @@ mod direct {
                 .into_iter()
                 .all(|n| n.is_power_of_two() && n <= align_of::<Buffer>())
             {
-                return Err(io::Error::other("unsupported direct I/O alignment"));
+                return Err(io::Error::other(format!(
+                    "unsupported direct I/O alignment: memory {mem_align}, offset {offset_align}"
+                )));
             }
             let offset_align = offset_align.max(512);
             if !size.is_multiple_of(offset_align as u64) {
@@ -822,7 +824,7 @@ mod direct {
 
         pub(super) fn finish_write(&self, file: &File, count: u32) -> io::Result<u32> {
             if self.write_through && count != 0 {
-                file.sync_all()?;
+                file.sync_data()?;
             }
             Ok(count)
         }
@@ -1012,6 +1014,10 @@ mod vectored {
 
         pub(super) fn as_slice(&self) -> &[libc::iovec] {
             &self.0
+        }
+
+        pub(super) fn as_mut_slice(&mut self) -> &mut [libc::iovec] {
+            &mut self.0
         }
 
         pub(super) fn needs_bounce(&self, direct: &DirectIo, offset: u64) -> bool {

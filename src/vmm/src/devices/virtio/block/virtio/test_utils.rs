@@ -43,7 +43,10 @@ pub(crate) fn direct_io_test_file() -> Option<TempFile> {
         StatxFlags::DIOALIGN,
     ) {
         Ok(stat) => stat,
-        Err(Errno::NOSYS | Errno::NOTSUP) => return None,
+        Err(err @ (Errno::NOSYS | Errno::NOTSUP)) => {
+            eprintln!("Skipping direct I/O test: statx(STATX_DIOALIGN) returned {err}");
+            return None;
+        }
         Err(err) => panic!("statx on temporary backing file: {err}"),
     };
     if stat.stx_mask & StatxFlags::DIOALIGN.bits() == 0
@@ -51,6 +54,7 @@ pub(crate) fn direct_io_test_file() -> Option<TempFile> {
             .into_iter()
             .all(|align| align.is_power_of_two() && align <= 4096)
     {
+        eprintln!("Skipping direct I/O test: the temporary backing has no supported DIO alignment");
         return None;
     }
     file.as_file().set_len(4096).unwrap();

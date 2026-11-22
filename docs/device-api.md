@@ -92,6 +92,7 @@ specification:
 |                           | cache_type \*            |    O     |       O        |    **R**     |      **R**       |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | discard                  |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | io_engine                |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | direct_io                |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | num_queues               |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | image_format             |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | blk_size                 |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
