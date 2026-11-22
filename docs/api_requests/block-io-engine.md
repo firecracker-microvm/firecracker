@@ -65,14 +65,17 @@ The host memory and offset alignments must be powers of two no larger than 4096
 bytes. The backing size must be a multiple of both the host offset alignment and
 the 512-byte virtio sector size. Firecracker checks these requirements when
 opening a drive, replacing its backing path and restoring a snapshot. Snapshots
-retain the drive's IO mode. Restoring a drive saved with direct IO requires a
-Firecracker build that supports it.
+retain the drive's IO mode. This build writes snapshot format 13.1, which adds the
+direct IO engine variants. It can still load format 13.0 buffered snapshots.
+Use a build that supports format 13.1 on the restore host.
 
 Firecracker handles unaligned guest buffers with aligned temporary storage. A
 guest write that changes part of a host block requires a read-modify-write. Give
 a writable drive exclusive write access to its backing storage so that a
 concurrent writer cannot overwrite a change to an adjacent sector. A request
 that needs this alignment handling can block even when using the `Async` engine.
+Set `"num_queues": 1` to run this work on a dedicated disk worker instead of the
+VMM event thread.
 The guest-facing block size remains configurable through `blk_size`.
 
 Direct IO controls host page-cache use. The existing `cache_type` setting
