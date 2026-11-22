@@ -115,6 +115,11 @@ and this project adheres to
   other than a single `Content-Length: 0`, or a header name that is not an HTTP
   token. MMDS requests never carry a body, so no valid request needs any of
   these. Such a request receives a `400` response, and the connection is closed.
+- [#6466](https://github.com/firecracker-microvm/firecracker/pull/6466): Removed
+  the `regex` dependency from `jailer` by parsing `/proc/mounts` directly with
+  `split_ascii_whitespace()`, shrinking the stripped `jailer` musl release
+  binary by about 70% on x86_64 (from 2.13 MiB to 654 KiB) and avoiding runtime
+  regex compilation during cgroup discovery.
 
 ### Deprecated
 

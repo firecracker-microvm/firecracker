@@ -122,8 +122,6 @@ pub enum JailerError {
     ReadLine(PathBuf, io::Error),
     #[error("{}", format!("Failed to read file {:?} into a string: {}", .0, .1).replace('\"', ""))]
     ReadToString(PathBuf, io::Error),
-    #[error("Regex failed: {0}")]
-    RegEx(regex::Error),
     #[error("Invalid resource argument: {0}")]
     ResLimitArgument(String),
     #[error("Invalid format for resources limits: {0}")]

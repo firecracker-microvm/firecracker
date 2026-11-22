@@ -799,7 +799,6 @@ version = "1.19.0-dev"
 dependencies = [
  "libc",
  "log-instrument",
- "regex",
  "thiserror 2.0.21",
  "utils",
  "vmm-sys-util",

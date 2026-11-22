@@ -9,9 +9,34 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process;
 
-use regex::Regex;
-
 use crate::{JailerError, readln_special, writeln_special};
+
+/// Parses a `/proc/mounts` line and returns `(mount_dir, cgroup_version, options)` if it is a
+/// cgroup v1 or v2 mount entry.
+///
+/// `/proc/mounts` lines have 6 whitespace-separated fields (`fs_spec fs_file fs_vfstype fs_mntops
+/// fs_freq fs_passno`), where the kernel octal-escapes whitespace inside paths and hardcodes the
+/// final two fields to `0 0`:
+/// - `cgroup2 /sys/fs/cgroup/unified cgroup2 rw,nosuid,nodev,noexec,relatime,nsdelegate 0 0`
+/// - `cgroup /sys/fs/cgroup/cpu,cpuacct cgroup rw,nosuid,nodev,noexec,relatime,cpu,cpuacct 0 0`
+fn parse_proc_mounts_line(line: &str) -> Option<(&str, u8, &str)> {
+    let mut fields = line.split_ascii_whitespace();
+    let _source = fields.next()?;
+    let dir = fields.next()?;
+    let fstype = fields.next()?;
+    let options = fields.next()?;
+    let freq = fields.next()?;
+    let passno = fields.next()?;
+    if fields.next().is_some() || freq != "0" || passno != "0" {
+        return None;
+    }
+    let ver = match fstype {
+        "cgroup" => 1,
+        "cgroup2" => 2,
+        _ => return None,
+    };
+    Some((dir, ver, options))
+}
 
 // Holds information on a cgroup mount point discovered on the system
 #[derive(Debug)]
@@ -42,40 +67,31 @@ impl CgroupHierarchies {
         let f = File::open(proc_mounts_path)
             .map_err(|err| JailerError::FileOpen(PathBuf::from(proc_mounts_path), err))?;
 
-        // Regex courtesy of Filippo.
-        // This will match on each line from /proc/mounts for both v1 and v2 mount points.
-        //
-        // /proc/mounts cointains lines that look like this:
-        // cgroup2 /sys/fs/cgroup/unified cgroup2 rw,nosuid,nodev,noexec,relatime,nsdelegate 0 0
-        // cgroup /sys/fs/cgroup/cpu,cpuacct cgroup rw,nosuid,nodev,noexec,relatime,cpu,cpuacct 0 0
-        //
-        // This Regex will extract:
-        //      * "/sys/fs/cgroup/unified" in the "dir" capture group.
-        //      * "2" in the "ver" capture group as the cgroup version taken from "cgroup2"; for v1,
-        //        the "ver" capture group will be empty (len = 0).
-        //      * "[...],relatime,cpu,cpuacct" in the "options" capture group; this is used for
-        //        cgroupv1 to determine what controllers are mounted at the location.
-        let re = Regex::new(
-            r"^([a-z2]*)[[:space:]](?P<dir>.*)[[:space:]]cgroup(?P<ver>2?)[[:space:]](?P<options>.*)[[:space:]]0[[:space:]]0$",
-        ).map_err(JailerError::RegEx)?;
-
-        for l in BufReader::new(f).lines() {
-            let l = l.map_err(|err| JailerError::ReadLine(PathBuf::from(proc_mounts_path), err))?;
-            if let Some(capture) = re.captures(&l) {
-                if ver == 2 && capture["ver"].len() == 1 {
+        let mut reader = BufReader::new(f);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            let bytes_read = reader
+                .read_line(&mut line)
+                .map_err(|err| JailerError::ReadLine(PathBuf::from(proc_mounts_path), err))?;
+            if bytes_read == 0 {
+                break;
+            }
+            if let Some((dir, mount_ver, options)) = parse_proc_mounts_line(&line) {
+                if ver == 2 && mount_ver == 2 {
                     // Found the cgroupv2 unified mountpoint; with cgroupsv2 there is only one
                     // hierarchy so we insert it in the hashmap to use it later when creating
                     // cgroups
                     h.hierarchies
-                        .insert("unified".to_string(), PathBuf::from(&capture["dir"]));
+                        .insert("unified".to_string(), PathBuf::from(dir));
                     break;
-                } else if ver == 1 && capture["ver"].is_empty() {
+                } else if ver == 1 && mount_ver == 1 {
                     // Found a cgroupv1 mountpoint; with cgroupsv1 we can have multiple hierarchies.
                     // Since we don't know which one will be used, we cache the mountpoints now,
                     // and will create the hierarchies on demand when a cgroup is built.
                     h.mount_points.push(CgroupMountPoint {
-                        dir: String::from(&capture["dir"]),
-                        options: String::from(&capture["options"]),
+                        dir: dir.to_string(),
+                        options: options.to_string(),
                     });
                 }
             }
@@ -908,5 +924,58 @@ mod tests {
             "{:?}",
             result
         );
+    }
+
+    #[test]
+    fn test_parse_proc_mounts_line() {
+        assert_eq!(
+            parse_proc_mounts_line(
+                "cgroup2 /sys/fs/cgroup/unified cgroup2 rw,nosuid,nodev,noexec,relatime,nsdelegate 0 0\n"
+            ),
+            Some((
+                "/sys/fs/cgroup/unified",
+                2,
+                "rw,nosuid,nodev,noexec,relatime,nsdelegate",
+            ))
+        );
+        assert_eq!(
+            parse_proc_mounts_line(
+                "cgroupv2 /sys/fs/cgroup cgroup2 rw,nosuid,nodev,noexec,relatime 0 0"
+            ),
+            Some(("/sys/fs/cgroup", 2, "rw,nosuid,nodev,noexec,relatime"))
+        );
+        assert_eq!(
+            parse_proc_mounts_line("none\t/sys/fs/cgroup\tcgroup2\trw,nsdelegate\t0\t0\r\n"),
+            Some(("/sys/fs/cgroup", 2, "rw,nsdelegate"))
+        );
+        assert_eq!(
+            parse_proc_mounts_line(
+                "cgroup /sys/fs/cgroup/cpu,cpuacct cgroup rw,nosuid,nodev,noexec,relatime,cpu,cpuacct 0 0"
+            ),
+            Some((
+                "/sys/fs/cgroup/cpu,cpuacct",
+                1,
+                "rw,nosuid,nodev,noexec,relatime,cpu,cpuacct",
+            ))
+        );
+        assert_eq!(
+            parse_proc_mounts_line("Cgroup_Root /sys/fs/cgroup cgroup2 rw 0 0"),
+            Some(("/sys/fs/cgroup", 2, "rw"))
+        );
+
+        // Non-cgroup and malformed lines must be rejected.
+        for bad in [
+            "",
+            "   \n",
+            "tmpfs /sys/fs/cgroup tmpfs ro,nosuid,nodev,noexec,mode=755 0 0",
+            "cgroup2 /sys/fs/cgroup cgroup20 rw 0 0",
+            "cgroup /sys/fs/cgroup mycgroup rw 0 0",
+            "cgroup /sys/fs/cgroup cgroup rw 0",
+            "cgroup /sys/fs/cgroup cgroup rw 0 0 extra",
+            "cgroup /sys/fs/cgroup cgroup rw 1 0",
+            "cgroup /sys/fs/cgroup cgroup rw 0 1",
+        ] {
+            assert_eq!(parse_proc_mounts_line(bad), None, "unexpected match: {bad}");
+        }
     }
 }
