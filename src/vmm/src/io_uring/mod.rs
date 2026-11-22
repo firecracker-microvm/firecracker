@@ -255,6 +255,11 @@ impl<T: Debug> IoUring<T> {
         self.num_ops
     }
 
+    /// Preserve memory referenced by SQEs if teardown cannot await their completion.
+    pub(crate) fn forget_pending_data(&mut self) {
+        std::mem::forget(std::mem::take(&mut self.slab));
+    }
+
     fn enable(&mut self) -> Result<(), IoUringError> {
         // SAFETY: Safe because values are valid and we check the return value.
         SyscallReturnCode(unsafe {

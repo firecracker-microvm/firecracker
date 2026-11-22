@@ -27,6 +27,10 @@ pub enum OpCode {
     Read = io_uring_op::IORING_OP_READ as u8,
     /// Write operation.
     Write = io_uring_op::IORING_OP_WRITE as u8,
+    /// Vectored read operation.
+    Readv = io_uring_op::IORING_OP_READV as u8,
+    /// Vectored write operation.
+    Writev = io_uring_op::IORING_OP_WRITEV as u8,
     /// Fsync operation.
     Fsync = io_uring_op::IORING_OP_FSYNC as u8,
 }
@@ -37,6 +41,8 @@ impl From<OpCode> for &'static str {
         match opcode {
             OpCode::Read => "read",
             OpCode::Write => "write",
+            OpCode::Readv => "readv",
+            OpCode::Writev => "writev",
             OpCode::Fsync => "fsync",
         }
     }
@@ -105,9 +111,26 @@ impl<T: Debug> Operation<T> {
 
     /// Require data and the metadata needed to retrieve it to reach stable storage.
     pub fn write_through(fd: FixedFd, addr: usize, len: u32, offset: u64, user_data: T) -> Self {
-        let mut op = Self::write(fd, addr, len, offset, user_data);
-        op.rw_flags = libc::RWF_DSYNC;
+        Self::write(fd, addr, len, offset, user_data).with_dsync()
+    }
+
+    /// Construct a vectored read operation. The caller keeps the vector alive until completion.
+    pub(crate) fn readv(fd: FixedFd, addr: usize, len: u32, offset: u64, user_data: T) -> Self {
+        let mut op = Self::read(fd, addr, len, offset, user_data);
+        op.opcode = OpCode::Readv;
         op
+    }
+
+    /// Construct a vectored write operation. The caller keeps the vector alive until completion.
+    pub(crate) fn writev(fd: FixedFd, addr: usize, len: u32, offset: u64, user_data: T) -> Self {
+        let mut op = Self::write(fd, addr, len, offset, user_data);
+        op.opcode = OpCode::Writev;
+        op
+    }
+
+    pub(crate) fn with_dsync(mut self) -> Self {
+        self.rw_flags = libc::RWF_DSYNC;
+        self
     }
 
     /// Construct a fsync operation.

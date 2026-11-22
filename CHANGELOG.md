@@ -13,6 +13,7 @@ and this project adheres to
 - Added the optional `direct_io` drive setting for raw, single-queue
   virtio-block devices using the Sync or Async IO engine. See the
   [direct IO documentation](docs/api_requests/block-io-engine.md#direct-io).
+- Raw virtio-block drives can accept up to 32 data segments per read or write.
 - [#6226](https://github.com/firecracker-microvm/firecracker/pull/6226),
   [#6227](https://github.com/firecracker-microvm/firecracker/pull/6227),
   [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228),

@@ -134,6 +134,10 @@
                 "comment": "Used by the block device"
             },
             {
+                "syscall": "pwritev",
+                "comment": "Used for vectored block writes"
+            },
+            {
                 "syscall": "preadv",
                 "comment": "Used by the imago VMDK disk image backend"
             },
@@ -1811,6 +1815,10 @@
             {
                 "syscall": "readlink",
                 "comment": "Used to canonicalize VMDK descriptor paths during drive patch"
+            },
+            {
+                "syscall": "pwritev",
+                "comment": "Used for vectored block writes"
             },
             {
                 "syscall": "preadv",

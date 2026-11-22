@@ -11,7 +11,9 @@ use vm_memory::{
     WriteVolatile,
 };
 
-use super::direct::DirectIo;
+use super::DataSegment;
+use super::direct::{DirectIo, retry_interrupted};
+use super::vectored::{IoVecs, mark_read_dirty};
 use crate::vstate::memory::{Bitmap, GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -20,6 +22,8 @@ pub enum SyncIoError {
     Discard(std::io::Error),
     /// Direct I/O: {0}
     Direct(std::io::Error),
+    /// Vectored I/O: {0}
+    Vectored(std::io::Error),
     /// Flush: {0}
     Flush(std::io::Error),
     /// Seek: {0}
@@ -220,6 +224,61 @@ impl SyncFileEngine {
             .write_all_volatile(&slice)
             .map_err(|err| SyncIoError::Transfer(err.into()))?;
         Ok(count)
+    }
+
+    pub(super) fn transfer_vectored(
+        &mut self,
+        write: bool,
+        offset: u64,
+        mem: &GuestMemoryMmap,
+        segments: &[DataSegment],
+        count: u32,
+    ) -> Result<u32, SyncIoError> {
+        let iovecs = IoVecs::new(mem, segments).map_err(SyncIoError::Transfer)?;
+        if let Some(direct) = &mut self.direct {
+            direct
+                .check_range(offset, count)
+                .map_err(SyncIoError::Direct)?;
+            if iovecs.needs_bounce(direct, offset) {
+                return direct
+                    .transfer_segments(&mut self.file, write, offset, mem, segments, count)
+                    .map_err(SyncIoError::Direct);
+            }
+        }
+        let offset = libc::off_t::try_from(offset).map_err(|_| {
+            SyncIoError::Vectored(std::io::Error::new(
+                ErrorKind::InvalidInput,
+                "offset overflow",
+            ))
+        })?;
+        let iovecs = iovecs.as_slice();
+        let iovcnt = i32::try_from(iovecs.len()).expect("bounded by seg_max");
+        let ret = retry_interrupted(|| {
+            // SAFETY: The validated iovecs and their guest memory stay live for this syscall.
+            let ret = unsafe {
+                if write {
+                    libc::pwritev(self.file.as_raw_fd(), iovecs.as_ptr(), iovcnt, offset)
+                } else {
+                    libc::preadv(self.file.as_raw_fd(), iovecs.as_ptr(), iovcnt, offset)
+                }
+            };
+            if ret < 0 {
+                Err(std::io::Error::last_os_error())
+            } else {
+                Ok(u32::try_from(ret).expect("transfer cannot exceed requested count"))
+            }
+        });
+        if !write {
+            // A failed direct read may have modified the buffer without returning a count.
+            mark_read_dirty(mem, segments, ret.as_ref().copied().unwrap_or(count));
+        }
+        let completed = ret.map_err(SyncIoError::Vectored)?;
+        if write && let Some(direct) = &self.direct {
+            return direct
+                .finish_write(&self.file, completed)
+                .map_err(SyncIoError::SyncAll);
+        }
+        Ok(completed)
     }
 
     pub fn flush(&mut self) -> Result<(), SyncIoError> {

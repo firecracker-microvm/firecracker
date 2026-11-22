@@ -65,9 +65,13 @@ The host memory and offset alignments must be powers of two no larger than 4096
 bytes. The backing size must be a multiple of both the host offset alignment and
 the 512-byte virtio sector size. Firecracker checks these requirements when
 opening a drive, replacing its backing path and restoring a snapshot. Snapshots
-retain the drive's IO mode. This build writes snapshot format 13.1, which adds the
+retain the drive's IO mode. Format 13.1 added the
 direct IO engine variants. It can still load format 13.0 buffered snapshots.
-Use a build that supports format 13.1 on the restore host.
+This build writes format 13.2, which also preserves the offered and negotiated
+scatter-gather feature. Older snapshots keep their original queue geometry.
+
+Raw drives offer up to 32 data segments per read or write. The queue size is
+unchanged. Guests that decline `VIRTIO_BLK_F_SEG_MAX` keep the single-segment path.
 
 Firecracker handles unaligned guest buffers with aligned temporary storage. A
 guest write that changes part of a host block requires a read-modify-write. Give

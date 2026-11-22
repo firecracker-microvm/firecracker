@@ -10,7 +10,8 @@ use vm_memory::{Bytes, GuestMemoryBackend, GuestMemoryError};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::direct::{BUFFER_SIZE, DirectIo};
-use super::{FileEngineOk, RequestError, RequestOk};
+use super::vectored::{IoVecs, mark_read_dirty};
+use super::{DataSegment, FileEngineOk, RequestError, RequestOk};
 use crate::devices::virtio::block::virtio::{IO_URING_NUM_ENTRIES, PendingRequest};
 use crate::io_uring::operation::{Cqe, OpCode, Operation};
 use crate::io_uring::restriction::Restriction;
@@ -46,6 +47,7 @@ pub struct AsyncFileEngine {
     // The ring is dropped before its staging buffer.
     pub(super) direct: Option<DirectIo>,
     bounce_in_flight: bool,
+    used_vectors: bool,
     // ActiveState keeps one memory map from activation until reset. Reset discards CQEs
     // after dropping ActiveState, so keep the map for dirty tracking on that path too.
     direct_read_mem: Option<GuestMemoryMmap>,
@@ -59,9 +61,28 @@ pub struct WrappedRequest {
     // A negative zero-copy direct completion can leave an unknown part of this range dirty.
     direct_read_len: u32,
     req: PendingRequest,
+    vector: Option<VectorRequest>,
+}
+
+#[derive(Debug)]
+struct VectorRequest {
+    // The kernel can import the iovec array after this operation is submitted.
+    _iovecs: IoVecs,
+    mem: GuestMemoryMmap,
+    read_segments: Vec<DataSegment>,
 }
 
 impl WrappedRequest {
+    fn mark_vector_dirty(&self, count: u32, failed: bool) {
+        if let Some(vector) = &self.vector {
+            mark_read_dirty(
+                &vector.mem,
+                &vector.read_segments,
+                if failed { self.req.data_len() } else { count },
+            );
+        }
+    }
+
     fn mark_read_dirty(&self, mem: &GuestMemoryMmap, count: u32, failed: bool) {
         if let Some(addr) = self.addr {
             mem.mark_dirty(
@@ -82,6 +103,8 @@ impl AsyncFileEngine {
             Restriction::RequireFixedFds,
             Restriction::AllowOpCode(OpCode::Read),
             Restriction::AllowOpCode(OpCode::Write),
+            Restriction::AllowOpCode(OpCode::Readv),
+            Restriction::AllowOpCode(OpCode::Writev),
             Restriction::AllowOpCode(OpCode::Fsync),
         ];
         if direct {
@@ -111,6 +134,7 @@ impl AsyncFileEngine {
             completion_evt,
             direct,
             bounce_in_flight: false,
+            used_vectors: false,
             direct_read_mem: None,
         })
     }
@@ -120,12 +144,10 @@ impl AsyncFileEngine {
         file: File,
         direct: Option<DirectIo>,
     ) -> Result<(), AsyncIoError> {
-        // The worker must publish old direct completions, including staged reads,
-        // before discarding their ring and replacing the backing.
-        if self.direct.is_some() && self.ring.num_ops() != 0 {
-            return Err(AsyncIoError::IO(std::io::Error::other(
-                "direct I/O still pending",
-            )));
+        // The worker must publish old completions, including staged reads, before
+        // discarding their ring and replacing the backing.
+        if self.ring.num_ops() != 0 {
+            return Err(AsyncIoError::IO(std::io::Error::other("I/O still pending")));
         }
         let ring = Self::new_ring(&file, self.completion_evt.as_raw_fd(), direct.is_some())
             .map_err(AsyncIoError::IoUring)?;
@@ -133,6 +155,7 @@ impl AsyncFileEngine {
         self.file = file;
         self.ring = ring;
         self.direct = direct;
+        self.used_vectors = false;
         self.direct_read_mem = None;
         Ok(())
     }
@@ -219,6 +242,7 @@ impl AsyncFileEngine {
             addr: (!write).then_some(addr),
             bounced,
             req,
+            vector: None,
         };
         let op = if write && self.direct.as_ref().is_some_and(|d| d.write_through) {
             Operation::write_through(0, ptr, count, offset, data)
@@ -238,12 +262,100 @@ impl AsyncFileEngine {
         Ok(FileEngineOk::Submitted)
     }
 
+    pub(super) fn transfer_vectored(
+        &mut self,
+        write: bool,
+        offset: u64,
+        mem: &GuestMemoryMmap,
+        segments: Vec<DataSegment>,
+        req: PendingRequest,
+    ) -> Result<FileEngineOk, RequestError<AsyncIoError>> {
+        let iovecs = match IoVecs::new(mem, &segments) {
+            Ok(iovecs) => iovecs,
+            Err(err) => {
+                return Err(RequestError {
+                    req,
+                    error: AsyncIoError::GuestMemory(err),
+                });
+            }
+        };
+        let count = req.data_len();
+        if let Some(direct) = &mut self.direct {
+            if let Err(err) = direct.check_range(offset, count) {
+                return Err(RequestError {
+                    req,
+                    error: AsyncIoError::IO(err),
+                });
+            }
+            if iovecs.needs_bounce(direct, offset) {
+                if self.bounce_in_flight {
+                    return Err(RequestError {
+                        req,
+                        error: AsyncIoError::BounceInFlight,
+                    });
+                }
+                // One direct queue, with all earlier writes complete before a staged RMW.
+                if let Err(err) = self.ring.submit_and_wait_all() {
+                    return Err(RequestError {
+                        req,
+                        error: AsyncIoError::IoUring(err),
+                    });
+                }
+                return match direct.transfer_segments(
+                    &mut self.file,
+                    write,
+                    offset,
+                    mem,
+                    &segments,
+                    count,
+                ) {
+                    Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
+                    Err(err) => Err(RequestError {
+                        req,
+                        error: AsyncIoError::IO(err),
+                    }),
+                };
+            }
+        }
+
+        let ptr = iovecs.as_slice().as_ptr() as usize;
+        let len = u32::try_from(iovecs.as_slice().len()).expect("bounded by seg_max");
+        let data = WrappedRequest {
+            addr: None,
+            bounced: false,
+            direct_read_len: 0,
+            req,
+            vector: Some(VectorRequest {
+                _iovecs: iovecs,
+                mem: mem.clone(),
+                read_segments: if write { Vec::new() } else { segments },
+            }),
+        };
+        let op = if write {
+            let op = Operation::writev(0, ptr, len, offset, data);
+            if self.direct.as_ref().is_some_and(|d| d.write_through) {
+                op.with_dsync()
+            } else {
+                op
+            }
+        } else {
+            Operation::readv(0, ptr, len, offset, data)
+        };
+        self.ring.push(op).map_err(|(err, data)| RequestError {
+            req: data.req,
+            error: AsyncIoError::IoUring(err),
+        })?;
+        self.used_vectors = true;
+        Ok(FileEngineOk::Submitted)
+    }
+
     pub fn push_flush(&mut self, req: PendingRequest) -> Result<(), RequestError<AsyncIoError>> {
         let data = WrappedRequest {
             addr: None,
             bounced: false,
             direct_read_len: 0,
             req,
+            vector: None,
         };
         let mut op = Operation::fsync(0, data);
         if self.direct.is_some() {
@@ -277,6 +389,7 @@ impl AsyncFileEngine {
                 let failed = cqe.result().is_err();
                 let count = cqe.count();
                 let data = cqe.user_data();
+                data.mark_vector_dirty(count, failed);
                 if data.direct_read_len != 0 {
                     data.mark_read_dirty(
                         self.direct_read_mem.as_ref().expect("active direct read"),
@@ -318,6 +431,7 @@ impl AsyncFileEngine {
         let failed = cqe.result().is_err();
         let mut copy_error = false;
         let cqe = cqe.map_user_data(|data| {
+            data.mark_vector_dirty(count, failed);
             if data.bounced {
                 self.bounce_in_flight = false;
                 if let Some(addr) = data.addr {
@@ -345,15 +459,15 @@ impl AsyncFileEngine {
 
 impl Drop for AsyncFileEngine {
     fn drop(&mut self) {
-        // Staged memory belongs to the engine. Await the kernel before freeing it,
-        // including when the device is discarded without delivering its CQEs.
-        if self.bounce_in_flight
+        // Staging memory and iovec tables must outlive the kernel's references.
+        if (self.bounce_in_flight || self.used_vectors && self.ring.num_ops() != 0)
             && let Err(err) = self.ring.submit_and_wait_all()
         {
-            // The kernel may still reference this allocation. Preserve its lifetime even
-            // if a fatal drain error occurs while unwinding a test or tearing down a drive.
-            crate::logger::error!("Could not drain direct I/O staging buffer on drop: {err}");
-            std::mem::forget(self.direct.take());
+            crate::logger::error!("Could not drain block I/O on drop: {err}");
+            self.ring.forget_pending_data();
+            if self.bounce_in_flight {
+                std::mem::forget(self.direct.take());
+            }
         }
     }
 }

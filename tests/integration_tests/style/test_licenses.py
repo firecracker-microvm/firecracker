@@ -33,8 +33,6 @@ ORACLE_COPYRIGHT = "Copyright © 2020, Oracle and/or its affiliates."
 ORACLE_LICENSE = "SPDX-License-Identifier: Apache-2.0"
 TENCENT_COPYRIGHT = "Copyright (c) 2026 Tencent. All Rights Reserved."
 TENCENT_LICENSE = "SPDX-License-Identifier: Apache-2.0"
-VPSNET_COPYRIGHT = "Copyright 2026 VPSnet. All Rights Reserved."
-VPSNET_LICENSE = "SPDX-License-Identifier: Apache-2.0"
 
 EXCLUDE = ["build", ".kernel", ".git"]
 
@@ -107,10 +105,6 @@ def _validate_license(filename):
             and _look_for_license(file, TENCENT_LICENSE)
         )
 
-        has_vpsnet_copyright = VPSNET_COPYRIGHT in copyright_info and _look_for_license(
-            file, VPSNET_LICENSE
-        )
-
         return (
             has_amazon_copyright
             or has_chromium_copyright
@@ -120,7 +114,6 @@ def _validate_license(filename):
             or has_rivos_copyright
             or has_oracle_copyright
             or has_tencent_copyright
-            or has_vpsnet_copyright
         )
 
 

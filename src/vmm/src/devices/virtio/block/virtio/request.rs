@@ -10,7 +10,11 @@ use std::mem::size_of;
 
 use vm_memory::GuestMemoryError;
 
-use super::{MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
+use super::io::DataSegment;
+use super::{
+    MAX_DATA_SEGMENTS, MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError,
+    io as block_io,
+};
 use crate::devices::virtio::block::virtio::device::DiskProperties;
 use crate::devices::virtio::block::virtio::metrics::BlockDeviceMetrics;
 pub use crate::devices::virtio::generated::virtio_blk::{
@@ -149,6 +153,10 @@ impl PendingRequest {
         }
     }
 
+    pub(super) fn data_len(&self) -> u32 {
+        self.data_len
+    }
+
     pub fn finish(
         self,
         mem: &GuestMemoryMmap,
@@ -263,6 +271,8 @@ pub struct Request {
     pub status_addr: GuestAddress,
     sector: u64,
     data_addr: GuestAddress,
+    // Empty for requests handled by the scalar path.
+    segments: Vec<DataSegment>,
 }
 
 impl Request {
@@ -270,6 +280,7 @@ impl Request {
         avail_desc: &DescriptorChain,
         mem: &GuestMemoryMmap,
         num_disk_sectors: u64,
+        scatter_gather: bool,
     ) -> Result<Request, VirtioBlockError> {
         // The head contains the request type which MUST be readable.
         if avail_desc.is_write_only() {
@@ -283,41 +294,48 @@ impl Request {
             data_addr: GuestAddress(0),
             data_len: 0,
             status_addr: GuestAddress(0),
+            segments: Vec::new(),
         };
 
-        let data_desc;
-        let status_desc;
-        let desc = avail_desc
+        let mut desc = avail_desc
             .next_descriptor()
             .ok_or(VirtioBlockError::DescriptorChainTooShort)?;
 
         if !desc.has_next() {
-            status_desc = desc;
             // Only flush requests are allowed to skip the data descriptor.
             if req.r#type != RequestType::Flush {
                 return Err(VirtioBlockError::DescriptorChainTooShort);
             }
         } else {
-            data_desc = desc;
-            status_desc = data_desc
+            req.validate_data_direction(&desc)?;
+            req.data_addr = desc.addr;
+            req.data_len = desc.len;
+            desc = desc
                 .next_descriptor()
                 .ok_or(VirtioBlockError::DescriptorChainTooShort)?;
 
-            if data_desc.is_write_only()
-                && (req.r#type == RequestType::Out || req.r#type == RequestType::Discard)
-            {
-                return Err(VirtioBlockError::UnexpectedWriteOnlyDescriptor);
+            if desc.has_next() {
+                if !scatter_gather || !matches!(req.r#type, RequestType::In | RequestType::Out) {
+                    return Err(VirtioBlockError::TooManyDataSegments);
+                }
+                req.segments.push((req.data_addr, req.data_len));
+                while desc.has_next() {
+                    if req.segments.len() == MAX_DATA_SEGMENTS as usize {
+                        return Err(VirtioBlockError::TooManyDataSegments);
+                    }
+                    req.validate_data_direction(&desc)?;
+                    req.data_len = req
+                        .data_len
+                        .checked_add(desc.len)
+                        .ok_or(VirtioBlockError::InvalidDataLength)?;
+                    req.segments.push((desc.addr, desc.len));
+                    desc = desc
+                        .next_descriptor()
+                        .ok_or(VirtioBlockError::DescriptorChainTooShort)?;
+                }
             }
-            if !data_desc.is_write_only() && req.r#type == RequestType::In {
-                return Err(VirtioBlockError::UnexpectedReadOnlyDescriptor);
-            }
-            if !data_desc.is_write_only() && req.r#type == RequestType::GetDeviceID {
-                return Err(VirtioBlockError::UnexpectedReadOnlyDescriptor);
-            }
-
-            req.data_addr = data_desc.addr;
-            req.data_len = data_desc.len;
         }
+        let status_desc = desc;
 
         // check request validity
         match req.r#type {
@@ -356,6 +374,18 @@ impl Request {
         req.status_addr = status_desc.addr;
 
         Ok(req)
+    }
+
+    fn validate_data_direction(&self, desc: &DescriptorChain) -> Result<(), VirtioBlockError> {
+        match (desc.is_write_only(), self.r#type) {
+            (true, RequestType::Out | RequestType::Discard) => {
+                Err(VirtioBlockError::UnexpectedWriteOnlyDescriptor)
+            }
+            (false, RequestType::In | RequestType::GetDeviceID) => {
+                Err(VirtioBlockError::UnexpectedReadOnlyDescriptor)
+            }
+            _ => Ok(()),
+        }
     }
 
     fn validate_discard_ranges(
@@ -444,13 +474,43 @@ impl Request {
         let res = match self.r#type {
             RequestType::In => {
                 let _metric = block_metrics.read_agg.record_latency_metrics();
-                disk.file_engine
-                    .read(self.offset(), mem, self.data_addr, self.data_len, pending)
+                if self.segments.is_empty() {
+                    disk.file_engine.read(
+                        self.offset(),
+                        mem,
+                        self.data_addr,
+                        self.data_len,
+                        pending,
+                    )
+                } else {
+                    disk.file_engine.transfer_vectored(
+                        false,
+                        self.offset(),
+                        mem,
+                        self.segments,
+                        pending,
+                    )
+                }
             }
             RequestType::Out => {
                 let _metric = block_metrics.write_agg.record_latency_metrics();
-                disk.file_engine
-                    .write(self.offset(), mem, self.data_addr, self.data_len, pending)
+                if self.segments.is_empty() {
+                    disk.file_engine.write(
+                        self.offset(),
+                        mem,
+                        self.data_addr,
+                        self.data_len,
+                        pending,
+                    )
+                } else {
+                    disk.file_engine.transfer_vectored(
+                        true,
+                        self.offset(),
+                        mem,
+                        self.segments,
+                        pending,
+                    )
+                }
             }
             RequestType::Discard => {
                 if !discard_supported {
@@ -552,6 +612,47 @@ mod tests {
     }
 
     #[test]
+    fn test_scatter_gather_segment_limit_and_direction() {
+        let mem = default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 64);
+        let header = GuestAddress(0x2000);
+        mem.write_obj(RequestHeader::new(VIRTIO_BLK_T_IN, 2), header)
+            .unwrap();
+        for count in [MAX_DATA_SEGMENTS, MAX_DATA_SEGMENTS + 1] {
+            vq.dtable[0].set(header.0, 16, VIRTQ_DESC_F_NEXT, 1);
+            for i in 1..=u16::try_from(count).unwrap() {
+                vq.dtable[usize::from(i)].set(
+                    0x4000,
+                    512,
+                    VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
+                    i + 1,
+                );
+            }
+            vq.dtable[count as usize + 1].set(0x3000, 1, VIRTQ_DESC_F_WRITE, 0);
+            vq.avail.ring[0].set(0);
+            vq.avail.idx.set(1);
+            let head = vq.create_queue().pop().unwrap().unwrap();
+            assert!(matches!(
+                Request::parse(&head, &mem, NUM_DISK_SECTORS, false),
+                Err(VirtioBlockError::TooManyDataSegments)
+            ));
+            let req = Request::parse(&head, &mem, NUM_DISK_SECTORS, true);
+            if count == MAX_DATA_SEGMENTS {
+                let req = req.unwrap();
+                assert_eq!(req.segments.len(), count as usize);
+                assert_eq!(req.data_len, count * 512);
+                vq.dtable[2].flags.set(VIRTQ_DESC_F_NEXT);
+                assert!(matches!(
+                    Request::parse(&head, &mem, NUM_DISK_SECTORS, true),
+                    Err(VirtioBlockError::UnexpectedReadOnlyDescriptor)
+                ));
+            } else {
+                assert!(matches!(req, Err(VirtioBlockError::TooManyDataSegments)));
+            }
+        }
+    }
+
+    #[test]
     fn test_request_type_from() {
         assert_eq!(RequestType::from(VIRTIO_BLK_T_IN), RequestType::In);
         assert_eq!(RequestType::from(VIRTIO_BLK_T_OUT), RequestType::Out);
@@ -573,7 +674,7 @@ mod tests {
             let memory = self.driver_queue.memory();
 
             assert!(matches!(
-                Request::parse(&q.pop().unwrap().unwrap(), memory, NUM_DISK_SECTORS),
+                Request::parse(&q.pop().unwrap().unwrap(), memory, NUM_DISK_SECTORS, false),
                 Err(_e)
             ));
         }
@@ -582,7 +683,8 @@ mod tests {
             let mut q = self.driver_queue.create_queue();
             let memory = self.driver_queue.memory();
             let request =
-                Request::parse(&q.pop().unwrap().unwrap(), memory, NUM_DISK_SECTORS).unwrap();
+                Request::parse(&q.pop().unwrap().unwrap(), memory, NUM_DISK_SECTORS, false)
+                    .unwrap();
             let expected_header = self.header();
 
             assert_eq!(
@@ -1010,6 +1112,7 @@ mod tests {
             status_addr,
             sector: sector & (NUM_DISK_SECTORS - sectors_len),
             data_addr,
+            segments: Vec::new(),
         };
         let mut request_header = RequestHeader::new(virtio_request_id, request.sector);
 
@@ -1168,7 +1271,7 @@ mod tests {
     fn parse_random_requests() {
         let cfg = ProptestConfig::with_cases(1000);
         proptest!(cfg, |(mut request in random_request_parse())| {
-            let result = Request::parse(&request.2.pop().unwrap().unwrap(), &request.1, NUM_DISK_SECTORS);
+            let result = Request::parse(&request.2.pop().unwrap().unwrap(), &request.1, NUM_DISK_SECTORS, false);
             match result {
                 Ok(r) => prop_assert!(r == request.0.unwrap()),
                 Err(err) => {
