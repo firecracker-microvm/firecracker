@@ -126,6 +126,12 @@ and this project adheres to
 
 ### Fixed
 
+- [#6448](https://github.com/firecracker-microvm/firecracker/pull/6448): Fixed
+  aarch64 guests with more than 254 GiB of memory seeing only the first 254 GiB.
+  Guest memory that extends past the 64-bit MMIO gap is split in two regions,
+  but the device tree memory node described only the first one. It now describes
+  every guest memory region.
+
 - [#6302](https://github.com/firecracker-microvm/firecracker/issues/6302): Fixed
   AMX tile state being lost after a snapshot restore. The IA32_XFD and
   IA32_XFD_ERR MSRs are now saved in snapshots. Without them a restored guest

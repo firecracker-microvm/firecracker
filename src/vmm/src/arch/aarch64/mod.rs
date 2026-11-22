@@ -243,7 +243,7 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Opti
 
 // Auxiliary function to get the address where the device tree blob is loaded.
 fn get_fdt_addr(mem: &GuestMemoryMmap) -> u64 {
-    // Find the first (and only) DRAM region.
+    // Place the FDT in the first DRAM region.
     let dram_region = mem
         .iter()
         .find(|region| region.region_type == GuestRegionType::Dram)
