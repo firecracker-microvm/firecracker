@@ -56,6 +56,12 @@ done
 
 check_fuzz_target_arg "$FUZZ_TARGET"
 
+if [ -n "$INPUT_FILE" ]; then
+  [ -f "$INPUT_FILE" ] || die "Could not find ${INPUT_FILE}."
+  # reproduce_file runs the target from a temporary directory.
+  INPUT_FILE=$(realpath "$INPUT_FILE")
+fi
+
 # The directory where afl-fuzz stored the run results
 FUZZ_OUTPUT="${ROOT_DIR}/out_${FUZZ_TARGET}"
 
@@ -97,8 +103,9 @@ reproduce_file() {
   return $exit_code
 }
 
-# Save the number of hugepages
+# Save the number of hugepages, and restore it however the script exits
 old_nr_hugepages=$(cat /proc/sys/vm/nr_hugepages)
+trap 'echo $old_nr_hugepages |tee /proc/sys/vm/nr_hugepages' EXIT
 echo 6144 |tee /proc/sys/vm/nr_hugepages
 
 exit_code=0
@@ -178,10 +185,6 @@ if [ -z "$INPUT_FILE" ]; then
     fi
   done
 else
-  [ -f "$INPUT_FILE" ] || die "Could not find ${INPUT_FILE}."
-  # reproduce_file runs the target from a temporary directory.
-  INPUT_FILE=$(realpath "$INPUT_FILE")
-
   reproduce_file "$INPUT_FILE"
   target_exit_code=$?
   if [ $target_exit_code -eq 102 ]; then
@@ -194,7 +197,5 @@ else
     exit_code=1
   fi
 fi
-
-echo $old_nr_hugepages |tee /proc/sys/vm/nr_hugepages
 
 exit $exit_code
