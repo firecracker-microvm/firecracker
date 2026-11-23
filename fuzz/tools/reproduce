@@ -179,6 +179,8 @@ if [ -z "$INPUT_FILE" ]; then
   done
 else
   [ -f "$INPUT_FILE" ] || die "Could not find ${INPUT_FILE}."
+  # reproduce_file runs the target from a temporary directory.
+  INPUT_FILE=$(realpath "$INPUT_FILE")
 
   reproduce_file "$INPUT_FILE"
   target_exit_code=$?
