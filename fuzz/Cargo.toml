@@ -10,7 +10,7 @@ afl_fuzz = ["afl"]
 stdin_fuzz = []
 
 [dependencies]
-afl = { version = "0.15.10", optional = true }
+afl = { version = "0.18.2", optional = true }
 utils = { path = "../src/utils" }
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 firecracker = { path = "../src/firecracker" }
