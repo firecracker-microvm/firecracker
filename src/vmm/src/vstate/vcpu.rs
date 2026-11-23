@@ -35,6 +35,15 @@ pub const VCPU_RTSIG_OFFSET: i32 = 0;
 /// Maximum time to wait for a vCPU thread to exit when dropping its handle.
 const VCPU_JOIN_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// Whether a restored vCPU saves the register set from its snapshot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegisterPinState {
+    /// Save the normal register set for this host.
+    Unpinned,
+    /// Keep the register set from the snapshot.
+    Pinned,
+}
+
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VcpuError {

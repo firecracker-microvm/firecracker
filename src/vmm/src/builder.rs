@@ -58,7 +58,7 @@ use crate::vstate::kvm::{Kvm, KvmError};
 use crate::vstate::memory::GuestRegionMmap;
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::resources::ResourceAllocator;
-use crate::vstate::vcpu::VcpuError;
+use crate::vstate::vcpu::{RegisterPinState, VcpuError};
 use crate::vstate::vm::{KvmVm, MAX_SUPPORTED_KVM_VCPUS, Vm, VmError};
 use crate::{EventManager, Vmm, VmmError};
 
@@ -554,7 +554,7 @@ pub fn build_microvm_from_snapshot(
     // Restore vcpus kvm state.
     for (vcpu, state) in vcpus.iter_mut().zip(microvm_state.vcpu_states.iter()) {
         vcpu.kvm_vcpu
-            .restore_state(state)
+            .restore_state(state, RegisterPinState::Unpinned)
             .map_err(VcpuError::VcpuResponse)
             .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
     }
@@ -965,7 +965,9 @@ pub(crate) mod tests {
             let vm = setup_vm_with_memory(0x1000);
             let mut vcpus = vm.create_vcpus(count).unwrap();
             for ((vcpu, state), &offset) in vcpus.iter_mut().zip(&states).zip(offsets) {
-                vcpu.kvm_vcpu.restore_state(state).unwrap();
+                vcpu.kvm_vcpu
+                    .restore_state(state, RegisterPinState::Unpinned)
+                    .unwrap();
                 // Establish exact offsets without depending on KVM's MSR-write heuristics.
                 vcpu.kvm_vcpu.set_tsc_offset(offset).unwrap();
                 assert_eq!(vcpu.kvm_vcpu.get_tsc_offset().unwrap(), offset);
