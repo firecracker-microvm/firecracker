@@ -115,6 +115,7 @@ ok_or_die "Could not find tool llvm-profdata. Do you have the llvm-tools-preview
 # would require us to copy all coverage files to a shared location. This is very inefficient if there are many
 # coverage files.
 say "Merging .profraw files"
+mkdir -p build
 $llvm_profdata merge -output=build/coverage.profdata "${profraw_files[@]}"
 ok_or_die "Failed to merge specified .profraw files"
 
@@ -165,7 +166,7 @@ for report_type in "${!reports[@]}"; do
 
       case "$report_type" in
         grcov_html) {
-          grcov "$grcov_temp_dir" -s firecracker --binary-path "$grcov_temp_dir" --ignore-not-existing \
+          grcov "$grcov_temp_dir" -s .. --binary-path "$grcov_temp_dir" --ignore-not-existing \
                   -t html -o "$grcov_temp_dir/coverage"
           tar -czf "$output" -C "$grcov_temp_dir" coverage
         };;
@@ -177,7 +178,7 @@ for report_type in "${!reports[@]}"; do
           # We need to pass `--token` because its a required argument by grcov, but only used if the report actually
           # is uploaded to the coveralls.io website. We don't do that, so its fine to put nonsense here. 
           (
-            cd firecracker
+            cd ..
             grcov "$grcov_temp_dir" -s . --binary-path "$grcov_temp_dir" --ignore-not-existing \
                   -t coveralls+ -o "$grcov_temp_dir/coverage.out" --commit-sha "$(git rev-parse HEAD)" --token none
           )

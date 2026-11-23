@@ -77,9 +77,9 @@ def get_environment(fuzz_out_dir):
     return d
 
 def get_firecracker_version():
-    manifest_json = subprocess.check_output(["cargo", "read-manifest"], cwd = "./firecracker/src/firecracker")
+    manifest_json = subprocess.check_output(["cargo", "read-manifest"], cwd = "../src/firecracker")
     fc_version = json.loads(manifest_json)['version']
-    commit = subprocess.check_output(["git", "rev-parse", "--verify", "HEAD"], cwd = "./firecracker").strip()
+    commit = subprocess.check_output(["git", "rev-parse", "--verify", "HEAD"], cwd = "..").strip()
 
     return [fc_version, commit]
 

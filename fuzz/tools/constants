@@ -3,51 +3,17 @@
 # Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Full path to the tools dir on the host.
+# Full path to the tools dir.
 TOOLS_DIR=$(cd "$(dirname "$0")" && pwd)
 
-# Full path to the sources dir on the host.
+# Full path to the fuzz sources dir.
 ROOT_DIR=$(cd "${TOOLS_DIR}/.." && pwd)
 
-# Development container image (name:tag)
-# This should be updated whenever we upgrade the development container.
-# (Yet another step on our way to reproducible builds.)
-DEVCTR_IMAGE="public.ecr.aws/firecracker/fcuvm:v93"
+# Full path to the fuzz input dir.
+FUZZ_INPUT_DIR="${ROOT_DIR}/in"
 
-# Full path to the build dir on the host.
-BUILD_DIR="${ROOT_DIR}/build"
-
-# Full path to the cargo registry dir on the host. This appears on the host
-# because we want to persist the cargo registry across container invocations.
-# Otherwise, any rust crates from crates.io would be downloaded again each time
-# we build or test.
-CARGO_REGISTRY_DIR="${BUILD_DIR}/cargo_registry"
-
-# Full path to the cargo git registry on the host. This serves the same purpose
-# as CARGO_REGISTRY_DIR, for crates downloaded from GitHub repos instead of
-# crates.io.
-CARGO_GIT_REGISTRY_DIR="${BUILD_DIR}/cargo_git_registry"
-
-# Full path to the cargo target dir on the host.
-CARGO_TARGET_DIR="${BUILD_DIR}/cargo_target"
-
-# Full path to the fuzz output dir on the host.
+# Full path to the fuzz output dir.
 FUZZ_OUTPUT_DIR="${ROOT_DIR}/out"
-
-# Full path to the sources dir, as bind-mounted in the container.
-CTR_ROOT_DIR="/fuzzer"
-
-# Full path to the build dir, as bind-mounted in the container.
-CTR_BUILD_DIR="${CTR_ROOT_DIR}/build"
-
-# Full path to the cargo target dir, as bind-mounted in the container.
-CTR_CARGO_TARGET_DIR="$CTR_BUILD_DIR/cargo_target"
-
-# Full path to the fuzz input dir, as bind-mounted in the container.
-CTR_FUZZ_INPUT_DIR="${CTR_ROOT_DIR}/in"
-
-# Full path to the fuzz output dir, as bind-mounted in the container.
-CTR_FUZZ_OUTPUT_DIR="${CTR_ROOT_DIR}/out"
 
 # Array of valid fuzz targets
 VALID_FUZZ_TARGETS=()
