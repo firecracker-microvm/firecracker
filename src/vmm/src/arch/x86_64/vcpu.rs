@@ -200,6 +200,16 @@ impl KvmVcpu {
         })
     }
 
+    /// Appends MSR indices to `msrs_to_save` without duplicating existing entries,
+    /// preserving the order returned by `KVM_GET_MSR_INDEX_LIST`.
+    fn extend_msrs_to_save(&mut self, indices: impl IntoIterator<Item = u32>) {
+        for index in indices {
+            if !self.msrs_to_save.contains(&index) {
+                self.msrs_to_save.push(index);
+            }
+        }
+    }
+
     /// Normalizes and configures CPUID for this vCPU.
     ///
     /// Returns the KVM CPUID representation installed on the vCPU.
@@ -256,7 +266,7 @@ impl KvmVcpu {
         configured_cpuid: &CpuId,
     ) -> Result<(), KvmVcpuConfigureError> {
         let mut msrs = msrs.clone();
-        self.msrs_to_save.extend(msrs.keys());
+        self.extend_msrs_to_save(msrs.keys().copied());
 
         create_boot_msr_entries().into_iter().for_each(|entry| {
             msrs.insert(entry.index, entry.data);
@@ -278,7 +288,7 @@ impl KvmVcpu {
         // MSRs defined by the template`
 
         let extra_msrs = cpuid::common::msrs_to_save_by_cpuid(configured_cpuid);
-        self.msrs_to_save.extend(extra_msrs);
+        self.extend_msrs_to_save(extra_msrs);
 
         let kvm_msrs = msrs
             .into_iter()
@@ -737,7 +747,7 @@ impl KvmVcpu {
     }
 
     /// Use provided state to populate KVM internal state.
-    pub fn restore_state(&self, state: &VcpuState) -> Result<(), KvmVcpuError> {
+    pub fn restore_state(&mut self, state: &VcpuState) -> Result<(), KvmVcpuError> {
         // Ordering requirements:
         //
         // KVM_GET_VCPU_EVENTS/KVM_SET_VCPU_EVENTS is unsafe if other vCPUs are
@@ -800,6 +810,18 @@ impl KvmVcpu {
         self.fd
             .set_vcpu_events(&state.vcpu_events)
             .map_err(KvmVcpuError::VcpuSetVcpuEvents)?;
+
+        // Only the boot path extends `msrs_to_save` with CPU template MSRs and
+        // CPUID-inferred MSRs. Keep the current host baseline and merge both
+        // the snapshot's saved MSRs and the MSRs inferred from the restored
+        // CPUID so subsequent snapshots preserve them without dropping newly
+        // supported baseline MSRs.
+        let snapshot_msrs = state
+            .saved_msrs
+            .iter()
+            .flat_map(|chunk| chunk.as_slice().iter().map(|entry| entry.index));
+        self.extend_msrs_to_save(snapshot_msrs);
+        self.extend_msrs_to_save(cpuid::common::msrs_to_save_by_cpuid(&state.cpuid));
 
         self.kvmclock_ctrl();
         Ok(())
@@ -1098,7 +1120,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_cpuid_restore() {
-        let (vm, vcpu) = setup_vcpu(0x10000);
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
         vcpu.fd.set_cpuid2(&vm.kvm().supported_cpuid).unwrap();
 
         // Mutate the CPUID.
@@ -1116,7 +1138,7 @@ pub(crate) mod tests {
         drop(vcpu);
 
         // Restore the state into a new vcpu.
-        let (_vm, vcpu) = setup_vcpu(0x10000);
+        let (_vm, mut vcpu) = setup_vcpu(0x10000);
         let result2 = vcpu.restore_state(&state);
         assert!(result2.is_ok(), "{}", result2.unwrap_err());
 
@@ -1426,5 +1448,153 @@ pub(crate) mod tests {
                     .chain(DEFERRED_MSRS.iter()),
             )
             .for_each(|(left, &right)| assert_eq!(left.index, right));
+    }
+
+    fn assert_unique_msrs(indices: &[u32]) {
+        let unique: std::collections::BTreeSet<u32> = indices.iter().copied().collect();
+        assert_eq!(unique.len(), indices.len(), "duplicate MSR indices found");
+    }
+
+    fn cpuid_without_mtrr(vm: &KvmVm) -> Cpuid {
+        const MTRR_BITINDEX: u32 = 12;
+        let mut cpuid = Cpuid::try_from(vm.kvm().supported_cpuid.clone()).unwrap();
+        cpuid
+            .inner_mut()
+            .get_mut(&CpuidKey {
+                leaf: 0x1,
+                subleaf: 0x0,
+            })
+            .unwrap()
+            .result
+            .edx &= !(1 << MTRR_BITINDEX);
+        cpuid
+    }
+
+    #[test]
+    fn test_configure_msrs_for_boot_deduplicates_msrs_to_save() {
+        use crate::arch::x86_64::generated::msr_index::{
+            MSR_IA32_MC0_CTL, MSR_MTRRfix64K_00000, MSR_TSC_AUX,
+        };
+
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
+        let baseline = vm.msrs_to_save().to_vec();
+        let cpuid = cpuid_without_mtrr(&vm);
+        let configured_cpuid = vcpu.configure_cpuid(&cpuid, 1, false).unwrap();
+
+        // With MTRR hidden in guest CPUID, MSR_MTRRfix64K_00000 is absent from both
+        // the host baseline and msrs_to_save_by_cpuid, yet KVM emulates it across
+        // Intel and AMD regardless of CPUID.
+        assert!(!baseline.contains(&MSR_MTRRfix64K_00000));
+        assert!(
+            !cpuid::common::msrs_to_save_by_cpuid(&configured_cpuid)
+                .contains(&MSR_MTRRfix64K_00000)
+        );
+
+        let template_msrs = BTreeMap::from([
+            (MSR_TSC_AUX, 0),
+            (MSR_MTRRfix64K_00000, 0x0606_0606_0606_0606),
+        ]);
+        vcpu.configure_msrs_for_boot(&template_msrs, &configured_cpuid)
+            .unwrap();
+
+        assert_eq!(&vcpu.msrs_to_save[..baseline.len()], baseline.as_slice());
+        assert_unique_msrs(&vcpu.msrs_to_save);
+        assert!(vcpu.msrs_to_save.contains(&MSR_MTRRfix64K_00000));
+        assert!(vcpu.msrs_to_save.contains(&MSR_IA32_MC0_CTL));
+    }
+
+    #[test]
+    fn test_restore_state_preserves_msrs_across_chained_snapshots() {
+        use crate::arch::x86_64::generated::msr_index::{MSR_IA32_MC0_CTL, MSR_MTRRfix64K_00000};
+
+        let (vm1, mut vcpu1) = setup_vcpu(0x10000);
+        let cpuid = cpuid_without_mtrr(&vm1);
+        let configured_cpuid = vcpu1.configure_cpuid(&cpuid, 1, false).unwrap();
+
+        assert!(!vm1.msrs_to_save().contains(&MSR_MTRRfix64K_00000));
+        assert!(
+            !cpuid::common::msrs_to_save_by_cpuid(&configured_cpuid)
+                .contains(&MSR_MTRRfix64K_00000)
+        );
+
+        let expected_mtrr_fix = 0x0606_0606_0606_0606;
+        let expected_mc0_ctl = u64::MAX;
+        let template_msrs = BTreeMap::from([(MSR_MTRRfix64K_00000, expected_mtrr_fix)]);
+        vcpu1
+            .configure_msrs_for_boot(&template_msrs, &configured_cpuid)
+            .unwrap();
+
+        let mc0_ctl = msrs_from_entries(&[(MSR_IA32_MC0_CTL, expected_mc0_ctl)]);
+        assert_eq!(vcpu1.fd.set_msrs(&mc0_ctl).unwrap(), 1);
+
+        let state1 = vcpu1.save_state().unwrap();
+
+        // Restore into a second vCPU and immediately create a second-generation snapshot.
+        let (vm2, mut vcpu2) = setup_vcpu(0x10000);
+        let baseline = vm2.msrs_to_save().to_vec();
+        vcpu2.restore_state(&state1).unwrap();
+        assert_eq!(&vcpu2.msrs_to_save[..baseline.len()], baseline.as_slice());
+        assert_unique_msrs(&vcpu2.msrs_to_save);
+        assert!(vcpu2.msrs_to_save.contains(&MSR_MTRRfix64K_00000));
+        assert!(vcpu2.msrs_to_save.contains(&MSR_IA32_MC0_CTL));
+
+        let state2 = vcpu2.save_state().unwrap();
+        let saved_indices: Vec<u32> = state2
+            .saved_msrs
+            .iter()
+            .flat_map(|chunk| chunk.as_slice().iter().map(|entry| entry.index))
+            .collect();
+        assert_unique_msrs(&saved_indices);
+        assert!(saved_indices.contains(&MSR_MTRRfix64K_00000));
+        assert!(saved_indices.contains(&MSR_IA32_MC0_CTL));
+
+        // Restore the second-generation snapshot into a third vCPU and check live values.
+        let (_vm3, mut vcpu3) = setup_vcpu(0x10000);
+        vcpu3.restore_state(&state2).unwrap();
+        let restored = vcpu3
+            .get_msrs([MSR_MTRRfix64K_00000, MSR_IA32_MC0_CTL].into_iter())
+            .unwrap();
+        assert_eq!(restored[&MSR_MTRRfix64K_00000], expected_mtrr_fix);
+        assert_eq!(restored[&MSR_IA32_MC0_CTL], expected_mc0_ctl);
+    }
+
+    #[test]
+    fn test_restore_state_retains_baseline_and_cpuid_msrs_from_partial_snapshot() {
+        use crate::arch::x86_64::generated::msr_index::MSR_IA32_MC0_CTL;
+
+        let (vm1, mut vcpu1) = setup_vcpu(0x10000);
+        let baseline = vm1.msrs_to_save().to_vec();
+        let dropped_baseline_msr = baseline[0];
+        let cpuid = Cpuid::try_from(vm1.kvm().supported_cpuid.clone()).unwrap();
+        let configured_cpuid = vcpu1.configure_cpuid(&cpuid, 1, false).unwrap();
+        vcpu1
+            .configure_msrs_for_boot(&BTreeMap::new(), &configured_cpuid)
+            .unwrap();
+
+        // Simulate an older snapshot that omits a newly-added baseline MSR and a
+        // CPUID-inferred MSR.
+        let mut partial_state = vcpu1.save_state().unwrap();
+        for chunk in &mut partial_state.saved_msrs {
+            chunk.retain(|entry| {
+                entry.index != dropped_baseline_msr && entry.index != MSR_IA32_MC0_CTL
+            });
+        }
+
+        let (_vm2, mut vcpu2) = setup_vcpu(0x10000);
+        vcpu2.restore_state(&partial_state).unwrap();
+        assert_eq!(&vcpu2.msrs_to_save[..baseline.len()], baseline.as_slice());
+        assert_unique_msrs(&vcpu2.msrs_to_save);
+        assert!(vcpu2.msrs_to_save.contains(&dropped_baseline_msr));
+        assert!(vcpu2.msrs_to_save.contains(&MSR_IA32_MC0_CTL));
+
+        let next_state = vcpu2.save_state().unwrap();
+        let next_indices: Vec<u32> = next_state
+            .saved_msrs
+            .iter()
+            .flat_map(|chunk| chunk.as_slice().iter().map(|entry| entry.index))
+            .collect();
+        assert_unique_msrs(&next_indices);
+        assert!(next_indices.contains(&dropped_baseline_msr));
+        assert!(next_indices.contains(&MSR_IA32_MC0_CTL));
     }
 }
