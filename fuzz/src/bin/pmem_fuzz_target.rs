@@ -164,6 +164,8 @@ mod seed_gen {
             .open("in/pmem/request.in")
             .unwrap();
 
+        // SAFETY: `InputSeed` is `repr(C, packed)` with only integer fields, so it has no
+        // padding and all of its bytes are initialized.
         let byte_slice: &[u8; std::mem::size_of::<InputSeed>()] =
             unsafe { std::mem::transmute(&seed) };
         seed_file.write_all(byte_slice).unwrap();

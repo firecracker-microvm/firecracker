@@ -58,7 +58,7 @@ mod fuzzing {
             return;
         };
 
-        let page_size = unsafe { libc::sysconf(libc::_SC_PAGE_SIZE) as usize };
+        let page_size = vmm::arch::host_page_size();
 
         let huge_page_config = match data.huge_pages {
             true => {

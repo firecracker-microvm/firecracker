@@ -14,12 +14,14 @@ use std::path::{Path, PathBuf};
 /// This avoids creating entries in `/tmp`, preventing inode exhaustion during long fuzz campaigns.
 pub fn make_memfd(name: &str) -> (File, String) {
     let c_name = std::ffi::CString::new(name).unwrap();
+    // SAFETY: `c_name` is a valid NUL-terminated string that outlives the call.
     let fd = unsafe { libc::memfd_create(c_name.as_ptr(), 0) };
     assert!(
         0 <= fd,
         "memfd_create failed: {}",
         std::io::Error::last_os_error()
     );
+    // SAFETY: `fd` was just returned by `memfd_create`, is valid, and nothing else owns it.
     let file = unsafe { File::from_raw_fd(fd) };
     let path = format!("/proc/self/fd/{fd}");
     (file, path)
@@ -42,6 +44,7 @@ pub fn remove_old_and_determine_new_work_dir(prefix: &str) -> PathBuf {
             if let Some(pid_str) = name.strip_prefix(&pattern) {
                 if let Ok(pid) = pid_str.parse::<i32>() {
                     // kill(pid, 0) checks existence without sending a signal.
+                    // SAFETY: Signal 0 is never delivered, so the call has no side effects.
                     if unsafe { libc::kill(pid, 0) } == -1 {
                         let _ = std::fs::remove_dir_all(entry.path());
                     }
