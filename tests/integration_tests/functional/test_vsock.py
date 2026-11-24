@@ -62,7 +62,6 @@ def vsock_uvm(uvm, request):
     return boot_vsock_vm(
         uvm,
         vcpu_count=vcpus,
-        mem_size_mib=1024,
         log_level="Info",
         emit_metrics=True,
     )
@@ -354,7 +353,9 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
 
     for _ in range(5):
         # Load snapshot.
-        new_vm = microvm_factory.build_from_snapshot(snapshot)
+        new_vm = microvm_factory.build()
+        new_vm.spawn()
+        snapshot_copy = new_vm.restore_from_snapshot(snapshot, resume=True)
 
         # After snap restore all vsock connections should be
         # dropped. This means guest socat should exit same way
@@ -393,7 +394,7 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
             )
 
             # Create snapshot.
-            snapshot = new_vm.snapshot_full()
+            next_snapshot = new_vm.snapshot_full()
             new_vm.resume()
 
             # Note: it might take some time for guest socat to detect closed socket
@@ -415,6 +416,13 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
 
             # Terminate VM.
             new_vm.kill()
+
+        # Free the snapshot we restored from, so the test holds at most two
+        # memory files at any time instead of one per iteration. The copy in
+        # the chroot is a hardlink of it, so both have to go.
+        snapshot.delete()
+        snapshot_copy.delete()
+        snapshot = next_snapshot
 
 
 @pin_vm_backend(VM_BACKEND_KVM)
