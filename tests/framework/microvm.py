@@ -1052,6 +1052,7 @@ class Microvm:
         mem_path: str = "mem",
         vmstate_path="vmstate",
         sync_snapshot_files: Optional[bool] = None,
+        vcpu_registers: Optional[str] = None,
     ):
         """Create a Snapshot object from a microvm.
 
@@ -1060,8 +1061,9 @@ class Microvm:
 
         It pauses the microvm before taking the snapshot.
 
-        If ``sync_snapshot_files`` is left as ``None`` the field is omitted from the
-        request, exercising the API default. Otherwise it is sent explicitly.
+        If ``sync_snapshot_files`` or ``vcpu_registers`` is left as ``None``, that
+        field is omitted from the request, exercising the API default. Otherwise it
+        is sent explicitly.
         """
         self.pause()
         # Notify monitor that snapshot is being created
@@ -1072,6 +1074,7 @@ class Microvm:
             snapshot_path=str(vmstate_path),
             snapshot_type=snapshot_type.api_type,
             sync_snapshot_files=sync_snapshot_files,
+            vcpu_registers=vcpu_registers,
         )
         root = Path(self.chroot())
         return Snapshot(
@@ -1096,10 +1099,19 @@ class Microvm:
             SnapshotType.DIFF, mem_path=mem_path, vmstate_path=vmstate_path
         )
 
-    def snapshot_full(self, *, mem_path: str = "mem", vmstate_path="vmstate"):
+    def snapshot_full(
+        self,
+        *,
+        mem_path: str = "mem",
+        vmstate_path="vmstate",
+        vcpu_registers: Optional[str] = None,
+    ):
         """Make a Full snapshot"""
         return self.make_snapshot(
-            SnapshotType.FULL, mem_path=mem_path, vmstate_path=vmstate_path
+            SnapshotType.FULL,
+            mem_path=mem_path,
+            vmstate_path=vmstate_path,
+            vcpu_registers=vcpu_registers,
         )
 
     def restore_from_snapshot(

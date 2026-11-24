@@ -23,6 +23,7 @@
     - [Creating full snapshots](#creating-full-snapshots)
     - [Creating diff snapshots](#creating-diff-snapshots)
     - [Syncing snapshot files](#syncing-snapshot-files)
+    - [Pinning the vCPU register set](#pinning-the-vcpu-register-set)
   - [Resuming the microVM](#resuming-the-microvm)
   - [Loading snapshots](#loading-snapshots)
     - [Overriding host resources](#overriding-host-resources)
@@ -400,6 +401,43 @@ see the full contents; only durability across a host crash is lost. This is
 useful when durability isn't required (e.g. a pipeline further transforms the
 snapshot). Block device backing files are always `fsync`'d regardless of this
 setting.
+
+#### Pinning the vCPU register set
+
+Without a pin, Firecracker saves its normal vCPU register set for the current
+host. A newer kernel can expose registers that an older kernel does not know.
+Loading a snapshot on the newer kernel and taking another snapshot can therefore
+prevent the new snapshot from loading on the older kernel.
+
+The optional `vcpu_registers` field of `PUT /snapshot/create` controls whether
+the **output snapshot** pins the register set:
+
+- `Inherit` (default) keeps the incoming pin. If the microVM was loaded from a
+  pinned snapshot, it saves the same register IDs in the same order. Otherwise
+  it saves the normal set and leaves the snapshot unpinned.
+- `Pin` saves the same registers as `Inherit` but always pins the snapshot.
+  Repeating `Pin` does not replace an existing pin.
+
+On x86_64, the pin covers only the MSR list. The normal set is the MSRs
+Firecracker would save for this microVM on this host, not every MSR KVM reports.
+Other vCPU state, such as CPUID and xsave, is saved as usual. On aarch64, an
+inherited pin also preserves the snapshot's CPU feature ID register **values**:
+a newer kernel may report values an older kernel rejects.
+
+`Pin` applies only to the snapshot created by that call. It does not pin the
+running microVM, so a later `Inherit` snapshot of a microVM that was booted, or
+loaded from an unpinned snapshot, is unpinned again. On the oldest host kernel
+you need to support, pass `Pin` in every `PUT /snapshot/create` call for such a
+microVM, including each diff snapshot: a merged diff snapshot is loaded with the
+state file of its last layer, and only that file's pin counts.
+
+A microVM loaded from a pinned snapshot keeps the register set, and every
+snapshot it creates is pinned; no load option is needed. State held only in
+registers outside that set is not saved. To use a newer host's register set,
+boot a new microVM on that host and take a snapshot.
+
+Pinning does not guarantee cross-kernel compatibility: the destination kernel
+must still accept the saved register values.
 
 ### Resuming the microVM
 

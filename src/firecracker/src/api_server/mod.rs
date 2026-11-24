@@ -212,7 +212,7 @@ mod tests {
     use vmm::rpc_interface::{VmmActionError, VmmData};
     use vmm::seccomp::get_empty_filters;
     use vmm::vmm_config::instance_info::InstanceInfo;
-    use vmm::vmm_config::snapshot::CreateSnapshotParams;
+    use vmm::vmm_config::snapshot::{CreateSnapshotParams, VcpuRegisterPolicy};
     use vmm_sys_util::tempfile::TempFile;
 
     use super::request::cpu_configuration::parse_put_cpu_config;
@@ -278,6 +278,7 @@ mod tests {
                 snapshot_path: PathBuf::new(),
                 mem_file_path: PathBuf::new(),
                 sync_snapshot_files: true,
+                vcpu_registers: VcpuRegisterPolicy::Inherit,
             })),
             start_time_us,
         );
@@ -292,6 +293,7 @@ mod tests {
                 snapshot_path: PathBuf::new(),
                 mem_file_path: PathBuf::new(),
                 sync_snapshot_files: true,
+                vcpu_registers: VcpuRegisterPolicy::Inherit,
             })),
             start_time_us,
         );

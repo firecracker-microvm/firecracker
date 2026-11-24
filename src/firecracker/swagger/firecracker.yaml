@@ -1976,6 +1976,23 @@ definitions:
           in the host page cache, so same-host reads still see the full
           contents. Block device backing files are always fsync'd regardless of
           this setting.
+      vcpu_registers:
+        type: string
+        enum:
+          - Inherit
+          - Pin
+        default: Inherit
+        description:
+          Controls whether the output snapshot pins the vCPU register set.
+          Inherit keeps the incoming pin. It preserves the order of the pinned
+          register IDs and, on aarch64, the pinned CPU feature ID values.
+          Without a pin, it saves Firecracker's normal set for this host and
+          leaves the snapshot unpinned.
+          Pin saves the same set and values as Inherit but always pins the
+          snapshot. Use Pin on the oldest supported host. Descendants of a
+          pinned snapshot keep its set. On x86_64 the set covers only
+          Firecracker's snapshot MSRs, not every MSR KVM reports. Neither
+          mode changes the running microVM's pin.
 
   NetworkOverride:
     type: object

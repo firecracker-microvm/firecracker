@@ -1107,7 +1107,7 @@ mod tests {
     use crate::mmds::data_store::MmdsVersion;
     use crate::seccomp::BpfThreadMap;
     use crate::vmm_config::snapshot::{
-        MemBackendConfig, MemBackendType, SnapshotLoadHugePageConfig,
+        MemBackendConfig, MemBackendType, SnapshotLoadHugePageConfig, VcpuRegisterPolicy,
     };
 
     fn default_preboot<'a>(
@@ -1328,6 +1328,7 @@ mod tests {
                 snapshot_path: PathBuf::new(),
                 mem_file_path: PathBuf::new(),
                 sync_snapshot_files: true,
+                vcpu_registers: VcpuRegisterPolicy::Inherit,
             },
         )));
         check_unsupported(preboot_request(VmmAction::SendCtrlAltDel));
