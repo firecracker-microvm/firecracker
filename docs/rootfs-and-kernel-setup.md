@@ -92,10 +92,40 @@ subcommand allows passing a specific kernel version to build. For example:
 will build only the 6.1 kernel.
 
 Currently supported kernel versions are: `5.10`, `5.10-no-acpi` (same as 5.10
-but without ACPI support) and `6.1`.
+but without ACPI support), `6.1` and `6.18`.
 
 After the command finishes, the kernels along with the corresponding KConfig
 used will be stored under `resources/$(uname -m)`.
+
+### Additional ARM64 kernels with 64 KiB pages
+
+On an aarch64 build host, the default kernel build also produces additional
+Linux 6.1 and 6.18 kernels with 64 KiB base pages. To build either variant:
+
+```bash
+./tools/devtool build_ci_artifacts kernels 6.1-64k
+./tools/devtool build_ci_artifacts kernels 6.18-64k
+./tools/devtool stage_ci_artifacts kernels
+```
+
+The images are named `vmlinux-6.1.<patch>-64k` and `vmlinux-6.18.<patch>-64k`,
+with matching `.config` files. The `debug/` directory contains the debug variant
+and its separate debuginfo. The build merges
+`resources/guest_configs/64k-aarch64.config` after the regular ARM64
+configuration and verifies that `CONFIG_ARM64_64K_PAGES=y` was selected. The
+usual 4 KiB kernels are still built when building all kernels.
+
+Integration tests can select these images using
+`@pin_guest_kernel(GUEST_KERNELS_64K)` from `framework.artifacts`, or use
+`GUEST_KERNELS_64K_DEBUG` when debug information is needed. The `GuestKernel`
+object exposes `page_size` in bytes. The default test catalogues continue to
+select only 4 KiB kernels. Tests using the additional variants must be limited
+to aarch64. These test artefacts do not extend the supported configurations in
+the [kernel support policy](kernel-policy.md).
+
+After these artefacts are published to the CI bucket, the existing
+`./tools/devtool download_ci_artifacts` command downloads them alongside the
+other kernels. Until then, build and stage them locally as shown above.
 
 ## Creating a Linux rootfs Image
 
