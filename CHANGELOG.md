@@ -127,6 +127,12 @@ and this project adheres to
   the maximum number of vCPUs of a KVM microVM from 32 to 64. CPUID leaf 0xB
   (and 0x1F where present) subleaf 1 `EAX[4:0]` now reports 6 instead of 5 for
   every microVM; the topology a guest reports is unchanged.
+- [#6362](https://github.com/firecracker-microvm/firecracker/pull/6362): If the
+  vCPUs fail to resume at the end of `InstanceStart`, Firecracker now exits
+  instead of returning an error and staying in the pre-boot state, as it already
+  does when resuming after `PUT /snapshot/load` fails. The microVM is fully
+  built at that point, so `InstanceStart` cannot be retried safely. Boot
+  failures before that point are unchanged and can still be retried.
 
 ### Deprecated
 

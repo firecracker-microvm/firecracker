@@ -125,6 +125,8 @@ pub enum StartMicrovmError {
     SpawnBlockWorker(BlockError),
     /// Cannot restore microvm state: {0}
     RestoreMicrovmState(MicrovmStateError),
+    /// Cannot resume the vCPUs of the built microVM: {0}
+    Resume(VmmError),
     /// Cannot set vm resources: {0}
     SetVmResources(MachineConfigError),
     /// Cannot create the entropy device: {0}
@@ -434,7 +436,10 @@ pub fn build_and_boot_microvm(
     debug!("event_end: build microvm for boot");
     // The vcpus start off in the `Paused` state, let them run.
     debug!("event_start: boot microvm");
-    vmm.lock().unwrap().resume_vm()?;
+    vmm.lock()
+        .unwrap()
+        .resume_vm()
+        .map_err(StartMicrovmError::Resume)?;
     debug!("event_end: boot microvm");
     Ok(vmm)
 }
