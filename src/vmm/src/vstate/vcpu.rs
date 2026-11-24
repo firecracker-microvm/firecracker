@@ -51,6 +51,8 @@ pub enum VcpuError {
     VcpuConfig(GuestConfigError),
     /// Received error signaling kvm exit: {0}
     FaultyKvmExit(String),
+    /// Failed to create KvmVcpu: {0}
+    KvmVcpu(KvmVcpuError),
     /// Failed to signal vcpu: {0}
     SignalVcpu(vmm_sys_util::errno::Error),
     /// Unexpected kvm exit received: {0}
@@ -150,7 +152,7 @@ impl Vcpu {
     pub fn new(index: u8, vm: &KvmVm, exit_evt: EventFd) -> Result<Self, VcpuError> {
         let (event_sender, event_receiver) = channel();
         let (response_sender, response_receiver) = channel();
-        let kvm_vcpu = KvmVcpu::new(index, vm).unwrap();
+        let kvm_vcpu = KvmVcpu::new(index, vm).map_err(VcpuError::KvmVcpu)?;
 
         Ok(Vcpu {
             exit_evt,
