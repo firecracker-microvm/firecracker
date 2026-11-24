@@ -91,12 +91,12 @@ fn compute_checksum<T: NetworkBytes + Debug>(
     sum += protocol as usize;
     sum += len;
 
-    for i in 0..len / 2 {
-        sum += usize::from(bytes.ntohs_unchecked(i * 2));
+    let (words, rest) = bytes.as_chunks::<2>();
+    for word in words {
+        sum += usize::from(u16::from_be_bytes(*word));
     }
-
-    if !len.is_multiple_of(2) {
-        sum += usize::from(bytes[len - 1]) << 8;
+    if let [last] = rest {
+        sum += usize::from(*last) << 8;
     }
 
     while sum >> 16 != 0 {
