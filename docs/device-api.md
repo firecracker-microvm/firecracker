@@ -82,6 +82,7 @@ specification:
 |                           | snapshot_path            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | snapshot_type            |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | sync_snapshot_files      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
+|                           | vcpu_registers           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 | `Drive`                   | drive_id \*              |    O     |       O        |    **R**     |      **R**       |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | is_read_only             |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |
 |                           | is_root_device \*        |    O     |       O        |    **R**     |      **R**       |     O      |      O       |     O      |      O      |     O      |       O        |

@@ -5,14 +5,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::Debug;
 use std::sync::Arc;
 
 use kvm_bindings::{
-    CpuId, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES, KVM_VCPU_TSC_CTRL, KVM_VCPU_TSC_OFFSET,
-    KVMIO, Msrs, Xsave, kvm_debugregs, kvm_device_attr, kvm_lapic_state, kvm_mp_state, kvm_regs,
-    kvm_sregs, kvm_vcpu_events, kvm_xcrs, kvm_xsave, kvm_xsave2,
+    CpuId, KVM_MAX_CPUID_ENTRIES, KVM_VCPU_TSC_CTRL, KVM_VCPU_TSC_OFFSET, KVMIO, Msrs, Xsave,
+    kvm_debugregs, kvm_device_attr, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs,
+    kvm_vcpu_events, kvm_xcrs, kvm_xsave, kvm_xsave2,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use serde::{Deserialize, Serialize};
@@ -27,10 +27,10 @@ use crate::arch::x86_64::interrupts;
 use crate::arch::x86_64::msr::{MsrError, create_boot_msr_entries};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::cpu_config::x86_64::{CpuConfiguration, cpuid};
-use crate::logger::{IncMetric, METRICS, error, warn};
+use crate::logger::{IncMetric, METRICS, error, info, warn};
 use crate::vstate::bus::Bus;
 use crate::vstate::memory::GuestMemoryMmap;
-use crate::vstate::vcpu::{VcpuEmulation, VcpuError};
+use crate::vstate::vcpu::{RegisterPinState, VcpuEmulation, VcpuError};
 use crate::vstate::vm::KvmVm;
 
 // Tolerance for TSC frequency expected variation.
@@ -160,8 +160,8 @@ pub struct KvmVcpu {
     pub fd: VcpuFd,
     /// Vcpu peripherals, such as buses
     pub peripherals: Peripherals,
-    /// The list of MSRs to include in a VM snapshot, in the same order as KVM returned them
-    /// from KVM_GET_MSR_INDEX_LIST
+    /// MSR indices to save, in order. A pinned restore replaces the host list;
+    /// otherwise boot or restore extends it with any additional guest MSRs.
     msrs_to_save: Vec<u32>,
     /// Size in bytes requiring to hold the dynamically-sized `kvm_xsave` struct.
     ///
@@ -538,9 +538,7 @@ impl KvmVcpu {
 
     /// Get MSR chunks for the given MSR index list.
     ///
-    /// KVM only supports getting `KVM_MAX_MSR_ENTRIES` at a time, so we divide
-    /// the list of MSR indices into chunks, call `KVM_GET_MSRS` for each
-    /// chunk, and collect into a [`Vec<Msrs>`].
+    /// Read the indices in batches with `KVM_GET_MSRS`, moving deferred MSRs to the last chunk.
     ///
     /// # Arguments
     ///
@@ -556,13 +554,15 @@ impl KvmVcpu {
         &self,
         mut msr_index_iter: impl ExactSizeIterator<Item = u32>,
     ) -> Result<Vec<Msrs>, KvmVcpuError> {
-        let num_chunks = msr_index_iter.len().div_ceil(KVM_MAX_MSR_ENTRIES);
+        // Linux rejects nmsrs >= MAX_IO_MSRS (256), even though the bindings can hold 256 entries.
+        const MAX_MSRS_PER_IOCTL: usize = 255;
+        let num_chunks = msr_index_iter.len().div_ceil(MAX_MSRS_PER_IOCTL);
 
         // + 1 for the chunk of deferred MSRs
         let mut msr_chunks: Vec<Msrs> = Vec::with_capacity(num_chunks + 1);
 
         for _ in 0..num_chunks {
-            let chunk_len = msr_index_iter.len().min(KVM_MAX_MSR_ENTRIES);
+            let chunk_len = msr_index_iter.len().min(MAX_MSRS_PER_IOCTL);
             let chunk = self.get_msr_chunk(&mut msr_index_iter, chunk_len)?;
             msr_chunks.push(chunk);
         }
@@ -641,6 +641,42 @@ impl KvmVcpu {
                 });
             });
         Ok(msrs)
+    }
+
+    /// Selects the MSR indices for subsequent snapshots of the restored vCPU.
+    fn restore_msr_indices(&mut self, state: &VcpuState, register_pin: RegisterPinState) {
+        let indices = state
+            .saved_msrs
+            .iter()
+            .flat_map(|chunk| chunk.as_slice())
+            .map(|entry| entry.index);
+
+        if register_pin == RegisterPinState::Unpinned {
+            // Keep host MSRs as well as template or CPUID MSRs that KVM didn't list.
+            let mut seen: HashSet<_> = self.msrs_to_save.iter().copied().collect();
+            self.msrs_to_save
+                .extend(indices.filter(|id| seen.insert(*id)));
+            return;
+        }
+
+        if self.index == 0 {
+            let pinned_indices: HashSet<_> = indices.clone().collect();
+            let omitted_indices: Vec<_> = self
+                .msrs_to_save
+                .iter()
+                .copied()
+                .filter(|index| !pinned_indices.contains(index))
+                .collect();
+            if !omitted_indices.is_empty() {
+                info!(
+                    "Snapshot omits {} MSRs that KVM reports on this host (hex): \
+                     {omitted_indices:x?}",
+                    omitted_indices.len()
+                );
+            }
+        }
+        self.msrs_to_save.clear();
+        self.msrs_to_save.extend(indices);
     }
 
     /// Save the KVM internal state.
@@ -737,7 +773,11 @@ impl KvmVcpu {
     }
 
     /// Use provided state to populate KVM internal state.
-    pub fn restore_state(&self, state: &VcpuState) -> Result<(), KvmVcpuError> {
+    pub fn restore_state(
+        &mut self,
+        state: &VcpuState,
+        register_pin: RegisterPinState,
+    ) -> Result<(), KvmVcpuError> {
         // Ordering requirements:
         //
         // KVM_GET_VCPU_EVENTS/KVM_SET_VCPU_EVENTS is unsafe if other vCPUs are
@@ -802,6 +842,7 @@ impl KvmVcpu {
             .map_err(KvmVcpuError::VcpuSetVcpuEvents)?;
 
         self.kvmclock_ctrl();
+        self.restore_msr_indices(state, register_pin);
         Ok(())
     }
 }
@@ -1098,7 +1139,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_cpuid_restore() {
-        let (vm, vcpu) = setup_vcpu(0x10000);
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
         vcpu.fd.set_cpuid2(&vm.kvm().supported_cpuid).unwrap();
 
         // Mutate the CPUID.
@@ -1111,13 +1152,13 @@ pub(crate) mod tests {
         });
 
         // Restore the state into the existing vcpu.
-        let result1 = vcpu.restore_state(&state);
+        let result1 = vcpu.restore_state(&state, RegisterPinState::Unpinned);
         assert!(result1.is_ok(), "{}", result1.unwrap_err());
         drop(vcpu);
 
         // Restore the state into a new vcpu.
-        let (_vm, vcpu) = setup_vcpu(0x10000);
-        let result2 = vcpu.restore_state(&state);
+        let (_vm, mut vcpu) = setup_vcpu(0x10000);
+        let result2 = vcpu.restore_state(&state, RegisterPinState::Unpinned);
         assert!(result2.is_ok(), "{}", result2.unwrap_err());
 
         // Validate the mutated cpuid is restored correctly.
@@ -1131,6 +1172,159 @@ pub(crate) mod tests {
             })
             .unwrap();
         assert!(leaf3.result.eax == 0x1234_5678);
+    }
+
+    #[test]
+    fn test_vcpu_save_restore_pinned_msr_indices() {
+        use crate::arch::x86_64::generated::msr_index::{MSR_CSTAR, MSR_LSTAR, MSR_STAR};
+
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
+        configure_vcpu(
+            &vm,
+            &mut vcpu,
+            &CustomCpuTemplate::default(),
+            EntryPoint {
+                entry_addr: GuestAddress(0),
+                protocol: BootProtocol::LinuxBoot,
+                setup_header: None,
+            },
+        )
+        .unwrap();
+        let msr_indices = |state: &VcpuState| {
+            state
+                .saved_msrs
+                .iter()
+                .flat_map(|msrs| msrs.as_slice())
+                .map(|entry| entry.index)
+                .collect::<Vec<_>>()
+        };
+        let mut snapshot_state = vcpu.save_state().unwrap();
+        let mut filtered_host_indices = msr_indices(&snapshot_state);
+        filtered_host_indices.retain(|&index| index != MSR_STAR);
+
+        // STAR, LSTAR, and CSTAR are not deferred, so the trailing deferred chunk stays unchanged.
+        let chunk = snapshot_state
+            .saved_msrs
+            .iter_mut()
+            .find(|msrs| msrs.as_slice().iter().any(|entry| entry.index == MSR_STAR))
+            .unwrap();
+        let entries: Vec<_> = chunk
+            .as_slice()
+            .iter()
+            .filter(|entry| entry.index != MSR_STAR)
+            .map(|entry| (entry.index, entry.data))
+            .collect();
+        *chunk = msrs_from_entries(&entries);
+        let mut to_swap = snapshot_state
+            .saved_msrs
+            .iter_mut()
+            .flat_map(|msrs| msrs.as_mut_slice())
+            .filter(|entry| matches!(entry.index, MSR_LSTAR | MSR_CSTAR));
+        std::mem::swap(to_swap.next().unwrap(), to_swap.next().unwrap());
+        let snapshot_indices = msr_indices(&snapshot_state);
+        assert_ne!(snapshot_indices, filtered_host_indices);
+
+        let (_restored_vm, mut restored_vcpu) = setup_vcpu(0x10000);
+        restored_vcpu
+            .restore_state(&snapshot_state, RegisterPinState::Unpinned)
+            .unwrap();
+        let unpinned_state = restored_vcpu.save_state().unwrap();
+        assert!(msr_indices(&unpinned_state).contains(&MSR_STAR));
+
+        let (_pinned_vm, mut pinned_vcpu) = setup_vcpu(0x10000);
+        pinned_vcpu
+            .restore_state(&snapshot_state, RegisterPinState::Pinned)
+            .unwrap();
+        let pinned_state = pinned_vcpu.save_state().unwrap();
+        assert_eq!(msr_indices(&pinned_state), snapshot_indices);
+    }
+
+    #[test]
+    fn test_vcpu_restore_keeps_saved_msrs() {
+        use crate::arch::x86_64::generated::msr_index::MSR_STAR;
+
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
+        configure_vcpu(
+            &vm,
+            &mut vcpu,
+            &CustomCpuTemplate::default(),
+            EntryPoint {
+                entry_addr: GuestAddress(0),
+                protocol: BootProtocol::LinuxBoot,
+                setup_header: None,
+            },
+        )
+        .unwrap();
+        // Booting adds MSRs that the host does not list, such as the MTRR ones that follow from
+        // CPUID.
+        let state = vcpu.save_state().unwrap();
+
+        let (_restored_vm, mut restored_vcpu) = setup_vcpu(0x10000);
+        // Make sure of one such MSR, whatever this host lists.
+        restored_vcpu
+            .msrs_to_save
+            .retain(|index| *index != MSR_STAR);
+        restored_vcpu
+            .restore_state(&state, RegisterPinState::Unpinned)
+            .unwrap();
+        let restored_state = restored_vcpu.save_state().unwrap();
+
+        let msr_indices = |state: &VcpuState| {
+            state
+                .saved_msrs
+                .iter()
+                .flat_map(|msrs| msrs.as_slice())
+                .map(|entry| entry.index)
+                .collect::<HashSet<_>>()
+        };
+        let mut dropped: Vec<_> = msr_indices(&state)
+            .difference(&msr_indices(&restored_state))
+            .copied()
+            .collect();
+        dropped.sort_unstable();
+        assert!(
+            dropped.is_empty(),
+            "MSRs missing from the snapshot of the restored vCPU: {dropped:x?}"
+        );
+    }
+
+    #[test]
+    fn test_vcpu_restore_fails_on_unknown_msr() {
+        // A snapshot can hold an MSR that the restoring host's KVM does not implement, as one
+        // taken on a newer kernel can. KVM_SET_MSRS stops at the first MSR it cannot set and
+        // returns how many it wrote. The restore has to fail then, or the vCPU would run with
+        // the remaining MSRs unset.
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
+        configure_vcpu(
+            &vm,
+            &mut vcpu,
+            &CustomCpuTemplate::default(),
+            EntryPoint {
+                entry_addr: GuestAddress(0),
+                protocol: BootProtocol::LinuxBoot,
+                setup_header: None,
+            },
+        )
+        .unwrap();
+        let mut state = vcpu.save_state().unwrap();
+
+        // As in `test_get_msrs_with_invalid_msr_index`, KVM does not implement MSR index 2.
+        // Put it second, so that KVM has MSRs to set before and after it.
+        let chunk = &mut state.saved_msrs[0];
+        let mut entries: Vec<_> = chunk
+            .as_slice()
+            .iter()
+            .map(|entry| (entry.index, entry.data))
+            .collect();
+        assert!(entries.len() > 2);
+        entries[1] = (2, 0);
+        *chunk = msrs_from_entries(&entries);
+
+        let (_restored_vm, mut restored_vcpu) = setup_vcpu(0x10000);
+        assert!(matches!(
+            restored_vcpu.restore_state(&state, RegisterPinState::Unpinned),
+            Err(KvmVcpuError::VcpuSetMsrsIncomplete)
+        ));
     }
 
     #[test]
@@ -1399,6 +1593,19 @@ pub(crate) mod tests {
             &msr_chunks,
             &[(MSR_IA32_TSC_DEADLINE, 1), (MSR_IA32_TSC, 2)],
         );
+    }
+
+    #[test]
+    fn test_get_msr_chunks_256_entries() {
+        use crate::arch::x86_64::generated::msr_index::MSR_STAR;
+
+        let (_vm, vcpu) = setup_vcpu(0x1000);
+        // Repeat a readable MSR so the test does not require 256 distinct host MSRs.
+        let mut indices = [MSR_IA32_TSC; 256];
+        indices[255] = MSR_STAR;
+        let chunks = vcpu.get_msr_chunks(indices.iter().copied()).unwrap();
+        let saved = chunks.iter().flat_map(|chunk| chunk.as_slice());
+        assert!(saved.map(|entry| entry.index).eq(indices));
     }
 
     #[test]

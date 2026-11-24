@@ -40,7 +40,9 @@ use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, MachineConfigUpdate};
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfigError;
-use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, MemBackendType};
+use crate::vmm_config::snapshot::{
+    CreateSnapshotParams, LoadSnapshotParams, MemBackendType, VcpuRegisterPolicy,
+};
 use crate::vstate::kvm::KvmState;
 use crate::vstate::memory::{
     self, GuestMemoryState, GuestRegionMmap, GuestRegionType, MemoryError,
@@ -106,6 +108,8 @@ pub struct MicrovmState {
     pub vcpu_states: Vec<VcpuState>,
     /// Device states.
     pub device_states: DevicesState,
+    /// Whether microVMs restored from this state save exactly its vCPU registers.
+    pub vcpu_registers_pinned: bool,
 }
 
 /// This describes the mapping between Firecracker base virtual address and
@@ -170,7 +174,7 @@ pub enum CreateSnapshotError {
 }
 
 /// Snapshot version
-pub const SNAPSHOT_VERSION: Version = Version::new(13, 0, 0);
+pub const SNAPSHOT_VERSION: Version = Version::new(14, 0, 0);
 
 /// Creates a Microvm snapshot.
 pub fn create_snapshot(
@@ -178,9 +182,11 @@ pub fn create_snapshot(
     vm_info: &VmInfo,
     params: &CreateSnapshotParams,
 ) -> Result<(), CreateSnapshotError> {
-    let microvm_state = vmm
+    let mut microvm_state = vmm
         .save_state(vm_info)
         .map_err(CreateSnapshotError::MicrovmState)?;
+    // Pin affects only the output snapshot; Inherit keeps the pin loaded with the microVM.
+    microvm_state.vcpu_registers_pinned |= params.vcpu_registers == VcpuRegisterPolicy::Pin;
 
     snapshot_state_to_file(
         &microvm_state,
@@ -874,6 +880,7 @@ mod tests {
         let microvm_state = MicrovmState {
             device_states: states,
             vcpu_states,
+            vcpu_registers_pinned: false,
             kvm_state: Default::default(),
             vm_info: VmInfo {
                 mem_size_mib: 1u64,

@@ -120,6 +120,32 @@ arm64_sys_reg!(TCR_EL1, 3, 0, 2, 0, 2);
 // https://developer.arm.com/documentation/100798/0400/register-descriptions/aarch64-system-registers/id-aa64mmfr0-el1--aarch64-memory-model-feature-register-0--el1
 arm64_sys_reg!(ID_AA64MMFR0_EL1, 3, 0, 0, 7, 0);
 
+/// Returns whether `id` is a feature ID register. These describe the vCPU to the guest, which
+/// cannot write them. They are the Feature ID range of the KVM API: every AArch64 system
+/// register with Op0 == 3, Op1 in {0, 1, 3}, CRn == 0 and CRm in 0..=7. This is the test that
+/// `is_feature_id_reg()` makes in the kernel's arch/arm64/kvm/sys_regs.c.
+pub const fn is_feature_id_reg(id: u64) -> bool {
+    // The five encoding fields fill the low 16 bits of a system register ID. Every bit above
+    // them has to match a 64-bit system register.
+    const ENCODING_MASK: u64 = (KVM_REG_ARM64_SYSREG_OP0_MASK
+        | KVM_REG_ARM64_SYSREG_OP1_MASK
+        | KVM_REG_ARM64_SYSREG_CRN_MASK
+        | KVM_REG_ARM64_SYSREG_CRM_MASK
+        | KVM_REG_ARM64_SYSREG_OP2_MASK) as u64;
+    const SYSREG_U64: u64 = KVM_REG_ARM64 | KVM_REG_SIZE_U64 | KVM_REG_ARM64_SYSREG as u64;
+
+    let op0 = (id & KVM_REG_ARM64_SYSREG_OP0_MASK as u64) >> KVM_REG_ARM64_SYSREG_OP0_SHIFT;
+    let op1 = (id & KVM_REG_ARM64_SYSREG_OP1_MASK as u64) >> KVM_REG_ARM64_SYSREG_OP1_SHIFT;
+    let crn = (id & KVM_REG_ARM64_SYSREG_CRN_MASK as u64) >> KVM_REG_ARM64_SYSREG_CRN_SHIFT;
+    let crm = (id & KVM_REG_ARM64_SYSREG_CRM_MASK as u64) >> KVM_REG_ARM64_SYSREG_CRM_SHIFT;
+
+    (id & !ENCODING_MASK) == SYSREG_U64
+        && op0 == 3
+        && matches!(op1, 0 | 1 | 3)
+        && crn == 0
+        && crm <= 7
+}
+
 /// Vector lengths pseudo-register
 /// TODO: this can be removed after https://github.com/rust-vmm/kvm-bindings/pull/89
 /// is merged and new version is used in Firecracker.
@@ -527,6 +553,30 @@ reg_data_array!([u8; 256], 256);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_is_feature_id_reg() {
+        arm64_sys_reg!(CTR_EL0, 3, 3, 0, 0, 1);
+        arm64_sys_reg!(CSSELR_EL1, 3, 2, 0, 0, 0);
+        arm64_sys_reg!(CRM_8, 3, 0, 0, 8, 0);
+        arm64_sys_reg!(MDSCR_EL1, 2, 0, 0, 2, 2);
+
+        for id in [MIDR_EL1, ID_AA64MMFR2_EL1, CLIDR_EL1, CTR_EL0] {
+            assert!(is_feature_id_reg(id), "{id:#x}");
+        }
+        let wrong_width = (MIDR_EL1 & !KVM_REG_SIZE_U64) | KVM_REG_SIZE_U32;
+        for id in [
+            CSSELR_EL1,
+            CRM_8,
+            TCR_EL1,
+            wrong_width,
+            MDSCR_EL1,
+            PC,
+            KVM_REG_ARM64_SVE_VLS,
+        ] {
+            assert!(!is_feature_id_reg(id), "{id:#x}");
+        }
+    }
 
     #[test]
     fn test_reg_size() {

@@ -142,7 +142,7 @@ mod tests {
     fn test_parse_put_snapshot() {
         use std::path::PathBuf;
 
-        use vmm::vmm_config::snapshot::SnapshotType;
+        use vmm::vmm_config::snapshot::{SnapshotType, VcpuRegisterPolicy};
 
         let body = r#"{
             "snapshot_type": "Diff",
@@ -154,6 +154,7 @@ mod tests {
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
             sync_snapshot_files: true,
+            vcpu_registers: VcpuRegisterPolicy::Inherit,
         };
         assert_eq!(
             vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some("create")).unwrap()),
@@ -171,6 +172,7 @@ mod tests {
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
             sync_snapshot_files: false,
+            vcpu_registers: VcpuRegisterPolicy::Inherit,
         };
         assert_eq!(
             vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some("create")).unwrap()),
@@ -186,10 +188,57 @@ mod tests {
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
             sync_snapshot_files: true,
+            vcpu_registers: VcpuRegisterPolicy::Inherit,
         };
         assert_eq!(
             vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some("create")).unwrap()),
             VmmAction::CreateSnapshot(expected_config)
+        );
+
+        let body = r#"{
+            "snapshot_path": "foo",
+            "mem_file_path": "bar",
+            "vcpu_registers": "Pin"
+        }"#;
+        let expected_config = CreateSnapshotParams {
+            snapshot_type: SnapshotType::Full,
+            snapshot_path: PathBuf::from("foo"),
+            mem_file_path: PathBuf::from("bar"),
+            sync_snapshot_files: true,
+            vcpu_registers: VcpuRegisterPolicy::Pin,
+        };
+        assert_eq!(
+            vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some("create")).unwrap()),
+            VmmAction::CreateSnapshot(expected_config)
+        );
+
+        let body = r#"{
+            "snapshot_path": "foo",
+            "mem_file_path": "bar",
+            "vcpu_registers": "Inherit"
+        }"#;
+        let expected_config = CreateSnapshotParams {
+            snapshot_type: SnapshotType::Full,
+            snapshot_path: PathBuf::from("foo"),
+            mem_file_path: PathBuf::from("bar"),
+            sync_snapshot_files: true,
+            vcpu_registers: VcpuRegisterPolicy::Inherit,
+        };
+        assert_eq!(
+            vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some("create")).unwrap()),
+            VmmAction::CreateSnapshot(expected_config)
+        );
+
+        let body = r#"{
+            "snapshot_path": "foo",
+            "mem_file_path": "bar",
+            "vcpu_registers": "Unpin"
+        }"#;
+        assert!(
+            parse_put_snapshot(&Body::new(body), Some("create"))
+                .unwrap_err()
+                .to_string()
+                .contains("unknown variant `Unpin`, expected `Inherit` or `Pin`")
         );
 
         let invalid_body = r#"{

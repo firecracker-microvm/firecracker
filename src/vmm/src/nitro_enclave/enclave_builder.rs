@@ -487,6 +487,7 @@ pub fn build_and_boot_enclave(
         machine_config: vm_resources.machine_config.clone(),
         boot_source_config: vm_resources.boot_source.config.clone(),
         shutdown_exit_code: None,
+        vcpu_registers_pinned: false,
         vm: Vm::Enclave(enclave_vm),
         device_manager,
     };

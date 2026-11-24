@@ -312,6 +312,9 @@ pub struct Vmm {
     pub machine_config: MachineConfig,
     boot_source_config: BootSourceConfig,
     shutdown_exit_code: Option<FcExitCode>,
+    /// Whether this microVM was restored from a snapshot with pinned vCPU registers.
+    /// Its snapshots are pinned too.
+    vcpu_registers_pinned: bool,
 
     /// VM object.
     pub vm: Vm,
@@ -586,6 +589,7 @@ impl Vmm {
             kvm_state,
             vm_state,
             vcpu_states,
+            vcpu_registers_pinned: self.vcpu_registers_pinned,
             device_states,
         })
     }

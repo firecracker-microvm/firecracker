@@ -51,6 +51,16 @@ and this project adheres to
   files of pmem devices when loading a snapshot. See
   [Overriding host resources](docs/snapshotting/snapshot-support.md#overriding-host-resources)
   for more information.
+- Added `vcpu_registers` to `PUT /snapshot/create`. Use `Pin` on the oldest
+  supported host to pin Firecracker's normal snapshot register set (on x86_64,
+  its snapshot MSRs, not every KVM MSR). After restoring a pinned snapshot, both
+  `Inherit` (the default) and `Pin` preserve the ordered register IDs and any
+  pinned aarch64 CPU feature ID values. Without a pin, `Inherit` leaves the
+  snapshot unpinned. Neither mode changes the running microVM's pin. Storing the
+  pin in the snapshot bumps the snapshot version again, to `14.0.0`.
+- Added `snapshot-editor info-vmstate check-vcpu-register-pin` to check whether
+  a re-snapshot retained the source snapshot's vCPU register pin. See the
+  [snapshot editor guide](docs/snapshotting/snapshot-editor.md#check-vcpu-register-pin-subcommand).
 
 ### Changed
 
@@ -125,6 +135,9 @@ and this project adheres to
   template definitions remain available in `tests/data/custom_cpu_templates`.
 
 ### Fixed
+
+- Fixed a failure when creating a snapshot or dumping the CPU configuration on
+  x86_64 if Firecracker needed to read 256 or more model-specific registers.
 
 - [#6302](https://github.com/firecracker-microvm/firecracker/issues/6302): Fixed
   AMX tile state being lost after a snapshot restore. The IA32_XFD and
@@ -229,6 +242,13 @@ and this project adheres to
   sends the error response, discards everything else received on that
   connection, and closes it once the response has been acknowledged. Data the
   guest sends after that resets the connection.
+
+- Fixed snapshots of a microVM that was itself restored from a snapshot leaving
+  out MSRs on x86_64. Booting adds MSRs that KVM does not list to the ones a
+  snapshot saves: those set by a CPU template, and those that follow from the
+  guest CPUID, such as the MTRR and machine-check bank MSRs. A restored microVM
+  only saved the MSRs KVM lists, so its own snapshots lost the others. It now
+  also saves the MSRs it was restored with.
 
 ## [1.18.0]
 
