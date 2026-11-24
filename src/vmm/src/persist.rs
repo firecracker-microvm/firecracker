@@ -618,7 +618,13 @@ fn guest_memory_from_uffd(
 ) -> Result<(Vec<GuestRegionMmap>, Option<Uffd>), GuestMemoryFromUffdError> {
     let guest_memory = memory::anonymous(&mem_state.regions(), track_dirty_pages, huge_pages)?;
     let handshake = Handshake::new(guest_memory.iter(), huge_pages);
+    let uffd = register_uffd(&guest_memory)?;
+    handshake.send(mem_uds_path, &uffd)?;
+    Ok((guest_memory, Some(uffd)))
+}
 
+/// Creates a userfaultfd and registers every region of `guest_memory` with it.
+fn register_uffd(guest_memory: &[GuestRegionMmap]) -> Result<Uffd, GuestMemoryFromUffdError> {
     let mut uffd_builder = UffdBuilder::new();
 
     // We only make use of this if balloon devices are present, but we can enable it unconditionally
@@ -634,14 +640,11 @@ fn guest_memory_from_uffd(
         .create()
         .map_err(GuestMemoryFromUffdError::Create)?;
 
-    for mem_region in guest_memory.iter() {
+    for mem_region in guest_memory {
         uffd.register(mem_region.as_ptr().cast(), mem_region.size() as _)
             .map_err(GuestMemoryFromUffdError::Register)?;
     }
-
-    handshake.send(mem_uds_path, &uffd)?;
-
-    Ok((guest_memory, Some(uffd)))
+    Ok(uffd)
 }
 
 #[cfg(test)]
