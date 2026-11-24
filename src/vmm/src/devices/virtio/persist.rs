@@ -228,7 +228,7 @@ pub struct MmioTransportConstructorArgs {
 impl Persist<'_> for MmioTransport {
     type State = MmioTransportState;
     type ConstructorArgs = MmioTransportConstructorArgs;
-    type Error = ();
+    type Error = std::io::Error;
 
     fn save(&self) -> Self::State {
         MmioTransportState {
@@ -260,6 +260,13 @@ impl Persist<'_> for MmioTransport {
             .interrupt
             .irq_status
             .store(state.interrupt_status, Ordering::SeqCst);
+        if state.interrupt_status != 0 {
+            // KVM injects irqfd interrupts asynchronously. The snapshot may contain a
+            // pending device status without the corresponding interrupt in KVM state.
+            // Replay it before irqfd registration, which checks the eventfd's pending
+            // count. One notification covers both queue and configuration interrupts.
+            transport.interrupt.irq_evt.write(1)?;
+        }
         Ok(transport)
     }
 }
@@ -534,6 +541,53 @@ mod tests {
             MmioTransport::new(mem.clone(), interrupt.clone(), vsock.clone(), false);
 
         (mmio_transport, interrupt, mem, vsock)
+    }
+
+    #[test]
+    fn test_mmiotransport_restore_pending_interrupt() {
+        use crate::devices::virtio::transport::mmio::{
+            VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING,
+        };
+
+        for status in [
+            0,
+            VIRTIO_MMIO_INT_VRING,
+            VIRTIO_MMIO_INT_CONFIG,
+            VIRTIO_MMIO_INT_VRING | VIRTIO_MMIO_INT_CONFIG,
+        ] {
+            let mem = default_mem();
+            let device = Arc::new(Mutex::new(DummyDevice::new()));
+            let source = MmioTransport::new(
+                mem.clone(),
+                Arc::new(IrqTrigger::new()),
+                device.clone(),
+                false,
+            );
+            source.interrupt.irq_status.store(status, Ordering::SeqCst);
+            let state = source.save();
+
+            // A fresh eventfd models a restore with no interrupt pending in KVM.
+            let interrupt = Arc::new(IrqTrigger::new());
+            let restored = MmioTransport::restore(
+                MmioTransportConstructorArgs {
+                    mem,
+                    interrupt: interrupt.clone(),
+                    device,
+                    is_vhost_user: false,
+                },
+                &state,
+            )
+            .unwrap();
+
+            if status != 0 {
+                assert_eq!(interrupt.irq_evt.read().unwrap(), 1);
+            }
+            assert_eq!(
+                interrupt.irq_evt.read().unwrap_err().kind(),
+                std::io::ErrorKind::WouldBlock
+            );
+            assert_eq!(restored.save(), state);
+        }
     }
 
     #[test]

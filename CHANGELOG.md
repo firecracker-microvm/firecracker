@@ -136,6 +136,15 @@ and this project adheres to
   snapshot restore with the `File` memory backend rejecting a block device as
   `backend_path`. Since v1.14.0 the memory file size was read with `fstat`,
   which reports 0 for block devices; it is now read with `lseek`.
+- [#6291](https://github.com/firecracker-microvm/firecracker/pull/6291): Fixed a
+  virtio-mmio device stalling forever after a snapshot restore when its
+  interrupt was raised just before the snapshot. KVM injects irqfd interrupts
+  asynchronously, so the snapshot could hold the device interrupt status set but
+  no pending interrupt in the IOAPIC or LAPIC state. With
+  `VIRTIO_RING_F_EVENT_IDX`, the device then never interrupted the guest again
+  (for example, a guest that only receives stopped receiving). When restoring
+  the MMIO transport, Firecracker now raises the interrupt again if its saved
+  interrupt status is still set.
 
 - [#6254](https://github.com/firecracker-microvm/firecracker/pull/6254) Fixed
   pausing a vCPU with an unfinished MMIO or port-I/O instruction. Pending I/O
