@@ -404,7 +404,7 @@ run_devctr() {
         --volume "$FC_ROOT_DIR:$CTR_FC_ROOT_DIR:z" \
         --volume "$FC_ROOT_DIR/build/cargo_registry:/usr/local/rust/registry:z" \
         --volume "$FC_ROOT_DIR/build/cargo_git_registry:/usr/local/rust/git:z" \
-        --tmpfs /srv:exec,dev,size=32G \
+        --tmpfs /srv:exec,dev,size=64G \
         -v /boot:/boot \
         --env PYTHONDONTWRITEBYTECODE=1 \
         "$DEVCTR_IMAGE" "${ctr_args[@]}"
