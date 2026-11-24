@@ -513,3 +513,15 @@ your scenario.
   hugetlbfs memory and can increase host memory use. Free page reporting needs
   the guest to report ranges of at least 2 MiB, which Linux guests do by
   default. See the [security disclaimer](#security-disclaimer) for details.
+
+- On a microVM restored with the `File` memory backend, each discarded range
+  that does not border an already discarded one splits the guest memory mapping
+  and costs the Firecracker process up to two more memory mappings (VMAs). A
+  guest that inflates the balloon with many non-contiguous pages can push the
+  process to the host's `vm.max_map_count` limit, at which point Firecracker
+  panics and the microVM stops. With the default limit of 65530, this takes
+  about 32K non-contiguous 4 KiB pages, or roughly 128 MiB. Free page hinting
+  and reporting usually discard ranges of 2 MiB or more, so they are far less
+  likely to reach the limit. To avoid this, restore balloon-enabled microVMs
+  with the `Uffd` backend, or raise `vm.max_map_count` on the host. Raising the
+  limit also raises the kernel memory each process can use for memory mappings.
