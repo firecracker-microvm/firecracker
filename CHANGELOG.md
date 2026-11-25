@@ -115,6 +115,10 @@ and this project adheres to
   other than a single `Content-Length: 0`, or a header name that is not an HTTP
   token. MMDS requests never carry a body, so no valid request needs any of
   these. Such a request receives a `400` response, and the connection is closed.
+- [#6456](https://github.com/firecracker-microvm/firecracker/pull/6456): Raised
+  the maximum number of vCPUs of a KVM microVM from 32 to 64. CPUID leaf 0xB
+  (and 0x1F where present) subleaf 1 `EAX[4:0]` now reports 6 instead of 5 for
+  every microVM; the topology a guest reports is unchanged.
 - [#6466](https://github.com/firecracker-microvm/firecracker/pull/6466): Removed
   the `regex` dependency from `jailer` by parsing `/proc/mounts` directly with
   `split_ascii_whitespace()`, shrinking the stripped `jailer` musl release
@@ -141,6 +145,12 @@ and this project adheres to
   snapshot restore with the `File` memory backend rejecting a block device as
   `backend_path`. Since v1.14.0 the memory file size was read with `fstat`,
   which reports 0 for block devices; it is now read with `lseek`.
+
+- [#6256](https://github.com/firecracker-microvm/firecracker/pull/6256): Fixed
+  host sockets that never send their `CONNECT <port>\n` command piling up
+  without limit on the vsock Unix socket. Such sockets now count towards the
+  vsock connection limit. When the limit is reached, a new connection from
+  either the host or the guest closes the oldest such socket to make room.
 
 - [#6254](https://github.com/firecracker-microvm/firecracker/pull/6254) Fixed
   pausing a vCPU with an unfinished MMIO or port-I/O instruction. Pending I/O

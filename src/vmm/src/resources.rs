@@ -21,6 +21,9 @@ use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
 };
+use crate::vmm_config::device_passthrough::{
+    DevicePassthroughConfig, DevicePassthroughConfigError, DevicePassthroughConfigs,
+};
 use crate::vmm_config::drive::*;
 use crate::vmm_config::enclave::EnclaveConfig;
 use crate::vmm_config::entropy::*;
@@ -69,6 +72,18 @@ pub enum ResourcesError {
     PmemConfig(#[from] PmemConfigError),
     /// Memory hotplug config error: {0}
     MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
+    /// Device passthrough config error: {0}
+    DevicePassthroughConfig(#[from] DevicePassthroughConfigError),
+    /// Passthrough devices attached, but PCI disabled
+    DevicePassthroughWithoutPci,
+    /// Passthrough devices are not compatible with Enclave mode
+    DevicePassthroughWithEnclave,
+    /// Passthrough devices are not compatible with memory hot-plugging device
+    DevicePassthroughWithMemHotplug,
+    /// Passthrough devices are not compatible with memory balloon device
+    DevicePassthroughWithBalloon,
+    /// Passthrough devices are not compatible with pmem device
+    DevicePassthroughWithPmem,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -104,6 +119,8 @@ pub struct VmmConfig {
     /// Enclave configuration for Nitro Enclaves.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enclave: Option<EnclaveConfig>,
+    #[serde(default)]
+    pub device_passthrough: Vec<DevicePassthroughConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -144,6 +161,8 @@ pub struct VmResources {
     pub serial_rate_limiter_cfg: Option<TokenBucketConfig>,
     /// Enclave configuration for Nitro Enclaves.
     pub enclave: Option<EnclaveConfig>,
+    /// Device passthrough configuration.
+    pub device_passthrough: DevicePassthroughConfigs,
 }
 
 impl VmResources {
@@ -270,7 +289,71 @@ impl VmResources {
             resources.set_enclave_config(enclave);
         }
 
+        for config in vmm_config.device_passthrough {
+            resources.device_passthrough.add(config)?;
+        }
+
         Ok(resources)
+    }
+
+    /// Validate the VM configuration for incompatibilities
+    pub fn validate(&self) -> Result<(), ResourcesError> {
+        if !self.device_passthrough.configs.is_empty() {
+            self.compatible_with_passthrough_device()?;
+        }
+        Ok(())
+    }
+
+    /// Check if current config is compatible with adding a balloon device
+    pub fn compatible_with_balloon(&self) -> Result<(), ResourcesError> {
+        if !self.device_passthrough.configs.is_empty() {
+            return Err(ResourcesError::DevicePassthroughWithBalloon);
+        }
+        Ok(())
+    }
+
+    /// Check if current config is compatible with adding a memory hotplug device
+    pub fn compatible_with_memory_hotplug(&self) -> Result<(), ResourcesError> {
+        if !self.device_passthrough.configs.is_empty() {
+            return Err(ResourcesError::DevicePassthroughWithMemHotplug);
+        }
+        Ok(())
+    }
+
+    /// Check if current config is compatible with adding a pmem device
+    pub fn compatible_with_pmem(&self) -> Result<(), ResourcesError> {
+        if !self.device_passthrough.configs.is_empty() {
+            return Err(ResourcesError::DevicePassthroughWithPmem);
+        }
+        Ok(())
+    }
+
+    /// Check if current config is compatible with adding a passthrough device
+    pub fn compatible_with_passthrough_device(&self) -> Result<(), ResourcesError> {
+        if self.enclave.is_some() {
+            return Err(ResourcesError::DevicePassthroughWithEnclave);
+        }
+        if !self.pci_enabled {
+            return Err(ResourcesError::DevicePassthroughWithoutPci);
+        }
+        if self.memory_hotplug.is_some() {
+            return Err(ResourcesError::DevicePassthroughWithMemHotplug);
+        }
+        if self.balloon.get().is_some() {
+            return Err(ResourcesError::DevicePassthroughWithBalloon);
+        }
+        if !self.pmem.configs.is_empty() {
+            return Err(ResourcesError::DevicePassthroughWithPmem);
+        }
+        Ok(())
+    }
+
+    /// Check if current config is compatible with using Enclave backend
+    pub fn compatible_with_enclave(&self) -> Result<(), ResourcesError> {
+        if !self.device_passthrough.configs.is_empty() {
+            return Err(ResourcesError::DevicePassthroughWithEnclave);
+        }
+        Ok(())
     }
 
     /// If not initialised, create the mmds data store with the default config.
@@ -610,6 +693,14 @@ impl VmResources {
         };
         Ok(regions.pop().unwrap())
     }
+
+    /// Adds a passthrough device configuration.
+    pub fn set_passthrough_device(
+        &mut self,
+        config: DevicePassthroughConfig,
+    ) -> Result<(), DevicePassthroughConfigError> {
+        self.device_passthrough.add(config)
+    }
 }
 
 impl From<&VmResources> for VmmConfig {
@@ -631,6 +722,7 @@ impl From<&VmResources> for VmmConfig {
             serial_config: None,
             memory_hotplug: resources.memory_hotplug.clone(),
             enclave: resources.enclave.clone(),
+            device_passthrough: resources.device_passthrough.configs.clone(),
         }
     }
 }
@@ -667,6 +759,7 @@ mod tests {
     };
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
+    use crate::vstate::vm::MAX_SUPPORTED_KVM_VCPUS;
 
     fn default_net_cfg() -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {
@@ -757,6 +850,7 @@ mod tests {
             serial_rate_limiter_cfg: None,
             memory_hotplug: Default::default(),
             enclave: None,
+            device_passthrough: Default::default(),
         }
     }
 
@@ -1659,9 +1753,10 @@ mod tests {
             Err(MachineConfigError::InvalidVcpuCount)
         );
 
-        // Counts above the KVM limit (32) are accepted by the machine-config API;
-        // the per-path limit is enforced when the VM is started.
-        aux_vm_config.vcpu_count = Some(33);
+        // Counts above the limit
+        // ([`MAX_SUPPORTED_KVM_VCPUS`](crate::vstate::vm::MAX_SUPPORTED_KVM_VCPUS)) are accepted by
+        // the machine-config API; the per-path limit is enforced when the VM is started.
+        aux_vm_config.vcpu_count = Some(MAX_SUPPORTED_KVM_VCPUS + 1);
         vm_resources.update_machine_config(&aux_vm_config).unwrap();
 
         // Check that SMT is not supported on aarch64, and that on x86_64 enabling it requires vcpu

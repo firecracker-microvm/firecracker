@@ -18,7 +18,7 @@ Firecracker virtual machine manager (VMM).
 
 1. Firecracker can safely run workloads from different customers on the same
    machine.
-1. Customers can create microVMs with any combination of vCPU (up to 32) and
+1. Customers can create microVMs with any combination of vCPU (up to 64) and
    memory to match their application requirements.
 1. Firecracker microVMs can oversubscribe host CPU and memory. The degree of
    oversubscription is controlled by customers, who may factor in workload

@@ -108,6 +108,8 @@ pub mod snapshot;
 pub mod test_utils;
 /// Utility functions and struct
 pub mod utils;
+/// VFIO device configuration and emulation
+pub mod vfio;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
 /// Module with virtual state structs.
@@ -156,6 +158,7 @@ use crate::rpc_interface::VmmActionError;
 use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::BalloonDeviceConfig;
 use crate::vmm_config::boot_source::BootSourceConfig;
+use crate::vmm_config::device_passthrough::DevicePassthroughConfig;
 use crate::vmm_config::enclave::EnclaveConfig;
 use crate::vmm_config::entropy::EntropyDeviceConfig;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
@@ -163,6 +166,7 @@ use crate::vmm_config::machine_config::MachineConfig;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::mmds::MmdsConfig;
 use crate::vmm_config::net::NetworkInterfaceConfig;
+use crate::vmm_config::snapshot::SnapshotType;
 use crate::vmm_config::vsock::VsockDeviceConfig;
 pub use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{GuestMemoryMmap, GuestMemoryRegion};
@@ -317,6 +321,8 @@ pub struct Vmm {
     pub vm: Vm,
     // Device manager
     device_manager: DeviceManager,
+    // Cleared once a device writing guest memory without dirty tracking is hot-plugged
+    can_create_diff_snapshots: bool,
 }
 
 impl Vmm {
@@ -363,6 +369,7 @@ impl Vmm {
         let mut memory_hotplug = None;
         let mut mmds_ipv4_address = None;
         let mut mmds_ref = None;
+        let mut device_passthrough = Vec::new();
 
         self.device_manager
             .for_each_virtio_device(|device_type, device| match device_type {
@@ -410,6 +417,12 @@ impl Vmm {
                 }
             });
 
+        if let Some(pci_devices) = self.device_manager.pci_devices() {
+            for device in pci_devices.vfio_devices.iter() {
+                device_passthrough.push(device.lock().unwrap().config.clone());
+            }
+        }
+
         let mmds_config = mmds_ref.map(|mmds| {
             let mmds = mmds.lock().expect("Poisoned lock");
             MmdsConfig {
@@ -440,6 +453,7 @@ impl Vmm {
             serial_config: None,
             memory_hotplug,
             enclave: self.enclave_config(),
+            device_passthrough,
         }
     }
 
@@ -450,8 +464,14 @@ impl Vmm {
         self.vm.as_enclave().map(EnclaveVm::config)
     }
 
-    /// Check if the VM has any devices without snapshot support
-    pub fn check_unsnapshottable_devices(&self) -> Result<(), MicrovmStateError> {
+    /// Check if the VMM can be snapshotted
+    pub fn can_snapshot(&self, snapshot_type: SnapshotType) -> Result<(), MicrovmStateError> {
+        if self.vm.as_kvm().is_none() {
+            return Err(MicrovmStateError::NotAllowed(
+                "snapshot requires KVM".into(),
+            ));
+        }
+
         let mut tuples = Vec::new();
         self.device_manager
             .for_each_virtio_device(|device_type, device| {
@@ -462,18 +482,40 @@ impl Vmm {
                     tuples.push(("vhost-user-block", b.id().to_owned()));
                 }
             });
-        if tuples.is_empty() {
-            Ok(())
-        } else {
+        if let Some(pci_devices) = self.device_manager.pci_devices() {
+            for device in pci_devices.vfio_devices.iter() {
+                tuples.push((
+                    "passthrough device",
+                    device.lock().unwrap().config.id.clone(),
+                ));
+            }
+        }
+        if !tuples.is_empty() {
             let msg = tuples
                 .iter()
                 .map(|(t, id)| format!("{t}(id: {id})"))
                 .collect::<Vec<_>>()
                 .join(",");
-            Err(MicrovmStateError::NotAllowed(format!(
+            return Err(MicrovmStateError::NotAllowed(format!(
                 "Devices without snapshot support are present: {msg}"
-            )))
+            )));
         }
+
+        if self.instance_info.state != VmState::Paused {
+            return Err(MicrovmStateError::NotAllowed(
+                "snapshot requires a paused microVM".into(),
+            ));
+        }
+
+        if snapshot_type == SnapshotType::Diff && !self.can_create_diff_snapshots {
+            return Err(MicrovmStateError::NotAllowed(
+                "Diff snapshots are not allowed after hot-plugging passthrough or vhost-user \
+                 devices until a Full snapshot is taken"
+                    .into(),
+            ));
+        }
+
+        Ok(())
     }
 
     /// Sends a resume command to the vCPUs.
@@ -544,14 +586,6 @@ impl Vmm {
 
     /// Saves the state of a paused Microvm.
     pub fn save_state(&mut self, vm_info: &VmInfo) -> Result<MicrovmState, MicrovmStateError> {
-        self.check_unsnapshottable_devices()?;
-
-        if self.instance_info.state != VmState::Paused {
-            return Err(MicrovmStateError::NotAllowed(
-                "snapshot requires a paused microVM".into(),
-            ));
-        }
-
         // We need to save device state before saving KVM state.
         // Some devices, (at the time of writing this comment block device with async engine)
         // might modify the VirtIO transport and send an interrupt to the guest. If we save KVM
@@ -774,8 +808,31 @@ impl Vmm {
             self.machine_config
                 .validate_num_queues(&block_config.drive_id, block_config.num_queues)?;
         }
+        let is_vhost_user = config.is_vhost_user();
         self.device_manager
-            .hotplug_device(&self.vm, config, event_manager)
+            .hotplug_device(&self.vm, config, event_manager)?;
+
+        if is_vhost_user {
+            self.can_create_diff_snapshots = false;
+        }
+        Ok(())
+    }
+
+    /// Attaches a passthrough device after VM start
+    pub fn hotplug_passthrough_device(
+        &mut self,
+        config: DevicePassthroughConfig,
+    ) -> Result<(), VmmActionError> {
+        log_dev_preview_warning("device passthrough hotplug", None);
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?;
+        self.device_manager
+            .hotplug_passthrough_device(kvm_vm, config)?;
+
+        self.can_create_diff_snapshots = false;
+        Ok(())
     }
 
     /// Detaches a device after VM start
@@ -794,6 +851,21 @@ impl Vmm {
             .clone();
         self.device_manager
             .hot_unplug_device(kvm_vm, device_id, event_manager, force)
+    }
+
+    /// Detaches a passthrough device after VM start
+    pub fn hot_unplug_passthrough_device(
+        &mut self,
+        id: String,
+        force: bool,
+    ) -> Result<(), VmmActionError> {
+        log_dev_preview_warning("device passthrough hot-unplug", None);
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?;
+        self.device_manager
+            .hot_unplug_passthrough_device(kvm_vm, id, force)
     }
 
     /// Remove any devices that the guest acknowledged that they can go.

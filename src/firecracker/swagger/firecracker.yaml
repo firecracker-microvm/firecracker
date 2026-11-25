@@ -418,6 +418,74 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /device-passthrough/{id}:
+    put:
+      summary: Creates or updates a passthrough device.
+      description:
+        Before boot, creates new passthrough device with ID specified by id
+        parameter. If a device with the specified ID already exists, it updates
+        device state based on new input. After boot, hot-plugs a new
+        passthrough device behind a free PCIe root port. Updates of existing
+        devices are not supported after boot.
+      operationId: putGuestDevicePassthroughByID
+      parameters:
+        - name: id
+          in: path
+          description: The id of the passthrough device
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: passthrough device properties
+          required: true
+          schema:
+            $ref: "#/definitions/DevicePassthrough"
+      responses:
+        204:
+          description: passthrough device is created/updated
+        400:
+          description: passthrough device cannot be created/updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
+    delete:
+      summary: Hot-unplugs a passthrough device. Post-boot only.
+      description:
+        Removes the passthrough device with the ID specified by the id path
+        parameter. The device must have been placed behind a PCIe root port.
+        When the optional force flag is not set, the detach is graceful; the
+        guest is notified and Firecracker waits for a guest acknowledgement
+        before actually removing the device. When force is set, then the device
+        is removed immediately. In either case the DELETE request is
+        non-blocking.
+      operationId: deleteGuestDevicePassthroughByID
+      parameters:
+        - name: id
+          in: path
+          description: The id of the passthrough device
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: Hot-unplug properties
+          required: false
+          schema:
+            $ref: "#/definitions/UnplugParams"
+      responses:
+        204:
+          description: Device removal started
+        400:
+          description: Device cannot be removed due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
+
   /pmem/{id}:
     put:
       summary: Creates or updates a pmem device. Pre-boot only.
@@ -558,7 +626,7 @@ paths:
       description:
         Updates the Virtual Machine Configuration with the specified input.
         Firecracker starts with default values for vCPU count (=1) and memory size (=128 MiB).
-        A KVM microVM supports at most 32 vCPUs. A Nitro Enclave VM's maximum
+        A KVM microVM supports at most 64 vCPUs. A Nitro Enclave VM's maximum
         depends on the underlying hardware, up to an arbitrary hard cap of 1024.
         The vCPU count is validated against the limit for the VM being started
         when the VM is started rather than at configuration time, so a count
@@ -1596,6 +1664,22 @@ definitions:
           Enclave memory in MiB to place on this parent NUMA node. Every entry except
           the last, after sorting by parent_numa, must be a multiple of 128 MiB.
 
+  DevicePassthrough:
+    type: object
+    required:
+      - id
+      - sbdf
+    properties:
+      id:
+        type: string
+        description:
+          Identifier for this passthrough device.
+      sbdf:
+        type: string
+        description:
+          Host PCI device identifier. Accepted formats - full SBDF ("0000:01:02.3") or
+          short BDF ("01:02.3").
+
   Error:
     type: object
     properties:
@@ -1644,6 +1728,11 @@ definitions:
         $ref: "#/definitions/Vsock"
       entropy:
         $ref: "#/definitions/EntropyDevice"
+      device-passthrough:
+        type: array
+        description: Configurations for all device passthrough devices.
+        items:
+          $ref: "#/definitions/DevicePassthrough"
 
   InstanceActionInfo:
     type: object

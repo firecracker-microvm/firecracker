@@ -80,10 +80,7 @@ pub trait NetworkBytes: Deref<Target = [u8]> {
     /// This method will panic if `offset` is invalid.
     #[inline]
     fn ntohs_unchecked(&self, offset: usize) -> u16 {
-        // The unwrap() can fail when the offset is invalid, or there aren't enough bytes (2 in this
-        // case) left until the end of the slice. The caller must ensure this doesn't happen (hence
-        // the `unchecked` suffix).
-        byte_order::read_be_u16(&self[offset..])
+        u16::from_be_bytes([self[offset], self[offset + 1]])
     }
 
     /// Reads an `u32` value from the specified offset, converting it to host byte ordering.
@@ -93,7 +90,12 @@ pub trait NetworkBytes: Deref<Target = [u8]> {
     /// This method will panic if `offset` is invalid.
     #[inline]
     fn ntohl_unchecked(&self, offset: usize) -> u32 {
-        byte_order::read_be_u32(&self[offset..])
+        u32::from_be_bytes([
+            self[offset],
+            self[offset + 1],
+            self[offset + 2],
+            self[offset + 3],
+        ])
     }
 
     /// Shrinks the current slice to the given `len`.

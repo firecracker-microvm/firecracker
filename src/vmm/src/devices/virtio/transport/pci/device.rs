@@ -30,8 +30,8 @@ use crate::devices::virtio::transport::pci::device_status::*;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{debug, error, warn};
 use crate::pci::configuration::{
-    BAR0_REG_IDX, BarPrefetchable, Bars, NUM_BAR_REGS, PciCapability, PciConfiguration,
-    PciConfigurationError, PciConfigurationState,
+    BAR0_REG_IDX, BarPrefetchable, Bars, COMMAND_MEMORY_SPACE_ENABLE, COMMAND_REG, NUM_BAR_REGS,
+    PciCapability, PciConfiguration, PciConfigurationError, PciConfigurationState,
 };
 use crate::pci::msix::{MsixCap, MsixConfig, MsixConfigState};
 use crate::pci::{
@@ -226,11 +226,6 @@ pub const CAPABILITY_BAR_SIZE: u64 = 0x80000;
 
 /// The default PCI bridge window size that Linux uses
 const BRIDGE_WINDOW_SIZE: u64 = 0x10_0000;
-
-/// PCI configuration register index of the Command/Status DWORD.
-const COMMAND_REG: u16 = 1;
-/// Command register "Memory Space Enable" bit
-const COMMAND_MEMORY_SPACE_ENABLE: u32 = 0x0000_0002;
 
 const NOTIFY_OFF_MULTIPLIER: u32 = 4; // A dword per notification address.
 

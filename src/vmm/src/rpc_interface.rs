@@ -9,7 +9,7 @@ use utils::time::{ClockType, get_time_us};
 
 use super::builder::{StartMicrovmError, build_and_boot_microvm};
 use super::persist::{create_snapshot, restore_from_snapshot};
-use super::resources::VmResources;
+use super::resources::{ResourcesError, VmResources};
 use super::{Vmm, VmmError};
 use crate::EventManager;
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
@@ -22,12 +22,14 @@ use crate::mmds::data_store::{self, Mmds, MmdsDatastoreError};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
 use crate::seccomp::BpfThreadMap;
-use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::{
     BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
     BalloonUpdateStatsConfig,
 };
 use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
+use crate::vmm_config::device_passthrough::{
+    DevicePassthroughConfig, DevicePassthroughConfigError,
+};
 use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
 use crate::vmm_config::enclave::{EnclaveConfig, EnclaveConfigError};
 use crate::vmm_config::entropy::{EntropyDeviceConfig, EntropyDeviceError};
@@ -45,7 +47,7 @@ use crate::vmm_config::pmem::{PmemConfig, PmemConfigError, PmemDeviceUpdateConfi
 use crate::vmm_config::serial::SerialConfig;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
-use crate::vmm_config::{self, RateLimiterUpdate};
+use crate::vmm_config::{self, HotplugDeviceConfig, RateLimiterUpdate};
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
@@ -122,6 +124,9 @@ pub enum VmmAction {
     /// Set the entropy device using `EntropyDeviceConfig` as input. This action can only be called
     /// before the microVM has booted.
     SetEntropyDevice(EntropyDeviceConfig),
+    /// Add a passthrough device using `DevicePassthroughConfig` as input. After the microVM has
+    /// booted, this hot-plugs the device.
+    InsertPassthroughDevice(DevicePassthroughConfig),
     /// Get the memory hotplug device configuration and status.
     GetMemoryHotplugStatus,
     /// Set the memory hotplug device using `MemoryHotplugConfig` as input. This action can only be
@@ -161,6 +166,8 @@ pub enum VmmAction {
     UpdateMachineConfiguration(MachineConfigUpdate),
     /// Hot-unplug a device.
     HotUnplugDevice(VirtioDeviceId, bool),
+    /// Hot-unplug a passthrough device.
+    HotUnplugPassthroughDevice(String, bool),
 }
 
 /// Wrapper for all errors associated with VMM actions.
@@ -232,6 +239,10 @@ pub enum VmmActionError {
     PciManager(#[from] PciManagerError),
     /// Enclave device error: {0}
     NeDevice(#[from] crate::device_manager::nitro_enclave::NeDeviceError),
+    /// Device passthrough config error: {0}
+    DevicePassthroughConfig(#[from] DevicePassthroughConfigError),
+    /// Incompatible device configuration: {0}
+    IncompatibleDeviceConfiguration(#[from] ResourcesError),
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
@@ -523,6 +534,7 @@ impl<'a> PrebootApiController<'a> {
                     EnclaveConfigError::NotConfigured,
                 )),
             SetEntropyDevice(config) => self.set_entropy_device(config),
+            InsertPassthroughDevice(config) => self.insert_passthrough_device(config),
             SetMemoryHotplugDevice(config) => self.set_memory_hotplug_device(config),
             // Operations not allowed pre-boot.
             CreateSnapshot(_)
@@ -541,6 +553,7 @@ impl<'a> PrebootApiController<'a> {
             | GetFreePageHintingStatus
             | StopFreePageHinting
             | HotUnplugDevice(..)
+            | HotUnplugPassthroughDevice(..)
             | SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
     }
@@ -576,6 +589,8 @@ impl<'a> PrebootApiController<'a> {
     }
 
     fn insert_pmem_device(&mut self, cfg: PmemConfig) -> Result<VmmData, VmmActionError> {
+        self.vm_resources.compatible_with_pmem()?;
+
         self.boot_path = true;
         self.vm_resources
             .build_pmem_device(cfg)
@@ -584,11 +599,13 @@ impl<'a> PrebootApiController<'a> {
     }
 
     fn set_balloon_device(&mut self, cfg: BalloonDeviceConfig) -> Result<VmmData, VmmActionError> {
+        self.vm_resources.compatible_with_balloon()?;
+
         self.boot_path = true;
         self.vm_resources
             .set_balloon_device(cfg)
-            .map(|()| VmmData::Empty)
-            .map_err(VmmActionError::BalloonConfig)
+            .map_err(VmmActionError::BalloonConfig)?;
+        Ok(VmmData::Empty)
     }
 
     fn set_boot_source(&mut self, cfg: BootSourceConfig) -> Result<VmmData, VmmActionError> {
@@ -640,16 +657,34 @@ impl<'a> PrebootApiController<'a> {
         Ok(VmmData::Empty)
     }
 
+    fn insert_passthrough_device(
+        &mut self,
+        cfg: DevicePassthroughConfig,
+    ) -> Result<VmmData, VmmActionError> {
+        self.vm_resources.compatible_with_passthrough_device()?;
+
+        log_dev_preview_warning("device passthrough", None);
+        self.boot_path = true;
+        self.vm_resources
+            .set_passthrough_device(cfg)
+            .map(|()| VmmData::Empty)
+            .map_err(VmmActionError::DevicePassthroughConfig)
+    }
+
     fn set_memory_hotplug_device(
         &mut self,
         cfg: MemoryHotplugConfig,
     ) -> Result<VmmData, VmmActionError> {
+        self.vm_resources.compatible_with_memory_hotplug()?;
+
         self.boot_path = true;
         self.vm_resources.set_memory_hotplug_config(cfg)?;
         Ok(VmmData::Empty)
     }
 
     fn set_enclave_config(&mut self, cfg: EnclaveConfig) -> Result<VmmData, VmmActionError> {
+        self.vm_resources.compatible_with_enclave()?;
+
         self.boot_path = true;
         self.vm_resources.set_enclave_config(cfg);
         Ok(VmmData::Empty)
@@ -828,11 +863,23 @@ impl RuntimeApiController {
                 .expect("Poisoned lock")
                 .hotplug_device(HotplugDeviceConfig::Net(config), event_manager)
                 .map(|()| VmmData::Empty),
+            InsertPassthroughDevice(config) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hotplug_passthrough_device(config)
+                .map(|()| VmmData::Empty),
             HotUnplugDevice(device_id, force) => self
                 .vmm
                 .lock()
                 .expect("Poisoned lock")
                 .hot_unplug_device(device_id, event_manager, force)
+                .map(|()| VmmData::Empty),
+            HotUnplugPassthroughDevice(id, force) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hot_unplug_passthrough_device(id, force)
                 .map(|()| VmmData::Empty),
             Pause => self.pause(),
             PutMMDS(value) => mmds_put_data(
