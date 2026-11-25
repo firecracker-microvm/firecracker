@@ -1543,16 +1543,46 @@ class MicroVMFactory:
         current_snapshot.delete()
 
     def kill(self):
-        """Clean up all built VMs"""
-        for vm in self.vms:
-            vm.kill()
-            vm.jailer.cleanup()
+        """Clean up all built VMs.
+
+        Every VM is cleaned up even if a step fails for one of them, and the
+        first failure is raised at the end. A Firecracker process or a chroot
+        that is left behind keeps using /srv, the tmpfs that all workers
+        share, for the rest of the session.
+        """
+        errors = []
+
+        def attempt(step):
+            try:
+                step()
+            except Exception as exc:  # pylint: disable=broad-except
+                errors.append(exc)
+
+        def kill_processes(vm):
+            try:
+                vm.kill()
+            except Exception:  # pylint: disable=broad-except
+                # kill() can fail one of its checks before it has killed the
+                # processes. They keep the files of the chroot allocated even
+                # after it is removed, so kill them without the checks.
+                attempt(lambda: vm.kill(might_be_dead=True))
+                raise
+
+        def remove_chroot(vm):
             chroot_base_with_id = vm.jailer.chroot_base_with_id()
             if len(vm.jailer.jailer_id) > 0 and chroot_base_with_id.exists():
                 shutil.rmtree(chroot_base_with_id)
-            vm.netns.cleanup()
+
+        for vm in self.vms:
+            attempt(lambda vm=vm: kill_processes(vm))
+            attempt(vm.jailer.cleanup)
+            attempt(lambda vm=vm: remove_chroot(vm))
+            attempt(vm.netns.cleanup)
 
         self.vms.clear()
+
+        if errors:
+            raise errors[0]
 
 
 class Serial:
