@@ -4,6 +4,7 @@
 
 import dataclasses
 import filecmp
+import hashlib
 import logging
 import os
 import platform
@@ -528,6 +529,15 @@ def test_create_large_diff_snapshot(uvm):
     # process would have been taken down.
 
 
+def _sha256sum(path):
+    """Return the SHA-256 of a file, reading it one chunk at a time."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as file:
+        while chunk := file.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 @pytest.mark.parametrize("mem_size", [256, 4096])
 def test_diff_snapshot_overlay(uvm, microvm_factory, mem_size):
     """
@@ -550,16 +560,17 @@ def test_diff_snapshot_overlay(uvm, microvm_factory, mem_size):
     # Run some command to dirty some pages
     basevm.ssh.check_output("true")
 
-    # First copy the base snapshot somewhere else, so we can make sure
-    # it will actually get updated
-    first_snapshot_backup = Path(basevm.chroot()) / "mem.old"
-    shutil.copyfile(full_snapshot.mem, first_snapshot_backup)
+    # Remember what the base snapshot looks like, so we can make sure it will
+    # actually get updated. Hash it instead of copying it: a copy takes as much
+    # of the chroot's tmpfs as the guest has memory, and on host kernels older
+    # than 5.18, copying a sparse file out of a tmpfs also allocates its holes.
+    first_snapshot_digest = _sha256sum(full_snapshot.mem)
 
     # One Microvm object will always write its snapshot files to the same location
     merged_snapshot = basevm.snapshot_diff()
     assert full_snapshot.mem == merged_snapshot.mem
 
-    assert not filecmp.cmp(merged_snapshot.mem, first_snapshot_backup, shallow=False)
+    assert _sha256sum(merged_snapshot.mem) != first_snapshot_digest
 
     _ = microvm_factory.build_from_snapshot(merged_snapshot)
 
