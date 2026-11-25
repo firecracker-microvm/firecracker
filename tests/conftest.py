@@ -503,46 +503,50 @@ def microvm_factory(
     )
     yield uvm_factory
 
-    # if the test failed, save important files from the root of the uVM into `test_results` for troubleshooting
-    report = request.node.stash[PHASE_REPORT_KEY]
-    if "call" in report and report["call"].failed:
-        dump_full = os.environ.get("FC_TEST_DUMP_ON_FAILURE") == "1"
-        for uvm in uvm_factory.vms:
-            # This is best effort. We want to proceed even if the VM is not responding.
-            try:
-                uvm.flush_metrics()
-            except:  # pylint: disable=bare-except
-                pass
+    try:
+        # if the test failed, save important files from the root of the uVM into `test_results` for troubleshooting
+        report = request.node.stash[PHASE_REPORT_KEY]
+        if "call" in report and report["call"].failed:
+            dump_full = os.environ.get("FC_TEST_DUMP_ON_FAILURE") == "1"
+            for uvm in uvm_factory.vms:
+                # This is best effort. We want to proceed even if the VM is not responding.
+                try:
+                    uvm.flush_metrics()
+                except:  # pylint: disable=bare-except
+                    pass
 
-            uvm_data = results_dir / uvm.id
-            uvm_data.mkdir()
-            uvm_data.joinpath("host-dmesg.log").write_text(
-                utils.run_cmd(["dmesg", "-dPx"]).stdout
-            )
-            if Path(uvm.screen_log).exists():
-                shutil.copy(uvm.screen_log, uvm_data)
-
-            if not dump_full:
-                continue
-
-            try:
-                uvm.snapshot_full(
-                    mem_path="post_failure.mem", vmstate_path="post_failure.vmstate"
+                uvm_data = results_dir / uvm.id
+                uvm_data.mkdir()
+                uvm_data.joinpath("host-dmesg.log").write_text(
+                    utils.run_cmd(["dmesg", "-dPx"]).stdout
                 )
-            except:  # pylint: disable=bare-except
-                pass
+                if Path(uvm.screen_log).exists():
+                    shutil.copy(uvm.screen_log, uvm_data)
 
-            shutil.copy(ARTIFACT_DIR / "id_rsa", uvm_data)
-
-            uvm_root = Path(uvm.chroot())
-            for item in os.listdir(uvm_root):
-                src = uvm_root / item
-                if not os.path.isfile(src):
+                if not dump_full:
                     continue
-                dst = uvm_data / item
-                shutil.copy(src, dst)
 
-    uvm_factory.kill()
+                try:
+                    uvm.snapshot_full(
+                        mem_path="post_failure.mem", vmstate_path="post_failure.vmstate"
+                    )
+                except:  # pylint: disable=bare-except
+                    pass
+
+                shutil.copy(ARTIFACT_DIR / "id_rsa", uvm_data)
+
+                uvm_root = Path(uvm.chroot())
+                for item in os.listdir(uvm_root):
+                    src = uvm_root / item
+                    if not os.path.isfile(src):
+                        continue
+                    dst = uvm_data / item
+                    shutil.copy(src, dst)
+    finally:
+        # Kill the microVMs and remove their chroots even if saving the files
+        # above failed. Otherwise the chroots stay in /srv, the tmpfs all workers
+        # share, for the rest of the session.
+        uvm_factory.kill()
 
 
 @pytest.fixture
