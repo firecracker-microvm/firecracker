@@ -590,12 +590,17 @@ impl KvmVm {
     ///
     /// Guest memory is a shared memfd mapping only when a vhost-user device is
     /// configured before boot. Otherwise it is anonymous, or a private mapping
-    /// of a read-only snapshot file, which a backend cannot map at all.
+    /// of a read-only snapshot file, which a backend cannot map at all. Memory
+    /// served by a page fault handler is rejected too: a vhost-user backend
+    /// would map it without the userfaultfd, so it would read holes where pages
+    /// have not been populated yet.
     pub fn vhost_user_memory_shareable(&self) -> bool {
         // Never empty after boot, so `all` cannot pass vacuously.
-        self.guest_memory()
-            .iter()
-            .all(|r| r.is_shared() && r.file_offset().is_some())
+        self.common.uffd.is_none()
+            && self
+                .guest_memory()
+                .iter()
+                .all(|r| r.is_shared() && r.file_offset().is_some())
     }
 
     /// Gets a mutable reference to this [`KvmVm`]'s [`ResourceAllocator`] object
@@ -1142,6 +1147,17 @@ pub(crate) mod tests {
             .allocate(&regions, false, HugePageConfig::None)
             .unwrap();
         vm.register_dram_memory_regions(gm).unwrap();
+        assert!(vm.vhost_user_memory_shareable());
+
+        // The same memory served by a page fault handler: a vhost-user backend
+        // would read unpopulated pages as holes.
+        let uffd = userfaultfd::UffdBuilder::new()
+            .user_mode_only(false)
+            .create()
+            .unwrap();
+        vm.set_uffd(Some(uffd));
+        assert!(!vm.vhost_user_memory_shareable());
+        vm.set_uffd(None);
         assert!(vm.vhost_user_memory_shareable());
 
         // A snapshot file is mapped private: it has a descriptor and must still be
