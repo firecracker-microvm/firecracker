@@ -19,3 +19,8 @@ One interesting use-case where this can be seen to cause odd side affects is one
 where golang's race detector for aarch64 expected a 48-bit space, but the
 guest's kernel config enforced 39-bit. See
 [Firecracker issue #3514](https://github.com/firecracker-microvm/firecracker/issues/3514).
+
+The `arm64-64k.config` fragment enables 64 KiB pages for the experimental
+aarch64 Linux 6.18 guest kernel. See the
+[guest kernel build instructions](../../docs/rootfs-and-kernel-setup.md#use-the-provided-recipe).
+The default aarch64 guest kernel uses 4 KiB pages.

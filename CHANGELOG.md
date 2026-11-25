@@ -10,6 +10,9 @@ and this project adheres to
 
 ### Added
 
+- [#6386](https://github.com/firecracker-microvm/firecracker/issues/6386): Added
+  an opt-in experimental aarch64 Linux 6.18 guest kernel build with 64 KiB
+  pages. The standard aarch64 build uses 4 KiB pages.
 - [#6226](https://github.com/firecracker-microvm/firecracker/pull/6226),
   [#6227](https://github.com/firecracker-microvm/firecracker/pull/6227),
   [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228),
