@@ -10,6 +10,12 @@ and this project adheres to
 
 ### Added
 
+- [#6338](https://github.com/firecracker-microvm/firecracker/pull/6338): Added
+  an optional [pvpanic MMIO device](docs/pvpanic.md), configured before boot
+  through `PUT /pvpanic` or JSON. The device reports guest kernel panics through
+  `vmm.guest_panic_count` and supports `none` (report only) and `pause` actions.
+  Its configuration is saved and restored with snapshots; `pvpanic_override` can
+  change the panic action during snapshot load.
 - [#6226](https://github.com/firecracker-microvm/firecracker/pull/6226),
   [#6227](https://github.com/firecracker-microvm/firecracker/pull/6227),
   [#6228](https://github.com/firecracker-microvm/firecracker/pull/6228),
