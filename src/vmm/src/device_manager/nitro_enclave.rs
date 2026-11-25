@@ -30,8 +30,8 @@ pub enum NeDeviceError {
     Dmb(#[from] EnclaveVmError),
     /// Cannot size DMB: {0}
     DmbSize(#[from] EnclaveConfigError),
-    /// Device not found
-    DeviceNotFound,
+    /// Device with id: {0} not found
+    DeviceNotFound(String),
     /// Trying to add a device with duplicate id: {0}
     DeviceIdDuplicate(String),
 }
@@ -130,7 +130,7 @@ impl NeDevices {
         let transport = self
             .devices
             .get(&(device_type, device_id.to_string()))
-            .ok_or(NeDeviceError::DeviceNotFound)?
+            .ok_or_else(|| NeDeviceError::DeviceNotFound(device_id.into()))?
             .lock()
             .expect("Poisoned lock");
         transport.update_device_config(enclave_fd)?;
@@ -196,7 +196,7 @@ mod tests {
         assert!(matches!(
             devices
                 .update_device_config(VirtioDeviceType::Block, "nosuch", &EnclaveFd::dev_null(),),
-            Err(NeDeviceError::DeviceNotFound)
+            Err(NeDeviceError::DeviceNotFound(_))
         ));
     }
 
