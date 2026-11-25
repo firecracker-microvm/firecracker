@@ -224,6 +224,8 @@ enum HandleBarAccessResult {
     MsixTable(u64),
     // Need to pass access to the device to the specific BAR at specific offset
     Device { bar_idx: u8, offset: u64 },
+    // The access is targeting area outside registered BARs
+    Unhandled,
 }
 
 // Distribute BAR access aiming at the BAR containing MSIx table.
@@ -286,7 +288,10 @@ fn vfio_distribute_emulated_access(
         }
     }
     // All accesses must land within an emulated area
-    unreachable!();
+    // but there is a race condition which `Bus` dispatch code does not handle right now that can
+    // sneak invalid `base` into dispatch code. Until we figure out how to handle this in the
+    // `Bus`, we have to have a workaround here.
+    HandleBarAccessResult::Unhandled
 }
 
 impl BusDevice for VfioDevice {
@@ -316,6 +321,14 @@ impl BusDevice for VfioDevice {
                 assert!(offset + usize_to_u64(data.len()) <= region_size);
                 self.device.region_read(bar_idx as u32, data, offset);
             }
+            HandleBarAccessResult::Unhandled => {
+                warn!(
+                    "[{}] Skipping read from the area outside any registered BAR: {:#x}@{:#x}",
+                    self.config.id,
+                    data.len(),
+                    base
+                );
+            }
         }
     }
 
@@ -343,6 +356,14 @@ impl BusDevice for VfioDevice {
                 // the area expands past the region end
                 assert!(offset + usize_to_u64(data.len()) <= region_size);
                 self.device.region_write(bar_idx as u32, data, offset);
+            }
+            HandleBarAccessResult::Unhandled => {
+                warn!(
+                    "[{}] Skipping write to the area outside any registered BAR: {:#x}@{:#x}",
+                    self.config.id,
+                    data.len(),
+                    base
+                );
             }
         }
         None
