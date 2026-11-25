@@ -148,7 +148,7 @@ use crate::devices::virtio::net::Net;
 use crate::devices::virtio::pmem::device::Pmem;
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
-use crate::logger::{METRICS, MetricsError, log_dev_preview_warning};
+use crate::logger::{IncMetric, METRICS, MetricsError, StoreMetric, log_dev_preview_warning};
 use crate::mmds::data_store::Mmds;
 use crate::nitro_enclave::enclave_vm::EnclaveVm;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
@@ -946,6 +946,21 @@ impl MutEventSubscriber for Vmm {
             return;
         }
 
+        if let Some(evt) = self.device_manager.pvpanic_evt()
+            && source == evt.as_raw_fd()
+            && event_set == EventSet::IN
+        {
+            let _ = evt.read();
+            warn!("Guest kernel panicked");
+            METRICS.vmm.guest_panic_count.store(1);
+
+            if let Err(err) = METRICS.write() {
+                METRICS.logger.missed_metrics_count.inc();
+                error!("Failed to write metrics after guest panic: {err}");
+            }
+            return;
+        }
+
         match &self.vm {
             Vm::Kvm(kvm_vm) => {
                 if source == kvm_vm.vcpus_exit_evt().as_raw_fd() && event_set == EventSet::IN {
@@ -1023,6 +1038,12 @@ impl MutEventSubscriber for Vmm {
             && let Err(err) = ops.add(Events::new(evt, EventSet::IN))
         {
             error!("Failed to register hot-unplug completion event: {}", err);
+        }
+        if let Some(evt) = self.device_manager.pvpanic_evt()
+            && let Err(err) = ops.add(Events::new(evt, EventSet::IN))
+        {
+            error!("Failed to register pvpanic event: {err}");
+            self.stop(FcExitCode::GenericError);
         }
     }
 }
