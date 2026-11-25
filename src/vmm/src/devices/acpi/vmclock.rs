@@ -6,7 +6,6 @@ use std::sync::atomic::{Ordering, fence};
 
 use acpi_tables::{Aml, aml};
 use serde::{Deserialize, Serialize};
-use vm_allocator::AllocPolicy;
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryError};
 use vm_superio::Trigger;
 use vmm_sys_util::eventfd::EventFd;
@@ -18,6 +17,7 @@ use crate::devices::acpi::generated::vmclock_abi::{
 use crate::devices::legacy::EventFdTrigger;
 use crate::logger::debug;
 use crate::snapshot::Persist;
+use crate::vstate::address_allocator::{AllocPolicy, AllocatorError};
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap};
 use crate::vstate::resources::ResourceAllocator;
 
@@ -46,9 +46,9 @@ pub enum VmClockError {
     /// Could not create EventFd: {0}
     CreateEventFd(std::io::Error),
     /// Could not allocate GSI: {0}
-    AllocateGsi(vm_allocator::Error),
+    AllocateGsi(AllocatorError),
     /// Could not allocate guest memory: {0}
-    AllocateMemory(vm_allocator::Error),
+    AllocateMemory(AllocatorError),
     /// Could not write VMClock data to guest memory: {0}
     WriteGuestMemory(#[from] GuestMemoryError),
     /// Could not notify guest: {0}
@@ -82,8 +82,7 @@ impl VmClock {
                 VMCLOCK_SIZE as u64,
                 AllocPolicy::LastMatch,
             )
-            .map_err(VmClockError::AllocateMemory)?
-            .start();
+            .map_err(VmClockError::AllocateMemory)?;
 
         let gsi = resource_allocator
             .allocate_gsi_legacy(1)

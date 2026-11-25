@@ -6,6 +6,7 @@ use acpi_tables::{Aml, aml};
 
 use crate::devices::acpi::vmclock::{VmClock, VmClockError};
 use crate::devices::acpi::vmgenid::{VmGenId, VmGenIdError};
+use crate::vstate::address_allocator::AllocatorError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::KvmVm;
 
@@ -18,7 +19,7 @@ pub enum ACPIDeviceError {
     /// Could not register IRQ with KVM: {0}
     RegisterIrq(#[from] kvm_ioctls::Error),
     /// Resource allocator error: {0}
-    ResourceAllocator(#[from] vm_allocator::Error),
+    ResourceAllocator(#[from] AllocatorError),
 }
 
 // Although both VMGenID and VMClock devices are always present, they should be instantiated when
