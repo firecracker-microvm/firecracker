@@ -108,6 +108,8 @@ pub enum KvmVcpuError {
     VcpuSetMsrs(kvm_ioctls::Error),
     /// Failed to set all KVM MSRs for this vCPU. Only a partial write was done.
     VcpuSetMsrsIncomplete,
+    /// Snapshot has no saved IA32_TSC_DEADLINE MSR
+    VcpuMissingTscDeadline,
     /// Failed to set KVM vcpu regs: {0}
     VcpuSetRegs(kvm_ioctls::Error),
     /// Failed to set KVM vcpu sregs: {0}
@@ -442,6 +444,30 @@ impl KvmVcpu {
         let ret = unsafe { ioctl_with_ref(&self.fd, ioctls::KVM_SET_DEVICE_ATTR(), &attr) };
         if ret != 0 {
             return Err(errno::Error::last());
+        }
+        Ok(())
+    }
+
+    /// Write the TSC deadline saved in `state` to this vCPU again.
+    ///
+    /// KVM arms the TSC deadline timer relative to the guest TSC at the time
+    /// MSR_IA32_TSC_DEADLINE is written. After the vCPU's TSC offset changes, the
+    /// deadline has to be written again for the timer to expire when the guest expects.
+    pub fn restore_tsc_deadline(&self, state: &VcpuState) -> Result<(), KvmVcpuError> {
+        let deadlines: Vec<_> = state
+            .saved_msrs
+            .iter()
+            .flat_map(|msrs| msrs.as_slice())
+            .filter(|msr| msr.index == MSR_IA32_TSC_DEADLINE)
+            .copied()
+            .collect();
+        if deadlines.is_empty() {
+            return Err(KvmVcpuError::VcpuMissingTscDeadline);
+        }
+        let msrs = Msrs::from_entries(&deadlines)?;
+        let nmsrs = self.fd.set_msrs(&msrs).map_err(KvmVcpuError::VcpuSetMsrs)?;
+        if nmsrs < deadlines.len() {
+            return Err(KvmVcpuError::VcpuSetMsrsIncomplete);
         }
         Ok(())
     }
@@ -1248,6 +1274,55 @@ pub(crate) mod tests {
             // overflow
             assert!(vcpu.is_tsc_scaling_required(30_000_000).unwrap());
         }
+    }
+
+    #[test]
+    fn test_restore_tsc_deadline() {
+        const APIC_SPIV: usize = 0xf0;
+        const APIC_LVTT: usize = 0x320;
+        const APIC_LVTT_TSC_DEADLINE: u32 = 2 << 17;
+        fn set_reg(lapic: &mut kvm_lapic_state, offset: usize, value: u32) {
+            for (i, byte) in value.to_le_bytes().into_iter().enumerate() {
+                lapic.regs[offset + i] = byte.cast_signed();
+            }
+        }
+        let read_deadline = |vcpu: &KvmVcpu| {
+            vcpu.get_msrs([MSR_IA32_TSC_DEADLINE].into_iter()).unwrap()[&MSR_IA32_TSC_DEADLINE]
+        };
+        let write_deadline = |vcpu: &KvmVcpu, data: u64| {
+            let msrs = msrs_from_entries(&[(MSR_IA32_TSC_DEADLINE, data)]);
+            assert_eq!(vcpu.fd.set_msrs(&msrs).unwrap(), 1);
+        };
+
+        // KVM keeps a TSC deadline only while the LAPIC timer is in TSC deadline mode, which
+        // it only allows if CPUID advertises TSC deadline support. KVM_GET_SUPPORTED_CPUID
+        // reports that bit only since Linux 6.14, so go through Firecracker's CPUID
+        // normalization, which always sets it.
+        let (vm, vcpu) = setup_vcpu(0x1000);
+        let cpuid = Cpuid::try_from(vm.kvm().supported_cpuid.clone()).unwrap();
+        vcpu.configure_cpuid(&cpuid, 1, false).unwrap();
+        let mut lapic = vcpu.fd.get_lapic().unwrap();
+        set_reg(&mut lapic, APIC_SPIV, 0x1ff);
+        set_reg(&mut lapic, APIC_LVTT, APIC_LVTT_TSC_DEADLINE | 0xec);
+        vcpu.fd.set_lapic(&lapic).unwrap();
+
+        // Far enough in the future not to expire during the test.
+        let deadline = 1 << 62;
+        write_deadline(&vcpu, deadline);
+        let state = vcpu.save_state().unwrap();
+        assert_eq!(read_deadline(&vcpu), deadline);
+
+        write_deadline(&vcpu, deadline + 1);
+        vcpu.restore_tsc_deadline(&state).unwrap();
+        assert_eq!(read_deadline(&vcpu), deadline);
+
+        // A state without a saved TSC deadline is malformed and leaves the vCPU's alone.
+        write_deadline(&vcpu, deadline + 1);
+        assert!(matches!(
+            vcpu.restore_tsc_deadline(&VcpuState::default()),
+            Err(KvmVcpuError::VcpuMissingTscDeadline)
+        ));
+        assert_eq!(read_deadline(&vcpu), deadline + 1);
     }
 
     #[test]
