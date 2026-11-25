@@ -1480,6 +1480,7 @@ mod tests {
                 resume_vm: false,
                 network_overrides: vec![],
                 vsock_override: None,
+                pvpanic_override: None,
                 drive_overrides: vec![],
                 pmem_overrides: vec![],
                 clock_realtime: false,

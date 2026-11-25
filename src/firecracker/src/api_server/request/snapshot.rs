@@ -111,6 +111,7 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
         resume_vm: snapshot_config.resume_vm,
         network_overrides: snapshot_config.network_overrides,
         vsock_override: snapshot_config.vsock_override,
+        pvpanic_override: snapshot_config.pvpanic_override,
         drive_overrides: snapshot_config.drive_overrides,
         pmem_overrides: snapshot_config.pmem_overrides,
         clock_realtime: snapshot_config.clock_realtime,
@@ -130,9 +131,10 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
 
 #[cfg(test)]
 mod tests {
+    use vmm::vmm_config::pvpanic::PvPanicAction;
     use vmm::vmm_config::snapshot::{
         DriveOverride, MemBackendConfig, MemBackendType, NetworkOverride, PmemOverride,
-        SnapshotLoadHugePageConfig,
+        PvPanicOverride, SnapshotLoadHugePageConfig,
     };
 
     use super::*;
@@ -216,6 +218,7 @@ mod tests {
             resume_vm: false,
             network_overrides: vec![],
             vsock_override: None,
+            pvpanic_override: None,
             drive_overrides: vec![],
             pmem_overrides: vec![],
             clock_realtime: false,
@@ -251,6 +254,7 @@ mod tests {
             resume_vm: false,
             network_overrides: vec![],
             vsock_override: None,
+            pvpanic_override: None,
             drive_overrides: vec![],
             pmem_overrides: vec![],
             clock_realtime: false,
@@ -287,6 +291,7 @@ mod tests {
             resume_vm: true,
             network_overrides: vec![],
             vsock_override: None,
+            pvpanic_override: None,
             drive_overrides: vec![],
             pmem_overrides: vec![],
             clock_realtime: false,
@@ -331,6 +336,7 @@ mod tests {
                 host_dev_name: String::from("vmtap2"),
             }],
             vsock_override: None,
+            pvpanic_override: None,
             drive_overrides: vec![],
             pmem_overrides: vec![],
             clock_realtime: false,
@@ -369,7 +375,10 @@ mod tests {
                     "id": "pmem0",
                     "path_on_host": "/new/pmem0.img"
                 }
-            ]
+            ],
+            "pvpanic_override": {
+                "panic_action": "pause"
+            }
         }"#;
         let expected_config = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
@@ -381,6 +390,9 @@ mod tests {
             resume_vm: false,
             network_overrides: vec![],
             vsock_override: None,
+            pvpanic_override: Some(PvPanicOverride {
+                panic_action: PvPanicAction::Pause,
+            }),
             drive_overrides: vec![
                 DriveOverride {
                     drive_id: String::from("rootfs"),
@@ -419,6 +431,7 @@ mod tests {
             resume_vm: true,
             network_overrides: vec![],
             vsock_override: None,
+            pvpanic_override: None,
             drive_overrides: vec![],
             pmem_overrides: vec![],
             clock_realtime: false,

@@ -25,7 +25,7 @@ use crate::cpu_config::templates::StaticCpuTemplate;
 use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 #[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
-use crate::device_manager::persist::{DeviceStates, VirtioDeviceState};
+use crate::device_manager::persist::{DeviceStates, MMIOPlatformDevicesState, VirtioDeviceState};
 use crate::device_manager::{DevicePersistError, DevicesState};
 // Re-exported so external crates inspecting a `MicrovmState` snapshot can match on the
 // serialised virtio transport variant.
@@ -40,7 +40,9 @@ use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, MachineConfigUpdate};
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfigError;
-use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, MemBackendType};
+use crate::vmm_config::snapshot::{
+    CreateSnapshotParams, LoadSnapshotParams, MemBackendType, PvPanicOverride,
+};
 use crate::vstate::kvm::KvmState;
 use crate::vstate::memory::{
     self, GuestMemoryState, GuestRegionMmap, GuestRegionType, MemoryError,
@@ -434,6 +436,11 @@ pub fn restore_from_snapshot(
         VirtioDevicesState::Pci(pci) => apply_device_overrides(&mut pci.virtio_devices, params)?,
     }
 
+    apply_pvpanic_override(
+        &mut microvm_state.device_states.mmio_platform_state,
+        params.pvpanic_override.as_ref(),
+    )?;
+
     let track_dirty_pages = params.track_dirty_pages;
 
     let vcpu_count = microvm_state
@@ -519,6 +526,21 @@ pub fn restore_from_snapshot(
     .map_err(RestoreFromSnapshotError::Build)
 }
 
+fn apply_pvpanic_override(
+    devices: &mut MMIOPlatformDevicesState,
+    action_override: Option<&PvPanicOverride>,
+) -> Result<(), SnapshotStateFromFileError> {
+    if let Some(config) = action_override {
+        devices
+            .pvpanic
+            .as_mut()
+            .ok_or(SnapshotStateFromFileError::UnknownPvPanicDevice)?
+            .device_state
+            .panic_action = config.panic_action;
+    }
+    Ok(())
+}
+
 /// Points the saved state of each device named in `params` at its new host resource, so that the
 /// snapshot can be restored where that resource is at a different location.
 fn apply_device_overrides<Tr>(
@@ -582,6 +604,8 @@ pub enum SnapshotStateFromFileError {
     UnknownNetworkDevice,
     /// Unknown Vsock Device.
     UnknownVsockDevice,
+    /// Unknown PvPanic Device.
+    UnknownPvPanicDevice,
     /// Unknown Block Device.
     UnknownBlockDevice,
     /// Cannot override the backing file of a vhost-user block device.
@@ -905,6 +929,68 @@ mod tests {
         assert_eq!(restored_mmio, mmio)
     }
 
+    #[test]
+    fn test_pvpanic_override_preserves_resources() {
+        use crate::device_manager::mmio::{MMIO_LEN, MMIODeviceInfo};
+        use crate::device_manager::persist::PvPanicDeviceState;
+        use crate::devices::pseudo::pvpanic::PvPanicState;
+        use crate::vmm_config::pvpanic::PvPanicAction;
+
+        let resources = MMIODeviceInfo {
+            addr: 0xd000_0000,
+            len: MMIO_LEN,
+            gsi: None,
+        };
+        for (saved_action, action, expected) in [
+            (PvPanicAction::Pause, None, PvPanicAction::Pause),
+            (
+                PvPanicAction::None,
+                Some(PvPanicAction::Pause),
+                PvPanicAction::Pause,
+            ),
+            (
+                PvPanicAction::Pause,
+                Some(PvPanicAction::None),
+                PvPanicAction::None,
+            ),
+        ] {
+            let mut state = MMIOPlatformDevicesState {
+                pvpanic: Some(PvPanicDeviceState {
+                    device_info: resources,
+                    device_state: PvPanicState {
+                        panic_action: saved_action,
+                    },
+                }),
+                #[cfg(target_arch = "aarch64")]
+                serial: None,
+                #[cfg(target_arch = "aarch64")]
+                rtc: None,
+                #[cfg(target_arch = "aarch64")]
+                gpio_pl061: None,
+                #[cfg(target_arch = "aarch64")]
+                gpio_pl061_state: None,
+            };
+            let config = action.map(|panic_action| PvPanicOverride { panic_action });
+            apply_pvpanic_override(&mut state, config.as_ref()).unwrap();
+            let device = state.pvpanic.unwrap();
+            assert_eq!(device.device_info, resources);
+            assert_eq!(device.device_state.panic_action, expected);
+        }
+        let mut empty = MMIOPlatformDevicesState::default();
+        apply_pvpanic_override(&mut empty, None).unwrap();
+        assert!(empty.pvpanic.is_none());
+        assert!(matches!(
+            apply_pvpanic_override(
+                &mut empty,
+                Some(&PvPanicOverride {
+                    panic_action: PvPanicAction::Pause
+                })
+            ),
+            Err(SnapshotStateFromFileError::UnknownPvPanicDevice)
+        ));
+        assert!(empty.pvpanic.is_none());
+    }
+
     fn default_load_snapshot_params() -> LoadSnapshotParams {
         LoadSnapshotParams {
             snapshot_path: PathBuf::new(),
@@ -916,6 +1002,7 @@ mod tests {
             resume_vm: false,
             network_overrides: vec![],
             vsock_override: None,
+            pvpanic_override: None,
             drive_overrides: vec![],
             pmem_overrides: vec![],
             clock_realtime: false,

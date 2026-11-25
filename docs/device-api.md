@@ -121,6 +121,7 @@ specification:
 |                           | huge_pages               |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |    O    |
 |                           | network_overrides        |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |       O        |    O    |
 |                           | vsock_override           |    O     |       O        |      O       |        O         |     O      |    **R**     |     O      |      O      |     O      |       O        |    O    |
+|                           | pvpanic_override         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |  **R**  |
 |                           | drive_overrides          |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |       O        |    O    |
 |                           | pmem_overrides           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |    O    |
 | `Logger`                  | level                    |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |    O    |
@@ -186,6 +187,7 @@ specification:
 | `PartialPmem`             | id                       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |    O    |
 |                           | rate_limiter             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |       O        |    O    |
 | `PvPanic`                 | panic_action             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |  **R**  |
+| `PvPanicOverride`         | panic_action             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |  **R**  |
 | `SerialDevice`            | serial_out_path          |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |    O    |
 |                           | rate_limiter             |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |       O        |    O    |
 | `MemoryHotplugConfig`     | total_size_mib           |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |       O        |    O    |

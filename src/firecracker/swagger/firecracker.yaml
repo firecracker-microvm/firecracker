@@ -2211,6 +2211,13 @@ definitions:
           for restoring a snapshot with a different socket path than the one used
           when the snapshot was created. For example, when the original socket path
           is no longer available or when deploying to a different environment.
+      pvpanic_override:
+        $ref: "#/definitions/PvPanicOverride"
+        description:
+          Overrides the action of an existing pvpanic device before restore and
+          guest execution. Omitted or null preserves the saved action. An override
+          is rejected if the snapshot has no pvpanic device. Does not modify the
+          snapshot file; subsequent snapshots save the effective action.
       drive_overrides:
         type: array
         description:
@@ -2303,6 +2310,17 @@ definitions:
         description:
           none reports the panic without pausing. pause also pauses the microVM.
           Neither action disables the device.
+
+  PvPanicOverride:
+    type: object
+    additionalProperties: false
+    required:
+      - panic_action
+    properties:
+      panic_action:
+        type: string
+        enum: [none, pause]
+        description: Panic action to use for the restored device.
 
   EntropyDevice:
     type: object

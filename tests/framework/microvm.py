@@ -1122,6 +1122,7 @@ class Microvm:
         *,
         drive_overrides: Optional[dict] = None,
         pmem_overrides: Optional[dict] = None,
+        pvpanic_override: Optional[str] = None,
         huge_pages: Optional[HugePagesConfig] = None,
         uffd_handler_name: str = None,
     ):
@@ -1201,6 +1202,8 @@ class Microvm:
 
         if vsock_override is not None:
             optional_kwargs["vsock_override"] = {"uds_path": vsock_override}
+        if pvpanic_override is not None:
+            optional_kwargs["pvpanic_override"] = {"panic_action": pvpanic_override}
 
         if drive_overrides:
             optional_kwargs["drive_overrides"] = [
