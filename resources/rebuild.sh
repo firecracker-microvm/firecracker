@@ -250,6 +250,12 @@ function build_al_kernel_flavours {
     if [[ $ARCH == "x86_64" && $VERSION == "5.10" && "$SELECTED" == @(all|5.10-no-acpi) ]]; then
         build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config $CI_CONFIG $NVME_CONFIG
     fi
+    # Optional aarch64 64k-page guest kernel (issue #6386). Build when selected
+    # explicitly as 6.18-64k, or alongside all/6.18 on aarch64.
+    local KERNEL_CFG_64K=$PWD/guest_configs/microvm-kernel-ci-$ARCH-$VERSION-64k.config
+    if [[ $ARCH == "aarch64" && $VERSION == "6.18" && -f $KERNEL_CFG_64K && "$SELECTED" == @(all|6.18|6.18-64k) ]]; then
+        build_al_kernel $KERNEL_CFG_64K $CI_CONFIG $NVME_CONFIG $EFI_CONFIG
+    fi
     if [[ "$SELECTED" == @(all|$VERSION) ]]; then
         OUTPUT_DIR=$OUTPUT_DIR/debug build_al_kernel $KERNEL_CFG $CI_CONFIG $NVME_CONFIG $EFI_CONFIG $FTRACE_CONFIG $DEBUG_CONFIG
         # build_al_kernel leaves the path of the kernel it built in OUTPUT_FILE.
@@ -264,7 +270,7 @@ function build_al_kernels {
         die "Too many arguments in '$(basename $0) kernels' command. Please use \`$0 help\` for help."
     else
         KERNEL_VERSION=$1
-        if [[ "$KERNEL_VERSION" != @(5.10|5.10-no-acpi|6.1|6.18) ]]; then
+        if [[ "$KERNEL_VERSION" != @(5.10|5.10-no-acpi|6.1|6.18|6.18-64k) ]]; then
             die "Unsupported kernel version: '$KERNEL_VERSION'. Please use \`$0 help\` for help."
         fi
     fi
@@ -312,7 +318,8 @@ Available commands:
         Builds our the currently supported CI kernels.
 
         version: Optionally choose a kernel version to build. Supported
-                 versions are: 5.10, 5.10-no-acpi, 6.1 or 6.18.
+                 versions are: 5.10, 5.10-no-acpi, 6.1, 6.18, or
+                 6.18-64k (aarch64 64k-page guest config; issue #6386).
 
     help
         Displays the help message and exits.

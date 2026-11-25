@@ -19,3 +19,19 @@ One interesting use-case where this can be seen to cause odd side affects is one
 where golang's race detector for aarch64 expected a 48-bit space, but the
 guest's kernel config enforced 39-bit. See
 [Firecracker issue #3514](https://github.com/firecracker-microvm/firecracker/issues/3514).
+
+### aarch64 64k-page guest configs
+
+`microvm-kernel-ci-aarch64-*-64k.config` files select `CONFIG_ARM64_64K_PAGES`
+instead of the default 4k pages. These are experimental building blocks toward
+64k guest support tracked in
+[issue #6386](https://github.com/firecracker-microvm/firecracker/issues/6386)
+(parent epic [#6381](https://github.com/firecracker-microvm/firecracker/issues/6381)).
+They are **not** yet part of the officially supported guest matrix in
+`docs/kernel-policy.md`. Build them via:
+
+```
+./rebuild.sh kernels 6.18-64k
+```
+
+on an aarch64 host (or cross-build environment matching `rebuild.sh`).
