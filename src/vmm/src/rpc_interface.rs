@@ -982,8 +982,8 @@ impl RuntimeApiController {
 
     /// Pauses the microVM by pausing the vCPUs.
     ///
-    /// Device emulation is not stopped here; `ApiServerAdapter::handle_request` stops
-    /// polling the event loop once this returns `Ok`.
+    /// Device emulation is not stopped here; the main event loop stops polling
+    /// device events once this returns `Ok`.
     pub fn pause(&mut self) -> Result<VmmData, VmmActionError> {
         let pause_start_us = get_time_us(ClockType::Monotonic);
 

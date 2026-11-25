@@ -166,6 +166,7 @@ use crate::vmm_config::machine_config::MachineConfig;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::mmds::MmdsConfig;
 use crate::vmm_config::net::NetworkInterfaceConfig;
+use crate::vmm_config::pvpanic::PvPanicAction;
 use crate::vmm_config::snapshot::SnapshotType;
 use crate::vmm_config::vsock::VsockDeviceConfig;
 pub use crate::vstate::kvm::Kvm;
@@ -532,9 +533,8 @@ impl Vmm {
 
     /// Sends a pause command to the vCPUs.
     ///
-    /// This only parks the vCPU threads. Device emulation is stopped by
-    /// `ApiServerAdapter::handle_request`, which after a successful pause stops polling
-    /// the event loop and only serves API requests until `Resume`.
+    /// This only parks the vCPU threads. The main event loop stops polling
+    /// device events while paused and keeps serving API requests in API mode.
     pub fn pause_vm(&mut self) -> Result<(), VmmError> {
         let kvm_vm = self
             .vm
@@ -954,6 +954,12 @@ impl MutEventSubscriber for Vmm {
             warn!("Guest kernel panicked");
             METRICS.vmm.guest_panic_count.store(1);
 
+            if self.device_manager.pvpanic_action() == Some(PvPanicAction::Pause)
+                && let Err(err) = self.pause_vm()
+            {
+                error!("Failed to pause microVM after guest panic: {err}");
+                self.stop(FcExitCode::GenericError);
+            }
             if let Err(err) = METRICS.write() {
                 METRICS.logger.missed_metrics_count.inc();
                 error!("Failed to write metrics after guest panic: {err}");

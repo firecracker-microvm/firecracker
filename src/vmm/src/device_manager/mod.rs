@@ -356,6 +356,17 @@ impl DeviceManager {
             .map(|device| device.panic_evt.as_ref())
     }
 
+    /// Returns the configured action, locking only the pvpanic device state.
+    pub fn pvpanic_action(&self) -> Option<PvPanicAction> {
+        self.mmio_platform_devices.pvpanic.as_ref().map(|device| {
+            device
+                .inner
+                .lock()
+                .expect("Poisoned pvpanic lock")
+                .panic_action()
+        })
+    }
+
     pub(crate) fn attach_vmgenid_device(&mut self, vm: &KvmVm) -> Result<(), AttachDeviceError> {
         self.acpi_devices.attach_vmgenid(vm)?;
         self.acpi_devices.activate_vmgenid(vm)?;
