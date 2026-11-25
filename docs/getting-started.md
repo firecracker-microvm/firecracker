@@ -271,6 +271,11 @@ ARCH=$(uname -m)
 
 if [ ${ARCH} = "aarch64" ]; then
     KERNEL_BOOT_ARGS="keep_bootcon ${KERNEL_BOOT_ARGS}"
+else
+    # boot_args replace Firecracker's default command line, so keep its i8042
+    # parameters: the CI kernels have the i8042 keyboard driver, and without
+    # them it probes for a keyboard first (see docs/kernel-policy.md).
+    KERNEL_BOOT_ARGS="${KERNEL_BOOT_ARGS} i8042.noaux i8042.nomux i8042.dumbkbd"
 fi
 
 # Set boot source
