@@ -33,6 +33,7 @@ use vmm::vmm_config::drive::BlockDeviceConfig;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::machine_config::{HugePageConfig, MachineConfig, MachineConfigUpdate};
 use vmm::vmm_config::net::NetworkInterfaceConfig;
+use vmm::vmm_config::pvpanic::PvPanicConfig;
 use vmm::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendConfig, MemBackendType,
     SnapshotLoadHugePageConfig, SnapshotType,
@@ -603,4 +604,7 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
     let req =
         VmmAction::UpdateMachineConfiguration(MachineConfigUpdate::from(MachineConfig::default()));
     verify_load_snap_disallowed_after_boot_resources(req, "SetVmConfiguration");
+
+    let req = VmmAction::SetPvPanicDevice(PvPanicConfig::default());
+    verify_load_snap_disallowed_after_boot_resources(req, "SetPvPanicDevice");
 }

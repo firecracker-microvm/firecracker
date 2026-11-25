@@ -810,6 +810,34 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /pvpanic:
+    put:
+      summary: Creates/updates a pvpanic device. Pre-boot only.
+      description:
+        Enables guest panic reporting. An empty object selects the none action,
+        which reports panics without pausing the microVM. Repeated pre-boot
+        requests replace the configuration. Changes after boot or snapshot load
+        are rejected, including while paused. Not supported on Nitro Enclaves.
+      operationId: putPvPanicDevice
+      parameters:
+        - name: body
+          in: body
+          description: Guest panic reporting configuration
+          required: true
+          schema:
+            $ref: "#/definitions/PvPanic"
+      responses:
+        204:
+          description: Pvpanic device configured
+        400:
+          description: Invalid configuration or operation not supported after boot
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
   /serial:
     put:
       summary: Configures the serial console
@@ -1728,6 +1756,9 @@ definitions:
         $ref: "#/definitions/Vsock"
       entropy:
         $ref: "#/definitions/EntropyDevice"
+      pvpanic:
+        $ref: "#/definitions/PvPanic"
+        description: Null when disabled; otherwise the effective panic action.
       device-passthrough:
         type: array
         description: Configurations for all device passthrough devices.
@@ -2259,6 +2290,19 @@ definitions:
         enum:
           - Paused
           - Resumed
+
+  PvPanic:
+    type: object
+    additionalProperties: false
+    description: Enables guest panic reporting over MMIO.
+    properties:
+      panic_action:
+        type: string
+        enum: [none, pause]
+        default: none
+        description:
+          none reports the panic without pausing. pause also pauses the microVM.
+          Neither action disables the device.
 
   EntropyDevice:
     type: object

@@ -17,6 +17,7 @@ pub mod metrics;
 pub mod mmds;
 pub mod net;
 pub mod pmem;
+pub mod pvpanic;
 pub mod serial;
 pub mod snapshot;
 pub mod version;
