@@ -351,6 +351,9 @@ pub fn build_microvm_for_boot(
 
     device_manager.attach_vmgenid_device(&kvm_vm)?;
     device_manager.attach_vmclock_device(&kvm_vm)?;
+    if let Some(config) = &vm_resources.pvpanic {
+        device_manager.attach_pvpanic_device(&kvm_vm, config.panic_action)?;
+    }
 
     #[cfg(target_arch = "aarch64")]
     if vcpus[0].kvm_vcpu.supports_pvtime() {

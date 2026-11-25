@@ -300,6 +300,10 @@ impl<'a> Persist<'a> for MMIOPlatformDevices {
                 pvpanic,
                 Some(pvpanic_state.device_info),
             )?;
+            constructor_args.vm_resources.pvpanic =
+                Some(crate::vmm_config::pvpanic::PvPanicConfig {
+                    panic_action: pvpanic_state.device_state.panic_action,
+                });
         }
 
         #[cfg(target_arch = "aarch64")]
@@ -1128,6 +1132,9 @@ mod tests {
   }},
   "entropy": {{
     "rate_limiter": null
+  }},
+  "pvpanic": {{
+    "panic_action": "pause"
   }},
   "pmem": [
     {{

@@ -42,6 +42,7 @@
   "metrics": null,
   "mmds-config": null,
   "entropy": null,
+  "pvpanic": null,
   "pmem": [],
   "memory-hotplug": null,
   "device-passthrough": []

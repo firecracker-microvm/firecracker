@@ -166,7 +166,7 @@ use crate::vmm_config::machine_config::MachineConfig;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::mmds::MmdsConfig;
 use crate::vmm_config::net::NetworkInterfaceConfig;
-use crate::vmm_config::pvpanic::PvPanicAction;
+use crate::vmm_config::pvpanic::{PvPanicAction, PvPanicConfig};
 use crate::vmm_config::snapshot::SnapshotType;
 use crate::vmm_config::vsock::VsockDeviceConfig;
 pub use crate::vstate::kvm::Kvm;
@@ -449,6 +449,10 @@ impl Vmm {
             network_interfaces: net,
             vsock,
             entropy,
+            pvpanic: self
+                .device_manager
+                .pvpanic_action()
+                .map(|panic_action| PvPanicConfig { panic_action }),
             pmem_devices: pmem,
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots
             serial_config: None,
