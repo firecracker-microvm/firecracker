@@ -4,6 +4,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#![warn(clippy::as_conversions)]
+
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryError};
 
 pub mod aml;

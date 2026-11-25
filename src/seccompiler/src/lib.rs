@@ -1,6 +1,8 @@
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![warn(clippy::as_conversions)]
+
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Read;
@@ -112,16 +114,18 @@ pub fn compile_bpf(
                     .map(|rule| rule.to_scmp_type())
                     .collect::<Vec<scmp_arg_cmp>>();
 
+                let comparator_count = comparators
+                    .len()
+                    .try_into()
+                    .map_err(|_| CompilationError::LibSeccompRule)?;
+
                 // SAFETY: Safe as all args are correct.
-                // We can assume no one will define u32::MAX
-                // filters for a syscall.
-                #[allow(clippy::cast_possible_truncation)]
                 unsafe {
                     if seccomp_rule_add_array(
                         bpf_filter,
                         filter_action,
                         syscall,
-                        comparators.len() as u32,
+                        comparator_count,
                         comparators.as_ptr(),
                     ) != 0
                     {
