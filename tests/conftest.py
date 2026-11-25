@@ -526,12 +526,18 @@ def microvm_factory(
                 if not dump_full:
                     continue
 
-                try:
-                    uvm.snapshot_full(
-                        mem_path="post_failure.mem", vmstate_path="post_failure.vmstate"
-                    )
-                except:  # pylint: disable=bare-except
-                    pass
+                # A full snapshot writes all of the guest memory into the chroot.
+                # Skip it if it does not fit in /srv, so that it does not fill up
+                # the tmpfs and fail the tests running in parallel.
+                free_bytes = shutil.disk_usage(uvm.chroot()).free
+                if (uvm.mem_size_bytes or 0) < free_bytes:
+                    try:
+                        uvm.snapshot_full(
+                            mem_path="post_failure.mem",
+                            vmstate_path="post_failure.vmstate",
+                        )
+                    except:  # pylint: disable=bare-except
+                        pass
 
                 shutil.copy(ARTIFACT_DIR / "id_rsa", uvm_data)
 
@@ -541,7 +547,14 @@ def microvm_factory(
                     if not os.path.isfile(src):
                         continue
                     dst = uvm_data / item
-                    shutil.copy(src, dst)
+                    # Copy with read() and write() instead of shutil.copy(). The
+                    # latter uses sendfile(), which on host kernels older than
+                    # 5.18 allocates the holes of a sparse file when reading it
+                    # from a tmpfs, so copying a diff snapshot out of the chroot
+                    # could fill up /srv.
+                    with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
+                        shutil.copyfileobj(fsrc, fdst)
+                    shutil.copymode(src, dst)
     finally:
         # Kill the microVMs and remove their chroots even if saving the files
         # above failed. Otherwise the chroots stay in /srv, the tmpfs all workers
