@@ -52,6 +52,8 @@ from host_tools.fcmetrics import validate_fc_metrics
 
 NEGATIVE_TEST_CONNECTION_COUNT = 100
 TEST_WORKER_COUNT = 10
+# Must match MAX_CONNECTIONS in src/vmm/src/devices/virtio/vsock/unix/mod.rs.
+MAX_VSOCK_CONNECTIONS = 1023
 
 
 @pytest.fixture
@@ -62,7 +64,6 @@ def vsock_uvm(uvm, request):
     return boot_vsock_vm(
         uvm,
         vcpu_count=vcpus,
-        mem_size_mib=1024,
         log_level="Info",
         emit_metrics=True,
     )
@@ -140,6 +141,36 @@ def test_vsock_peer_connection_backlog_full(vsock_uvm_any):
             accepted.settimeout(5)
             with accepted.makefile("rb") as stream:
                 assert stream.read(len(payload)) == payload.encode()
+
+
+def test_vsock_host_pending_connection_limit(vsock_uvm_any):
+    """At the limit, evict the oldest pending socket and admit a new connection."""
+    vm = vsock_uvm_any
+    uds_path = start_guest_echo_server(vm)
+
+    with ExitStack() as stack:
+        # Fill the muxer's connection limit with host sockets that never send
+        # CONNECT.
+        pending = []
+        for _ in range(MAX_VSOCK_CONNECTIONS):
+            client = stack.enter_context(
+                socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            )
+            client.settimeout(5)
+            client.connect(uds_path)
+            pending.append(client)
+
+        # A new connection closes only the oldest pending socket.
+        with vsock_connect_to_guest(uds_path, ECHO_SERVER_PORT) as sock:
+            sock.settimeout(5)
+            assert pending[0].recv(1) == b""
+            pending[1].setblocking(False)
+            with pytest.raises(BlockingIOError):
+                pending[1].recv(1)
+            payload = b"vsock-after-pending-eviction\n"
+            sock.sendall(payload)
+            with sock.makefile("rb") as stream:
+                assert stream.readline() == payload
 
 
 def negative_test_host_connections(vm, blob_path, blob_hash):
@@ -354,7 +385,9 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
 
     for _ in range(5):
         # Load snapshot.
-        new_vm = microvm_factory.build_from_snapshot(snapshot)
+        new_vm = microvm_factory.build()
+        new_vm.spawn()
+        snapshot_copy = new_vm.restore_from_snapshot(snapshot, resume=True)
 
         # After snap restore all vsock connections should be
         # dropped. This means guest socat should exit same way
@@ -393,7 +426,7 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
             )
 
             # Create snapshot.
-            snapshot = new_vm.snapshot_full()
+            next_snapshot = new_vm.snapshot_full()
             new_vm.resume()
 
             # Note: it might take some time for guest socat to detect closed socket
@@ -415,6 +448,13 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
 
             # Terminate VM.
             new_vm.kill()
+
+        # Free the snapshot we restored from, so the test holds at most two
+        # memory files at any time instead of one per iteration. The copy in
+        # the chroot is a hardlink of it, so both have to go.
+        snapshot.delete()
+        snapshot_copy.delete()
+        snapshot = next_snapshot
 
 
 @pin_vm_backend(VM_BACKEND_KVM)

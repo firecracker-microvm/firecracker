@@ -15,6 +15,7 @@ use super::request::actions::parse_put_actions;
 use super::request::balloon::{parse_get_balloon, parse_patch_balloon, parse_put_balloon};
 use super::request::boot_source::parse_put_boot_source;
 use super::request::cpu_configuration::parse_put_cpu_config;
+use super::request::device_passthrough::parse_put_device_passthrough;
 use super::request::drive::{parse_patch_drive, parse_put_drive};
 use super::request::enclave::{parse_get_enclave, parse_put_enclave};
 use super::request::entropy::parse_put_entropy;
@@ -33,7 +34,7 @@ use super::request::vsock::parse_put_vsock;
 use crate::api_server::request::hotplug::memory::{
     parse_get_memory_hotplug, parse_patch_memory_hotplug, parse_put_memory_hotplug,
 };
-use crate::api_server::request::hotplug::parse_unplug_device;
+use crate::api_server::request::hotplug::{parse_unplug_device, parse_unplug_passthrough_device};
 use crate::api_server::request::serial::parse_put_serial;
 
 #[derive(Debug)]
@@ -115,6 +116,9 @@ impl TryFrom<&Request> for ParsedRequest {
             }
             (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.next()),
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
+            (Method::Put, "device-passthrough", Some(body)) => {
+                parse_put_device_passthrough(body, path_tokens.next())
+            }
             (Method::Put, "entropy", Some(body)) => parse_put_entropy(body),
             (Method::Put, "hotplug", Some(body)) if path_tokens.next() == Some("memory") => {
                 parse_put_memory_hotplug(body)
@@ -141,6 +145,9 @@ impl TryFrom<&Request> for ParsedRequest {
             }
             (Method::Delete, "network-interfaces", body) => {
                 parse_unplug_device(VirtioDeviceType::Net, path_tokens.next(), body)
+            }
+            (Method::Delete, "device-passthrough", body) => {
+                parse_unplug_passthrough_device(path_tokens.next(), body)
             }
             (method, unknown_uri, _) => Err(RequestError::InvalidPathMethod(
                 unknown_uri.to_string(),

@@ -44,13 +44,14 @@ use crate::logger::debug;
 #[cfg(target_arch = "aarch64")]
 use crate::logger::warn;
 use crate::persist::{MicrovmState, MicrovmStateError};
-use crate::resources::VmResources;
+use crate::resources::{ResourcesError, VmResources};
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
 use crate::utils::{u32_mib_to_bytes, u64_to_usize};
 use crate::vmm_config::boot_source::{
     DEFAULT_KERNEL_CMDLINE, append_root_device_cmdline, build_cmdline,
 };
+use crate::vmm_config::device_passthrough::DevicePassthroughConfig;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError};
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
@@ -65,6 +66,8 @@ use crate::{EventManager, Vmm, VmmError};
 /// Errors associated with starting the instance.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum StartMicrovmError {
+    /// Incompatible device configuration: {0}
+    IncompatibleDeviceConfiguration(#[from] ResourcesError),
     /// Unable to attach block device to Vmm: {0}
     AttachBlockDevice(io::Error),
     /// The number of vCPUs ({requested}) exceeds the maximum for a KVM microVM ({max}).
@@ -172,6 +175,7 @@ pub fn build_microvm_for_boot(
 ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     // Timestamp for measuring microVM boot duration.
     let request_ts = TimestampUs::default();
+    vm_resources.validate()?;
 
     // Reject an out-of-range vCPU count before doing any work for the boot.
     let vcpu_count = kvm_vcpu_count(&vm_resources.machine_config)?;
@@ -328,6 +332,12 @@ pub fn build_microvm_for_boot(
         )?;
     }
 
+    attach_vfio_devices(
+        &mut device_manager,
+        &vm,
+        &vm_resources.device_passthrough.configs,
+    )?;
+
     #[cfg(target_arch = "aarch64")]
     device_manager.attach_legacy_devices_aarch64(
         &kvm_vm,
@@ -369,6 +379,7 @@ pub fn build_microvm_for_boot(
         shutdown_exit_code: None,
         vm,
         device_manager,
+        can_create_diff_snapshots: true,
     };
     let vmm = Arc::new(Mutex::new(vmm));
 
@@ -431,6 +442,8 @@ pub fn build_and_boot_microvm(
 /// Error type for [`build_microvm_from_snapshot`].
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BuildMicrovmFromSnapshotError {
+    /// Incompatible device configuration: {0}
+    IncompatibleDeviceConfiguration(#[from] ResourcesError),
     /// Failed to create microVM and vCPUs: {0}
     CreateMicrovmAndVcpus(#[from] StartMicrovmError),
     /// Could not access KVM: {0}
@@ -513,6 +526,7 @@ pub fn build_microvm_from_snapshot(
 ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
     // Build Vmm.
     debug!("event_start: build microvm from snapshot");
+    vm_resources.validate()?;
 
     // Reject an out-of-range vCPU count before doing any work for the restore.
     let vcpu_count = kvm_vcpu_count(&vm_resources.machine_config)?;
@@ -609,6 +623,7 @@ pub fn build_microvm_from_snapshot(
         shutdown_exit_code: None,
         vm,
         device_manager,
+        can_create_diff_snapshots: true,
     };
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
@@ -711,6 +726,18 @@ fn allocate_virtio_mem_address(
         )?
         .start();
     Ok(GuestAddress(addr))
+}
+
+fn attach_vfio_devices(
+    device_manager: &mut DeviceManager,
+    vm: &Vm,
+    configs: &[DevicePassthroughConfig],
+) -> Result<(), StartMicrovmError> {
+    let kvm_vm = vm.as_kvm().ok_or(AttachDeviceError::NotSupported)?;
+    for config in configs.iter() {
+        device_manager.attach_vfio_device(kvm_vm, config.clone())?;
+    }
+    Ok(())
 }
 
 fn attach_virtio_mem_device(
@@ -1018,6 +1045,7 @@ pub(crate) mod tests {
             shutdown_exit_code: None,
             vm: Vm::Kvm(Arc::new(vm)),
             device_manager: default_device_manager(),
+            can_create_diff_snapshots: true,
         }
     }
 
@@ -1040,6 +1068,7 @@ pub(crate) mod tests {
             shutdown_exit_code: None,
             vm: Vm::Kvm(vm),
             device_manager,
+            can_create_diff_snapshots: true,
         }
     }
 
