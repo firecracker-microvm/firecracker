@@ -359,9 +359,8 @@ configuration for all of the microVM's resources. The JSON **must** contain the
 configuration for the guest kernel and rootfs, all of the other resources are
 optional. This configuration method will also start the microVM, as such you
 need to specify all desired pre-boot configurable resources in the JSON. The
-names of the resources can be seen in \[`firecracker.yaml`\]
-(../src/firecracker/swagger/firecracker.yaml) and the names of their fields are
-the same that are used in the API requests.
+names of the resources can be seen in [`firecracker.yaml`](../src/firecracker/swagger/firecracker.yaml) 
+and the names of their fields are the same that are used in the API requests.
 
 An example of configuration file is provided:
 [`tests/framework/vm_config.json`](../tests/framework/vm_config.json).
