@@ -95,10 +95,11 @@ pub struct VmCommon {
     pub kvm: Kvm,
     /// Userfaultfd kept open for snapshot restore.
     pub uffd: Option<Uffd>,
-    /// Whether the dirty log has already been cleared by a previous snapshot.
-    /// Until cleared on a freshly booted anonymous VM with dirty page tracking,
-    /// the dirty bitmap covers every page written since boot.
-    dirty_log_cleared: AtomicBool,
+    /// Whether the dirty bitmap can miss pages written since boot. This is the case after a
+    /// snapshot clears the dirty log, or after a device that bypasses dirty page tracking was
+    /// hot-plugged. Until then, on a freshly booted anonymous VM with dirty page tracking, the
+    /// dirty bitmap covers every page written since boot.
+    dirty_bitmap_incomplete: AtomicBool,
     /// Handles to vCPU threads.
     pub vcpus_handles: Mutex<Vec<VcpuHandle>>,
     /// Event fd written to by vCPUs on exit.
@@ -226,7 +227,7 @@ impl KvmVm {
             mmio_bus: Arc::new(Bus::new()),
             kvm,
             uffd: None,
-            dirty_log_cleared: AtomicBool::new(false),
+            dirty_bitmap_incomplete: AtomicBool::new(false),
             vcpus_handles: Mutex::new(Vec::new()),
             vcpus_exit_evt,
             #[cfg(test)]
@@ -629,8 +630,16 @@ impl KvmVm {
             guest_memory.store_dirty_bitmap(&dirty_bitmap);
             return Err(err);
         }
-        self.common.dirty_log_cleared.store(true, Ordering::Relaxed);
+        self.mark_dirty_bitmap_incomplete();
         Ok(dirty_bitmap)
+    }
+
+    /// Records that the dirty bitmap no longer covers every page written since boot, so that a
+    /// Full snapshot does not rely on it.
+    pub(crate) fn mark_dirty_bitmap_incomplete(&self) {
+        self.common
+            .dirty_bitmap_incomplete
+            .store(true, Ordering::Relaxed);
     }
 
     /// Whether guest memory tracks dirty pages. Either every region does, or none does.
@@ -765,7 +774,7 @@ impl KvmVm {
         use self::CreateSnapshotError::{Memory, MemoryBackingFile};
 
         let guest_memory = self.guest_memory();
-        let had_cleared_dirty_log = self.common.dirty_log_cleared.load(Ordering::Relaxed);
+        let was_incomplete = self.common.dirty_bitmap_incomplete.load(Ordering::Relaxed);
         let dirty_bitmap = match (snapshot_type, self.tracks_dirty_pages()) {
             (_, true) => self.take_dirty_bitmap()?,
             (SnapshotType::Diff, false) => self.resident_pages()?,
@@ -773,9 +782,9 @@ impl KvmVm {
         };
         let put_back = |_: &CreateSnapshotError| {
             guest_memory.store_dirty_bitmap(&dirty_bitmap);
-            if !had_cleared_dirty_log {
+            if !was_incomplete {
                 self.common
-                    .dirty_log_cleared
+                    .dirty_bitmap_incomplete
                     .store(false, Ordering::Relaxed);
             }
         };
@@ -783,7 +792,7 @@ impl KvmVm {
         match snapshot_type {
             SnapshotType::Diff => guest_memory.dump_dirty(file, &dirty_bitmap).map_err(Memory),
             SnapshotType::Full if is_sparse_dest => {
-                self.dump_full_sparse(file, &dirty_bitmap, !had_cleared_dirty_log)
+                self.dump_full_sparse(file, &dirty_bitmap, !was_incomplete)
             }
             SnapshotType::Full => guest_memory.dump(file).map_err(Memory),
         }
@@ -1416,20 +1425,20 @@ pub(crate) mod tests {
             .write(&[0x11; 32], GuestAddress(0))
             .unwrap();
 
-        // Fail the first Full snapshot during write; dirty_log_cleared must roll back to false.
+        // Fail the first Full snapshot during write. The bitmap must count as complete again.
         let mut failing = TestMemoryFile {
             file: TempFile::new().unwrap().into_file(),
             state: TestMemoryFileState::Fails("write"),
         };
         vm.snapshot_memory_to_file(&mut failing, SnapshotType::Full, false, true)
             .unwrap_err();
-        assert!(!vm.common.dirty_log_cleared.load(Ordering::Relaxed));
+        assert!(!vm.common.dirty_bitmap_incomplete.load(Ordering::Relaxed));
 
         // Retrying Full snapshot must still capture the page dirtied before the failure.
         let snap1 = TempFile::new().unwrap();
         vm.snapshot_memory_to_path(snap1.as_path(), SnapshotType::Full, false)
             .unwrap();
-        assert!(vm.common.dirty_log_cleared.load(Ordering::Relaxed));
+        assert!(vm.common.dirty_bitmap_incomplete.load(Ordering::Relaxed));
 
         // Dirty a second page and take another Full snapshot; both pages must be present.
         vm.guest_memory()

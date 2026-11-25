@@ -200,6 +200,12 @@ pub fn create_snapshot(
     // when asked, to keep the data path free of contention on the bitmap.
     vmm.device_manager.commit_dirty();
 
+    // A device that bypasses dirty tracking may have written pages that the dirty bitmap does not
+    // have, so a Full snapshot must look at all of the guest memory.
+    if !vmm.can_create_diff_snapshots {
+        kvm_vm.mark_dirty_bitmap_incomplete();
+    }
+
     kvm_vm.snapshot_memory_to_path(
         &params.mem_file_path,
         params.snapshot_type,
@@ -1118,6 +1124,59 @@ mod tests {
         create_snapshot(&mut vmm, &vm_info, &params).unwrap();
         params.snapshot_type = SnapshotType::Diff;
         create_snapshot(&mut vmm, &vm_info, &params).unwrap();
+    }
+
+    #[test]
+    fn test_full_snapshot_after_untracked_device() {
+        use std::os::unix::fs::FileExt;
+
+        use vm_memory::GuestMemoryBackend;
+
+        use crate::arch::host_page_size;
+        use crate::utils::mib_to_bytes;
+        use crate::vstate::memory::{GuestAddress, anonymous};
+        use crate::vstate::vm::Vm;
+        use crate::vstate::vm::tests::setup_vm;
+
+        let mut vm = setup_vm();
+        let regions = anonymous(
+            &[(GuestAddress(0), mib_to_bytes(2))],
+            true,
+            HugePageConfig::None,
+        )
+        .unwrap();
+        vm.register_dram_memory_regions(regions).unwrap();
+        let _ = vm.create_vcpus(1).unwrap();
+
+        // Write a page the way a passthrough device does, without marking it dirty
+        let offset = host_page_size() as u64;
+        let ptr = vm
+            .guest_memory()
+            .get_host_address(GuestAddress(offset))
+            .unwrap();
+        // SAFETY: `ptr` points into guest memory, which nothing else accesses
+        unsafe { ptr.write(0xAA) };
+
+        let mut vmm = default_vmm();
+        vmm.vm = Vm::Kvm(Arc::new(vm));
+        vmm.instance_info.state = crate::vmm_config::instance_info::VmState::Paused;
+        // As if a passthrough device was hot-plugged and unplugged
+        vmm.can_create_diff_snapshots = false;
+
+        let vm_info = VmInfo::from(&vmm);
+        let snapshot_file = TempFile::new().unwrap();
+        let mem_file = TempFile::new().unwrap();
+        let params = CreateSnapshotParams {
+            snapshot_type: SnapshotType::Full,
+            snapshot_path: snapshot_file.as_path().to_path_buf(),
+            mem_file_path: mem_file.as_path().to_path_buf(),
+            sync_snapshot_files: false,
+        };
+        create_snapshot(&mut vmm, &vm_info, &params).unwrap();
+
+        let mut byte = [0];
+        mem_file.as_file().read_exact_at(&mut byte, offset).unwrap();
+        assert_eq!(byte, [0xAA]);
     }
 
     #[test]
