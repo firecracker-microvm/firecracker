@@ -29,7 +29,7 @@ use vmm_sys_util::eventfd::EventFd;
 
 use crate::EventManager;
 use crate::device_manager::acpi::ACPIDeviceError;
-use crate::device_manager::nitro_enclave::NeDevices;
+use crate::device_manager::nitro_enclave::{NeDeviceError, NeDevices};
 #[cfg(target_arch = "x86_64")]
 use crate::devices::legacy::I8042Device;
 use crate::devices::legacy::SerialDevice;
@@ -583,7 +583,7 @@ impl DeviceManager {
                     ));
                 }
                 if ne_devices.contains_virtio_device(&device_id) {
-                    return Err(VmmActionError::DeviceIdInUse);
+                    return Err(NeDeviceError::DeviceIdDuplicate(device_id.1).into());
                 }
 
                 let device = match config {

@@ -32,6 +32,8 @@ pub enum NeDeviceError {
     DmbSize(#[from] EnclaveConfigError),
     /// Device not found
     DeviceNotFound,
+    /// Trying to add a device with duplicate id: {0}
+    DeviceIdDuplicate(String),
 }
 
 /// Manages NE transport devices for enclaves.
