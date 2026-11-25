@@ -1,0 +1,723 @@
+# Copyright 2026 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Integration tests for device passthrough."""
+
+import json
+import os
+import re
+import time
+from typing import NamedTuple
+
+import pytest
+
+import host_tools.drive as drive_tools
+from framework.artifacts import (
+    ACPI_GUEST_KERNELS,
+    GUEST_KERNEL_DEFAULT,
+    pin_guest_kernel,
+    pin_hotplug_ports,
+    pin_pci,
+)
+from framework.vm_backend import VM_BACKEND_KVM, VM_BACKENDS_ENCLAVE, pin_vm_backend
+
+# Flags of /sys/bus/pci/devices/*/resource entries
+IORESOURCE_MEM = 0x200
+IORESOURCE_MEM_64 = 0x100000
+
+# NVMe Version register offset in BAR0 (NVME_REG_VS in include/linux/nvme.h)
+NVME_VERSION_REGISTER_OFFSET = 0x8
+
+# Guest path the devmem tool is copied to
+DEVMEM_PATH = "/tmp/devmem"
+
+# The guest's pciehp driver sleeps for 5 seconds after a hot-unplug (add some buffer)
+UNPLUG_SLEEP = 6
+
+
+def vfio_device_test(test):
+    """
+    Mark a test which needs a host VFIO device. Skip it if no VFIO device is
+    configured. These tests must run sequentially since we only have 1 device
+    to work with.
+    """
+    for mark in [
+        pytest.mark.vfio,
+        pytest.mark.usefixtures("vfio_nvme"),
+        pin_pci(True),
+        pin_hotplug_ports(1),
+        pin_vm_backend(VM_BACKEND_KVM),
+    ]:
+        test = mark(test)
+    return test
+
+
+def _wait_for_nvme(vm):
+    """Wait for the guest NVMe driver to create the namespace block device."""
+    vm.ssh.check_output(
+        "timeout 10 sh -c 'until test -b /dev/nvme0n1; do sleep 0.1; done'"
+    )
+
+
+# Shadow the conftest `uvm_booted` for the whole module, so VFIO tests get a
+# booted microVM with the passthrough NVMe device attached before or after boot.
+@pytest.fixture(params=["coldplug", "hotplug"])
+def uvm_booted(uvm_configured, vfio_nvme, request):
+    """Booted microVM with the VFIO NVMe device attached before or after boot."""
+    vm = uvm_configured
+    vm.add_net_iface()
+    if request.param == "coldplug":
+        vm.add_passthrough_device("nvme0", vfio_nvme)
+        vm.start()
+    else:
+        vm.start()
+        vm.add_passthrough_device("nvme0", vfio_nvme)
+        _wait_for_nvme(vm)
+    return vm
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
+def test_api_device_passthrough_kvm(uvm):
+    """
+    Test device passthrough API commands.
+    """
+
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+
+    # Missing required field 'sbdf'
+    expected_msg = re.escape("missing field `sbdf`")
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.device_passthrough.put(id="dev0")
+
+    # Unknown field
+    expected_msg = re.escape("unknown field `foo`")
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.device_passthrough.put(id="dev0", sbdf="01:02.03", foo="bar")
+
+    # Id in the path differs from the id in the body
+    expected_msg = re.escape(
+        "The id from the path does not match the id from the body!"
+    )
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.device_passthrough.request(
+            "PUT", "/device-passthrough/dev1", id="dev0", sbdf="01:02.03"
+        )
+
+    # Valid passthrough device configs and overwrites
+    vm.api.device_passthrough.put(id="nvme0", sbdf="0000:01:02.03")
+    vm.api.device_passthrough.put(id="nvme0", sbdf="01:02.03")
+
+    # Duplicate SBDF
+    expected_msg = re.escape("Duplicate device passthrough SBDF")
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.device_passthrough.put(id="nvme1", sbdf="01:02.03")
+
+    # Adding a second device should be OK
+    vm.api.device_passthrough.put(id="nvme1", sbdf="0000:01:02.04")
+
+    # Empty id should fail
+    expected_msg = re.escape("The ID cannot be empty.")
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.device_passthrough.put(id="", sbdf="0000:01:02.05")
+
+    # Failed requests do not change the config. SBDFs are normalized.
+    assert vm.api.vm_config.get().json()["device-passthrough"] == [
+        {"id": "nvme0", "sbdf": "0000:01:02.3"},
+        {"id": "nvme1", "sbdf": "0000:01:02.4"},
+    ]
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKENDS_ENCLAVE)
+def test_api_device_passthrough_enclave(uvm):
+    """
+    Test that adding a passthrough device after the enclave config fails.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+    vm.backend.prepare_start(vm)
+
+    with pytest.raises(RuntimeError, match="not compatible with Enclave"):
+        vm.api.device_passthrough.put(id="nvme0", sbdf="0000:01:02.0")
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKENDS_ENCLAVE)
+def test_api_enclave_after_device_passthrough(uvm):
+    """
+    Test that setting the enclave config after adding a passthrough device fails.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+    vm.api.device_passthrough.put(id="nvme0", sbdf="0000:01:02.0")
+
+    with pytest.raises(RuntimeError, match="not compatible with Enclave"):
+        vm.start()
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
+def test_device_passthrough_missing_host_device(uvm):
+    """
+    Test that starting a VM with a passthrough device absent on the host fails.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+
+    vm.api.device_passthrough.put(id="nvme0", sbdf="0000:ff:1f.7")
+    expected_msg = re.escape("Start microvm error")
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.start()
+
+
+@pin_pci(False)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
+def test_api_device_passthrough_runtime_no_pci(uvm):
+    """
+    Test that hot-plugging a passthrough device without PCI fails.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+    vm.start()
+
+    with pytest.raises(RuntimeError, match=re.escape("PCI is not enabled")):
+        vm.api.device_passthrough.put(id="nvme0", sbdf="01:02.03")
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
+def test_api_device_passthrough_runtime_kvm(uvm):
+    """
+    Test failures of passthrough device hot-plug which do not need a host
+    device. Failed requests leave no device behind.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config(pcie_hotplug_ports=1)
+    vm.start()
+
+    # The host device does not exist
+    with pytest.raises(RuntimeError, match="No such file or directory"):
+        vm.api.device_passthrough.put(id="nvme0", sbdf="0000:ff:1f.7")
+    assert vm.api.vm_config.get().json()["device-passthrough"] == []
+
+    # The failed request did not take the only root port
+    host_file = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "block0"), size=4)
+    vm.api.drive.put(
+        drive_id="block0",
+        path_on_host=vm.create_jailed_resource(host_file.path),
+        is_root_device=False,
+        is_read_only=False,
+    )
+    with pytest.raises(RuntimeError, match="No PCIe root port is free"):
+        vm.api.device_passthrough.put(id="nvme0", sbdf="0000:ff:1f.7")
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKENDS_ENCLAVE)
+def test_api_device_passthrough_runtime_enclave(uvm):
+    """
+    Test that hot-plugging a passthrough device into an enclave fails.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config(pcie_hotplug_ports=1)
+    vm.start()
+
+    with pytest.raises(RuntimeError, match="Operation requires KVM"):
+        vm.api.device_passthrough.put(id="nvme0", sbdf="0000:ff:1f.7")
+
+
+@pin_pci(False)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
+def test_device_passthrough_incompatible_devices_no_pci(uvm):
+    """
+    Test that adding a passthrough device without PCI enabled fails at API level.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+
+    expected_msg = re.escape("Passthrough devices attached, but PCI disabled")
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.device_passthrough.put(id="nvme0", sbdf="0000:01:02.03")
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
+@pytest.mark.parametrize(
+    "sbdf",
+    ["", "aaaaaaaaaaa", "01:02", "0000:01:20.0", "0000:01:02.8", "0000:100:02.0"],
+)
+def test_device_passthrough_incompatible_devices_invalid_sbdf(uvm, sbdf):
+    """
+    Test that adding a passthrough device with invalid SBDF fails at API level.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+
+    expected_msg = re.escape("Invalid device passthrough SBDF")
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.device_passthrough.put(id="nvme0", sbdf=sbdf)
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
+def test_device_passthrough_incompatible_devices_dp_then_balloon(uvm):
+    """
+    Test that adding balloon after passthrough device fails at API level.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+
+    vm.api.device_passthrough.put(id="nvme0", sbdf="0000:01:02.03")
+    expected_msg = re.escape(
+        "Passthrough devices are not compatible with memory balloon device"
+    )
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.balloon.put(
+            amount_mib=0, deflate_on_oom=False, stats_polling_interval_s=1
+        )
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
+def test_device_passthrough_incompatible_devices_balloon_then_dp(uvm):
+    """
+    Test that adding a passthrough device after balloon fails at API level.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+
+    vm.api.balloon.put(amount_mib=0, deflate_on_oom=False, stats_polling_interval_s=1)
+    expected_msg = re.escape(
+        "Passthrough devices are not compatible with memory balloon device"
+    )
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.device_passthrough.put(id="nvme0", sbdf="0000:01:02.03")
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
+def test_device_passthrough_incompatible_devices_dp_then_mem_hot_plug(uvm):
+    """
+    Test that adding memory hotplug after passthrough device fails at API level.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+
+    vm.api.device_passthrough.put(id="nvme0", sbdf="0000:01:02.03")
+    expected_msg = re.escape(
+        "Passthrough devices are not compatible with memory hot-plugging device"
+    )
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.memory_hotplug.put(
+            total_size_mib=256, slot_size_mib=256, block_size_mib=64
+        )
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
+def test_device_passthrough_incompatible_devices_mem_hot_plug_then_dp(uvm):
+    """
+    Test that adding a passthrough device after memory hotplug fails at API level.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+
+    vm.api.memory_hotplug.put(total_size_mib=256, slot_size_mib=256, block_size_mib=64)
+    expected_msg = re.escape(
+        "Passthrough devices are not compatible with memory hot-plugging device"
+    )
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.device_passthrough.put(id="nvme0", sbdf="0000:01:02.03")
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
+def test_device_passthrough_incompatible_devices_dp_then_pmem(uvm):
+    """
+    Test that adding pmem after passthrough device fails at API level.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+
+    vm.api.device_passthrough.put(id="nvme0", sbdf="0000:01:02.03")
+    expected_msg = re.escape("Passthrough devices are not compatible with pmem device")
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.pmem.put(id="pmem0", path_on_host="pmem0")
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
+def test_device_passthrough_incompatible_devices_pmem_then_dp(uvm):
+    """
+    Test that adding a passthrough device after pmem fails at API level.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+
+    vm.api.pmem.put(id="pmem0", path_on_host="pmem0")
+    expected_msg = re.escape("Passthrough devices are not compatible with pmem device")
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.device_passthrough.put(id="nvme0", sbdf="0000:01:02.03")
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
+def test_vfio_nvme_not_present_without_config(uvm):
+    """NVMe device does NOT appear when no VFIO device is configured."""
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+    vm.start()
+
+    rc, _, _ = vm.ssh.run("test -e /dev/nvme0n1")
+    assert rc != 0
+
+    _, stdout, _ = vm.ssh.check_output("lspci -nn")
+    assert "Non-Volatile memory controller" not in stdout
+
+
+@vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+def test_vfio_nvme_visible(uvm_booted, vfio_nvme):
+    """The passthrough device appears on the guest PCI bus."""
+    vm = uvm_booted
+    assert vm.api.vm_config.get().json()["device-passthrough"] == [
+        {"id": "nvme0", "sbdf": vfio_nvme}
+    ]
+
+    _, stdout, _ = vm.ssh.check_output("lspci -nn")
+    assert "Non-Volatile memory controller" in stdout
+
+    vm.ssh.check_output("test -d /sys/class/nvme/nvme0")
+    vm.ssh.check_output("test -b /dev/nvme0n1")
+
+    _, stdout, _ = vm.ssh.check_output("lsblk -Jb")
+    blocks = json.loads(stdout)["blockdevices"]
+    nvme = [b for b in blocks if b["name"] == "nvme0n1"]
+    assert len(nvme) == 1
+    assert int(nvme[0]["size"]) > 0
+
+    # NVMe driver registers per queue MSI-X interrupts
+    vm.ssh.check_output("grep nvme0q /proc/interrupts")
+
+
+@vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+def test_vfio_nvme_read(uvm_booted):
+    """The guest can read data from the passthrough NVMe device."""
+    vm = uvm_booted
+    _, stdout, _ = vm.ssh.check_output(
+        "dd if=/dev/nvme0n1 of=/dev/null bs=4k count=256 2>&1"
+    )
+    assert "256+0 records in" in stdout
+
+
+def _check_write_readback(vm, block_size, block_count):
+    """Write data and read it back to confirm DMA in both directions."""
+    blocks = f"bs={block_size} count={block_count}"
+    vm.ssh.check_output(f"dd if=/dev/urandom of=/tmp/pattern {blocks}")
+    vm.ssh.check_output(f"dd if=/tmp/pattern of=/dev/nvme0n1 {blocks} oflag=direct")
+    # Stream the readback since guest /tmp can not hold 2 copies of the data.
+    # There is no `cmp` binary in AL2023 rootfs, so compare hashes instead.
+    _, pattern_hash, _ = vm.ssh.check_output("md5sum < /tmp/pattern")
+    _, readback_hash, _ = vm.ssh.check_output(
+        f"dd if=/dev/nvme0n1 {blocks} iflag=direct | md5sum"
+    )
+    assert pattern_hash == readback_hash, "write/readback mismatch"
+
+
+@vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pytest.mark.parametrize("block_size,block_count", [("4k", 1), ("1M", 64)])
+def test_vfio_nvme_write_readback(uvm_booted, block_size, block_count):
+    """Write data and read it back to confirm DMA in both directions."""
+    _check_write_readback(uvm_booted, block_size, block_count)
+
+
+@vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+def test_vfio_nvme_runtime_rejected(uvm_booted, vfio_nvme):
+    """
+    Adding a passthrough device with a taken id or host SBDF, or a pmem device
+    next to it, fails and changes nothing.
+    """
+    vm = uvm_booted
+    with pytest.raises(RuntimeError, match="device with duplicate id"):
+        vm.api.device_passthrough.put(id="nvme0", sbdf=vfio_nvme)
+    with pytest.raises(RuntimeError, match="device with duplicate SBDF"):
+        vm.api.device_passthrough.put(id="nvme1", sbdf=vfio_nvme)
+    with pytest.raises(
+        RuntimeError, match="Passthrough devices are not compatible with pmem device"
+    ):
+        vm.api.pmem.put(id="pmem0", path_on_host="pmem0")
+    assert vm.api.vm_config.get().json()["device-passthrough"] == [
+        {"id": "nvme0", "sbdf": vfio_nvme}
+    ]
+    _check_write_readback(vm, "4k", 1)
+
+
+@vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+def test_vfio_nvme_snapshot(uvm_booted):
+    """Snapshots are rejected with a passthrough device and the VM keeps working."""
+    vm = uvm_booted
+    vm.pause()
+    with pytest.raises(
+        RuntimeError,
+        match=r"Devices without snapshot support are present: passthrough device\(id: nvme0\)",
+    ):
+        vm.api.snapshot_create.put(
+            mem_file_path="memfile", snapshot_path="statefile", snapshot_type="Full"
+        )
+    vm.resume()
+    vm.ssh.check_output("dd if=/dev/nvme0n1 of=/dev/null bs=4k count=1 iflag=direct")
+
+
+def _get_pcie_slot(vm, path):
+    """Guest PCI slot of the passthrough NVMe controller."""
+    return vm.ssh.check_output(f"basename $(readlink -f {path})").stdout.strip()
+
+
+class PciBar(NamedTuple):
+    """Memory BAR of a guest PCI device."""
+
+    index: int
+    base: int
+    size: int
+    is_64bit: bool
+
+
+def _get_memory_bars(vm, slot):
+    """Return memory BARs of the guest PCI device at `slot`."""
+    resource_lines = vm.ssh.check_output(
+        f"head -6 /sys/bus/pci/devices/{slot}/resource"
+    ).stdout.splitlines()
+    bars = []
+    for bar_index, line in enumerate(resource_lines):
+        start, end, flags = (int(value, 16) for value in line.split())
+        if start and flags & IORESOURCE_MEM:
+            is_64bit = bool(flags & IORESOURCE_MEM_64)
+            bars.append(PciBar(bar_index, start, end - start + 1, is_64bit))
+    assert bars[0].index == 0, "BAR0 is expected to be a memory BAR"
+    return bars
+
+
+def _get_nvme_version(vm, bar0_base):
+    """Read the NVMe Version register of the controller with BAR0 at `bar0_base`."""
+    address = bar0_base + NVME_VERSION_REGISTER_OFFSET
+    version = vm.ssh.check_output(f"{DEVMEM_PATH} read 0x{address:x} 4").stdout
+    return int(version, 16)
+
+
+def _set_bar_base(vm, slot, pci_bar, base, memory_decoding):
+    """
+    Write `base` to `pci_bar` of `slot`. With memory decoding enabled each register
+    write relocates the BAR, otherwise relocation happens once decoding is
+    re-enabled.
+    """
+    registers = f"BASE_ADDRESS_{pci_bar.index}=0x{base & 0xffff_ffff:08x}"
+    if pci_bar.is_64bit:
+        registers += f" BASE_ADDRESS_{pci_bar.index + 1}=0x{base >> 32:08x}"
+    if memory_decoding:
+        setpci_args = f"COMMAND=2:2 {registers}"
+    else:
+        setpci_args = f"COMMAND=0:2 {registers} COMMAND=2:2"
+    vm.ssh.check_output(f"setpci -s {slot} {setpci_args}")
+
+
+@vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pytest.mark.parametrize(
+    "memory_decoding", [True, False], ids=["decoding", "no_decoding"]
+)
+def test_vfio_nvme_bar_relocation(uvm_booted, devmem_bin, memory_decoding):
+    """
+    Relocated BARs of the passthrough device follow the guest written
+    addresses, and the device keeps working once moved back.
+
+    The guest kernel only learns BAR addresses at probe time, so the NVMe
+    driver is unbound while BARs are away from their original addresses.
+    """
+    vm = uvm_booted
+    vm.ssh.scp_put(devmem_bin, DEVMEM_PATH)
+    vm.ssh.check_output(f"chmod +x {DEVMEM_PATH}")
+    nvme_slot = _get_pcie_slot(vm, "/sys/class/nvme/nvme0/device")
+    bars = _get_memory_bars(vm, nvme_slot)
+    original_base = bars[0].base
+    nvme_version = _get_nvme_version(vm, original_base)
+    assert nvme_version not in (0, 0xFFFFFFFF), f"invalid version {nvme_version:#x}"
+
+    vm.ssh.check_output(f"echo {nvme_slot} > /sys/bus/pci/drivers/nvme/unbind")
+
+    # Shifting all BARs by the same amount keeps them from overlapping each
+    # other. This stays inside the MMIO windows and nothing is placed there.
+    relocation_offset = 16 << 20
+    for pci_bar in bars:
+        relocated_base = pci_bar.base + relocation_offset
+        assert relocated_base % pci_bar.size == 0
+        _set_bar_base(vm, nvme_slot, pci_bar, relocated_base, memory_decoding)
+
+    assert (
+        _get_nvme_version(vm, original_base + relocation_offset) == nvme_version
+    ), "device not at relocated BAR0"
+    assert (
+        _get_nvme_version(vm, original_base) == 0
+    ), "device still mapped at original BAR0"
+
+    for pci_bar in bars:
+        _set_bar_base(vm, nvme_slot, pci_bar, pci_bar.base, memory_decoding)
+
+    assert (
+        _get_nvme_version(vm, original_base) == nvme_version
+    ), "device not back at original BAR0"
+
+    vm.ssh.check_output(f"echo {nvme_slot} > /sys/bus/pci/drivers/nvme/bind")
+    _wait_for_nvme(vm)
+    _check_write_readback(vm, "1M", 64)
+
+
+@vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+def test_vfio_nvme_bar_relocation_refused(uvm_booted, devmem_bin):
+    """
+    Relocation of a BAR outside of the MMIO windows or on top of another device
+    is refused and the device stays where it is.
+    """
+    vm = uvm_booted
+    vm.ssh.scp_put(devmem_bin, DEVMEM_PATH)
+    vm.ssh.check_output(f"chmod +x {DEVMEM_PATH}")
+    nvme_slot = _get_pcie_slot(vm, "/sys/class/nvme/nvme0/device")
+    bar0 = _get_memory_bars(vm, nvme_slot)[0]
+    nvme_version = _get_nvme_version(vm, bar0.base)
+    network_slot = _get_pcie_slot(vm, "/sys/class/net/eth0/device/..")
+
+    # Overlap the start of the network device BAR
+    network_bar0 = _get_memory_bars(vm, network_slot)[0]
+    overlapping_base = network_bar0.base & ~(bar0.size - 1)
+
+    for refused_base in [0, overlapping_base]:
+        _set_bar_base(vm, nvme_slot, bar0, refused_base, memory_decoding=True)
+        assert (
+            f"Cannot reserve relocated BAR0 range at {refused_base:#x}" in vm.log_data
+        )
+        assert (
+            _get_nvme_version(vm, bar0.base) == nvme_version
+        ), "device moved by a refused relocation"
+
+    # The NVMe driver is not aware of any of this and keeps working
+    _set_bar_base(vm, nvme_slot, bar0, bar0.base, memory_decoding=True)
+    _check_write_readback(vm, "1M", 64)
+
+
+@vfio_device_test
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pytest.mark.parametrize("uvm_booted", ["coldplug"], indirect=True)
+def test_vfio_nvme_cold_plugged_not_removable(uvm_booted):
+    """A device attached before boot is not behind a root port, so it stays."""
+    vm = uvm_booted
+    with pytest.raises(RuntimeError, match="is not removable"):
+        vm.api.device_passthrough.delete("nvme0", force=True)
+    _check_write_readback(vm, "4k", 1)
+
+
+@vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pytest.mark.parametrize("uvm_booted", ["hotplug"], indirect=True)
+@pytest.mark.parametrize("force", [False, True], ids=["graceful", "forced"])
+def test_vfio_nvme_hot_unplug(uvm_booted, vfio_nvme, force):
+    """
+    A hot-plugged device can be unplugged and plugged back. Plugging it back
+    after the last passthrough device is gone re-establishes the DMA mappings
+    of the guest memory in the existing VFIO container.
+    """
+    vm = uvm_booted
+    nvme_slot = _get_pcie_slot(vm, "/sys/class/nvme/nvme0/device")
+
+    for i in range(2):
+        if i:
+            vm.api.device_passthrough.put(id="nvme0", sbdf=vfio_nvme)
+            _wait_for_nvme(vm)
+        _check_write_readback(vm, "1M", 64)
+        vm.api.device_passthrough.delete("nvme0", force=force)
+        if not force:
+            # The device stays until the guest releases it
+            assert vm.api.vm_config.get().json()["device-passthrough"]
+            time.sleep(UNPLUG_SLEEP)
+        assert vm.api.vm_config.get().json()["device-passthrough"] == []
+        vm.ssh.check_output(
+            f"timeout 2 sh -c 'while test -e /sys/bus/pci/devices/{nvme_slot}; do sleep 0.1; done'"
+        )
+        with pytest.raises(RuntimeError, match="Device with id: nvme0 not found"):
+            vm.api.device_passthrough.delete("nvme0", force=force)
+
+    # Nothing blocks snapshots once the passthrough device is gone
+    vm.snapshot_full()
+
+
+@vfio_device_test
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+def test_vfio_nvme_diff_snapshot_after_unplug(uvm_configured, vfio_nvme):
+    """
+    The device DMA writes are not dirty tracked, so after it was hot-plugged
+    Diff snapshots are refused until a Full snapshot captures all the memory.
+    A Full snapshot taken before the hot-plug or a failed one does not count.
+    """
+    vm = uvm_configured
+    vm.add_net_iface()
+    vm.start()
+    vm.snapshot_full()
+    vm.resume()
+
+    vm.add_passthrough_device("nvme0", vfio_nvme)
+    _wait_for_nvme(vm)
+    _check_write_readback(vm, "1M", 64)
+    vm.api.device_passthrough.delete("nvme0", force=True)
+
+    diff_error = "Diff snapshots are not allowed after hot-plugging"
+    with pytest.raises(RuntimeError, match=diff_error):
+        vm.snapshot_diff()
+    vm.resume()
+    with pytest.raises(RuntimeError, match="No such file or directory"):
+        vm.snapshot_full(mem_path="missing/mem")
+    vm.resume()
+    with pytest.raises(RuntimeError, match=diff_error):
+        vm.snapshot_diff()
+    vm.resume()
+
+    vm.snapshot_full()
+    vm.resume()
+    vm.snapshot_diff()

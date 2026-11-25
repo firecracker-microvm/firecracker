@@ -15,6 +15,9 @@ from framework.utils_hugepages import HugePagesConfig
 
 KVM_PATH = Path("/dev/kvm")
 
+# Mirrors MAX_SUPPORTED_KVM_VCPUS in src/vmm/src/vstate/vm.rs.
+MAX_SUPPORTED_VCPUS = 64
+
 
 def has_kvm():
     """Whether this host can run KVM microVMs (i.e. /dev/kvm exists)."""

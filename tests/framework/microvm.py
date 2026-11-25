@@ -479,7 +479,12 @@ class Microvm:
                         "Got API call duration log entry before request entry"
                     )
 
-                if current_call.url not in ["/snapshot/create", "/snapshot/load"]:
+                # Passthrough device hot-plug and forced hot-unplug reset the device and
+                # (un)pin the guest memory, which can take over a second.
+                if current_call.url not in [
+                    "/snapshot/create",
+                    "/snapshot/load",
+                ] and not current_call.url.startswith("/device-passthrough"):
                     exec_time = float(match.group("execution_time")) / 1000.0
 
                     assert (
@@ -1002,6 +1007,11 @@ class Microvm:
 
         return iface
 
+    def add_passthrough_device(self, dev_id, sbdf):
+        """Pass the host PCI device `sbdf`, bound to vfio-pci, through to the guest"""
+        self.jailer.add_vfio_device(sbdf)
+        self.api.device_passthrough.put(id=dev_id, sbdf=sbdf)
+
     def add_pmem(
         self,
         pmem_id,
@@ -1221,9 +1231,11 @@ class Microvm:
         if huge_pages is not None:
             self.huge_pages = huge_pages
 
+        response = self.api.machine_config.get()
+        self.mem_size_bytes = int(response.json()["mem_size_mib"]) * 2**20
+        self.vcpus_count = response.json()["vcpu_count"]
+
         if self.memory_monitor:
-            response = self.api.machine_config.get()
-            self.mem_size_bytes = int(response.json()["mem_size_mib"]) * 2**20
             # Notify monitor that this is a restored VM
             self.memory_monitor.set_threshold_for_restored_vm()
             self.memory_monitor.start()

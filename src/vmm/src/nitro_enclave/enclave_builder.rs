@@ -232,6 +232,10 @@ fn validate_supported_devices(vm_resources: &VmResources) -> Result<(), EnclaveB
         (!vm_resources.pmem.configs.is_empty(), "pmem"),
         (vm_resources.memory_hotplug.is_some(), "memory hotplug"),
         (has_vhost_user_block, "vhost-user block"),
+        (
+            !vm_resources.device_passthrough.configs.is_empty(),
+            "passthrough",
+        ),
     ] {
         if present {
             return Err(EnclaveBuilderError::UnsupportedDevice(name));
@@ -489,6 +493,7 @@ pub fn build_and_boot_enclave(
         shutdown_exit_code: None,
         vm: Vm::Enclave(enclave_vm),
         device_manager,
+        can_create_diff_snapshots: true,
     };
     let vmm = Arc::new(Mutex::new(vmm));
     // Enclave VMs are already running after the NE start ioctl — there is no
@@ -753,6 +758,7 @@ mod tests {
     #[test]
     fn test_validate_supported_devices() {
         use crate::vmm_config::balloon::BalloonBuilder;
+        use crate::vmm_config::device_passthrough::DevicePassthroughConfig;
         use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
         use crate::vmm_config::pmem::PmemConfig;
 
@@ -775,10 +781,17 @@ mod tests {
         let mut hotplug = clean();
         hotplug.memory_hotplug = Some(MemoryHotplugConfig::default());
 
+        let mut passthrough = clean();
+        passthrough
+            .device_passthrough
+            .configs
+            .push(DevicePassthroughConfig::default());
+
         for (expected, resources) in [
             ("balloon", balloon),
             ("pmem", pmem),
             ("memory hotplug", hotplug),
+            ("passthrough", passthrough),
         ] {
             let err = validate_supported_devices(&resources).unwrap_err();
             assert!(

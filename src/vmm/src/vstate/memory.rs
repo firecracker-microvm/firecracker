@@ -439,6 +439,8 @@ impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region {
 
 impl<'a> GuestMemorySlot<'a> {
     /// Dumps the dirty pages in this slot onto the writer
+    // Inlined into a large caller, this per-page loop runs out of registers and slows down.
+    #[inline(never)]
     pub(crate) fn dump_dirty<T: WriteVolatile + std::io::Seek>(
         &self,
         writer: &mut T,
