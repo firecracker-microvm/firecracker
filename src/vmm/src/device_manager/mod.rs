@@ -344,7 +344,7 @@ impl DeviceManager {
             Arc::new(EventFd::new(libc::EFD_NONBLOCK).map_err(MmioError::CreatePvPanicEvent)?);
         let pvpanic = PvPanic::new(panic_evt, panic_action);
         self.mmio_platform_devices
-            .register_mmio_pvpanic(vm, pvpanic)?;
+            .register_mmio_pvpanic(vm, pvpanic, None)?;
         Ok(())
     }
 

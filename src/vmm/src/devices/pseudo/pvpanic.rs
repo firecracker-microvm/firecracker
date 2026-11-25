@@ -5,9 +5,11 @@
 
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::logger::{error, info};
+use crate::snapshot::Persist;
 use crate::vmm_config::pvpanic::PvPanicAction;
 use crate::vstate::bus::{BusDevice, BusWriteAction};
 
@@ -38,6 +40,14 @@ impl PvPanicEvent {
             Self::Ignore
         }
     }
+}
+
+/// Serializable pvpanic state. Eventfds and the runtime reporting flag are not saved.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+pub struct PvPanicState {
+    /// Action to request when the guest reports a panic.
+    pub panic_action: PvPanicAction,
 }
 
 /// QEMU-compatible pvpanic device with a single byte register at offset zero.
@@ -104,6 +114,23 @@ impl BusDevice for PvPanic {
             PvPanicEvent::Panicked | PvPanicEvent::Ignore => {}
         }
         BusWriteAction::Continue
+    }
+}
+
+impl Persist<'_> for PvPanic {
+    type State = PvPanicState;
+    type ConstructorArgs = ();
+    type Error = std::io::Error;
+
+    fn save(&self) -> Self::State {
+        PvPanicState {
+            panic_action: self.panic_action,
+        }
+    }
+
+    fn restore(_: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
+        let panic_evt = Arc::new(EventFd::new(libc::EFD_NONBLOCK)?);
+        Ok(Self::new(panic_evt, state.panic_action))
     }
 }
 
@@ -225,5 +252,17 @@ mod tests {
             BusWriteAction::PauseVcpu
         ));
         assert_eq!(dev.panic_evt.read().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_device_save_restore() {
+        // A device that already reported a panic is armed again by restore: the
+        // runtime reporting flag is not part of the saved state.
+        let mut dev = device(PvPanicAction::Pause);
+        let _ = dev.write(0, 0, &[PVPANIC_PANICKED]);
+
+        let mut restored = PvPanic::restore((), &dev.save()).unwrap();
+        let _ = restored.write(0, 0, &[PVPANIC_PANICKED]);
+        assert_eq!(restored.panic_evt.read().unwrap(), 1);
     }
 }

@@ -6,4 +6,4 @@ mod boot_timer;
 pub(crate) mod pvpanic;
 
 pub use self::boot_timer::BootTimer;
-pub use self::pvpanic::PvPanic;
+pub use self::pvpanic::{PvPanic, PvPanicState};

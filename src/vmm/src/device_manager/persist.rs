@@ -17,6 +17,7 @@ use crate::devices::acpi::vmclock::{VmClock, VmClockState};
 use crate::devices::acpi::vmgenid::{VMGenIDState, VmGenId};
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::{PL061Device, PL061State, RTCDevice};
+use crate::devices::pseudo::{PvPanic, PvPanicState};
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::block::device::Block;
@@ -200,9 +201,22 @@ pub struct ACPIDeviceManagerState {
     vmclock: VmClockState,
 }
 
+/// Resources and device state needed to restore pvpanic.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+pub struct PvPanicDeviceState {
+    /// Saved MMIO resources.
+    pub device_info: MMIODeviceInfo,
+    /// Saved panic action, without runtime notification state.
+    pub device_state: PvPanicState,
+}
+
 /// Holds the states of the non-virtio (platform) devices connected over the MMIO transport.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct MMIOPlatformDevicesState {
+    /// State and MMIO resources of the pvpanic device, if enabled.
+    pub pvpanic: Option<PvPanicDeviceState>,
     #[cfg(target_arch = "aarch64")]
     /// State of the serial device in MMIO space.
     pub serial: Option<MMIODeviceInfo>,
@@ -254,6 +268,10 @@ impl<'a> Persist<'a> for MMIOPlatformDevices {
 
     fn save(&self) -> Self::State {
         MMIOPlatformDevicesState {
+            pvpanic: self.pvpanic.as_ref().map(|device| PvPanicDeviceState {
+                device_info: device.resources,
+                device_state: device.inner.lock().expect("Poisoned lock").save(),
+            }),
             #[cfg(target_arch = "aarch64")]
             serial: self.serial.as_ref().map(|device| device.resources),
             #[cfg(target_arch = "aarch64")]
@@ -268,13 +286,21 @@ impl<'a> Persist<'a> for MMIOPlatformDevices {
         }
     }
 
-    #[allow(unused_variables)]
-    #[cfg_attr(not(target_arch = "aarch64"), allow(unused_mut))]
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let mut platform_devices = MMIOPlatformDevices::new();
+
+        if let Some(pvpanic_state) = &state.pvpanic {
+            let pvpanic = PvPanic::restore((), &pvpanic_state.device_state)
+                .map_err(MmioError::CreatePvPanicEvent)?;
+            platform_devices.register_mmio_pvpanic(
+                constructor_args.vm,
+                pvpanic,
+                Some(pvpanic_state.device_info),
+            )?;
+        }
 
         #[cfg(target_arch = "aarch64")]
         {
@@ -699,6 +725,7 @@ mod tests {
     use crate::device_manager;
     #[cfg(target_arch = "aarch64")]
     use crate::device_manager::tests::default_device_manager;
+    use crate::devices::pseudo::pvpanic::PVPANIC_PANICKED;
     use crate::devices::virtio::block::CacheType;
     use crate::resources::VmmConfig;
     #[cfg(target_arch = "aarch64")]
@@ -708,7 +735,10 @@ mod tests {
     use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::pmem::PmemConfig;
+    use crate::vmm_config::pvpanic::PvPanicAction;
     use crate::vmm_config::vsock::VsockDeviceConfig;
+    use crate::vstate::bus::BusWriteAction;
+    use crate::vstate::resources::ResourceAllocator;
     #[cfg(target_arch = "aarch64")]
     use crate::{EventManager, Kvm};
 
@@ -867,6 +897,8 @@ mod tests {
         tmp_sock_file.remove().unwrap();
 
         let serialized_data;
+        let saved_allocator;
+        let pvpanic_resources;
         // Set up a vmm with one of each device, and get the serialized DeviceStates.
         {
             let mut event_manager = EventManager::new().expect("Unable to create EventManager");
@@ -946,6 +978,19 @@ mod tests {
                 memory_hotplug_config,
             );
 
+            let vm = vmm.vm.as_kvm().unwrap();
+            vmm.device_manager
+                .attach_pvpanic_device(vm, PvPanicAction::Pause)
+                .unwrap();
+            pvpanic_resources = vmm
+                .device_manager
+                .mmio_platform_devices
+                .pvpanic
+                .as_ref()
+                .unwrap()
+                .resources;
+            saved_allocator = vm.resource_allocator().save();
+
             let device_state = vmm.device_manager.save();
             serialized_data = bitcode::serialize(&device_state).unwrap();
         }
@@ -963,6 +1008,7 @@ mod tests {
         };
         let vm_resources = &mut VmResources::default();
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
+        *kvm_vm.resource_allocator() = ResourceAllocator::restore((), &saved_allocator).unwrap();
         let pmem_devices = device_manager_state
             .restore_pmem_devices(&kvm_vm, kvm_vm.guest_memory())
             .unwrap();
@@ -976,6 +1022,40 @@ mod tests {
             pmem_devices,
         };
         let _restored_dev_manager = MMIOVirtioDevices::restore(restore_args, mmio_state).unwrap();
+        let allocator_before = bitcode::serialize(&kvm_vm.resource_allocator().save()).unwrap();
+        let restored_platform = MMIOPlatformDevices::restore(
+            MMIOPlatformDevicesConstructorArgs {
+                vm: &kvm_vm,
+                event_manager: &mut event_manager,
+                vm_resources,
+                serial_state: device_manager_state.serial_state.as_ref(),
+            },
+            &device_manager_state.mmio_platform_state,
+        )
+        .unwrap();
+        assert_eq!(
+            restored_platform.save(),
+            device_manager_state.mmio_platform_state
+        );
+        assert_eq!(
+            bitcode::serialize(&kvm_vm.resource_allocator().save()).unwrap(),
+            allocator_before
+        );
+        let pvpanic = restored_platform.pvpanic.as_ref().unwrap();
+        assert_eq!(pvpanic.resources, pvpanic_resources);
+        assert!(Arc::ptr_eq(
+            &pvpanic.panic_evt,
+            pvpanic.inner.lock().unwrap().panic_evt()
+        ));
+        assert!(matches!(
+            kvm_vm
+                .common
+                .mmio_bus
+                .write(pvpanic.resources.addr, &[PVPANIC_PANICKED])
+                .unwrap(),
+            BusWriteAction::PauseVcpu
+        ));
+        assert_eq!(pvpanic.panic_evt.read().unwrap(), 1);
 
         let expected_vm_resources = format!(
             r#"{{

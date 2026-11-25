@@ -422,17 +422,27 @@ impl MMIOPlatformDevices {
         Ok(())
     }
 
-    /// Allocate one MMIO page and register the pvpanic device.
-    pub fn register_mmio_pvpanic(&mut self, vm: &KvmVm, pvpanic: PvPanic) -> Result<(), MmioError> {
-        let range = vm.resource_allocator().mmio32_memory.allocate(
-            MMIO_LEN,
-            MMIO_LEN,
-            AllocPolicy::FirstMatch,
-        )?;
-        let resources = MMIODeviceInfo {
-            addr: range.start(),
-            len: MMIO_LEN,
-            gsi: None,
+    /// Register pvpanic with saved resources, or allocate one MMIO page on cold boot.
+    pub fn register_mmio_pvpanic(
+        &mut self,
+        vm: &KvmVm,
+        pvpanic: PvPanic,
+        device_info_opt: Option<MMIODeviceInfo>,
+    ) -> Result<(), MmioError> {
+        let resources = if let Some(device_info) = device_info_opt {
+            // The VM's restored allocator already reserves this range. Do not allocate again.
+            device_info
+        } else {
+            let range = vm.resource_allocator().mmio32_memory.allocate(
+                MMIO_LEN,
+                MMIO_LEN,
+                AllocPolicy::FirstMatch,
+            )?;
+            MMIODeviceInfo {
+                addr: range.start(),
+                len: MMIO_LEN,
+                gsi: None,
+            }
         };
         let device = MMIOPvPanicDevice {
             resources,
