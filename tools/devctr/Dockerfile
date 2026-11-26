@@ -217,7 +217,7 @@ RUN cp /usr/lib/python3/dist-packages/seccomp.cpython-312-"$ARCH"-linux-gnu.so "
 # ============================================================
 FROM base-image AS rust-toolchain
 ARG ARCH
-ARG RUST_TOOLCHAIN="1.99.1"
+ARG RUST_TOOLCHAIN="1.100.0"
 ARG RUST_HOME
 ENV CARGO_HOME=$RUST_HOME
 ENV RUSTUP_HOME=$RUST_HOME
