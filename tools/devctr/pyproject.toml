@@ -23,7 +23,9 @@ openapi-spec-validator = "^0.7.1"
 pandas = "^2.3.3"
 psutil = "^6.0.0"
 pylint = "^3"
-pytest = ">=8,<10"
+# pytest 9.2.0 fails at startup when cache_dir contains "..", which ours does:
+# https://github.com/pytest-dev/pytest/issues/15295
+pytest = ">=8,<9.2"
 pytest-json-report = "^1.5.0"
 pytest-repeat = "^0.9.4"
 pytest-rerunfailures = "^14"
