@@ -101,6 +101,12 @@ Firecracker does not perform any network traffic filtering. All egress traffic
 from a guest is therefore considered untrusted, and should be filtered at the
 host-level.
 
+The host, the API client and the snapshot files a microVM is restored from are
+trusted. Firecracker performs only basic sanity checks on snapshot files and
+does not defend against crafted ones, so they must be protected like any other
+privileged input. See
+[Snapshot files management](snapshotting/snapshot-support.md#snapshot-files-management).
+
 ![Firecracker Threat Containment](images/firecracker_threat_containment.png?raw=true "Firecracker Threat Containment")
 
 ## Components and Features
