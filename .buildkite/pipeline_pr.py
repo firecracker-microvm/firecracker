@@ -20,9 +20,7 @@ DEFAULTS_PERF = {
 }
 
 changed_files = get_changed_files()
-DOC_ONLY_CHANGE = False
-if changed_files and all(f.suffix == ".md" for f in changed_files):
-    DOC_ONLY_CHANGE = True
+DOC_ONLY_CHANGE = bool(changed_files) and all(f.suffix == ".md" for f in changed_files)
 pipeline = BKPipeline(
     priority=DEFAULT_PRIORITY,
     timeout_in_minutes=45,

@@ -48,8 +48,7 @@ class HostEchoWorker(Thread):
         """
         try:
             self._run()
-        # pylint: disable=broad-except
-        except Exception as err:
+        except Exception as err:  # pylint: disable=broad-except
             self.error = err
 
     def close_uds(self):
