@@ -610,8 +610,16 @@ impl VmResources {
     /// reason, guest memory is only backed by a memfd when something outside of Firecracker
     /// has to see it: a vhost-user-blk device, or a memory backend configured in
     /// `machine-config`.
+    ///
+    /// This is for a boot. After a restore, `machine-config.mem_backend` reports the backend
+    /// of the restore, and only `SharedMemfd` means that memory is in a memfd.
     fn memfd_required(&self) -> bool {
-        self.machine_config.mem_backend.is_some()
+        self.machine_config
+            .mem_backend
+            .as_ref()
+            .is_some_and(|backend| {
+                backend.backend_type == crate::vmm_config::snapshot::MemBackendType::SharedMemfd
+            })
             || self
                 .block
                 .devices

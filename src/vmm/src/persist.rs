@@ -447,6 +447,10 @@ pub fn restore_from_snapshot(
             gdb_socket_path: None,
         })
         .map_err(BuildMicrovmFromSnapshotError::VmUpdateConfig)?;
+    // Report the backend this restore uses in the machine configuration, whatever its type.
+    // It is set here and not through the update above, which only accepts what
+    // `PUT /machine-config` does: a `SharedMemfd` backend to share memory with at boot.
+    vm_resources.machine_config.mem_backend = Some(params.mem_backend.clone());
 
     // Some sanity checks before building the microvm.
     snapshot_state_sanity_check(&microvm_state)?;

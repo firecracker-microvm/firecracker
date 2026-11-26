@@ -392,6 +392,14 @@ fn verify_load_snapshot(
         let vmm = vmm.lock().unwrap();
         assert_eq!(vmm.instance_info.state, VmState::Running);
         assert_eq!(vmm.machine_config.huge_pages, expected_huge_pages);
+        // The machine configuration reports the backend of the restore.
+        assert_eq!(
+            vmm.machine_config.mem_backend,
+            Some(MemBackendConfig {
+                backend_path: memory_file.as_path().to_path_buf(),
+                backend_type: MemBackendType::File,
+            })
+        );
     }
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 }

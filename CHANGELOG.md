@@ -135,6 +135,11 @@ and this project adheres to
   does when resuming after `PUT /snapshot/load` fails. The microVM is fully
   built at that point, so `InstanceStart` cannot be retried safely. Boot
   failures before that point are unchanged and can still be retried.
+- [#6362](https://github.com/firecracker-microvm/firecracker/pull/6362):
+  `GET /machine-config` and `GET /vm/config` on a microVM restored from a
+  snapshot now report the memory backend given to `PUT /snapshot/load` in the
+  `mem_backend` field of the machine configuration, whatever its type (`File`
+  for a restore with the deprecated `mem_file_path`).
 
 ### Deprecated
 

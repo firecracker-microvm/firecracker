@@ -147,6 +147,9 @@ pub struct MachineConfig {
     /// Memory backend to share guest memory with at boot. Only `SharedMemfd` is accepted here:
     /// guest memory is then backed by a single memfd, handed to the process listening on
     /// `backend_path` before the microVM starts.
+    ///
+    /// On a microVM restored from a snapshot, this is the backend given to
+    /// `PUT /snapshot/load`, of any type.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mem_backend: Option<MemBackendConfig>,
     /// GDB socket address.

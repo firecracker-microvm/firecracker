@@ -1868,7 +1868,9 @@ definitions:
           `backend_path` during `InstanceStart`, once the microVM is built and
           before any vCPU runs. Failing to connect fails the boot. A `PUT`
           without the field, or a `PATCH` with the field set to `null`,
-          removes a previously set backend.
+          removes a previously set backend. On a microVM restored from a
+          snapshot, a `GET` reports the backend given to `PUT /snapshot/load`,
+          which can be of any type.
 
   MemoryBackend:
     type: object
@@ -1876,7 +1878,8 @@ definitions:
       How guest memory is populated on restore (`File`, `Uffd`) and/or shared
       with an external process (`SharedMemfd`). `File` and `Uffd` are only
       valid in `PUT /snapshot/load`; `SharedMemfd` is valid there and in
-      `PUT` and `PATCH /machine-config`.
+      `PUT` and `PATCH /machine-config`. `GET /machine-config` reports the
+      backend set at boot or used by the restore.
     required:
       - backend_type
       - backend_path
