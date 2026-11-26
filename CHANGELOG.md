@@ -130,6 +130,12 @@ and this project adheres to
 
 ### Fixed
 
+- [#6490](https://github.com/firecracker-microvm/firecracker/issues/6490): Fixed
+  the jailer not creating `/dev/nitro_enclaves` and `/dev/userfaultfd` in the
+  jail when their minor number is below 100. The kernel pads such minors with
+  spaces in `/proc/misc`, which the parser did not handle. On 5.10 hosts this
+  affected `/dev/nitro_enclaves` every time.
+
 - [#6302](https://github.com/firecracker-microvm/firecracker/issues/6302): Fixed
   AMX tile state being lost after a snapshot restore. The IA32_XFD and
   IA32_XFD_ERR MSRs are now saved in snapshots. Without them a restored guest
