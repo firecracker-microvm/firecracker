@@ -11,6 +11,7 @@ from signal import SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SI
 from time import sleep
 
 import pytest
+import requests
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_rootfs_mode
 from framework.http_api import Session
@@ -101,6 +102,41 @@ def test_sigpipe_from_log_write(microvm_factory, tmp_path):
     finally:
         if read_fd is not None:
             os.close(read_fd)
+        proc.kill()
+        proc.wait()
+
+
+def test_sigxfsz_from_log_write(microvm_factory, tmp_path):
+    """
+    Test that a SIGXFSZ raised by Firecracker's own log write to stdout exits.
+
+    With no log path configured the log target is stdout, so putting stdout on a
+    regular file at its size limit makes the next request log, and so raise
+    SIGXFSZ on the thread that is already inside the write to stdout.
+    """
+    sock = tmp_path / "fc.sock"
+    url = f"http+unix://{urllib.parse.quote(str(sock), safe='')}/"
+    out = tmp_path / "fc.out"
+    with open(out, "wb") as stdout:
+        proc = subprocess.Popen(
+            [str(microvm_factory.fc_binary_path), "--api-sock", str(sock)],
+            stdout=stdout,
+            stderr=subprocess.PIPE,
+        )
+    try:
+        wait_for_unix_socket_on_host("", sock)
+
+        session = Session()
+        assert session.get(url, timeout=5).status_code == 200
+
+        size = os.path.getsize(out)
+        res.prlimit(proc.pid, res.RLIMIT_FSIZE, (size, res.RLIM_INFINITY))
+
+        with pytest.raises(requests.exceptions.ConnectionError):
+            session.get(url, timeout=5)
+        _, stderr = proc.communicate(timeout=10)
+        assert proc.returncode == 151, stderr.decode()
+    finally:
         proc.kill()
         proc.wait()
 
