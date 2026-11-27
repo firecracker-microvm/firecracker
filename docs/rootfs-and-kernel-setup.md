@@ -20,6 +20,9 @@ images as well as `bzImage` images, while on aarch64 it supports PE formatted
 > `vmlinux`. See its
 > [guest kernel requirements](nitro-sandboxes/getting-started.md#guest-kernel).
 
+On x86_64, an ELF `vmlinux` built with `CONFIG_PVH=y` is booted in
+[PVH direct boot mode](pvh.md) instead of the Linux boot protocol.
+
 Here's a quick step-by-step guide to building your own kernel that Firecracker
 can boot:
 
@@ -103,6 +106,9 @@ A rootfs image is just a file system image, that hosts at least an init system.
 For instance, our getting started guide uses an ext4 filesystem image. Note
 that, whichever file system you choose to use, support for it will have to be
 compiled into the kernel, so it can be mounted at boot time.
+
+Alternatively, Firecracker can boot the guest from an initrd instead of a root
+block device; see [Creating and using an initrd](initrd.md).
 
 In order to obtain an ext4 image that you can use with Firecracker, you have the
 following options:

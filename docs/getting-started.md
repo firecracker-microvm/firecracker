@@ -1,12 +1,15 @@
 # Getting Started with Firecracker
 
 **All resources are used for demonstration purposes and are not intended for
-production.**
+production.** For a production deployment, follow the
+[production host setup recommendations](prod-host-setup.md) and run Firecracker
+under the [jailer](jailer.md).
 
 ## Prerequisites
 
-You can check if your system meets the requirements by running
-`firecracker/tools/devtool checkenv`.
+Once you have cloned the repository (see
+[Getting a Firecracker Binary](#getting-a-firecracker-binary)), you can check if
+your system meets the requirements by running `tools/devtool checkenv`.
 
 An opinionated way to run Firecracker is to launch an
 [EC2](https://aws.amazon.com/ec2/) `c5.metal` instance with Ubuntu 24.04.
@@ -25,6 +28,13 @@ We exclusively use `.metal` instance types, because EC2 only supports KVM on
 > Nitro Enclaves. See its
 > [requirements](nitro-sandboxes/getting-started.md#requirements).
 
+The commands in this guide use `curl`, `wget`, `jq`, `ssh` and `ssh-keygen`,
+`unsquashfs` (from `squashfs-tools`), `mkfs.ext4` and `e2fsck` (from
+`e2fsprogs`), `ip` (from `iproute2`) and `nft` (from `nftables`). Building
+Firecracker from source additionally requires `docker`. On Amazon Linux 2023,
+`sudo dnf install -y squashfs-tools nftables docker` installs the ones that are
+not part of the base image.
+
 ### Architecture & OS
 
 Firecracker supports **x86_64** and **aarch64** Linux, see
@@ -32,21 +42,24 @@ Firecracker supports **x86_64** and **aarch64** Linux, see
 
 ### KVM
 
-Firecracker requires read/write access to `/dev/kvm` exposed by the KVM module.
+Firecracker requires read/write access to `/dev/kvm`, which the kernel creates
+when KVM initialises, that is when the kernel has KVM support (built in or as
+the `kvm` module) and the CPU exposes virtualization extensions.
 
-The presence of the KVM module can be checked with:
+The presence of KVM can be checked with:
 
 ```bash
-lsmod | grep kvm
+ls -l /dev/kvm
 ```
 
 An example output where it is enabled:
 
 ```bash
-kvm_intel             348160  0
-kvm                   970752  1 kvm_intel
-irqbypass              16384  1 kvm
+crw-rw---- 1 root kvm 10, 232 Nov 13 17:23 /dev/kvm
 ```
+
+If the device is missing, KVM is not available on this host; on EC2 that means
+the instance is not a `.metal` type.
 
 Some Linux distributions use the `kvm` group to manage access to `/dev/kvm`,
 while others rely on access control lists. If you have the ACL package for your
@@ -56,16 +69,11 @@ distro installed, you can grant Read+Write access with:
 sudo setfacl -m u:${USER}:rw /dev/kvm
 ```
 
-If access is managed via the `kvm` group, check that the KVM group exists:
+If access is managed via the `kvm` group, check that the KVM group exists and
+that `/dev/kvm` belongs to it in the `ls -l` output above:
 
 ```bash
 getent group kvm
-```
-
-and check that `/dev/kvm` is associated with the kvm group:
-
-```bash
-ls -l /dev/kvm
 ```
 
 You can see if your current user is already in the kvm group by running:
@@ -94,10 +102,17 @@ You can check if you have access to `/dev/kvm` with:
 ## Running Firecracker
 
 In production, Firecracker is designed to be run securely inside an execution
-jail, set up by the [`jailer`](../src/jailer/) binary. This is how our
-[integration test suite](#running-the-integration-test-suite) does it.
+jail, set up by the [`jailer`](jailer.md) binary, which applies cgroups,
+namespaces (including a network namespace via `--netns`), resource limits and
+drops privileges. This is how our
+[integration test suite](#running-the-integration-test-suite) does it. The host
+itself should be configured following the
+[production host setup recommendations](prod-host-setup.md).
 
-For simplicity, this guide will not use the [`jailer`](../src/jailer/).
+For simplicity, this guide will not use the `jailer` and runs the microVM in the
+host's network namespace; see
+[Isolating the microVM network](#isolating-the-microvm-network) for how to
+change that.
 
 ### Getting a rootfs and Guest Kernel Image
 
@@ -105,6 +120,13 @@ To successfully start a microVM, you will need an uncompressed Linux kernel
 binary, and an ext4 file system image (to use as rootfs). This guide uses the
 latest kernel image and Ubuntu rootfs available in our CI for the latest
 release.
+
+The Ubuntu rootfs from our CI runs `fcnet-setup.sh` at boot, which assigns each
+network interface whose MAC address starts with `06:00:` the IP address encoded
+in its last four bytes (`06:00:AC:10:00:02` becomes `172.16.0.2`). The MAC
+address and TAP IP used later in this guide depend on that. If you bring your
+own rootfs, configure the guest network as described in
+[network-setup](network-setup.md#in-the-guest) instead.
 
 ```bash
 ARCH="$(uname -m)"
@@ -143,6 +165,8 @@ mv -v id_rsa ./ubuntu-$ubuntu_version.id_rsa
 sudo chown -R root:root squashfs-root
 truncate -s 1G ubuntu-$ubuntu_version.ext4
 sudo mkfs.ext4 -d squashfs-root -F ubuntu-$ubuntu_version.ext4
+# The extracted tree is owned by root now and no longer needed
+sudo rm -rf squashfs-root
 
 # Verify everything was correctly set up and print versions
 echo
@@ -194,13 +218,30 @@ sudo systemctl start docker
 # It is possible to build for gnu, by passing the arguments '-l gnu'.
 #
 # This will produce the firecracker and jailer binaries under
-# `./firecracker/build/cargo_target/${toolchain}/debug`.
+# `./firecracker_src/build/cargo_target/${toolchain}/debug`.
 #
 sudo ./firecracker_src/tools/devtool build
 
 # Rename the binary to "firecracker"
 sudo cp ./firecracker_src/build/cargo_target/${ARCH}-unknown-linux-musl/debug/firecracker firecracker
 ```
+
+`tools/devtool build` builds in `debug`; to build release binaries pass
+`--release`, e.g. `tools/devtool build --release`.
+
+SSH can be used to work with libraries from private git repos by passing the
+`--ssh-keys` flag to specify the paths to your public and private SSH keys on
+the host. Both are required for git authentication when fetching the
+repositories.
+
+```bash
+tools/devtool build --ssh-keys ~/.ssh/id_rsa.pub ~/.ssh/id_rsa
+```
+
+Only a single set of credentials is supported. `devtool` cannot fetch multiple
+private repos which rely on different credentials.
+
+Documentation on `devtool` can be seen with `tools/devtool --help`.
 
 ### Starting Firecracker
 
@@ -225,11 +266,16 @@ PCI transport, as it yields higher throughput and lower latency for VirtIO
 devices. For more information regarding guest kernel requirements for using PCI
 look at our [kernel policy documentation](./kernel-policy.md).
 
-In a new terminal (do not close the 1st one):
+In a new terminal (do not close the 1st one), set up the host side of the
+network and configure the microVM. The firewall rules below use `nft`; if your
+host does not have it, use the `iptables-nft` rules from
+[network-setup](network-setup.md#configuration-via-iptables-nft) instead (legacy
+`iptables` accepts the same syntax):
 
 ```bash
 TAP_DEV="tap0"
 TAP_IP="172.16.0.1"
+GUEST_IP="172.16.0.2"
 MASK_SHORT="/30"
 
 # Setup network interface
@@ -239,17 +285,22 @@ sudo ip addr add "${TAP_IP}${MASK_SHORT}" dev "$TAP_DEV"
 sudo ip link set dev "$TAP_DEV" up
 
 # Enable ip forwarding
-sudo sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
-sudo iptables -P FORWARD ACCEPT
+echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
 
 # This tries to determine the name of the host network interface to forward
 # VM's outbound network traffic through. If outbound traffic doesn't work,
 # double check this returns the correct interface!
 HOST_IFACE=$(ip -j route list default |jq -r '.[0].dev')
 
-# Set up microVM internet access
-sudo iptables -t nat -D POSTROUTING -o "$HOST_IFACE" -j MASQUERADE || true
-sudo iptables -t nat -A POSTROUTING -o "$HOST_IFACE" -j MASQUERADE
+# Set up microVM internet access: NAT the guest's traffic out of the host
+# interface and allow forwarding between the TAP device and that interface.
+# The table is recreated from scratch so that this block can be re-run safely.
+sudo nft delete table firecracker 2> /dev/null || true
+sudo nft add table firecracker
+sudo nft "add chain firecracker postrouting { type nat hook postrouting priority srcnat; policy accept; }"
+sudo nft "add chain firecracker filter { type filter hook forward priority filter; policy accept; }"
+sudo nft add rule firecracker postrouting ip saddr "$GUEST_IP" oifname "$HOST_IFACE" counter masquerade
+sudo nft add rule firecracker filter iifname "$TAP_DEV" oifname "$HOST_IFACE" accept
 
 API_SOCKET="/tmp/firecracker.socket"
 LOGFILE="./firecracker.log"
@@ -264,14 +315,17 @@ sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/logger"
 
+# Set the number of vCPUs and the memory size. If this request is skipped, the
+# microVM boots with 1 vCPU and 128 MiB.
+sudo curl -X PUT --unix-socket "${API_SOCKET}" \
+    --data "{
+        \"vcpu_count\": 2,
+        \"mem_size_mib\": 1024
+    }" \
+    "http://localhost/machine-config"
+
 KERNEL="./$(ls vmlinux* | tail -1)"
 KERNEL_BOOT_ARGS="console=ttyS0 reboot=k panic=1"
-
-ARCH=$(uname -m)
-
-if [ ${ARCH} = "aarch64" ]; then
-    KERNEL_BOOT_ARGS="keep_bootcon ${KERNEL_BOOT_ARGS}"
-fi
 
 # Set boot source
 sudo curl -X PUT --unix-socket "${API_SOCKET}" \
@@ -307,10 +361,6 @@ sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/network-interfaces/net1"
 
-# API requests are handled asynchronously, it is important the configuration is
-# set, before `InstanceStart`.
-sleep 0.015s
-
 # Start microVM
 sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     --data "{
@@ -318,8 +368,8 @@ sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/actions"
 
-# API requests are handled asynchronously, it is important the microVM has been
-# started before we attempt to SSH into it.
+# Wait for the guest to boot and for sshd to start before we attempt to SSH
+# into it.
 sleep 2s
 
 KEY_NAME=./$(ls *.id_rsa | tail -1)
@@ -345,13 +395,42 @@ Issuing a `reboot` command inside the guest will gracefully shutdown
 Firecracker. This is due to the fact that Firecracker doesn't implement guest
 power management.
 
+### Isolating the microVM network
+
+The setup above creates the TAP device in the host's network namespace. We
+recommend giving each microVM its own network namespace: it keeps per-VM
+firewall rules, routes and TAP devices separate, it is required when several
+snapshots of the same microVM (which restore with the same TAP device name and
+IP address) are restored on the same host, and it is what the jailer's `--netns`
+flag and our integration tests use.
+
+The outline is: create a namespace, create the TAP device inside it, connect the
+namespace to the host with a `veth` pair, and NAT inside the namespace:
+
+```bash
+sudo ip netns add fc0
+sudo ip netns exec fc0 ip tuntap add dev tap0 mode tap
+sudo ip netns exec fc0 ip addr add 172.16.0.1/30 dev tap0
+sudo ip netns exec fc0 ip link set tap0 up
+sudo ip link add name veth1 type veth peer name veth0 netns fc0
+# ... assign addresses to veth1/veth0, add a default route and a NAT rule inside
+# fc0, and enable forwarding on the host
+```
+
+Then either start Firecracker with `sudo ip netns exec fc0 ./firecracker ...`,
+or pass `--netns /var/run/netns/fc0` to the jailer. The full recipe, including
+the `veth` addressing and the host-side rules, is in
+[Network Connectivity for Clones](snapshotting/network-for-clones.md); the
+jailer flags are described in [jailer.md](jailer.md#jailer-usage).
+
 ### Configuring the microVM without sending API requests
 
-You can boot a guest without using the API socket by passing the parameter
-`--config-file` to the Firecracker process. E.g.:
+You can boot a guest without sending API requests by passing the parameter
+`--config-file` to the Firecracker process. If you also pass `--no-api`,
+Firecracker will not create the API socket at all. E.g.:
 
 ```wrap
-sudo ./firecracker --api-sock /tmp/firecracker.socket --config-file <path_to_the_configuration_file>
+sudo ./firecracker --config-file <path_to_the_configuration_file> --no-api
 ```
 
 `path_to_the_configuration_file` is the path to a JSON file with the
@@ -359,9 +438,9 @@ configuration for all of the microVM's resources. The JSON **must** contain the
 configuration for the guest kernel and rootfs, all of the other resources are
 optional. This configuration method will also start the microVM, as such you
 need to specify all desired pre-boot configurable resources in the JSON. The
-names of the resources can be seen in \[`firecracker.yaml`\]
-(../src/firecracker/swagger/firecracker.yaml) and the names of their fields are
-the same that are used in the API requests.
+names of the resources can be seen in
+[`firecracker.yaml`](../src/firecracker/swagger/firecracker.yaml) and the names
+of their fields are the same that are used in the API requests.
 
 An example of configuration file is provided:
 [`tests/framework/vm_config.json`](../tests/framework/vm_config.json).
@@ -369,27 +448,37 @@ An example of configuration file is provided:
 Once the guest is booted, refer [network-setup](./network-setup.md#in-the-guest)
 to bring up the network in the guest machine.
 
-After the microVM is started you can still use the socket to send API requests
-for post-boot operations.
+If you omit `--no-api` and pass `--api-sock` as before, you can still use the
+socket to send API requests for post-boot operations after the microVM has
+started.
 
-### Building Firecracker
+### Cleaning up
 
-SSH can be used to work with libraries from private git repos by passing the
-`--ssh-keys` flag to specify the paths to your public and private SSH keys on
-the host. Both are required for git authentication when fetching the
-repositories.
+Once the microVM has shut down, remove the TAP device and the nftables table
+added above:
 
 ```bash
-tools/devtool build --ssh-keys ~/.ssh/id_rsa.pub ~/.ssh/id_rsa
+sudo ip link del tap0
+sudo nft delete table firecracker
 ```
 
-Only a single set of credentials is supported. `devtool` cannot fetch multiple
-private repos which rely on different credentials.
+If no other guests are running on the host, you can also disable IP forwarding
+again with `echo 0 | sudo tee /proc/sys/net/ipv4/ip_forward`. See
+[network-setup](network-setup.md#cleaning-up) for the cleanup of the
+`iptables-nft` based setup.
 
-`tools/devtool build` builds in `debug` to build release binaries pass
-`--release` e.g. `tools/devtool build --release`
+## Next steps
 
-Documentation on `devtool` can be seen with `tools/devtool --help`.
+- [Production host setup](prod-host-setup.md) and the [jailer](jailer.md): what
+  to change before running untrusted workloads.
+- [Network setup](network-setup.md): `nft` rules, multiple guests, bridged
+  networking and cleanup.
+- [Custom rootfs and kernel images](rootfs-and-kernel-setup.md).
+- [Snapshotting](snapshotting/snapshot-support.md) and
+  [networking for restored clones](snapshotting/network-for-clones.md).
+- Rate limiting [block](api_requests/patch-block.md) and
+  [network](api_requests/patch-network-interface.md) devices.
+- [MMDS](mmds/mmds-user-guide.md), [vsock](vsock.md) and [seccomp](seccomp.md).
 
 ## Running the Integration Test Suite
 
