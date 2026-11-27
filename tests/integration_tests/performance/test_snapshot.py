@@ -56,7 +56,14 @@ class SnapshotRestoreTest:
     @property
     def id(self):
         """Computes a unique id for this test instance"""
-        return "all_dev" if self.all_devices else f"{self.vcpus}vcpu_{self.mem}mb"
+        if self.all_devices:
+            return "all_dev"
+        suffix = (
+            ""
+            if self.huge_pages == HugePagesConfig.NONE
+            else f"_{self.huge_pages.value}"
+        )
+        return f"{self.vcpus}vcpu_{self.mem}mb{suffix}"
 
     def boot_vm(self, microvm_factory, guest_kernel, rootfs, pci_enabled) -> Microvm:
         """Creates the initial snapshot that will be loaded repeatedly to sample latencies"""
@@ -102,6 +109,7 @@ class SnapshotRestoreTest:
         SnapshotRestoreTest(mem=1024, vcpus=1),
         SnapshotRestoreTest(mem=2048, vcpus=2),
         SnapshotRestoreTest(mem=4096, vcpus=3),
+        SnapshotRestoreTest(mem=4096, vcpus=3, huge_pages=HugePagesConfig.TRANSPARENT),
         SnapshotRestoreTest(mem=6144, vcpus=4),
         SnapshotRestoreTest(mem=8192, vcpus=5),
         SnapshotRestoreTest(mem=10240, vcpus=6),
