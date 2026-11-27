@@ -24,7 +24,8 @@ pub use vm_memory::{
     MemoryRegionAddress, MmapRegion, address,
 };
 use vm_memory::{
-    GuestMemoryBackend, GuestMemoryError, GuestMemoryRegionBytes, VolatileSlice, WriteVolatile,
+    GuestMemoryBackend, GuestMemoryError, GuestMemoryRegionBytes, VolatileMemory, VolatileSlice,
+    WriteVolatile,
 };
 
 use crate::arch::host_page_size;
@@ -510,6 +511,67 @@ impl<'a> GuestMemorySlot<'a> {
         Ok(())
     }
 
+    /// Dumps non-zero pages of this slot onto `writer`, seeking over all-zero pages so they
+    /// remain sparse holes. The destination must already be zeroed (e.g. freshly created or
+    /// truncated and extended with `set_len`).
+    pub(crate) fn dump_sparse<T: WriteVolatile + std::io::Seek>(
+        &self,
+        writer: &mut T,
+        page_size: usize,
+    ) -> Result<(), MemoryError> {
+        let mut write_start = 0;
+        let mut write_size = 0;
+        let mut skip_size = 0;
+        let mut offset = 0;
+        let total_len = self.slice.len();
+        let mut scratch = [0u8; 4096];
+
+        while offset < total_len {
+            let chunk_len = (total_len - offset).min(page_size);
+            let chunk = self.slice.subslice(offset, chunk_len)?;
+
+            if is_slice_zero(&chunk, &mut scratch)? {
+                if write_size > 0 {
+                    let slice = self.slice.subslice(write_start, write_size)?;
+                    writer.write_all_volatile(&slice)?;
+                    write_size = 0;
+                }
+                skip_size += chunk_len;
+            } else {
+                if skip_size > 0 {
+                    let seek_off = skip_size
+                        .try_into()
+                        .map_err(|_| MemoryError::SlotSizeTooLarge)?;
+                    writer
+                        .seek(SeekFrom::Current(seek_off))
+                        .map_err(MemoryError::SeekError)?;
+                    write_start = offset;
+                    skip_size = 0;
+                }
+                write_size += chunk_len;
+            }
+            offset += chunk_len;
+        }
+
+        if write_size > 0 {
+            let slice = self.slice.subslice(write_start, write_size)?;
+            writer.write_all_volatile(&slice)?;
+        }
+
+        // Advance the cursor even if the trailing pages are zero, so that the
+        // next slot starts writing at the correct offset.
+        if skip_size > 0 {
+            let seek_off = skip_size
+                .try_into()
+                .map_err(|_| MemoryError::SlotSizeTooLarge)?;
+            writer
+                .seek(SeekFrom::Current(seek_off))
+                .map_err(MemoryError::SeekError)?;
+        }
+
+        Ok(())
+    }
+
     /// Makes the slot host memory PROT_NONE (true) or PROT_READ|PROT_WRITE (false)
     pub(crate) fn protect(&self, protected: bool) -> Result<(), MemoryError> {
         let prot = if protected {
@@ -538,6 +600,11 @@ impl GuestRegionMmapExt {
     /// file sees the same pages.
     pub fn is_shared(&self) -> bool {
         self.inner.flags() & libc::MAP_SHARED != 0
+    }
+
+    /// Whether the mapping is backed by explicit hugetlbfs huge pages (`MAP_HUGETLB`).
+    pub fn is_hugetlb(&self) -> bool {
+        self.inner.flags() & libc::MAP_HUGETLB != 0
     }
 
     /// Adds a DRAM region which only contains a single plugged slot
@@ -1160,6 +1227,50 @@ pub fn mark_dirty_host(mem: &GuestMemoryMmap, ptr: *const u8, len: usize) {
     unreachable!("host range {ptr:p}+{len:#x} is not within a single guest memory region");
 }
 
+/// Returns `true` if every byte in `buf` is zero, using 4-way unrolled 16-byte loads so the
+/// compiler can emit wide SIMD reductions.
+fn is_buf_zero(buf: &[u8]) -> bool {
+    let (chunks, rem) = buf.as_chunks::<64>();
+    let mut a0 = 0u128;
+    let mut a1 = 0u128;
+    let mut a2 = 0u128;
+    let mut a3 = 0u128;
+    for chunk in chunks {
+        let (words, _) = chunk.as_chunks::<16>();
+        a0 |= u128::from_ne_bytes(words[0]);
+        a1 |= u128::from_ne_bytes(words[1]);
+        a2 |= u128::from_ne_bytes(words[2]);
+        a3 |= u128::from_ne_bytes(words[3]);
+    }
+    if (a0 | a1 | a2 | a3) != 0 {
+        return false;
+    }
+    rem.iter().all(|&b| b == 0)
+}
+
+/// Returns `true` if every byte in `slice` is zero.
+///
+/// Uses an 8-byte probe to reject typical non-zero pages without copying, then copies into
+/// `scratch` via [`VolatileSlice::copy_to`] so the remainder can be checked with vectorized loads.
+fn is_slice_zero<B: BitmapSlice>(
+    slice: &VolatileSlice<'_, B>,
+    scratch: &mut [u8; 4096],
+) -> Result<bool, MemoryError> {
+    if slice.len() >= std::mem::size_of::<u64>() && slice.get_ref::<u64>(0)?.load() != 0 {
+        return Ok(false);
+    }
+    let mut offset = 0;
+    while offset < slice.len() {
+        let len = (slice.len() - offset).min(scratch.len());
+        slice.subslice(offset, len)?.copy_to(&mut scratch[..len]);
+        if !is_buf_zero(&scratch[..len]) {
+            return Ok(false);
+        }
+        offset += len;
+    }
+    Ok(true)
+}
+
 /// Marks dirty in `bitmap` the pages whose bits are set in `bits`.
 fn set_bits(bitmap: &AtomicBitmap, bits: &[u64]) {
     for (i, &word) in bits.iter().enumerate() {
@@ -1184,6 +1295,12 @@ where
 
     /// Dumps all contents of GuestMemoryMmap to a writer.
     fn dump<T: WriteVolatile + std::io::Seek>(&self, writer: &mut T) -> Result<(), MemoryError>;
+
+    /// Dumps non-zero pages of GuestMemoryMmap to a writer, seeking over all-zero pages.
+    fn dump_sparse<T: WriteVolatile + std::io::Seek>(
+        &self,
+        writer: &mut T,
+    ) -> Result<(), MemoryError>;
 
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
     fn dump_dirty<T: WriteVolatile + std::io::Seek>(
@@ -1302,6 +1419,28 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                 Ok(())
             })
             .map_err(MemoryError::WriteMemory)
+    }
+
+    /// Dumps non-zero pages of GuestMemoryMmap to a writer, seeking over all-zero pages.
+    fn dump_sparse<T: WriteVolatile + std::io::Seek>(
+        &self,
+        writer: &mut T,
+    ) -> Result<(), MemoryError> {
+        let page_size = host_page_size();
+        for region in self.iter() {
+            for (mem_slot, plugged) in region.slots() {
+                if !plugged {
+                    let ilen = i64::try_from(mem_slot.slice.len())
+                        .map_err(|_| MemoryError::SlotSizeTooLarge)?;
+                    writer
+                        .seek(SeekFrom::Current(ilen))
+                        .map_err(MemoryError::SeekError)?;
+                } else {
+                    mem_slot.dump_sparse(writer, page_size)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
@@ -1490,7 +1629,7 @@ pub mod test_utils {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
     use std::collections::HashMap;
@@ -2092,6 +2231,80 @@ mod tests {
         let physical_size = metadata.blocks() * 512;
         assert_eq!(physical_size, 2 * page_size as u64);
         assert_ne!(physical_size, logical_size);
+    }
+
+    #[test]
+    fn test_dump_sparse() {
+        let page_size = host_page_size();
+
+        // Two DRAM regions with a gap, plus a hotpluggable region with 1 plugged and 1 unplugged
+        // slot.
+        let region_1_addr = GuestAddress(0);
+        let region_2_addr = GuestAddress(page_size as u64 * 4);
+        let region_3_addr = GuestAddress(page_size as u64 * 8);
+        let dram_size = page_size * 3;
+        let slot_size = page_size * 64;
+
+        let mut regions: Vec<GuestRegionMmapExt> = anonymous(
+            &[(region_1_addr, dram_size), (region_2_addr, dram_size)],
+            false,
+            HugePageConfig::None,
+        )
+        .unwrap()
+        .into_iter()
+        .zip(0u32..)
+        .map(|(r, slot)| GuestRegionMmapExt::dram_from_mmap_region(r, slot))
+        .collect();
+
+        let hp_region = anonymous(
+            &[(region_3_addr, slot_size * 2)],
+            false,
+            HugePageConfig::None,
+        )
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+        let hp_ext = GuestRegionMmapExt::hotpluggable_from_mmap_region(hp_region, 2, slot_size);
+        hp_ext.plugged.lock().unwrap().set(1, true);
+        regions.push(hp_ext);
+
+        let guest_memory = GuestMemoryMmap::from_regions(regions).unwrap();
+
+        // Write non-zero bytes to 3 specific pages (middle of region 1, last byte of region 2's
+        // first page, and first page of plugged hotplug slot 1).
+        guest_memory
+            .write_obj(0xDEAD_BEEFu64, GuestAddress(page_size as u64))
+            .unwrap();
+        guest_memory
+            .write_obj(0x7Fu8, GuestAddress(region_2_addr.0 + page_size as u64 - 1))
+            .unwrap();
+        guest_memory
+            .write_obj(0x42u8, GuestAddress(region_3_addr.0 + slot_size as u64))
+            .unwrap();
+
+        let total_size = (dram_size * 2 + slot_size * 2) as u64;
+        let mut sparse_file = TempFile::new().unwrap().into_file();
+        sparse_file.set_len(total_size).unwrap();
+        guest_memory.dump_sparse(&mut sparse_file).unwrap();
+
+        let mut dense_file = TempFile::new().unwrap().into_file();
+        dense_file.set_len(total_size).unwrap();
+        guest_memory.dump(&mut dense_file).unwrap();
+
+        let mut sparse_bytes = Vec::new();
+        sparse_file.rewind().unwrap();
+        sparse_file.read_to_end(&mut sparse_bytes).unwrap();
+
+        let mut dense_bytes = Vec::new();
+        dense_file.rewind().unwrap();
+        dense_file.read_to_end(&mut dense_bytes).unwrap();
+
+        assert_eq!(sparse_bytes, dense_bytes);
+
+        let physical_size = sparse_file.metadata().unwrap().blocks() * 512;
+        assert_eq!(physical_size, 3 * page_size as u64);
+        assert!(physical_size < total_size);
     }
 
     #[test]
@@ -3069,7 +3282,7 @@ mod tests {
     }
 
     /// Returns the number of free 2 MiB hugepages on the system.
-    fn free_hugepages_2m() -> usize {
+    pub(crate) fn free_hugepages_2m() -> usize {
         let meminfo = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
         meminfo
             .lines()

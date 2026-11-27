@@ -119,6 +119,12 @@ and this project adheres to
   the maximum number of vCPUs of a KVM microVM from 32 to 64. CPUID leaf 0xB
   (and 0x1F where present) subleaf 1 `EAX[4:0]` now reports 6 instead of 5 for
   every microVM; the topology a guest reports is unchanged.
+- [#6465](https://github.com/firecracker-microvm/firecracker/pull/6465): Full
+  memory snapshots are now written as sparse files (skipping all-zero pages as
+  sparse holes) unless overwriting the microVM's own memory backing file. This
+  reduces snapshot disk usage and creation latency, and avoids faulting
+  untouched pages on the first full snapshot of a dirty-tracked VM or on `2M`
+  hugetlbfs guest memory.
 
 ### Deprecated
 
