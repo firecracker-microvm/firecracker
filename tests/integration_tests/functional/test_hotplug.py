@@ -158,7 +158,7 @@ def test_hotplug_block(uvm_any):
     assert stdout.strip() == "hotplug_test"
 
     # Hotplugging a device with a duplicate ID must be rejected
-    with pytest.raises(RuntimeError, match="Device ID in use"):
+    with pytest.raises(RuntimeError, match="device with duplicate id"):
         vm.api.drive.put(
             drive_id="block0",
             path_on_host=vm.create_jailed_resource(host_file.path),
@@ -193,11 +193,11 @@ def test_hotplug_block(uvm_any):
         return
 
     # Unplugging a non-existent device must be rejected
-    with pytest.raises(RuntimeError, match="Device not found"):
+    with pytest.raises(RuntimeError, match="Device with id: nonexistent not found"):
         vm.api.drive.delete("nonexistent")
 
     # Unplugging the root block device must be rejected
-    with pytest.raises(RuntimeError, match="Cannot unplug root device"):
+    with pytest.raises(RuntimeError, match="Device 'rootfs' is not removable"):
         vm.api.drive.delete("rootfs")
 
     # Unplug the block device
@@ -209,7 +209,7 @@ def test_hotplug_block(uvm_any):
     assert lspci_after_unplug == lspci_before
 
     # Unplugging the same device again must be rejected
-    with pytest.raises(RuntimeError, match="Device not found"):
+    with pytest.raises(RuntimeError, match="Device with id: block0 not found"):
         vm.api.drive.delete("block0")
 
 
@@ -276,7 +276,7 @@ def test_hotplug_pmem(uvm_any):
         )
 
     # Hotplugging a device with a duplicate ID must be rejected
-    with pytest.raises(RuntimeError, match="Device ID in use"):
+    with pytest.raises(RuntimeError, match="device with duplicate id"):
         vm.api.pmem.put(
             id="pmem0",
             path_on_host=vm.create_jailed_resource(host_file.path),
@@ -299,7 +299,7 @@ def test_hotplug_pmem(uvm_any):
     assert lspci_final == lspci_after
 
     # Unplugging a non-existent device must be rejected
-    with pytest.raises(RuntimeError, match="Device not found"):
+    with pytest.raises(RuntimeError, match="Device with id: nonexistent not found"):
         vm.api.pmem.delete("nonexistent")
 
     # Unplug the pmem device
@@ -311,7 +311,7 @@ def test_hotplug_pmem(uvm_any):
     assert lspci_after_unplug == lspci_before
 
     # Unplugging the same device again must be rejected
-    with pytest.raises(RuntimeError, match="Device not found"):
+    with pytest.raises(RuntimeError, match="Device with id: pmem0 not found"):
         vm.api.pmem.delete("pmem0")
 
 
@@ -392,7 +392,7 @@ def test_hotplug_net(uvm_any):
 
     # Hotplugging a device with a duplicate ID must be rejected
     iface2 = net_tools.NetIfaceConfig.with_id(2)
-    with pytest.raises(RuntimeError, match="Device ID in use"):
+    with pytest.raises(RuntimeError, match="device with duplicate id"):
         vm.api.network.put(
             iface_id=iface1.dev_name,
             host_dev_name=iface2.tap_name,
@@ -431,7 +431,7 @@ def test_hotplug_net(uvm_any):
         return
 
     # Unplugging a non-existent device must be rejected
-    with pytest.raises(RuntimeError, match="Device not found"):
+    with pytest.raises(RuntimeError, match="Device with id: nonexistent not found"):
         vm.api.network.delete("nonexistent")
 
     # Unplug the net device
@@ -443,7 +443,9 @@ def test_hotplug_net(uvm_any):
     assert lspci_after_unplug == lspci_before
 
     # Unplugging the same device again must be rejected
-    with pytest.raises(RuntimeError, match="Device not found"):
+    with pytest.raises(
+        RuntimeError, match=f"Device with id: {iface1.dev_name} not found"
+    ):
         vm.api.network.delete(iface1.dev_name)
 
 
@@ -463,7 +465,7 @@ def test_unplug_root_pmem(microvm_factory, vm_backend, guest_kernel, rootfs):
     vm.add_net_iface()
     vm.start()
 
-    with pytest.raises(RuntimeError, match="Cannot unplug root device"):
+    with pytest.raises(RuntimeError, match="Device 'pmem_root' is not removable"):
         vm.api.pmem.delete("pmem_root")
 
 
@@ -917,7 +919,7 @@ def test_double_unplug_request(uvm_any):
     assert set(lspci_unplugged.splitlines()) == before
 
     # Once the device is gone it is no longer known
-    with pytest.raises(RuntimeError, match="Device not found"):
+    with pytest.raises(RuntimeError, match="Device with id: block0 not found"):
         vm.api.drive.delete("block0")
 
 
