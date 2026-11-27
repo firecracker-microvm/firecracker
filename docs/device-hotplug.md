@@ -13,12 +13,13 @@
 > `pcie_hotplug_ports`, which they reject, but not hot-unplugging. See
 > [Device hotplug](nitro-sandboxes/features.md#device-hotplug).
 
-Device hotplugging allows attaching and detaching PCI virtio devices to a
-running microVM without requiring a reboot. Supported device types are:
+Device hotplugging allows attaching and detaching PCI devices to a running
+microVM without requiring a reboot. Supported device types are:
 
 - `virtio-block`
 - `virtio-pmem`
 - `virtio-net`
+- `vfio`
 
 ## Prerequisites
 
