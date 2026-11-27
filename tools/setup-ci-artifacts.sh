@@ -42,4 +42,4 @@ for SQUASHFS in *.squashfs; do
 done
 
 say "Uncompress debuginfo files"
-find . -name "*.debug.gz" -print0 | xargs -P4 -0 -t -n1 gunzip
+find . -name "*.debug.gz" -print0 | xargs -r -P4 -0 -t -n1 gunzip

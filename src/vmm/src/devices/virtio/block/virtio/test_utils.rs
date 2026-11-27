@@ -4,11 +4,11 @@
 #![doc(hidden)]
 
 #[cfg(test)]
+use std::os::fd::AsRawFd;
+#[cfg(test)]
 use std::sync::Arc;
 #[cfg(test)]
-use std::thread;
-#[cfg(test)]
-use std::time::Duration;
+use vmm_sys_util::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 
 use vmm_sys_util::tempfile::TempFile;
 
@@ -120,16 +120,22 @@ pub fn simulate_queue_event(b: &mut VirtioBlock, maybe_expected_irq: Option<bool
 
 #[cfg(test)]
 pub fn simulate_async_completion_event(b: &mut VirtioBlock, expected_irq: bool) {
-    if let FileEngine::Async(engine) = &mut b.resources_mut()[0].disk.file_engine {
-        // Wait for all the async operations to complete.
+    if let FileEngine::Async(engine) = &mut b.resources_mut()[0].disk.file_engine
+        && engine.has_pending_requests()
+    {
         engine.drain(false).unwrap();
-        // Wait for the async completion event to be sent.
-        thread::sleep(Duration::from_millis(150));
-        // Handle event.
+        let epoll = Epoll::new().unwrap();
+        epoll
+            .ctl(
+                ControlOperation::Add,
+                engine.completion_evt().as_raw_fd(),
+                EpollEvent::new(EventSet::IN, 0),
+            )
+            .unwrap();
+        assert_eq!(epoll.wait(-1, &mut [EpollEvent::default()]).unwrap(), 1);
         b.process_async_completion_event();
     }
 
-    // Validate if there are pending IRQs.
     assert_eq!(
         b.interrupt_trigger()
             .has_pending_interrupt(VirtioInterruptType::Queue(0)),

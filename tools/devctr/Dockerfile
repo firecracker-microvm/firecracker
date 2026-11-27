@@ -146,7 +146,7 @@ RUN apt-get update \
         lsof \
         musl-tools \
         # needed for integration tests
-        net-tools iproute2 iperf3 socat fdisk \
+        net-tools iproute2 iperf3 socat fdisk qemu-utils \
         numactl \
         iptables \
         openssh-client \

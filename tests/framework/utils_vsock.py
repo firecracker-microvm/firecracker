@@ -5,12 +5,14 @@
 import hashlib
 import os.path
 import re
+import signal
 from contextlib import ExitStack, contextmanager
+from pathlib import Path
 from socket import AF_UNIX, SOCK_STREAM, socket
 from subprocess import Popen
 from threading import Thread
 
-from framework.utils_wait import start_guest_process, wait_for_unix_socket_on_host
+from framework.utils_wait import start_guest_process
 
 ECHO_SERVER_PORT = 5252
 SERVER_ACCEPT_BACKLOG = 128
@@ -178,43 +180,33 @@ def check_host_connections(uds_path, blob_path, blob_hash):
 def host_echo_server(vm, server_port_path):
     """Run a host-side echo server reachable by the guest over vsock.
 
-    Starts `socat` listening on the Unix socket `server_port_path`, links it
-    into the VM's jail so Firecracker can reach it, and raises the ssh
-    service's `pids.max` so guest workers can fork freely. Yields the socket
-    path and tears the server down on exit.
+    Binds and listens before passing the socket to `socat`, links it into the
+    VM's jail, and raises the ssh service's `pids.max` for guest workers.
+    Yields the socket path and tears the server down on exit.
     """
-    # The backlog must be >= the number of concurrent guest connections
-    # (`TEST_CONNECTION_COUNT`): Firecracker sends RST when the accept backlog
-    # is full, so a larger burst (e.g. all workers reconnecting after a
-    # snapshot restore) fails with `ECONNRESET` in the guest.
-    echo_server = Popen(
-        [
-            "socat",
-            f"UNIX-LISTEN:{server_port_path},fork,backlog={SERVER_ACCEPT_BACKLOG}",
-            "exec:'/bin/cat'",
-        ]
-    )
-    try:
-        wait_for_unix_socket_on_host("", server_port_path)
-
-        # Link the listening Unix socket into the VM's jail, so that
-        # Firecracker can connect to it.
-        vm.create_jailed_resource(server_port_path)
-
-        # Increase maximum process count for the ssh service.
-        # Avoids: "bash: fork: retry: Resource temporarily unavailable"
-        # Needed to execute the bash script that tests for concurrent
-        # vsock guest initiated connections.
-        vm.ssh.check_output(
-            f"echo 1024 > /sys/fs/cgroup/system.slice/{vm.distro.ssh_service}/pids.max"
+    # The backlog covers the concurrent guest connections during restore.
+    with ExitStack() as stack:
+        listener = stack.enter_context(socket(AF_UNIX, SOCK_STREAM))
+        listener.bind(server_port_path)
+        stack.callback(Path(server_port_path).unlink)
+        listener.listen(SERVER_ACCEPT_BACKLOG)
+        echo_server = Popen(
+            ["socat", f"ACCEPT-FD:{listener.fileno()},fork", "exec:'/bin/cat'"],
+            pass_fds=(listener.fileno(),),
         )
+        listener.close()
+        try:
+            vm.create_jailed_resource(server_port_path)
 
-        yield server_port_path
-    finally:
-        echo_server.terminate()
-        rc = echo_server.wait()
-        # socat exits with 128 + 15 (SIGTERM)
-        assert rc == 143
+            vm.ssh.check_output(
+                f"echo 1024 > /sys/fs/cgroup/system.slice/{vm.distro.ssh_service}/pids.max"
+            )
+
+            yield server_port_path
+        finally:
+            echo_server.terminate()
+            rc = echo_server.wait()
+            assert rc in (-signal.SIGTERM, 128 + signal.SIGTERM)
 
 
 def check_guest_connections(vm, server_port_path, blob_path, blob_hash):

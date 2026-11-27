@@ -52,7 +52,7 @@ BASE_BOOT_ARGS = (
 
 def default_boot_args(pci_enabled: bool) -> str:
     """Kernel command line used for a microVM whose test does not choose one."""
-    args = BASE_BOOT_ARGS + " console=ttyS0"
+    args = BASE_BOOT_ARGS + " console=ttyS0 net.ifnames=0"
     return args if pci_enabled else args + " pci=off"
 
 

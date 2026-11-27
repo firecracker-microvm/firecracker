@@ -17,11 +17,13 @@ import os.path
 import signal
 import socket
 import subprocess
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack
 from socket import timeout as SocketTimeout
+from unittest.mock import Mock
 
 import pytest
 from tenacity import Retrying, stop_after_delay, wait_fixed
@@ -52,6 +54,55 @@ from host_tools.fcmetrics import validate_fc_metrics
 
 NEGATIVE_TEST_CONNECTION_COUNT = 100
 TEST_WORKER_COUNT = 10
+
+
+@pytest.mark.usefixtures("reap_orphans")
+def test_host_echo_server_delayed_start(monkeypatch, tmp_path):
+    """Queue a connection before the echo process is allowed to start."""
+    path = tmp_path / "echo.sock"
+    vm = Mock()
+    gate_read, gate_write = os.pipe()
+    started_read, started_write = os.pipe()
+    child_code = """
+import os
+import signal
+import sys
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+os.write(int(sys.argv[2]), b"1")
+os.read(int(sys.argv[1]), 1)
+os.execvp(sys.argv[3], sys.argv[3:])
+"""
+
+    def delayed_popen(args, **kwargs):
+        child = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                child_code,
+                str(gate_read),
+                str(started_write),
+                *args,
+            ],
+            pass_fds=(*kwargs.pop("pass_fds", ()), gate_read, started_write),
+            **kwargs,
+        )
+        assert os.read(started_read, 1) == b"1"
+        return child
+
+    monkeypatch.setattr("framework.utils_vsock.Popen", delayed_popen)
+    try:
+        with host_echo_server(vm, str(path)):
+            vm.create_jailed_resource.assert_called_once_with(str(path))
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                client.connect(str(path))
+                client.sendall(b"echo")
+                os.write(gate_write, b"1")
+                with client.makefile("rb") as stream:
+                    assert stream.read(4) == b"echo"
+        assert not path.exists()
+    finally:
+        for descriptor in (gate_read, gate_write, started_read, started_write):
+            os.close(descriptor)
 
 
 @pytest.fixture

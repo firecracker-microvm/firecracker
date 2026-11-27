@@ -1160,7 +1160,6 @@ mod tests {
     use std::fs::metadata;
     use std::io::{Read, Write};
     use std::os::unix::ffi::OsStrExt;
-    use std::thread;
     use std::time::Duration;
 
     use vmm_sys_util::tempfile::TempFile;
@@ -2376,11 +2375,19 @@ mod tests {
             add_flush_requests_batch(&mut block, &vq, IO_URING_NUM_ENTRIES);
             simulate_queue_event(&mut block, Some(false));
             assert!(!block.resources()[0].is_io_engine_throttled);
-            thread::sleep(Duration::from_millis(150));
+            block.resources_mut()[0]
+                .disk
+                .file_engine
+                .drain(false)
+                .unwrap();
             add_flush_requests_batch(&mut block, &vq, IO_URING_NUM_ENTRIES);
             simulate_queue_event(&mut block, Some(false));
             assert!(!block.resources()[0].is_io_engine_throttled);
-            thread::sleep(Duration::from_millis(150));
+            block.resources_mut()[0]
+                .disk
+                .file_engine
+                .drain(false)
+                .unwrap();
 
             add_flush_requests_batch(&mut block, &vq, 1);
             simulate_queue_event(&mut block, Some(false));
