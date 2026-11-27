@@ -40,6 +40,10 @@ use crate::{DeviceManager, Kvm, Vcpu, VcpuConfig, align_up};
 /// Errors thrown while configuring aarch64 system.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ConfigurationError {
+    /// Invalid PCI MMIO64 configuration: {0}
+    PciMmio64(#[from] crate::vmm_config::pci_mmio::PciMmio64Error),
+    /// Failed to read the guest physical address width: {0}
+    ReadPhysicalAddressWidth(kvm_ioctls::Error),
     /// Failed to create a Flattened Device Tree for this aarch64 microVM: {0}
     SetupFDT(#[from] fdt::FdtError),
     /// Failed to write to guest memory: {0}
@@ -67,20 +71,46 @@ pub fn arch_memory_regions(size: usize) -> Result<Vec<(GuestAddress, usize)>, Me
     if size > MAX_GUEST_MEM_SIZE {
         return Err(MemoryError::GuestMemoryTooLarge(size, MAX_GUEST_MEM_SIZE));
     }
-    let dram_size = size;
+    arch_memory_regions_with_mmio64(size, layout::MMIO64_MEM_START, layout::MMIO64_MEM_SIZE)
+}
 
+/// Lay out RAM around the MMIO64 aperture.
+pub fn arch_memory_regions_with_mmio64(
+    size: usize,
+    mmio64_base: u64,
+    mmio64_size: u64,
+) -> Result<Vec<(GuestAddress, usize)>, MemoryError> {
+    assert!(size > 0, "Attempt to allocate guest memory of length 0");
+    let max_size = usize::MAX - u64_to_usize(layout::DRAM_MEM_START) - u64_to_usize(mmio64_size);
+    if size > max_size {
+        return Err(MemoryError::GuestMemoryTooLarge(size, max_size));
+    }
+    let dram_size = size;
     let mut regions = vec![];
     if let Some((offset, remaining)) = arch_memory_regions_with_gap(
         &mut regions,
         u64_to_usize(layout::DRAM_MEM_START),
         dram_size,
-        u64_to_usize(layout::MMIO64_MEM_START),
-        u64_to_usize(layout::MMIO64_MEM_SIZE),
+        u64_to_usize(mmio64_base),
+        u64_to_usize(mmio64_size),
     ) {
         regions.push((GuestAddress(offset as u64), remaining));
     }
 
     Ok(regions)
+}
+
+fn physical_address_bits(mmfr0: u64) -> Result<u32, crate::vmm_config::pci_mmio::PciMmio64Error> {
+    match mmfr0 & 0xf {
+        0 => Ok(32),
+        1 => Ok(36),
+        2 => Ok(40),
+        3 => Ok(42),
+        4 => Ok(44),
+        5 => Ok(48),
+        6 => Ok(52),
+        _ => Err(crate::vmm_config::pci_mmio::PciMmio64Error::AddressWidth),
+    }
 }
 
 /// Configures the system for booting Linux.
@@ -91,7 +121,7 @@ pub fn configure_system_for_boot(
     device_manager: &mut DeviceManager,
     vcpus: &mut [Vcpu],
     vcpu_count: u8,
-    smt: bool,
+    machine_config: &crate::vmm_config::machine_config::MachineConfig,
     cpu_template: &CustomCpuTemplate,
     entry_point: EntryPoint,
     initrd: &Option<InitrdConfig>,
@@ -105,7 +135,7 @@ pub fn configure_system_for_boot(
 
     let vcpu_config = VcpuConfig {
         vcpu_count,
-        smt,
+        smt: machine_config.smt,
         cpu_config,
     };
 
@@ -118,6 +148,18 @@ pub fn configure_system_for_boot(
             &vcpu_config,
             &optional_capabilities,
         )?;
+    }
+
+    // Check guest PA width after templates; KVM's IPA width is independent.
+    if let Some(config) = machine_config.pci_mmio64 {
+        let mut mmfr0 = 0u64;
+        vcpus[0]
+            .kvm_vcpu
+            .fd
+            .get_one_reg(regs::ID_AA64MMFR0_EL1, mmfr0.as_mut_bytes())
+            .map_err(ConfigurationError::ReadPhysicalAddressWidth)?;
+        config
+            .validate_memory_layout(physical_address_bits(mmfr0)?, machine_config.mem_size_mib)?;
     }
 
     // Override CLIDR_EL1 ctype/LoC fields on each vCPU to match the host's real cache topology.
@@ -354,6 +396,51 @@ mod tests {
         MMIO64_MEM_START,
     };
     use crate::test_utils::arch_mem;
+
+    #[test]
+    fn test_pci_mmio64_ram_layout() {
+        let gib = 1usize << 30;
+        assert_eq!(
+            arch_memory_regions_with_mmio64(8 * gib, 4 << 30, 2 << 30).unwrap(),
+            vec![
+                (GuestAddress(DRAM_MEM_START), 2 * gib),
+                (GuestAddress(6 << 30), 6 * gib),
+            ]
+        );
+        let regions = arch_memory_regions_with_mmio64(3usize << 40, 2 << 40, 2 << 40).unwrap();
+        assert_eq!(
+            regions.iter().map(|(_, size)| size).sum::<usize>(),
+            3usize << 40
+        );
+        for (base, size) in regions {
+            assert!(base.0 >= 4 << 40 || base.0 + size as u64 <= 2 << 40);
+        }
+        for size in [128 << 20, 8 * gib, 300 * gib] {
+            assert_eq!(
+                arch_memory_regions(size).unwrap(),
+                arch_memory_regions_with_mmio64(
+                    size,
+                    layout::MMIO64_MEM_START,
+                    layout::MMIO64_MEM_SIZE
+                )
+                .unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn test_pci_mmio64_guest_address_width() {
+        let config = crate::vmm_config::pci_mmio::PciMmio64Config {
+            base_gib: 2048,
+            size_gib: 2048,
+        };
+        for (encoding, bits) in [32, 36, 40, 42, 44, 48, 52].into_iter().enumerate() {
+            assert_eq!(physical_address_bits(encoding as u64).unwrap(), bits);
+            assert_eq!(config.validate_address_width(bits).is_ok(), bits >= 43);
+        }
+        physical_address_bits(0xf).unwrap_err();
+        assert_eq!(physical_address_bits(0xffff_fff5).unwrap(), 48);
+    }
 
     #[test]
     fn test_regions_lt_1024gb() {

@@ -80,6 +80,8 @@ const MEMMAP_TYPE_RAM: u32 = 1;
 /// Errors thrown while configuring x86_64 system.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ConfigurationError {
+    /// Invalid machine configuration: {0}
+    MachineConfig(#[from] crate::vmm_config::machine_config::MachineConfigError),
     /// Invalid e820 setup params.
     E820Configuration,
     /// Error writing MP table to memory: {0}
@@ -114,15 +116,23 @@ pub const MAX_GUEST_MEM_SIZE: usize =
 
 /// Returns a Vec of the valid memory addresses.
 /// These should be used to configure the GuestMemoryMmap structure for the platform.
-/// For x86_64 all addresses are valid from the start of the kernel except an 1GB
-/// carve out at the end of 32bit address space and a second 256GB one at the 256GB limit.
 pub fn arch_memory_regions(size: usize) -> Result<Vec<(GuestAddress, usize)>, MemoryError> {
+    arch_memory_regions_with_mmio64(size, MMIO64_MEM_START, MMIO64_MEM_SIZE)
+}
+
+/// Lay out RAM around the MMIO gaps.
+pub fn arch_memory_regions_with_mmio64(
+    size: usize,
+    mmio64_base: u64,
+    mmio64_size: u64,
+) -> Result<Vec<(GuestAddress, usize)>, MemoryError> {
     // If we get here with size == 0 something has seriously gone wrong. Firecracker should never
     // try to allocate guest memory of size 0
     assert!(size > 0, "Attempt to allocate guest memory of length 0");
 
-    if size > MAX_GUEST_MEM_SIZE {
-        return Err(MemoryError::GuestMemoryTooLarge(size, MAX_GUEST_MEM_SIZE));
+    let max_size = usize::MAX - u64_to_usize(MMIO32_MEM_SIZE) - u64_to_usize(mmio64_size);
+    if size > max_size {
+        return Err(MemoryError::GuestMemoryTooLarge(size, max_size));
     }
     let dram_size = size;
 
@@ -139,8 +149,8 @@ pub fn arch_memory_regions(size: usize) -> Result<Vec<(GuestAddress, usize)>, Me
             &mut regions,
             start_past_32bit_gap,
             remaining_past_32bit_gap,
-            u64_to_usize(MMIO64_MEM_START),
-            u64_to_usize(MMIO64_MEM_SIZE),
+            u64_to_usize(mmio64_base),
+            u64_to_usize(mmio64_size),
         )
     {
         regions.push((
@@ -192,7 +202,7 @@ fn configure_vcpus_for_boot(
     kvm: &Kvm,
     vcpus: &mut [Vcpu],
     vcpu_count: u8,
-    smt: bool,
+    machine_config: &crate::vmm_config::machine_config::MachineConfig,
     cpu_template: &CustomCpuTemplate,
     guest_mem: &GuestMemoryMmap,
     entry_point: EntryPoint,
@@ -201,10 +211,29 @@ fn configure_vcpus_for_boot(
     let cpuid = Cpuid::try_from(kvm.supported_cpuid.clone()).map_err(GuestConfigError::from)?;
     let cpuid = apply_template_to_cpuid(cpuid, cpu_template)?;
 
+    // CPU templates may narrow the guest address width.
+    if let Some(config) = machine_config.pci_mmio64 {
+        let bits = cpuid
+            .inner()
+            .get(&crate::cpu_config::x86_64::cpuid::CpuidKey {
+                leaf: 0x8000_0008,
+                subleaf: 0,
+            })
+            .map(|entry| entry.result.eax & 0xff)
+            .unwrap_or(0);
+        config
+            .validate_memory_layout(bits, machine_config.mem_size_mib)
+            .map_err(crate::vmm_config::machine_config::MachineConfigError::from)
+            .map_err(ConfigurationError::MachineConfig)?;
+    }
+
     // Phase 2: set each normalized CPUID before reading CPUID-dependent MSRs.
     let configured_cpuids = vcpus
         .iter()
-        .map(|vcpu| vcpu.kvm_vcpu.configure_cpuid(&cpuid, vcpu_count, smt))
+        .map(|vcpu| {
+            vcpu.kvm_vcpu
+                .configure_cpuid(&cpuid, vcpu_count, machine_config.smt)
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     // Phase 3: construct the shared, templated MSRs from vCPU 0's post-CPUID state.
@@ -232,7 +261,7 @@ pub fn configure_system_for_boot(
     device_manager: &mut DeviceManager,
     vcpus: &mut [Vcpu],
     vcpu_count: u8,
-    smt: bool,
+    machine_config: &crate::vmm_config::machine_config::MachineConfig,
     cpu_template: &CustomCpuTemplate,
     entry_point: EntryPoint,
     initrd: &Option<InitrdConfig>,
@@ -242,7 +271,7 @@ pub fn configure_system_for_boot(
         kvm,
         vcpus,
         vcpu_count,
-        smt,
+        machine_config,
         cpu_template,
         vm.guest_memory(),
         entry_point,
@@ -618,6 +647,40 @@ mod verification {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_pci_mmio64_ram_layout() {
+        use super::arch_memory_regions_with_mmio64;
+        let gib = 1usize << 30;
+        // RAM spans both MMIO gaps.
+        assert_eq!(
+            arch_memory_regions_with_mmio64(8 * gib, 4 << 30, 2 << 30).unwrap(),
+            vec![
+                (vm_memory::GuestAddress(0), 3 * gib),
+                (vm_memory::GuestAddress(6 << 30), 5 * gib)
+            ],
+        );
+        // Model a large aperture without allocating RAM.
+        let regions = arch_memory_regions_with_mmio64(3usize << 40, 2 << 40, 2 << 40).unwrap();
+        assert_eq!(
+            regions.iter().map(|(_, size)| size).sum::<usize>(),
+            3usize << 40
+        );
+        for (base, size) in regions {
+            assert!(base.0 >= 4 << 40 || base.0 + size as u64 <= 2 << 40);
+        }
+        for size in [128 << 20, 8 * gib, 300 * gib] {
+            assert_eq!(
+                super::arch_memory_regions(size).unwrap(),
+                arch_memory_regions_with_mmio64(
+                    size,
+                    super::MMIO64_MEM_START,
+                    super::MMIO64_MEM_SIZE,
+                )
+                .unwrap()
+            );
+        }
+    }
+
     use linux_loader::loader::bootparam::boot_e820_entry;
 
     use super::*;
