@@ -12,10 +12,12 @@
 // Endpoint in here too for the time being.
 
 use std::fmt::Debug;
-use std::num::{NonZeroU16, NonZeroU64, Wrapping};
+use std::num::{NonZeroU16, Wrapping};
+use std::time::{Duration, Instant};
+
+use utils::time::Clock;
 
 use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
-use utils::time::timestamp_cycles;
 
 use crate::dumbo::pdu::Incomplete;
 use crate::dumbo::pdu::bytes::NetworkBytes;
@@ -24,13 +26,9 @@ use crate::dumbo::tcp::connection::{Connection, PassiveOpenError, RecvStatusFlag
 use crate::dumbo::tcp::{MAX_WINDOW_SIZE, NextSegmentStatus, seq_after};
 use crate::logger::{IncMetric, METRICS};
 
-// These are currently expressed in cycles. Normally, they would be the equivalent of a
-// certain duration, depending on the frequency of the CPU, but we still have a bit to go until
-// that functionality is available, so we just use some conservative-ish values. Even on a fast
-// 4GHz CPU, the first is roughly equal to 10 seconds, and the other is ~300 ms.
-const EVICTION_THRESHOLD: u64 = 40_000_000_000;
-const CONNECTION_RTO_PERIOD: u64 = 1_200_000_000;
-const CONNECTION_RTO_COUNT_MAX: u16 = 15;
+pub(crate) const EVICTION_THRESHOLD: Duration = Duration::from_secs(10);
+const CONNECTION_RTO_PERIOD: Duration = Duration::from_millis(300);
+const CONNECTION_RTO_COUNT_MAX: NonZeroU16 = NonZeroU16::new(15).unwrap();
 
 // This is one plus the size of the largest bytestream carrying an HTTP request we are willing to
 // accept. It's limited in order to have a bound on memory usage. This value should be plenty for
@@ -70,11 +68,12 @@ pub struct Endpoint {
     initial_response_seq: Wrapping<u32>,
     // The TCP connection that does all the receiving/sending work.
     connection: Connection,
-    // Timestamp (in cycles) associated with the most recent reception of a segment.
-    last_segment_received_timestamp: u64,
-    // These many time units have to pass since receiving the last segment to make the current
-    // Endpoint evictable.
-    eviction_threshold: u64,
+    // Source of time for the RTO and eviction checks.
+    clock: Clock,
+    // When the most recent segment was received.
+    last_segment_received_timestamp: Instant,
+    // How long must pass since the last received segment to make the current Endpoint evictable.
+    eviction_threshold: Duration,
     // Decides what happens to the bytes we receive.
     state: State,
 }
@@ -97,23 +96,30 @@ impl Endpoint {
     /// Creates a new Endpoint from a [`crate::tcp::connection::Connection`]
     /// ## Arguments:
     /// - `segment`: The incoming `SYN`.
-    /// - `eviction_threshold`: CPU cycles that must elapse before this Endpoint is evictable
+    /// - `eviction_threshold`: How long must pass since the last received segment before this
+    ///   Endpoint is evictable.
     /// - `connection_rto_period`: How long the connection waits before a retransmission timeout
-    ///   fires for the first segment which has not been acknowledged yet. This uses an opaque time
-    ///   unit.
+    ///   fires for the first segment which has not been acknowledged yet.
     /// - `connection_rto_count_max`: How many consecutive timeout-based retransmission may occur
     ///   before the connection resets itself.
+    ///
+    /// # Panics
+    ///
+    /// If `connection_rto_period` is zero.
     pub fn new<T: NetworkBytes + Debug>(
         segment: &TcpSegment<T>,
-        eviction_threshold: NonZeroU64,
-        connection_rto_period: NonZeroU64,
+        eviction_threshold: Duration,
+        connection_rto_period: Duration,
         connection_rto_count_max: NonZeroU16,
     ) -> Result<Self, PassiveOpenError> {
+        let clock = Clock::Real;
+        let now = clock.now();
         let connection = Connection::passive_open(
             segment,
             RCV_BUF_MAX_SIZE,
             connection_rto_period,
             connection_rto_count_max,
+            now,
         )?;
 
         Ok(Endpoint {
@@ -122,8 +128,9 @@ impl Endpoint {
             response_buf: Vec::new(),
             initial_response_seq: connection.first_not_sent(),
             connection,
-            last_segment_received_timestamp: timestamp_cycles(),
-            eviction_threshold: eviction_threshold.get(),
+            clock,
+            last_segment_received_timestamp: now,
+            eviction_threshold,
             state: State::Open,
         })
     }
@@ -131,12 +138,11 @@ impl Endpoint {
     pub fn new_with_defaults<T: NetworkBytes + Debug>(
         segment: &TcpSegment<T>,
     ) -> Result<Self, PassiveOpenError> {
-        // The unwraps are safe because the constants are greater than 0.
         Self::new(
             segment,
-            NonZeroU64::new(EVICTION_THRESHOLD).unwrap(),
-            NonZeroU64::new(CONNECTION_RTO_PERIOD).unwrap(),
-            NonZeroU16::new(CONNECTION_RTO_COUNT_MAX).unwrap(),
+            EVICTION_THRESHOLD,
+            CONNECTION_RTO_PERIOD,
+            CONNECTION_RTO_COUNT_MAX,
         )
     }
 
@@ -149,7 +155,7 @@ impl Endpoint {
             return;
         }
 
-        let now = timestamp_cycles();
+        let now = self.clock.now();
 
         self.last_segment_received_timestamp = now;
 
@@ -295,7 +301,7 @@ impl Endpoint {
             buf,
             mss_reserved,
             tcp_payload_src,
-            timestamp_cycles(),
+            self.clock.now(),
         ) {
             Ok(write_result) => write_result,
             Err(_) => {
@@ -312,7 +318,9 @@ impl Endpoint {
 
     #[inline]
     pub fn is_evictable(&self) -> bool {
-        timestamp_cycles().wrapping_sub(self.last_segment_received_timestamp)
+        self.clock
+            .now()
+            .saturating_duration_since(self.last_segment_received_timestamp)
             > self.eviction_threshold
     }
 
@@ -489,10 +497,13 @@ mod tests {
     use crate::dumbo::pdu::tcp::Flags as TcpFlags;
     use crate::dumbo::tcp::connection::tests::ConnectionTester;
     use crate::dumbo::tcp::tests::mock_callback;
+    use utils::time::MockClock;
 
     impl Endpoint {
-        pub fn set_eviction_threshold(&mut self, value: u64) {
-            self.eviction_threshold = value;
+        /// Drives the endpoint's timers from `clock`, as if the last segment arrived now.
+        pub fn set_clock(&mut self, clock: &MockClock) {
+            self.clock = Clock::Mock(clock.clone());
+            self.last_segment_received_timestamp = self.clock.now();
         }
     }
 
@@ -523,6 +534,7 @@ mod tests {
         // Let's complete the three-way handshake. The next segment sent by the endpoint should
         // be a SYNACK.
         assert_eq!(endpoint.next_segment_status(), NextSegmentStatus::Available);
+        let before_synack = Instant::now();
         let endpoint_isn = {
             // We need this block to delimit the mut borrow of write_buf.
             let s = endpoint
@@ -531,13 +543,17 @@ mod tests {
             assert_eq!(s.inner().flags_after_ns(), TcpFlags::SYN | TcpFlags::ACK);
             s.inner().sequence_number()
         };
+        let after_synack = Instant::now();
 
-        // A RTO should be pending until the SYNACK is ACKed.
-        if let NextSegmentStatus::Timeout(_) = endpoint.next_segment_status() {
+        // A RTO should be pending until the SYNACK is ACKed, one `CONNECTION_RTO_PERIOD` after
+        // the SYNACK was written.
+        if let NextSegmentStatus::Timeout(rto) = endpoint.next_segment_status() {
             assert_eq!(
                 endpoint.next_segment_status(),
                 endpoint.connection().control_segment_or_timeout_status()
             );
+            assert!(rto >= before_synack + CONNECTION_RTO_PERIOD);
+            assert!(rto <= after_synack + CONNECTION_RTO_PERIOD);
         } else {
             panic!("missing expected timeout.");
         }
@@ -667,13 +683,13 @@ mod tests {
         // last_request.
         assert_eq!(endpoint.receive_buf_left, 3);
 
-        // Unless the machine running the tests is super slow for some reason, we should be nowhere
-        // near the expiry of the eviction timer.
+        // Drive the eviction timer from a mock clock: not evictable until more than
+        // EVICTION_THRESHOLD has passed since the last received segment.
+        let clock = MockClock::new();
+        endpoint.set_clock(&clock);
+        clock.advance(EVICTION_THRESHOLD);
         assert!(!endpoint.is_evictable());
-
-        // Let's hack this a bit and change the eviction_threshold to 0.
-        endpoint.set_eviction_threshold(0);
-        // The endpoint should be evictable now.
+        clock.advance(Duration::from_nanos(1));
         assert!(endpoint.is_evictable());
 
         // Finally, let's fill self.receive_buf with the following request, and see if we get the

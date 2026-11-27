@@ -9,6 +9,7 @@ pub mod handler;
 
 use std::fmt::Debug;
 use std::num::Wrapping;
+use std::time::Instant;
 
 use crate::dumbo::pdu::bytes::NetworkBytes;
 use crate::dumbo::pdu::tcp::{Flags as TcpFlags, TcpSegment};
@@ -30,7 +31,7 @@ pub enum NextSegmentStatus {
     /// There's nothing to send.
     Nothing,
     /// A retransmission timeout (RTO) will trigger after the specified point in time.
-    Timeout(u64),
+    Timeout(Instant),
 }
 
 /// Represents the configuration of the sequence number and `ACK` number fields for outgoing
