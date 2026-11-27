@@ -182,7 +182,7 @@ impl PendingRequest {
                 }
             }
             (Ok(transferred_data_len), RequestType::GetDeviceID) => {
-                Status::from_data(self.data_len, transferred_data_len, true)
+                Status::from_data(VIRTIO_BLK_ID_BYTES, transferred_data_len, true)
             }
             (Err(IoErr::UnsupportedRequest(op)), _) | (_, RequestType::Unsupported(op)) => {
                 Status::Unsupported { op }
@@ -519,6 +519,24 @@ mod tests {
                 desc_idx: 0,
             }
         }
+    }
+
+    #[test]
+    fn test_get_id_completion_with_oversized_buffer() {
+        let mem = default_mem();
+        let metrics = BlockDeviceMetrics::default();
+        let request = PendingRequest {
+            r#type: RequestType::GetDeviceID,
+            data_len: VIRTIO_BLK_ID_BYTES + 512,
+            ..Default::default()
+        };
+        let finished = request.finish(&mem, Ok(VIRTIO_BLK_ID_BYTES), &metrics);
+        assert_eq!(finished.num_bytes_to_mem, VIRTIO_BLK_ID_BYTES + 1);
+        assert_eq!(
+            u32::from(mem.read_obj::<u8>(GuestAddress(0)).unwrap()),
+            VIRTIO_BLK_S_OK
+        );
+        assert_eq!(metrics.invalid_reqs_count.count(), 0);
     }
 
     #[test]

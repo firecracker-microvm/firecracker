@@ -2189,7 +2189,12 @@ mod tests {
 
     #[test]
     fn test_get_device_id() {
-        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+        for (engine, data_len) in [FileEngineType::Sync, FileEngineType::Async]
+            .into_iter()
+            .flat_map(|engine| {
+                [VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_ID_BYTES + 1, 512].map(|len| (engine, len))
+            })
+        {
             let mut block = default_block(engine);
             let mem = default_mem();
             let interrupt = default_interrupt();
@@ -2205,7 +2210,9 @@ mod tests {
 
             // Test that the driver receives the correct device id.
             {
-                vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
+                vq.dtable[1].len.set(data_len);
+                mem.write_slice(&vec![0x5a; data_len as usize], data_addr)
+                    .unwrap();
 
                 mem.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, request_type_addr)
                     .unwrap();
@@ -2232,6 +2239,13 @@ mod tests {
                     .trim_matches(chars_to_trim)
                     .to_string();
                 assert_eq!(received_device_id, expected_device_id);
+                let mut tail = vec![0; (data_len - VIRTIO_BLK_ID_BYTES) as usize];
+                mem.read_slice(
+                    &mut tail,
+                    data_addr.unchecked_add(u64::from(VIRTIO_BLK_ID_BYTES)),
+                )
+                .unwrap();
+                assert!(tail.iter().all(|&byte| byte == 0x5a));
             }
 
             // Test that a device ID request will be discarded, if it fails to provide enough buffer
