@@ -1858,9 +1858,28 @@ definitions:
           hot-plugged device, so this is the maximum number of devices that
           can be hot-plugged into the VM. Requires PCI to be enabled with the
           --enable-pci command line flag.
+      mem_backend:
+        $ref: "#/definitions/MemoryBackend"
+        x-nullable: true
+        description: >-
+          Memory backend to share guest memory with at boot. Only
+          `SharedMemfd` is accepted here. When set, guest memory is backed by a
+          single memfd, which is sent to the process listening on
+          `backend_path` during `InstanceStart`, once the microVM is built and
+          before any vCPU runs. Failing to connect fails the boot. A `PUT`
+          without the field, or a `PATCH` with the field set to `null`,
+          removes a previously set backend. On a microVM restored from a
+          snapshot, a `GET` reports the backend given to `PUT /snapshot/load`,
+          which can be of any type.
 
   MemoryBackend:
     type: object
+    description: >-
+      How guest memory is populated on restore (`File`, `Uffd`) and/or shared
+      with an external process (`SharedMemfd`). `File` and `Uffd` are only
+      valid in `PUT /snapshot/load`; `SharedMemfd` is valid there and in
+      `PUT` and `PATCH /machine-config`. `GET /machine-config` reports the
+      backend set at boot or used by the restore.
     required:
       - backend_type
       - backend_path
@@ -1870,6 +1889,7 @@ definitions:
         enum:
           - File
           - Uffd
+          - SharedMemfd
       backend_path:
         type: string
         description: Based on 'backend_type' it is either
@@ -1877,6 +1897,9 @@ definitions:
           2) Path to the UDS where a process is listening for a UFFD initialization
           control payload and open file descriptor that it can use to serve this
           process's guest memory page faults
+          3) Path to the UDS where a process is listening for the same control
+          payload and either, at boot, only the memfd backing guest memory or,
+          on snapshot restore, the UFFD followed by the memfd
 
   Metrics:
     type: object
@@ -2211,9 +2234,9 @@ definitions:
           Selects the huge pages configuration for the restored microVM.
           Snapshot reuses the value serialized in the snapshot and is the
           default when this field is omitted; None uses the host's default
-          memory-mapping behavior. Explicit hugetlbfs (`2M`) pages require a UFFD
-          memory backend. With UFFD, the effectiveness of transparent huge pages
-          may be limited.
+          memory-mapping behavior. Explicit hugetlbfs (`2M`) pages require the
+          `Uffd` or `SharedMemfd` memory backend. With either of them, the
+          effectiveness of transparent huge pages may be limited.
 
 
   TokenBucket:

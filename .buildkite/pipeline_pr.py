@@ -108,9 +108,12 @@ if run_all_tests(changed_files):
         depends_on_build=False,
     )
 
+    # `--huge-pages` sizes the hugetlbfs pool the huge page variants of
+    # test_memory_backend.py need.
     build_suite(
         "functional-and-security",
         "-n 32 --dist worksteal integration_tests/{{functional,security}}",
+        devtool_opts="--huge-pages",
         enclave=True,
     )
 

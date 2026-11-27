@@ -31,14 +31,18 @@ used by the host kernel.
 
 Limitations:
 
-- When vhost-user-blk devices are in use, guest memory is memfd-backed (shared
-  memory). THP for shared/shmem memory is controlled separately from anonymous
-  memory via `/sys/kernel/mm/transparent_hugepage/shmem_enabled` and may not be
-  enabled by default. Refer to the
-  [Linux Documentation on shmem THP][thp_shmem_docs] for details on how to
-  configure it.
+- When vhost-user-blk devices are in use, or a
+  [memory backend](snapshotting/shared-memfd.md) is configured, guest memory is
+  memfd-backed (shared memory). THP for shared/shmem memory is controlled
+  separately from anonymous memory via
+  `/sys/kernel/mm/transparent_hugepage/shmem_enabled` and may not be enabled by
+  default. Refer to the [Linux Documentation on shmem THP][thp_shmem_docs] for
+  details on how to configure it.
 - THP does not integrate with UFFD; no transparent huge pages will be allocated
-  during userfault-handling while resuming from a snapshot.
+  during userfault-handling while resuming from a snapshot. With `SharedMemfd`
+  on hosts before Linux 6.4, `khugepaged` can also zero pages the handler has
+  not populated yet; see
+  [the shared memfd document](snapshotting/shared-memfd.md#huge-pages).
 
 Please refer to the [Linux Documentation][thp_docs] for more information.
 
@@ -68,12 +72,13 @@ snapshot and is the default when the field is omitted. `None` uses the host's
 default memory-mapping behavior, while `Transparent` and `2M` select their
 corresponding huge page configurations.
 
-Explicit `2M` hugetlbfs pages require UFFD, so combining `2M` with file-backed
-restore returns an error. `Transparent` is accepted with UFFD, although UFFD may
-limit the effectiveness of transparent huge pages.
+Explicit `2M` hugetlbfs pages require a page fault handler (`Uffd` or
+`SharedMemfd`), so combining `2M` with file-backed restore returns an error.
+`Transparent` is accepted with UFFD, although UFFD may limit the effectiveness
+of transparent huge pages.
 
 When restoring snapshots via UFFD, Firecracker will send the configured page
-size (in KiB) for each memory region as part of the initial handshake, as
+size (in bytes) for each memory region as part of the initial handshake, as
 described in our documentation on
 [UFFD-assisted snapshot-restore](snapshotting/handling-page-faults-on-snapshot-resume.md).
 
@@ -96,8 +101,8 @@ at least 2 MiB, which Linux guests do by default. See the
 Freeing anonymous hugetlbfs memory needs a host kernel of 5.18 or later. Older
 kernels, such as 5.10, reject `MADV_DONTNEED` on hugetlbfs mappings, so
 Firecracker cannot free this memory on those hosts. Hugetlbfs memory shared with
-vhost-user devices is not affected, because Firecracker frees it with
-`MADV_REMOVE`.
+vhost-user devices or a [memory backend](snapshotting/shared-memfd.md) is not
+affected, because Firecracker frees it with `MADV_REMOVE`.
 
 [hugetlbfs_docs]: https://docs.kernel.org/admin-guide/mm/hugetlbpage.html
 [thp_docs]: https://www.kernel.org/doc/html/next/admin-guide/mm/transhuge.html#hugepages-in-tmpfs-shmem

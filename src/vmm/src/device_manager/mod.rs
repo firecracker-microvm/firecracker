@@ -568,8 +568,9 @@ impl DeviceManager {
             && !kvm_vm.vhost_user_memory_shareable()
         {
             return Err(VmmActionError::NotSupported(
-                "vhost-user hotplug requires guest memory that a backend can map shared, for \
-                 example a microVM booted with a vhost-user device"
+                "vhost-user hotplug requires guest memory that a backend can map shared and that \
+                 no page fault handler serves, for example a microVM booted with a vhost-user \
+                 device"
                     .to_string(),
             ));
         }

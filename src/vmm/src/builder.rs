@@ -5,6 +5,7 @@
 
 use std::fmt::Debug;
 use std::io;
+use std::os::unix::io::AsRawFd;
 #[cfg(feature = "gdb")]
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -14,7 +15,7 @@ use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 use vm_allocator::AllocPolicy;
-use vm_memory::GuestAddress;
+use vm_memory::{GuestAddress, GuestMemoryBackend};
 
 #[cfg(target_arch = "aarch64")]
 use crate::Vcpu;
@@ -43,6 +44,7 @@ use crate::initrd::{InitrdConfig, InitrdError};
 use crate::logger::debug;
 #[cfg(target_arch = "aarch64")]
 use crate::logger::warn;
+use crate::mem_backend::Handshake;
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::{ResourcesError, VmResources};
 use crate::seccomp::BpfThreadMap;
@@ -111,6 +113,8 @@ pub enum StartMicrovmError {
     Kvm(#[from] KvmError),
     /// Cannot load command line string: {0}
     LoadCommandline(linux_loader::loader::Error),
+    /// Cannot hand guest memory to the memory backend: {0}
+    MemBackend(crate::mem_backend::HandshakeError),
     /// Cannot start microvm without kernel configuration.
     MissingKernelConfig,
     /// Cannot start microvm without guest mem_size config.
@@ -125,6 +129,8 @@ pub enum StartMicrovmError {
     SpawnBlockWorker(BlockError),
     /// Cannot restore microvm state: {0}
     RestoreMicrovmState(MicrovmStateError),
+    /// Cannot resume the vCPUs of the built microVM: {0}
+    Resume(VmmError),
     /// Cannot set vm resources: {0}
     SetVmResources(MachineConfigError),
     /// Cannot create the entropy device: {0}
@@ -411,6 +417,23 @@ pub fn build_microvm_for_boot(
         debug!("No GDB socket provided not starting gdb server.");
     }
 
+    // Hand guest memory to the memory backend, if one is configured, with the memfd as the only
+    // fd: there is nothing to populate on a boot. This is the last step of the build that can
+    // fail: a boot failing after the handshake would leave the backend with the memfd of a
+    // microVM that never runs, and a retried `InstanceStart` would send it a second one. Only
+    // resuming the vCPUs follows, and the API does not allow a retry when that fails.
+    if let Some(mem_backend) = &vm_resources.machine_config.mem_backend {
+        let backing = memfd_backing
+            .as_ref()
+            .expect("memory is memfd-backed when a memory backend is configured");
+        Handshake::new(
+            kvm_vm.guest_memory().iter().map(|region| &region.inner),
+            vm_resources.machine_config.huge_pages,
+        )
+        .send(&mem_backend.backend_path, &[backing.file.as_raw_fd()])
+        .map_err(StartMicrovmError::MemBackend)?;
+    }
+
     event_manager.add_subscriber(vmm.clone());
 
     Ok(vmm)
@@ -434,7 +457,10 @@ pub fn build_and_boot_microvm(
     debug!("event_end: build microvm for boot");
     // The vcpus start off in the `Paused` state, let them run.
     debug!("event_start: boot microvm");
-    vmm.lock().unwrap().resume_vm()?;
+    vmm.lock()
+        .unwrap()
+        .resume_vm()
+        .map_err(StartMicrovmError::Resume)?;
     debug!("event_end: boot microvm");
     Ok(vmm)
 }

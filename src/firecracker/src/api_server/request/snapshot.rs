@@ -308,6 +308,34 @@ mod tests {
             "snapshot_path": "foo",
             "mem_backend": {
                 "backend_path": "bar",
+                "backend_type": "SharedMemfd"
+            }
+        }"#;
+        let expected_config = LoadSnapshotParams {
+            snapshot_path: PathBuf::from("foo"),
+            mem_backend: MemBackendConfig {
+                backend_path: PathBuf::from("bar"),
+                backend_type: MemBackendType::SharedMemfd,
+            },
+            track_dirty_pages: false,
+            resume_vm: false,
+            network_overrides: vec![],
+            vsock_override: None,
+            drive_overrides: vec![],
+            pmem_overrides: vec![],
+            clock_realtime: false,
+            huge_pages: SnapshotLoadHugePageConfig::Snapshot,
+        };
+        let parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
+        assert_eq!(
+            vmm_action_from_request(parsed_request),
+            VmmAction::LoadSnapshot(expected_config)
+        );
+
+        let body = r#"{
+            "snapshot_path": "foo",
+            "mem_backend": {
+                "backend_path": "bar",
                 "backend_type": "Uffd"
             },
             "resume_vm": true,

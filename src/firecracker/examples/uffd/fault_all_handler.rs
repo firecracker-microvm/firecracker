@@ -16,15 +16,17 @@ use utils::time::{ClockType, get_time_us};
 fn main() {
     let mut args = std::env::args();
     let uffd_sock_path = args.nth(1).expect("No socket path given");
-    let mem_file_path = args.next().expect("No memory file given");
-
-    let file = File::open(mem_file_path).expect("Cannot open memfile");
+    // The snapshot memory file to populate page faults from. A handler started as the memory
+    // backend of a boot has none: it only receives the guest memory memfd.
+    let mem_file = args
+        .next()
+        .map(|path| File::open(path).expect("Cannot open memfile"));
 
     // Get Uffd from UDS. We'll use the uffd to handle PFs for Firecracker.
     let listener = UnixListener::bind(uffd_sock_path).expect("Cannot bind to socket path");
     let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
 
-    let mut runtime = Runtime::new(stream, file);
+    let mut runtime = Runtime::new(stream, mem_file);
     runtime.install_panic_hook();
     runtime.run(|uffd_handler: &mut UffdHandler| {
         // Read an event from the userfaultfd.

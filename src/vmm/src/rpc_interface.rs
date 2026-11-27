@@ -362,7 +362,7 @@ pub enum BuildMicrovmFromRequestsError {
     PopulateMmds(#[from] data_store::MmdsDatastoreError),
     /// Loading snapshot failed.
     Restore,
-    /// Resuming MicroVM after loading snapshot failed.
+    /// Resuming MicroVM after building it for boot or loading snapshot failed.
     Resume,
 }
 
@@ -717,6 +717,14 @@ impl<'a> PrebootApiController<'a> {
             .map(|vmm| {
                 self.built_vmm = Some(vmm);
                 VmmData::Empty
+            })
+            .inspect_err(|err| {
+                // The microVM is built at this point: its vCPU threads exist, it is registered
+                // with the event manager, and a memory backend has received guest memory. We
+                // consider the process too dirty to build another one.
+                if matches!(err, StartMicrovmError::Resume(_)) {
+                    self.fatal_error = Some(BuildMicrovmFromRequestsError::Resume);
+                }
             })
             .map_err(VmmActionError::StartMicrovm)
         }

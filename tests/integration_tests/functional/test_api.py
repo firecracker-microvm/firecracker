@@ -1636,6 +1636,16 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
     uvm2 = microvm_factory.build_from_snapshot(snapshot)
     expected_cfg = setup_cfg.copy()
 
+    # The machine configuration reports the memory backend of the restore: the memory file,
+    # under the name it is copied into the jail with.
+    expected_cfg["machine-config"] = {
+        **setup_cfg["machine-config"],
+        "mem_backend": {
+            "backend_type": "File",
+            "backend_path": f"/{snapshot.mem.with_suffix('.src').name}",
+        },
+    }
+
     # We expect boot-source to be set with the following values
     expected_cfg["boot-source"] = {
         "kernel_image_path": uvm_configured.get_jailed_resource(
@@ -1927,7 +1937,8 @@ def test_negative_snapshot_load_api(microvm_factory):
 
     # API request with invalid `backend_type` should fail.
     with pytest.raises(
-        RuntimeError, match="unknown variant `foo`, expected `File` or `Uffd`"
+        RuntimeError,
+        match="unknown variant `foo`, expected one of `File`, `Uffd`, `SharedMemfd`",
     ):
         vm.api.snapshot_load.put(
             snapshot_path="foo",

@@ -51,6 +51,16 @@ and this project adheres to
   files of pmem devices when loading a snapshot. See
   [Overriding host resources](docs/snapshotting/snapshot-support.md#overriding-host-resources)
   for more information.
+- [#6362](https://github.com/firecracker-microvm/firecracker/pull/6362): Added
+  the `SharedMemfd` memory backend (developer preview): guest memory is backed
+  by a single memfd, laid out like a memory snapshot file, which is handed to an
+  external process over a Unix domain socket with the same handshake message a
+  UFFD page fault handler receives. `SharedMemfd` is accepted as `backend_type`
+  in `PUT /snapshot/load`, where the handshake carries the userfaultfd and then
+  the memfd, and in a new `mem_backend` field of `PUT /machine-config` and the
+  configuration file, where guest memory is shared at boot and the handshake
+  carries the memfd alone. See
+  [docs/snapshotting/shared-memfd.md](docs/snapshotting/shared-memfd.md).
 
 ### Changed
 
@@ -119,6 +129,17 @@ and this project adheres to
   the maximum number of vCPUs of a KVM microVM from 32 to 64. CPUID leaf 0xB
   (and 0x1F where present) subleaf 1 `EAX[4:0]` now reports 6 instead of 5 for
   every microVM; the topology a guest reports is unchanged.
+- [#6362](https://github.com/firecracker-microvm/firecracker/pull/6362): If the
+  vCPUs fail to resume at the end of `InstanceStart`, Firecracker now exits
+  instead of returning an error and staying in the pre-boot state, as it already
+  does when resuming after `PUT /snapshot/load` fails. The microVM is fully
+  built at that point, so `InstanceStart` cannot be retried safely. Boot
+  failures before that point are unchanged and can still be retried.
+- [#6362](https://github.com/firecracker-microvm/firecracker/pull/6362):
+  `GET /machine-config` and `GET /vm/config` on a microVM restored from a
+  snapshot now report the memory backend given to `PUT /snapshot/load` in the
+  `mem_backend` field of the machine configuration, whatever its type (`File`
+  for a restore with the deprecated `mem_file_path`).
 
 ### Deprecated
 

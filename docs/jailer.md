@@ -84,8 +84,9 @@ jailer --id <id> \
   - `fsize`: The maximum size in bytes for files created by the process. This
     bounds the size of memory snapshot files and, when a
     [vhost-user](api_requests/block-vhost-user.md#resource-limit-in-jailer)
-    device is configured, of the `memfd` backing guest memory. Both are as large
-    as guest DRAM plus the hotpluggable memory region, if any.
+    device or a [memory backend](snapshotting/shared-memfd.md) is configured, of
+    the `memfd` backing guest memory. Both are as large as guest DRAM plus the
+    hotpluggable memory region, if any.
   - `no-file`: Specifies a value one greater than the maximum file descriptor
     number that can be opened by this process.
 
