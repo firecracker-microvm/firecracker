@@ -123,6 +123,11 @@ impl BlockWorker {
         let mut used_any = false;
 
         while let Some(head) = queue.pop_or_enable_notification()? {
+            if self.resources.disk.file_engine.is_busy() {
+                queue.undo_pop();
+                self.resources.is_io_engine_throttled = true;
+                break;
+            }
             self.metrics.remaining_reqs_count.add(queue.len().into());
             let processing_result =
                 match Request::parse(&head, &self.active_state.mem, self.resources.disk.nsectors) {
@@ -256,7 +261,7 @@ impl BlockWorker {
         } else {
             self.process_async_completion_queue();
 
-            if self.resources.is_io_engine_throttled {
+            if self.resources.is_io_engine_throttled && !self.resources.disk.file_engine.is_busy() {
                 self.resources.is_io_engine_throttled = false;
                 self.process_queue().unwrap()
             }
@@ -277,11 +282,16 @@ impl BlockWorker {
 
     /// Prepare device for being snapshotted.
     pub(crate) fn prepare_save(&mut self, flush_mode: FlushMode) -> Result<(), BlockIoError> {
-        // Fsync errors are non-fatal; other drain errors are broken invariants.
+        // Preserve legacy raw fsync handling; QCOW2 must also finish syncing its metadata.
         let result = match flush_mode {
             FlushMode::Drain => self.resources.disk.file_engine.drain(false),
             FlushMode::DrainAndFlush => self.resources.disk.file_engine.drain_and_flush(false),
         };
+        if matches!(&self.resources.disk.file_engine, FileEngine::Qcow2(_)) {
+            // A failed flush still leaves accepted requests ready for guest completion.
+            self.process_async_completion_queue();
+            self.resources.is_io_engine_throttled = self.resources.disk.file_engine.is_busy();
+        }
         match result {
             Ok(()) => {}
             Err(BlockIoError::Async(async_io::AsyncIoError::SyncAll(err))) => {
@@ -293,6 +303,7 @@ impl BlockWorker {
             Err(BlockIoError::Vmdk(super::io::VmdkIoError::Flush(err))) => {
                 error!("Failed to flush block data for snapshot: {:?}", err);
             }
+            Err(err @ BlockIoError::Qcow2(_)) => return Err(err),
             Err(err) => panic!("Failed to drain block IO engine for snapshot: {err:?}"),
         }
         if matches!(&self.resources.disk.file_engine, FileEngine::Async(_)) {
@@ -307,8 +318,26 @@ impl BlockWorker {
         disk_image_path: String,
         read_only: bool,
     ) -> Result<u64, VirtioBlockError> {
-        self.resources.disk.update(disk_image_path, read_only)?;
-        Ok(self.resources.disk.nsectors)
+        let qcow2_async = matches!(&self.resources.disk.file_engine, FileEngine::Qcow2(_))
+            && self.resources.disk.file_engine.completion_evt().is_some();
+        let result = if qcow2_async {
+            let drained = self.resources.disk.file_engine.drain(false);
+            self.process_async_completion_queue();
+            drained.map_err(VirtioBlockError::FileEngine)
+        } else {
+            Ok(())
+        }
+        .and_then(|()| self.resources.disk.update(disk_image_path, read_only));
+        if qcow2_async && self.resources.is_io_engine_throttled {
+            self.resources.is_io_engine_throttled = self.resources.disk.file_engine.is_busy();
+            if !self.resources.is_io_engine_throttled && !self.is_blocked.load(Ordering::Relaxed) {
+                self.resources
+                    .queue_evt
+                    .write(1)
+                    .map_err(VirtioBlockError::EventFd)?;
+            }
+        }
+        result.map(|()| self.resources.disk.nsectors)
     }
 }
 
@@ -733,7 +762,7 @@ mod tests {
         VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_OK, VIRTIO_BLK_T_GET_ID,
     };
     use crate::devices::virtio::block::virtio::test_utils::{
-        default_block, read_blk_req_descriptors, set_queue,
+        default_block, read_blk_req_descriptors, set_queue, syscall_eio_filter,
     };
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
     use crate::vstate::memory::{Bytes, GuestAddress};

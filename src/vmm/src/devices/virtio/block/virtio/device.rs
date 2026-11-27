@@ -14,7 +14,7 @@ use std::num::NonZeroU16;
 use std::ops::Deref;
 use std::os::fd::AsRawFd;
 use std::os::linux::fs::MetadataExt;
-use std::os::unix::fs::FileTypeExt;
+use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use vm_memory::ByteValued;
@@ -68,10 +68,18 @@ pub struct DiskProperties {
 
 impl DiskProperties {
     // Helper function that opens the file with the proper access permissions
-    fn open_file(disk_image_path: &str, is_disk_read_only: bool) -> Result<File, VirtioBlockError> {
-        OpenOptions::new()
-            .read(true)
-            .write(!is_disk_read_only)
+    fn open_file(
+        disk_image_path: &str,
+        is_disk_read_only: bool,
+        image_format: DiskImageFormat,
+    ) -> Result<File, VirtioBlockError> {
+        let mut options = OpenOptions::new();
+        options.read(true).write(!is_disk_read_only);
+        if image_format == DiskImageFormat::Qcow2 {
+            // A FIFO must not block before we can check the opened file's type.
+            options.custom_flags(libc::O_NONBLOCK);
+        }
+        options
             .open(PathBuf::from(&disk_image_path))
             .map_err(|x| VirtioBlockError::BackingFile(x, disk_image_path.to_string()))
     }
@@ -101,6 +109,7 @@ impl DiskProperties {
         is_disk_read_only: bool,
         file_engine_type: FileEngineType,
         image_format: DiskImageFormat,
+        completion_evt: Option<EventFd>,
     ) -> Result<(FileEngine, u64), VirtioBlockError> {
         match image_format {
             DiskImageFormat::Vmdk => {
@@ -121,6 +130,18 @@ impl DiskProperties {
                 })?;
                 let disk_size = vmdk_engine.disk_size();
                 Ok((FileEngine::Vmdk(vmdk_engine), disk_size))
+            }
+            DiskImageFormat::Qcow2 => {
+                let qcow2_engine = block_io::Qcow2FileEngine::from_file_with_engine(
+                    disk_image,
+                    Path::new(disk_image_path),
+                    is_disk_read_only,
+                    file_engine_type,
+                    completion_evt,
+                )
+                .map_err(|e| VirtioBlockError::FileEngine(block_io::BlockIoError::Qcow2(e)))?;
+                let disk_size = qcow2_engine.disk_size();
+                Ok((FileEngine::Qcow2(qcow2_engine), disk_size))
             }
             DiskImageFormat::Raw => {
                 let disk_size = Self::file_size(disk_image_path, &mut disk_image)?;
@@ -146,7 +167,7 @@ impl DiskProperties {
         file_engine_type: FileEngineType,
         image_format: DiskImageFormat,
     ) -> Result<Self, VirtioBlockError> {
-        let disk_image = Self::open_file(disk_image_path, is_disk_read_only)?;
+        let disk_image = Self::open_file(disk_image_path, is_disk_read_only, image_format)?;
         let image_id = Self::build_disk_image_id(&disk_image);
         let (file_engine, disk_size) = Self::from_disk_image(
             disk_image_path,
@@ -154,6 +175,7 @@ impl DiskProperties {
             is_disk_read_only,
             file_engine_type,
             image_format,
+            None,
         )?;
 
         Ok(Self {
@@ -169,14 +191,37 @@ impl DiskProperties {
         disk_image_path: String,
         is_disk_read_only: bool,
     ) -> Result<(), VirtioBlockError> {
-        let mut disk_image = Self::open_file(&disk_image_path, is_disk_read_only)?;
+        let image_format = DiskImageFormat::from(&self.file_engine);
+        let mut disk_image = Self::open_file(&disk_image_path, is_disk_read_only, image_format)?;
         let image_id = Self::build_disk_image_id(&disk_image);
+        let file_engine_type = self.file_engine_type();
+        let mut completion_evt = None;
+        if let FileEngine::Qcow2(engine) = &mut self.file_engine {
+            let same_file = engine
+                .same_file(&disk_image)
+                .map_err(|err| VirtioBlockError::BackingFile(err, disk_image_path.clone()))?;
+            // Finish persisting the old image before opening a writable replacement.
+            engine
+                .drain(true)
+                .map_err(block_io::BlockIoError::Qcow2)
+                .map_err(VirtioBlockError::FileEngine)?;
+            engine
+                .flush()
+                .map_err(block_io::BlockIoError::Qcow2)
+                .map_err(VirtioBlockError::FileEngine)?;
+            if same_file {
+                self.image_id = image_id;
+                return Ok(());
+            }
+            if let Some(event) = engine.completion_evt() {
+                completion_evt = Some(event.try_clone().map_err(VirtioBlockError::EventFd)?);
+            }
+        }
 
         // A raw image is a single file the engine can be pointed at. Formatted images
         // are parsed into engine state when they are opened (for VMDK: the descriptor
         // and its extents), and their size comes from that state rather than from the
         // size of the descriptor file, so the engine has to be rebuilt instead.
-        let image_format = DiskImageFormat::from(&self.file_engine);
         let disk_size = if image_format == DiskImageFormat::Raw {
             let disk_size = Self::file_size(&disk_image_path, &mut disk_image)?;
             self.file_engine
@@ -184,13 +229,22 @@ impl DiskProperties {
                 .map_err(VirtioBlockError::FileEngine)?;
             disk_size
         } else {
-            let (file_engine, disk_size) = Self::from_disk_image(
+            let (mut file_engine, disk_size) = Self::from_disk_image(
                 &disk_image_path,
                 disk_image,
                 is_disk_read_only,
-                self.file_engine_type(),
+                file_engine_type,
                 image_format,
+                completion_evt,
             )?;
+            if let (FileEngine::Qcow2(old), FileEngine::Qcow2(new)) =
+                (&mut self.file_engine, &mut file_engine)
+                && let (Some(old_event), Some(new_event)) =
+                    (old.completion_evt_mut(), new.completion_evt_mut())
+            {
+                // Epoll unregister needs the descriptor number used at registration.
+                std::mem::swap(old_event, new_event);
+            }
             self.file_engine = file_engine;
             disk_size
         };
@@ -513,17 +567,22 @@ pub(crate) struct BlockResources {
 }
 
 impl BlockResources {
-    /// Drain pending I/O and clear engine throttling
+    /// Stop pending I/O and clear engine throttling.
     fn reset(&mut self) {
         // The guest may reuse its buffers once the reset completes, so wait for every operation
         // still in flight. The wait retries EINTR; any other error leaves the engine in an unknown
         // state, so stop rather than complete the reset with operations in flight.
         // TODO: decide whether the wait should be bounded.
         // https://github.com/firecracker-microvm/firecracker/issues/6281
-        self.disk
-            .file_engine
-            .drain(true)
-            .expect("Failed to reset block IO engine");
+        match &mut self.disk.file_engine {
+            // Reset runs under the vCPU filter, which cannot publish QCOW2 metadata.
+            FileEngine::Qcow2(engine) => engine.cancel().unwrap_or_else(|err| {
+                // Unwinding would run teardown's metadata drain under the vCPU filter.
+                error!("Failed to cancel QCOW2 I/O during reset: {err}");
+                std::process::abort();
+            }),
+            engine => engine.drain(true).expect("Failed to reset block IO engine"),
+        }
         self.is_io_engine_throttled = false;
     }
 }
@@ -537,13 +596,23 @@ impl VirtioBlock {
             return Err(VirtioBlockError::DiscardReadOnlyUnsupported);
         }
 
-        if config.discard && config.file_engine_type == FileEngineType::Async {
+        if config.discard
+            && config.file_engine_type == FileEngineType::Async
+            && config.image_format != DiskImageFormat::Qcow2
+        {
             return Err(VirtioBlockError::DiscardAsyncUnsupported);
         }
-
         let num_queues = config
             .num_queues
             .map_or(DEFAULT_BLOCK_NUM_QUEUES, NonZeroU16::get);
+        if config.image_format == DiskImageFormat::Qcow2
+            && (!config.is_read_only || config.file_engine_type == FileEngineType::Async)
+            && num_queues > 1
+        {
+            return Err(VirtioBlockError::FileEngine(block_io::BlockIoError::Qcow2(
+                block_io::Qcow2IoError::MultiQueueNotSupported,
+            )));
+        }
         let mut resources = Vec::with_capacity(usize::from(num_queues));
         for queue_idx in 0..num_queues {
             resources.push(BlockResources {
@@ -592,7 +661,10 @@ impl VirtioBlock {
 
         if config.blk_size.is_none()
             && config.topology.is_none()
-            && !matches!(resources[0].disk.file_engine, FileEngine::Vmdk(_))
+            && !matches!(
+                resources[0].disk.file_engine,
+                FileEngine::Vmdk(_) | FileEngine::Qcow2(_)
+            )
         {
             if let Some((blk_size, topology)) =
                 query_blk_attrs(resources[0].disk.file_engine.file())
@@ -726,6 +798,13 @@ impl VirtioBlock {
 
     /// Update the backing file and the config space of the block device.
     pub fn update_disk_image(&mut self, disk_image_path: String) -> Result<(), VirtioBlockError> {
+        if self.config.image_format == DiskImageFormat::Qcow2
+            && self.config.num_queues.is_some_and(|count| count.get() > 1)
+        {
+            return Err(VirtioBlockError::FileEngine(block_io::BlockIoError::Qcow2(
+                block_io::Qcow2IoError::MultiQueuePatchNotSupported,
+            )));
+        }
         let config_path = disk_image_path.clone();
         let read_only = self.config.is_read_only;
         let nsectors = match &mut self.state {
@@ -797,7 +876,14 @@ impl VirtioBlock {
                 }
                 last.pause(FlushMode::DrainAndFlush)?;
             }
-            BlockRuntimeState::Configuring(_, _) => {}
+            BlockRuntimeState::Configuring(resources, _) => {
+                // Reset parks the engine with any pending QCOW2 metadata still in memory.
+                for resource in resources {
+                    if let FileEngine::Qcow2(engine) = &resource.disk.file_engine {
+                        engine.flush().map_err(block_io::BlockIoError::Qcow2)?;
+                    }
+                }
+            }
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
         }
         Ok(())
@@ -1111,16 +1197,20 @@ impl VirtioDevice for VirtioBlock {
 
 impl Drop for VirtioBlock {
     fn drop(&mut self) {
-        let flush_mode = match self.config.cache_type {
-            CacheType::Unsafe => FlushMode::Drain,
-            CacheType::Writeback => FlushMode::DrainAndFlush,
+        let flush_mode = match (self.config.image_format, self.config.cache_type) {
+            // Even with Unsafe caching, dropping QCOW2 must publish its in-memory mappings.
+            (DiskImageFormat::Qcow2, _) | (_, CacheType::Writeback) => FlushMode::DrainAndFlush,
+            (_, CacheType::Unsafe) => FlushMode::Drain,
         };
 
         match std::mem::replace(&mut self.state, BlockRuntimeState::Placeholder) {
-            BlockRuntimeState::Inline(mut worker) => match flush_mode {
-                FlushMode::Drain => worker.drain(true),
-                FlushMode::DrainAndFlush => worker.drain_and_flush(true),
-            },
+            BlockRuntimeState::Inline(mut worker) => {
+                match flush_mode {
+                    FlushMode::Drain => worker.drain(true),
+                    FlushMode::DrainAndFlush => worker.drain_and_flush(true),
+                }
+                worker.resources.queue.commit_dirty();
+            }
             BlockRuntimeState::Threaded(mut active) => {
                 let last = active
                     .worker_handles

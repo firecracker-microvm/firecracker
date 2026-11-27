@@ -130,6 +130,14 @@ impl Persist<'_> for VirtioBlock {
         if num_queues > 1 && !mq_offered {
             return Err(VirtioBlockError::Persist(PersistError::InvalidInput));
         }
+        if state.disk_image_format == DiskImageFormat::Qcow2
+            && (!is_read_only || state.file_engine_type == FileEngineTypeState::Async)
+            && num_queues > 1
+        {
+            return Err(VirtioBlockError::FileEngine(
+                super::io::BlockIoError::Qcow2(super::io::Qcow2IoError::MultiQueueNotSupported),
+            ));
+        }
         let config = VirtioBlockConfig {
             drive_id: state.id.clone(),
             partuuid: state.partuuid.clone(),
@@ -146,6 +154,15 @@ impl Persist<'_> for VirtioBlock {
             blk_size: Some(state.blk_size),
             topology: Some(state.topology),
         };
+        if config.discard && config.is_read_only {
+            return Err(VirtioBlockError::DiscardReadOnlyUnsupported);
+        }
+        if config.discard
+            && config.file_engine_type == FileEngineType::Async
+            && config.image_format != DiskImageFormat::Qcow2
+        {
+            return Err(VirtioBlockError::DiscardAsyncUnsupported);
+        }
 
         let queues = state
             .virtio_state

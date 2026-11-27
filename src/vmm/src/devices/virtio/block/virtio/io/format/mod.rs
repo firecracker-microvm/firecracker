@@ -17,4 +17,6 @@ pub enum DiskImageFormat {
     Raw,
     /// VMDK disk image.
     Vmdk,
+    /// QCOW2 disk image.
+    Qcow2,
 }

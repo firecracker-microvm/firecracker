@@ -187,6 +187,20 @@ impl PendingRequest {
             (Err(IoErr::UnsupportedRequest(op)), _) | (_, RequestType::Unsupported(op)) => {
                 Status::Unsupported { op }
             }
+            (
+                Err(
+                    err @ IoErr::FileEngine(block_io::BlockIoError::Qcow2(
+                        block_io::Qcow2IoError::Read { completed, .. },
+                    )),
+                ),
+                RequestType::In,
+            ) => {
+                block_metrics.read_bytes.add(completed.into());
+                Status::IoErr {
+                    num_bytes_to_mem: completed,
+                    err,
+                }
+            }
             (Err(err), _) => Status::IoErr {
                 num_bytes_to_mem: 0,
                 err,

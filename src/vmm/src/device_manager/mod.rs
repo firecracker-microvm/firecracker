@@ -667,6 +667,13 @@ impl DeviceManager {
                 }
 
                 if force {
+                    if let Err(err) = pci_devices.prepare_qcow2_unplug(&device_id) {
+                        // Failed preparation parks workers; the retained device must keep running.
+                        virtio_device.lock().expect("Poisoned lock").kick();
+                        return Err(VmmActionError::PciManager(PciManagerError::PrepareUnplug(
+                            err,
+                        )));
+                    }
                     pci_devices
                         .detach_pci_virtio_device(&vm, device_id, event_manager)
                         .map_err(VmmActionError::PciManager)
@@ -712,6 +719,18 @@ impl DeviceManager {
             }) else {
                 continue;
             };
+
+            if let Err(err) = pci_devices.prepare_qcow2_unplug(&device_id) {
+                // ponytail: retry on the next external event; idle retries would need a backoff
+                // timer. Signalling the eventfd here would busy-loop on persistent disk errors.
+                pci_devices
+                    .pci_segment
+                    .hotplug_completion
+                    .acked_buses
+                    .fetch_or(1 << bus, Ordering::Release);
+                warn!("Failed to prepare hot-unplug of {device_id:?}: {err}");
+                continue;
+            }
 
             info!("Completing hot-unplug of {device_id:?}");
             if let Err(err) =
