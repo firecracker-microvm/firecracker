@@ -713,6 +713,339 @@ mod tests {
     }
 
     #[test]
+    fn test_qcow2_async_submit_error_recovers() {
+        for errno in [libc::EINTR, libc::EIO] {
+            std::thread::spawn(move || {
+                let file = create_test_qcow2();
+                let mem = single_region_mem_dirty_tracking(4096);
+                mem.write_slice(&[0xa7; 512], GuestAddress(0)).unwrap();
+                let mut engine = Qcow2FileEngine::from_file_with_engine(
+                    std::fs::OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .open(file.as_path())
+                        .unwrap(),
+                    file.as_path(),
+                    false,
+                    FileEngineType::Async,
+                    None,
+                )
+                .unwrap();
+                engine
+                    .start_request(
+                        512,
+                        &mem,
+                        GuestAddress(0),
+                        512,
+                        PendingRequest::default(),
+                        true,
+                    )
+                    .unwrap();
+                // Fail non-waiting enter, allowing the recovery wait (argument 2) to succeed.
+                let instructions = [
+                    (libc::BPF_LD | libc::BPF_W | libc::BPF_ABS, 0, 0, 0),
+                    (
+                        libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K,
+                        0,
+                        3,
+                        u32::try_from(libc::SYS_io_uring_enter).unwrap(),
+                    ),
+                    (libc::BPF_LD | libc::BPF_W | libc::BPF_ABS, 0, 0, 32),
+                    (libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K, 0, 1, 0),
+                    (
+                        libc::BPF_RET | libc::BPF_K,
+                        0,
+                        0,
+                        libc::SECCOMP_RET_ERRNO | u32::try_from(errno).unwrap(),
+                    ),
+                    (libc::BPF_RET | libc::BPF_K, 0, 0, libc::SECCOMP_RET_ALLOW),
+                ];
+                let filter: crate::seccomp::BpfProgram = instructions
+                    .into_iter()
+                    .map(|(code, jt, jf, k)| {
+                        let code = u16::try_from(code).unwrap().to_ne_bytes();
+                        let k = k.to_ne_bytes();
+                        u64::from_ne_bytes([code[0], code[1], jt, jf, k[0], k[1], k[2], k[3]])
+                    })
+                    .collect();
+                crate::seccomp::apply_filter(&filter).unwrap();
+                engine.kick_submission_queue();
+                assert_eq!(engine.pop().unwrap().unwrap().1.unwrap(), 512);
+                engine.flush().unwrap();
+                engine.read(512, &mem, GuestAddress(0), 512).unwrap();
+                let mut actual = [0; 512];
+                mem.read_slice(&mut actual, GuestAddress(0)).unwrap();
+                assert_eq!(actual, [0xa7; 512]);
+            })
+            .join()
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn test_qcow2_async_ordering_dirty_tracking_and_eof_zero_fill() {
+        let file = create_test_qcow2();
+        let count = 2 * IO_BUFFER_SIZE + 512;
+        let mem = single_region_mem_dirty_tracking(count + 8192);
+        let addr = GuestAddress(4096);
+        let mut engine = Qcow2FileEngine::from_file_with_engine(
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(file.as_path())
+                .unwrap(),
+            file.as_path(),
+            false,
+            FileEngineType::Async,
+            None,
+        )
+        .unwrap();
+        let data = vec![0xa7; count];
+        mem.write_slice(&data, addr).unwrap();
+        engine
+            .start_request(
+                512,
+                &mem,
+                addr,
+                u32::try_from(count).unwrap(),
+                PendingRequest::default(),
+                true,
+            )
+            .unwrap();
+        assert!(engine.is_busy());
+        engine.drain(false).unwrap();
+        assert!(engine.is_busy());
+        assert_eq!(
+            engine.pop().unwrap().unwrap().1.unwrap(),
+            u32::try_from(count).unwrap()
+        );
+        assert!(!engine.is_busy());
+        engine.discard((IO_BUFFER_SIZE as u64, 512)).unwrap();
+        engine.flush().unwrap();
+        let mut expected = data;
+        expected[IO_BUFFER_SIZE - 512..IO_BUFFER_SIZE].fill(0);
+        mem.write_slice(&vec![0; count], addr).unwrap();
+        mem.reset_dirty();
+        engine
+            .start_request(
+                512,
+                &mem,
+                addr,
+                u32::try_from(count).unwrap(),
+                PendingRequest::default(),
+                false,
+            )
+            .unwrap();
+        engine.drain(false).unwrap();
+        assert_eq!(
+            engine.pop().unwrap().unwrap().1.unwrap(),
+            u32::try_from(count).unwrap()
+        );
+        let mut actual = vec![0; count];
+        mem.read_slice(&mut actual, addr).unwrap();
+        assert_eq!(actual, expected);
+        let slice = mem.get_slice(GuestAddress(0), count + 8192).unwrap();
+        assert!(!slice.bitmap().dirty_at(0));
+        assert!(slice.bitmap().dirty_at(4096));
+        assert!(slice.bitmap().dirty_at(4096 + count - 1));
+        assert!(!slice.bitmap().dirty_at(count + 8192 - 1));
+
+        let (mapping, _) = engine
+            .access
+            .get_mapping(512 + 2 * IO_BUFFER_SIZE as u64, 512)
+            .unwrap();
+        let Mapping::Raw { offset, .. } = mapping else {
+            panic!("Expected allocated data")
+        };
+        file.as_file().set_len(offset + 511).unwrap();
+        mem.write_slice(&vec![0x5d; count], addr).unwrap();
+        mem.reset_dirty();
+        engine
+            .start_request(
+                512,
+                &mem,
+                addr,
+                u32::try_from(count).unwrap(),
+                PendingRequest::default(),
+                false,
+            )
+            .unwrap();
+        engine.drain(false).unwrap();
+        assert_eq!(
+            engine.pop().unwrap().unwrap().1.unwrap(),
+            u32::try_from(count).unwrap()
+        );
+        mem.read_slice(&mut actual, addr).unwrap();
+        expected[count - 1] = 0;
+        assert_eq!(actual, expected);
+        let slice = mem.get_slice(addr, count).unwrap();
+        assert!(slice.bitmap().dirty_at(count - 1));
+        engine
+            .start_request(u64::MAX, &mem, addr, 512, PendingRequest::default(), false)
+            .unwrap();
+        assert!(matches!(
+            engine.pop().unwrap().unwrap().1,
+            Err(Qcow2IoError::Read { completed: 0, .. })
+        ));
+    }
+
+    #[test]
+    fn test_qcow2_async_failed_and_cancelled_payload_preserves_mapping() {
+        let file = create_test_qcow2();
+        let mem = single_region_mem_dirty_tracking(4096);
+        mem.write_slice(&[0xa7; 512], GuestAddress(0)).unwrap();
+        let mut engine = Qcow2FileEngine::from_file_with_engine(
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(file.as_path())
+                .unwrap(),
+            file.as_path(),
+            false,
+            FileEngineType::Async,
+            None,
+        )
+        .unwrap();
+        let read_only = File::open(file.as_path()).unwrap();
+        let state = engine.async_io.as_mut().unwrap();
+        state.ring.unregister_files().unwrap();
+        state.ring = IoUring::new(
+            1,
+            vec![&read_only],
+            vec![
+                Restriction::RequireFixedFds,
+                Restriction::AllowUnregisterFiles,
+                Restriction::AllowOpCode(OpCode::Write),
+            ],
+            Some(state.completion_evt.as_raw_fd()),
+        )
+        .unwrap();
+        engine
+            .start_request(
+                512,
+                &mem,
+                GuestAddress(0),
+                512,
+                PendingRequest::default(),
+                true,
+            )
+            .unwrap();
+        let failed_host_offset = engine
+            .async_io
+            .as_ref()
+            .unwrap()
+            .active
+            .as_ref()
+            .unwrap()
+            .host_offset;
+        engine.drain(false).unwrap();
+        let Err(Qcow2IoError::Write(error)) = engine.pop().unwrap().unwrap().1 else {
+            panic!("Expected write failure");
+        };
+        assert_eq!(error.raw_os_error(), Some(libc::EBADF));
+        engine.flush().unwrap();
+        engine.read(512, &mem, GuestAddress(0), 512).unwrap();
+        let mut actual = [0; 512];
+        mem.read_slice(&mut actual, GuestAddress(0)).unwrap();
+        assert_eq!(actual, [0; 512]);
+
+        let state = engine.async_io.as_mut().unwrap();
+        state.ring.unregister_files().unwrap();
+        state.ring = IoUring::new(
+            1,
+            vec![file.as_file()],
+            vec![
+                Restriction::RequireFixedFds,
+                Restriction::AllowUnregisterFiles,
+                Restriction::AllowOpCode(OpCode::Write),
+            ],
+            Some(state.completion_evt.as_raw_fd()),
+        )
+        .unwrap();
+        mem.write_slice(&[0x5d; 512], GuestAddress(0)).unwrap();
+        engine
+            .start_request(
+                512,
+                &mem,
+                GuestAddress(0),
+                512,
+                PendingRequest::default(),
+                true,
+            )
+            .unwrap();
+        assert_eq!(
+            engine
+                .async_io
+                .as_ref()
+                .unwrap()
+                .active
+                .as_ref()
+                .unwrap()
+                .host_offset,
+            failed_host_offset
+        );
+        engine.drain(false).unwrap();
+        assert_eq!(engine.pop().unwrap().unwrap().1.unwrap(), 512);
+        let cancelled_offset = 2 * IO_BUFFER_SIZE as u64;
+        mem.write_slice(&[0xa7; 512], GuestAddress(0)).unwrap();
+        engine
+            .start_request(
+                cancelled_offset,
+                &mem,
+                GuestAddress(0),
+                512,
+                PendingRequest::default(),
+                true,
+            )
+            .unwrap();
+        let cancelled_host = engine
+            .async_io
+            .as_ref()
+            .unwrap()
+            .active
+            .as_ref()
+            .unwrap()
+            .host_offset;
+        engine.cancel().unwrap();
+        engine
+            .read(cancelled_offset, &mem, GuestAddress(0), 512)
+            .unwrap();
+        mem.read_slice(&mut actual, GuestAddress(0)).unwrap();
+        assert_eq!(actual, [0; 512]);
+        engine.flush().unwrap();
+        mem.write_slice(&[0x5d; 512], GuestAddress(0)).unwrap();
+        engine
+            .start_request(
+                cancelled_offset,
+                &mem,
+                GuestAddress(0),
+                512,
+                PendingRequest::default(),
+                true,
+            )
+            .unwrap();
+        assert_eq!(
+            engine
+                .async_io
+                .as_ref()
+                .unwrap()
+                .active
+                .as_ref()
+                .unwrap()
+                .host_offset,
+            cancelled_host
+        );
+        engine.drain(false).unwrap();
+        assert_eq!(engine.pop().unwrap().unwrap().1.unwrap(), 512);
+        engine
+            .read(cancelled_offset, &mem, GuestAddress(0), 512)
+            .unwrap();
+        mem.read_slice(&mut actual, GuestAddress(0)).unwrap();
+        assert_eq!(actual, [0x5d; 512]);
+        engine.flush().unwrap();
+    }
+
+    #[test]
     fn test_qcow2_sync_dirty_tracking_and_eof_zero_fill() {
         let file = create_test_qcow2();
         let count = 2 * IO_BUFFER_SIZE + 512;
