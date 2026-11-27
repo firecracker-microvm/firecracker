@@ -175,7 +175,7 @@ impl PciDevices {
         );
         vm.common
             .mmio_bus
-            .insert(virtio_device.clone(), bar_address, CAPABILITY_BAR_SIZE)?;
+            .insert(virtio_device.clone(), bar_address, CAPABILITY_BAR_SIZE, 0)?;
 
         Ok(())
     }

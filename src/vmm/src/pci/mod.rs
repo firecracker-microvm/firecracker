@@ -47,11 +47,11 @@ pub trait PciDevice: Send {
     /// Reads from a BAR region mapped into the device.
     /// * `addr` - The guest address inside the BAR.
     /// * `data` - Filled with the data from `addr`.
-    fn read_bar(&mut self, _base: u64, _offset: u64, _data: &mut [u8]) {}
+    fn read_bar(&mut self, _tag: u8, _offset: u64, _data: &mut [u8]) {}
     /// Writes to a BAR region mapped into the device.
     /// * `addr` - The guest address inside the BAR.
     /// * `data` - The data to write.
-    fn write_bar(&mut self, _base: u64, _offset: u64, _data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write_bar(&mut self, _tag: u8, _offset: u64, _data: &[u8]) -> Option<Arc<Barrier>> {
         None
     }
 }

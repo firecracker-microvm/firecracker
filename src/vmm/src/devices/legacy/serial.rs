@@ -412,7 +412,7 @@ impl<I> BusDevice for SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>
 where
     I: Read + AsRawFd + Send,
 {
-    fn read(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
+    fn read(&mut self, _tag: u8, offset: u64, data: &mut [u8]) {
         if let (Ok(offset), 1) = (u8::try_from(offset), data.len()) {
             data[0] = self.serial.read(offset);
         } else {
@@ -420,7 +420,7 @@ where
         }
     }
 
-    fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write(&mut self, _tag: u8, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
         if let (Ok(offset), 1) = (u8::try_from(offset), data.len()) {
             if let Err(err) = self.serial.write(offset, data[0]) {
                 // Counter incremented for any handle_write() error.
