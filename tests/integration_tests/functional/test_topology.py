@@ -230,9 +230,7 @@ def test_cpu_topology(uvm, num_vcpus, htt):
 
 
 @pytest.mark.skipif(
-    (6, 3) <= global_props.host_linux_version_tpl
-    and global_props.host_linux_version_tpl < (6, 10)
-    and PLATFORM == "aarch64",
+    (6, 3) <= global_props.host_linux_version_tpl < (6, 10) and PLATFORM == "aarch64",
     reason="""On the range [6.3..6.10) of host kernels on aarch64 platform, the
     cache topology provided by DT and CRIDR_EL1 register do not match. In that
     case guest uses values from CLIDR_EL1 which will not contain info about L1$

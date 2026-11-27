@@ -214,7 +214,7 @@ INTEL_ICELAKE_HOST_ONLY_FEATS_6_18 = INTEL_ICELAKE_HOST_ONLY_FEATS_6_1 - {
 } | {"la57"}
 
 # CPU features not available when running in a non-metal EC2 C8i, M8i, and R8i instance
-EC2_CMR8i_VIRT_UNAVAILABLE = {
+EC2_CMR8I_VIRT_UNAVAILABLE = {
     "acpi",
     "arch_lbr",
     "art",
@@ -526,13 +526,13 @@ def test_host_vs_guest_cpu_features(uvm):
             # AVX512 FP16 is supported and passed through on v5.11+.
             # https://github.com/torvalds/linux/commit/e1b35da5e624f8b09d2e98845c2e4c84b179d9a4
             # https://github.com/torvalds/linux/commit/2224fc9efb2d6593fbfb57287e39ba4958b188ba
-            if host_version >= (5, 11) and guest_version < (5, 11):
+            if guest_version < (5, 11) <= host_version:
                 expected_host_minus_guest |= {"avx512_fp16"}
 
             # AVX VNNI support is supported and passed through on v5.12+.
             # https://github.com/torvalds/linux/commit/b85a0425d8056f3bd8d0a94ecdddf2a39d32a801
             # https://github.com/torvalds/linux/commit/1085a6b585d7d1c441cd10fdb4c7a4d96a22eba7
-            if host_version >= (5, 12) and guest_version < (5, 12):
+            if guest_version < (5, 12) <= host_version:
                 expected_host_minus_guest |= {"avx_vnni"}
 
             # Bus lock detection is supported on v5.12+ and passed through on v5.13+.
@@ -543,7 +543,7 @@ def test_host_vs_guest_cpu_features(uvm):
 
             # Intel AMX is supported and passed through on v5.17+.
             # https://github.com/torvalds/linux/commit/690a757d610e50c2c3acd2e4bc3992cfc63feff2
-            if host_version >= (5, 17) and guest_version < (5, 17):
+            if guest_version < (5, 17) <= host_version:
                 expected_host_minus_guest |= {"amx_bf16", "amx_int8", "amx_tile"}
 
             expected_guest_minus_host -= {
@@ -581,7 +581,7 @@ def test_host_vs_guest_cpu_features(uvm):
 
             if global_props.is_ec2_virt:
                 # These features aren't available in the host
-                expected_host_minus_guest -= EC2_CMR8i_VIRT_UNAVAILABLE
+                expected_host_minus_guest -= EC2_CMR8I_VIRT_UNAVAILABLE
                 # Both host and guest run under an hypervisor
                 expected_guest_minus_host -= {"hypervisor"}
 

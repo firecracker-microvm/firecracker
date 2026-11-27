@@ -234,8 +234,7 @@ def get_vuln_files_exception_dict(template, guest_kernel_version):
     if (
         global_props.cpu_codename in ["AMD_MILAN", "AMD_GENOA"]
         and template == "None"
-        and guest_kernel_version >= (6, 7)
-        and global_props.host_linux_version_tpl < (6, 7)
+        and global_props.host_linux_version_tpl < (6, 7) <= guest_kernel_version
     ):
         exception_dict["spec_rstack_overflow"] = {
             "is_expected": lambda status: status.startswith(

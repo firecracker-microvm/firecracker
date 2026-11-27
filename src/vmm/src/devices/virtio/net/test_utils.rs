@@ -182,10 +182,7 @@ impl TapTrafficSimulator {
                 &mut libc::socklen_t::try_from(mem::size_of::<libc::sockaddr_storage>()).unwrap(),
             )
         };
-        if ret == -1 {
-            return false;
-        }
-        true
+        ret != -1
     }
 }
 

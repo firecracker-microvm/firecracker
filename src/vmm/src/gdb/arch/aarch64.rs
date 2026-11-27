@@ -266,8 +266,8 @@ pub fn read_registers(vcpu_fd: &VcpuFd, regs: &mut CoreRegs) -> Result<(), GdbTa
 
     let mut registers = register_vec.iter();
 
-    for i in 0..GENERAL_PURPOSE_REG_COUNT {
-        regs.x[i] = registers
+    for gpr in regs.x.iter_mut().take(GENERAL_PURPOSE_REG_COUNT) {
+        *gpr = registers
             .next()
             .ok_or(GdbTargetError::ReadRegisterVecError)?
             .value();
@@ -290,10 +290,10 @@ pub fn read_registers(vcpu_fd: &VcpuFd, regs: &mut CoreRegs) -> Result<(), GdbTa
 pub fn write_registers(vcpu_fd: &VcpuFd, regs: &CoreRegs) -> Result<(), GdbTargetError> {
     let kreg_off = offset_of!(kvm_regs, regs);
     let mut off = kreg_off;
-    for i in 0..GENERAL_PURPOSE_REG_COUNT {
+    for gpr in regs.x.iter().take(GENERAL_PURPOSE_REG_COUNT) {
         vcpu_fd.set_one_reg(
             arm64_core_reg_id!(KVM_REG_SIZE_U64, off),
-            &regs.x[i].to_le_bytes(),
+            &gpr.to_le_bytes(),
         )?;
         off += std::mem::size_of::<u64>();
     }

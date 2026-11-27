@@ -23,8 +23,8 @@ use vmm::test_utils::single_region_mem;
 /// so pick 1024.
 fn set_dtable_one_chain(rxq: &VirtQueue, n: usize) {
     let desc_size = 1024;
-    for i in 0..n {
-        rxq.dtable[i].set(
+    for (i, desc) in rxq.dtable.iter().enumerate().take(n) {
+        desc.set(
             (2048 + desc_size * i) as u64,
             desc_size as u32,
             VIRTQ_DESC_F_WRITE | VIRTQ_DESC_F_NEXT,
