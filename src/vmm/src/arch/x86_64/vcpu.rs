@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use kvm_bindings::nested::KvmNestedStateBuffer;
 use kvm_bindings::{
     CpuId, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES, KVM_VCPU_TSC_CTRL, KVM_VCPU_TSC_OFFSET,
     KVMIO, Msrs, Xsave, kvm_debugregs, kvm_device_attr, kvm_lapic_state, kvm_mp_state, kvm_regs,
@@ -76,6 +77,8 @@ pub enum KvmVcpuError {
     VcpuGetLapic(kvm_ioctls::Error),
     /// Failed to get KVM vcpu mp state: {0}
     VcpuGetMpState(kvm_ioctls::Error),
+    /// Failed to get KVM vcpu nested state: {0}
+    VcpuGetNestedState(kvm_ioctls::Error),
     /// Failed to get KVM vcpu msr: {0:#x}
     VcpuGetMsr(u32),
     /// Failed to get KVM vcpu msrs: {0}
@@ -104,6 +107,8 @@ pub enum KvmVcpuError {
     VcpuSetLapic(kvm_ioctls::Error),
     /// Failed to set KVM vcpu mp state: {0}
     VcpuSetMpState(kvm_ioctls::Error),
+    /// Failed to set KVM vcpu nested state: {0}
+    VcpuSetNestedState(kvm_ioctls::Error),
     /// Failed to set KVM vcpu msrs: {0}
     VcpuSetMsrs(kvm_ioctls::Error),
     /// Failed to set all KVM MSRs for this vCPU. Only a partial write was done.
@@ -682,6 +687,18 @@ impl KvmVcpu {
         });
         let cpuid = self.get_cpuid()?;
         let saved_msrs = self.get_msr_chunks(self.msrs_to_save.iter().copied())?;
+        // A guest with VMX/SVM may be in VMX operation or running a nested guest. KVM keeps that
+        // state outside of the registers and MSRs above; without it, a restored guest faults on
+        // its next VMX/SVM instruction.
+        let nested_state = if cpuid::common::cpuid_has_nested_virt(&cpuid) {
+            let mut nested_state = KvmNestedStateBuffer::empty();
+            self.fd
+                .nested_state(&mut nested_state)
+                .map_err(KvmVcpuError::VcpuGetNestedState)?;
+            Some(nested_state)
+        } else {
+            None
+        };
         let vcpu_events = self
             .fd
             .get_vcpu_events()
@@ -699,6 +716,7 @@ impl KvmVcpu {
             xcrs,
             xsave,
             tsc_khz,
+            nested_state,
         })
     }
 
@@ -737,7 +755,7 @@ impl KvmVcpu {
     }
 
     /// Use provided state to populate KVM internal state.
-    pub fn restore_state(&self, state: &VcpuState) -> Result<(), KvmVcpuError> {
+    pub fn restore_state(&mut self, state: &VcpuState) -> Result<(), KvmVcpuError> {
         // Ordering requirements:
         //
         // KVM_GET_VCPU_EVENTS/KVM_SET_VCPU_EVENTS is unsafe if other vCPUs are
@@ -758,6 +776,12 @@ impl KvmVcpu {
         //
         // SET_LAPIC must come before SET_MSRS, because the TSC deadline MSR
         // only restores successfully, when the LAPIC is correctly configured.
+        //
+        // SET_NESTED_STATE must come after SET_CPUID2 and SET_SREGS, because KVM
+        // checks the guest has VMX/SVM and EFER.SVME. It must come after SET_MSRS
+        // too, because KVM refuses to change the VMX capability MSRs once the vCPU
+        // is in VMX operation. It must come before SET_VCPU_EVENTS, which may
+        // refer to the nested guest.
 
         self.fd
             .set_cpuid2(&state.cpuid)
@@ -797,9 +821,22 @@ impl KvmVcpu {
                 return Err(KvmVcpuError::VcpuSetMsrsIncomplete);
             }
         }
+        if let Some(nested_state) = &state.nested_state {
+            self.fd
+                .set_nested_state(nested_state)
+                .map_err(KvmVcpuError::VcpuSetNestedState)?;
+        }
         self.fd
             .set_vcpu_events(&state.vcpu_events)
             .map_err(KvmVcpuError::VcpuSetVcpuEvents)?;
+
+        // Only the boot path adds the MSRs inferred from CPUID or set by a CPU template, so
+        // carry over the snapshot's list to save the same MSRs in the next snapshot.
+        self.msrs_to_save = state
+            .saved_msrs
+            .iter()
+            .flat_map(|msrs| msrs.as_slice().iter().map(|msr| msr.index))
+            .collect();
 
         self.kvmclock_ctrl();
         Ok(())
@@ -870,6 +907,8 @@ pub struct VcpuState {
     pub xsave: Xsave,
     /// Tsc khz.
     pub tsc_khz: Option<u32>,
+    /// Nested state, if the guest CPUID offers VMX or SVM.
+    pub nested_state: Option<KvmNestedStateBuffer>,
 }
 
 impl Debug for VcpuState {
@@ -891,6 +930,13 @@ impl Debug for VcpuState {
             .field("xcrs", &self.xcrs)
             .field("xsave", &self.xsave)
             .field("tsc_khz", &self.tsc_khz)
+            .field(
+                "nested_state",
+                &self
+                    .nested_state
+                    .as_ref()
+                    .map(|nested| (nested.format, nested.flags, nested.size)),
+            )
             .finish()
     }
 }
@@ -899,13 +945,14 @@ impl Debug for VcpuState {
 pub(crate) mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
-    use kvm_bindings::kvm_msr_entry;
+    use kvm_bindings::{KVM_STATE_NESTED_FORMAT_SVM, KVM_STATE_NESTED_GUEST_MODE, kvm_msr_entry};
     use kvm_ioctls::Cap;
     use vm_memory::GuestAddress;
 
     use super::*;
     use crate::arch::BootProtocol;
     use crate::arch::x86_64::cpu_model::CpuModel;
+    use crate::arch::x86_64::generated::msr_index::{MSR_IA32_FEAT_CTL, MSR_IA32_VMX_BASIC};
     use crate::cpu_config::templates::{
         CpuTemplateType, CustomCpuTemplate, GetCpuTemplate, StaticCpuTemplate,
     };
@@ -913,6 +960,7 @@ pub(crate) mod tests {
         apply_template_to_cpuid, apply_template_to_msrs,
         cpuid::{Cpuid, CpuidEntry, CpuidKey},
     };
+    use crate::vstate::memory::Bytes;
     use crate::vstate::vm::tests::{setup_vm, setup_vm_with_memory};
 
     impl Default for VcpuState {
@@ -929,6 +977,7 @@ pub(crate) mod tests {
                 xcrs: Default::default(),
                 xsave: Xsave::new(0).unwrap(),
                 tsc_khz: Some(0),
+                nested_state: None,
             }
         }
     }
@@ -1098,7 +1147,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_cpuid_restore() {
-        let (vm, vcpu) = setup_vcpu(0x10000);
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
         vcpu.fd.set_cpuid2(&vm.kvm().supported_cpuid).unwrap();
 
         // Mutate the CPUID.
@@ -1116,7 +1165,7 @@ pub(crate) mod tests {
         drop(vcpu);
 
         // Restore the state into a new vcpu.
-        let (_vm, vcpu) = setup_vcpu(0x10000);
+        let (_vm, mut vcpu) = setup_vcpu(0x10000);
         let result2 = vcpu.restore_state(&state);
         assert!(result2.is_ok(), "{}", result2.unwrap_err());
 
@@ -1131,6 +1180,270 @@ pub(crate) mod tests {
             })
             .unwrap();
         assert!(leaf3.result.eax == 0x1234_5678);
+    }
+
+    #[test]
+    fn test_restore_state_keeps_msrs_to_save() {
+        // Test that a restored vCPU saves the same MSRs as the vCPU it was restored from,
+        // including the ones the boot path inferred from CPUID.
+        let saved_msrs = |state: &VcpuState| -> Vec<u32> {
+            state
+                .saved_msrs
+                .iter()
+                .flat_map(|msrs| msrs.as_slice().iter().map(|msr| msr.index))
+                .collect()
+        };
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
+        configure_vcpu(
+            &vm,
+            &mut vcpu,
+            &CustomCpuTemplate::default(),
+            EntryPoint {
+                entry_addr: GuestAddress(0),
+                protocol: BootProtocol::LinuxBoot,
+                setup_header: None,
+            },
+        )
+        .unwrap();
+        let state = vcpu.save_state().unwrap();
+
+        let (_vm, mut restored) = setup_vcpu(0x10000);
+        assert!(restored.msrs_to_save.len() < vcpu.msrs_to_save.len());
+        restored.restore_state(&state).unwrap();
+        assert_eq!(
+            saved_msrs(&restored.save_state().unwrap()),
+            saved_msrs(&state)
+        );
+    }
+
+    #[test]
+    fn test_exception_payload_enabled() {
+        // Test that KVM_CAP_EXCEPTION_PAYLOAD is enabled. Otherwise, KVM_SET_VCPU_EVENTS fails
+        // with KVM_VCPUEVENT_VALID_PAYLOAD set.
+        let (_vm, vcpu) = setup_vcpu(0x1000);
+        let mut events = vcpu.fd.get_vcpu_events().unwrap();
+        events.flags |= kvm_bindings::KVM_VCPUEVENT_VALID_PAYLOAD;
+        vcpu.fd.set_vcpu_events(&events).unwrap();
+    }
+
+    /// Runs the vCPU until the next exit and returns the port if it is a PIO write.
+    fn run_to_pio_write(vcpu: &mut KvmVcpu) -> Option<u16> {
+        match vcpu.fd.run().unwrap() {
+            VcpuExit::IoOut(port, _) => Some(port),
+            _ => None,
+        }
+    }
+
+    const NESTED_TEST_MEM_SIZE: usize = 0x10000;
+    const NESTED_TEST_CODE: u64 = 0x1000;
+
+    /// Sets up a vCPU that starts in 64-bit mode at `NESTED_TEST_CODE`. Returns `None` if the
+    /// host is not from `vendor` or does not support nested virtualization.
+    fn setup_nested_test_vcpu(vendor: &[u8; 12]) -> Option<(KvmVm, KvmVcpu)> {
+        let (vm, mut vcpu) = setup_vcpu(NESTED_TEST_MEM_SIZE);
+        if &cpuid::common::get_vendor_id_from_host().unwrap() != vendor
+            || !cpuid::common::cpuid_has_nested_virt(&vm.kvm().supported_cpuid)
+        {
+            return None;
+        }
+        configure_vcpu(
+            &vm,
+            &mut vcpu,
+            &CustomCpuTemplate::default(),
+            EntryPoint {
+                entry_addr: GuestAddress(NESTED_TEST_CODE),
+                protocol: BootProtocol::LinuxBoot,
+                setup_header: None,
+            },
+        )
+        .unwrap();
+        Some((vm, vcpu))
+    }
+
+    /// Completes the pending exit, as pausing a vCPU does, and saves the vCPU state.
+    fn pause_and_save(vcpu: &mut KvmVcpu) -> VcpuState {
+        vcpu.fd.set_kvm_immediate_exit(1);
+        vcpu.fd.run().unwrap_err();
+        vcpu.fd.set_kvm_immediate_exit(0);
+        vcpu.save_state().unwrap()
+    }
+
+    /// Restores `state` into a new VM with a copy of `vm`'s memory and runs it until the next
+    /// exit.
+    fn restore_and_run(vm: &KvmVm, state: &VcpuState) -> Option<u16> {
+        let (new_vm, mut new_vcpu) = setup_vcpu(NESTED_TEST_MEM_SIZE);
+        let mut mem = vec![0u8; NESTED_TEST_MEM_SIZE];
+        vm.guest_memory()
+            .read_slice(&mut mem, GuestAddress(0))
+            .unwrap();
+        new_vm
+            .guest_memory()
+            .write_slice(&mem, GuestAddress(0))
+            .unwrap();
+        new_vcpu.restore_state(state).unwrap();
+        run_to_pio_write(&mut new_vcpu)
+    }
+
+    #[test]
+    fn test_nested_vmx_state_restore() {
+        // Test that a guest in VMX operation is still in VMX operation after a restore.
+        const VMXON_REGION: u64 = 0x2000;
+        const PORT_IN_VMX_OPERATION: u16 = 0x10;
+        const PORT_LEFT_VMX_OPERATION: u16 = 0x11;
+        // Locked, with VMX enabled outside SMX, as firmware would leave it.
+        const FEAT_CTL_LOCKED_VMX: u64 = 0x5;
+
+        let Some((vm, mut vcpu)) = setup_nested_test_vcpu(cpuid::VENDOR_ID_INTEL) else {
+            return;
+        };
+
+        // VMXOFF outside of VMX operation raises #UD, which shuts the vCPU down before the
+        // second PIO write.
+        let mut code = vec![
+            0x0f, 0x20, 0xc0, // mov rax, cr0
+            0x0d, 0x20, 0x00, 0x00, 0x00, // or eax, 0x20
+            0x0f, 0x22, 0xc0, // mov cr0, rax
+            0x0f, 0x20, 0xe0, // mov rax, cr4
+            0x0d, 0x00, 0x20, 0x00, 0x00, // or eax, 0x2000
+            0x0f, 0x22, 0xe0, // mov cr4, rax
+            0xf3, 0x0f, 0xc7, 0x35, 0x08, 0x00, 0x00, 0x00, // vmxon [rip + 8]
+            0xe6, 0x10, // out 0x10, al
+            0x0f, 0x01, 0xc4, // vmxoff
+            0xe6, 0x11, // out 0x11, al
+            0xf4, // hlt
+        ];
+        code.extend_from_slice(&VMXON_REGION.to_le_bytes());
+        vm.guest_memory()
+            .write_slice(&code, GuestAddress(NESTED_TEST_CODE))
+            .unwrap();
+        let vmx_basic =
+            vcpu.get_msrs([MSR_IA32_VMX_BASIC].into_iter()).unwrap()[&MSR_IA32_VMX_BASIC];
+        let revision_id = u32::try_from(vmx_basic & 0x7fff_ffff).unwrap();
+        vm.guest_memory()
+            .write_obj(revision_id, GuestAddress(VMXON_REGION))
+            .unwrap();
+        crate::arch::x86_64::msr::set_msrs(
+            &vcpu.fd,
+            &[kvm_msr_entry {
+                index: MSR_IA32_FEAT_CTL,
+                data: FEAT_CTL_LOCKED_VMX,
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+
+        assert_eq!(run_to_pio_write(&mut vcpu), Some(PORT_IN_VMX_OPERATION));
+        let mut state = pause_and_save(&mut vcpu);
+        let nested_state = state.nested_state.as_ref().unwrap();
+        assert_eq!(unsafe { nested_state.hdr.vmx.vmxon_pa }, VMXON_REGION);
+
+        assert_eq!(restore_and_run(&vm, &state), Some(PORT_LEFT_VMX_OPERATION));
+
+        state.nested_state = None;
+        assert_ne!(restore_and_run(&vm, &state), Some(PORT_LEFT_VMX_OPERATION));
+    }
+
+    #[test]
+    fn test_nested_svm_state_restore() {
+        // Test that a vCPU running a nested guest is still running it after a restore.
+
+        // Also hardcoded in the guest code, along with the host save area at 0x4000.
+        const VMCB: u64 = 0x3000;
+        const NESTED_CODE: u64 = 0x5000;
+        const PORT_IN_NESTED_GUEST: u16 = 0x10;
+        const PORT_BACK_IN_GUEST: u16 = 0x11;
+
+        let Some((vm, mut vcpu)) = setup_nested_test_vcpu(cpuid::VENDOR_ID_AMD) else {
+            return;
+        };
+
+        let code: &[u8] = &[
+            0xb9, 0x80, 0x00, 0x00, 0xc0, // mov ecx, 0xc0000080 (EFER)
+            0x0f, 0x32, // rdmsr
+            0x0d, 0x00, 0x10, 0x00, 0x00, // or eax, 0x1000 (SVME)
+            0x0f, 0x30, // wrmsr
+            0xb9, 0x17, 0x01, 0x01, 0xc0, // mov ecx, 0xc0010117 (VM_HSAVE_PA)
+            0xb8, 0x00, 0x40, 0x00, 0x00, // mov eax, 0x4000
+            0x31, 0xd2, // xor edx, edx
+            0x0f, 0x30, // wrmsr
+            0xb8, 0x00, 0x30, 0x00, 0x00, // mov eax, 0x3000
+            0x0f, 0x01, 0xd8, // vmrun
+            0xe6, 0x11, // out 0x11, al
+            0xf4, // hlt
+        ];
+        // The guest does not intercept PIO, so the first PIO write exits to us in guest mode. The
+        // guest intercepts VMMCALL. Outside of guest mode, VMMCALL is a KVM hypercall instead and
+        // execution falls through to the second PIO write.
+        let nested_code: &[u8] = &[
+            0xe6, 0x10, // out 0x10, al
+            0x0f, 0x01, 0xd9, // vmmcall
+            0xe6, 0x12, // out 0x12, al
+        ];
+        vm.guest_memory()
+            .write_slice(code, GuestAddress(NESTED_TEST_CODE))
+            .unwrap();
+        vm.guest_memory()
+            .write_slice(nested_code, GuestAddress(NESTED_CODE))
+            .unwrap();
+
+        // See AMD APM Vol. 2, Appendix B for the VMCB layout. The nested guest runs in 64-bit
+        // mode on the guest's page tables and GDT, without nested paging.
+        let mut vmcb = vec![0u8; 0x1000];
+        let mut put = |offset: usize, bytes: &[u8]| {
+            vmcb[offset..offset + bytes.len()].copy_from_slice(bytes);
+        };
+        let segment = |selector: u16, attrib: u16| -> Vec<u8> {
+            [
+                &selector.to_le_bytes()[..],
+                &attrib.to_le_bytes(),
+                &0xffff_ffffu32.to_le_bytes(),
+                &0u64.to_le_bytes(),
+            ]
+            .concat()
+        };
+        // Intercept VMRUN and VMMCALL.
+        put(0x010, &0b11u32.to_le_bytes());
+        // ASID
+        put(0x058, &1u32.to_le_bytes());
+        // CS, then ES, SS and DS
+        put(0x410, &segment(0x08, 0x0a9b));
+        for offset in [0x400, 0x420, 0x430] {
+            put(offset, &segment(0x10, 0x0c93));
+        }
+        // EFER: LME | LMA | SVME
+        put(0x4d0, &0x1500u64.to_le_bytes());
+        // CR4: PAE
+        put(0x548, &0x20u64.to_le_bytes());
+        // CR3
+        put(0x550, &0x9000u64.to_le_bytes());
+        // CR0: PG | ET | PE
+        put(0x558, &0x8000_0011u64.to_le_bytes());
+        // DR7, DR6
+        put(0x560, &0x400u64.to_le_bytes());
+        put(0x568, &0xffff_0ff0u64.to_le_bytes());
+        // RFLAGS, RIP
+        put(0x570, &0x2u64.to_le_bytes());
+        put(0x578, &NESTED_CODE.to_le_bytes());
+        // G_PAT
+        put(0x668, &0x0007_0406_0007_0406u64.to_le_bytes());
+        vm.guest_memory()
+            .write_slice(&vmcb, GuestAddress(VMCB))
+            .unwrap();
+
+        assert_eq!(run_to_pio_write(&mut vcpu), Some(PORT_IN_NESTED_GUEST));
+        let mut state = pause_and_save(&mut vcpu);
+        let nested_state = state.nested_state.as_ref().unwrap();
+        assert_eq!(u32::from(nested_state.format), KVM_STATE_NESTED_FORMAT_SVM);
+        assert_ne!(
+            u32::from(nested_state.flags) & KVM_STATE_NESTED_GUEST_MODE,
+            0
+        );
+        assert_eq!(unsafe { nested_state.hdr.svm.vmcb_pa }, VMCB);
+
+        assert_eq!(restore_and_run(&vm, &state), Some(PORT_BACK_IN_GUEST));
+
+        state.nested_state = None;
+        assert_ne!(restore_and_run(&vm, &state), Some(PORT_BACK_IN_GUEST));
     }
 
     #[test]
