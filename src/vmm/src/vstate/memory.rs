@@ -438,7 +438,7 @@ impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region {
 
 impl<'a> GuestMemorySlot<'a> {
     /// Dumps the dirty pages in this slot onto the writer
-    // Inlined into a large caller, this per-page loop runs out of registers and slows down.
+    // Inlined into a large caller, this loop runs out of registers and slows down.
     #[inline(never)]
     pub(crate) fn dump_dirty<T: WriteVolatile + std::io::Seek>(
         &self,
@@ -446,67 +446,54 @@ impl<'a> GuestMemorySlot<'a> {
         dirty_bitmap: &[u64],
         page_size: usize,
     ) -> Result<(), MemoryError> {
-        let mut write_size = 0;
-        let mut skip_size = 0;
-        let mut dirty_batch_start = 0;
+        let pages = self.slice.len() / page_size;
+        assert_eq!(dirty_bitmap.len(), pages.div_ceil(64));
 
-        assert_eq!(
-            dirty_bitmap.len(),
-            (self.slice.len() / page_size).div_ceil(64)
-        );
-
-        for (i, v) in dirty_bitmap.iter().enumerate() {
-            for j in 0..64 {
-                let is_page_dirty = ((v >> j) & 1u64) != 0u64;
-                let page_offset = ((i * 64) + j) * page_size;
-
-                // We process 64 pages at a time, however the number of pages
-                // in the slot might not be a multiple of 64. We need to break
-                // once we go past the last page that is actually part of the
-                // region.
-                if page_offset >= self.slice.len() {
-                    break;
-                }
-
-                if is_page_dirty {
-                    // We are at the start of a new batch of dirty pages.
-                    if skip_size > 0 {
-                        // Seek forward over the unmodified pages.
-                        let offset = skip_size
-                            .try_into()
-                            .map_err(|_| MemoryError::SlotSizeTooLarge)?;
-                        writer
-                            .seek(SeekFrom::Current(offset))
-                            .map_err(MemoryError::SeekError)?;
-                        dirty_batch_start = page_offset;
-                        skip_size = 0;
-                    }
-                    write_size += page_size;
-                } else {
-                    // We are at the end of a batch of dirty pages.
-                    if write_size > 0 {
-                        // Dump the dirty pages.
-                        let slice = &self.slice.subslice(dirty_batch_start, write_size)?;
-                        writer.write_all_volatile(slice)?;
-                        write_size = 0;
-                    }
-                    skip_size += page_size;
-                }
+        // The first page at or after `page` whose bit is `dirty`, or `pages` if there is none. A
+        // clean page is a set bit in the inverted word.
+        let next = |page: usize, dirty: bool| {
+            if page >= pages {
+                return pages;
             }
-        }
-
-        if write_size > 0 {
-            writer.write_all_volatile(&self.slice.subslice(dirty_batch_start, write_size)?)?;
-        }
-
-        // Advance the cursor even if the trailing pages are clean, so that the
-        // next slot starts writing at the correct offset.
-        if skip_size > 0 {
+            let invert = if dirty { 0 } else { u64::MAX };
+            let mut word = page / 64;
+            let mut bits = (dirty_bitmap[word] ^ invert) & (u64::MAX << (page % 64));
+            while bits == 0 {
+                word += 1;
+                if word * 64 >= pages {
+                    return pages;
+                }
+                bits = dirty_bitmap[word] ^ invert;
+            }
+            (word * 64 + bits.trailing_zeros() as usize).min(pages)
+        };
+        let seek = |writer: &mut T, count: usize| -> Result<(), MemoryError> {
+            let offset =
+                i64::try_from(count * page_size).map_err(|_| MemoryError::SlotSizeTooLarge)?;
             writer
-                .seek(SeekFrom::Current(skip_size.try_into().unwrap()))
+                .seek(SeekFrom::Current(offset))
                 .map_err(MemoryError::SeekError)?;
-        }
+            Ok(())
+        };
 
+        // Write each run of dirty pages in one call and seek over the clean pages, including the
+        // trailing ones, so that the next slot starts writing at the correct offset.
+        let mut position = 0;
+        loop {
+            let start = next(position, true);
+            if start > position {
+                seek(writer, start - position)?;
+            }
+            if start == pages {
+                break;
+            }
+            let end = next(start, false);
+            let run = self
+                .slice
+                .subslice(start * page_size, (end - start) * page_size)?;
+            writer.write_all_volatile(&run)?;
+            position = end;
+        }
         Ok(())
     }
 
