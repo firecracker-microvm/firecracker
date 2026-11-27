@@ -4,6 +4,30 @@
         "filter_action": "allow",
         "filter": [
             {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4702,
+                        "comment": "BLKROGET"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 2148012658,
+                        "comment": "BLKGETSIZE64"
+                    }
+                ]
+            },
+            {
                 "syscall": "stat",
                 "comment": "Used when creating snapshots in vmm:persist::snapshot_memory_to_file through std::fs::File::metadata"
             },
@@ -1808,6 +1832,30 @@
         "default_action": "trap",
         "filter_action": "allow",
         "filter": [
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4702,
+                        "comment": "BLKROGET"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 2148012658,
+                        "comment": "BLKGETSIZE64"
+                    }
+                ]
+            },
             {
                 "syscall": "stat",
                 "comment": "Used to canonicalize VMDK descriptor paths during drive patch"

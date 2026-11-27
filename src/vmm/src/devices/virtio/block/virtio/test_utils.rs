@@ -140,6 +140,7 @@ pub fn default_config(path: String, file_engine_type: FileEngineType) -> VirtioB
         }),
         file_engine_type,
         image_format: DiskImageFormat::Raw,
+        backing_path_on_host: None,
         blk_size: None,
         topology: None,
     }
