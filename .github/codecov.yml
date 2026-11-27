@@ -23,3 +23,7 @@ comment:
   # codecov integration is not merged to main yet, to see it works
   # without having to go through multiple PR cycles.
   require_base: false
+# The fuzz harnesses are exercised by fuzzing, not by the unit tests this
+# coverage comes from.
+ignore:
+  - "fuzz/**"

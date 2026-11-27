@@ -1,0 +1,32 @@
+[package]
+name = "fuzzer"
+version = "0.1.0"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+edition = "2024"
+
+[features]
+default = ["afl_fuzz"]
+afl_fuzz = ["afl"]
+stdin_fuzz = []
+
+[dependencies]
+afl = { version = "0.18.2", optional = true }
+utils = { path = "../src/utils" }
+micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
+firecracker = { path = "../src/firecracker" }
+vmm = { path = "../src/vmm", features = ["fuzzing"] }
+libc = "0.2.186"
+serde = { version = "1.0.228", features = ["derive"] }
+vm-superio = "0.8.2"
+vm-memory = "0.18.0"
+backtrace = "0.3.66"
+vmm-sys-util = "0.15.0"
+bincode = "1.3.3"
+crc64 = "2.0.0"
+env_logger = "0.11.10"
+bitvec = "1.0.1"
+
+[profile.release]
+debug = true
+
+[workspace]

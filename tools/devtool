@@ -476,6 +476,10 @@ cmd_help() {
     echo "        This should be used as the last step in every commit, to ensure that the"
     echo "        Rust style tests pass."
     echo ""
+    echo "    fuzz <command> [<command args>]"
+    echo "        Build and run the fuzz targets under fuzz/ in the development container."
+    echo "        Run \`$0 fuzz help\` for the available commands."
+    echo ""
     echo "    install [-p|--path] [--debug|--release]"
     echo "      Install firecracker, jailer and seccomp binaries to /usr/local/bin or a given path."
     echo "      Only the musl linked binaries are supported."
@@ -1336,6 +1340,31 @@ cmd_fmt() {
     cmd_sh "cd tests; black --config pyproject.toml . ../tools ../.buildkite"
     cmd_sh "cd tests; isort . ../tools ../.buildkite"
     cmd_sh "mdformat $(git ls-files '*.md' | tr '\n' ' ')"
+}
+
+# `$0 fuzz` - run fuzz/tools/fuzz in a privileged dev container
+# Please see `$0 fuzz help` for more information.
+#
+cmd_fuzz() {
+    case "$1" in
+        seeds|run) cmd_ensure_current_artifacts ;;
+    esac
+
+    ensure_build_dir
+    # run_devctr drops every `--`, so pass the arguments as one command string.
+    run_devctr \
+        --privileged \
+        --ulimit nofile=4096:4096 \
+        --security-opt seccomp=unconfined \
+        --env BUILDKITE \
+        --tmpfs /tmp:exec,size=32G \
+        --workdir "$CTR_FC_ROOT_DIR/fuzz" \
+        -- \
+        bash --norc -c "./tools/fuzz $(printf '%q ' "$@")"
+    ret=$?
+
+    cmd_fix_perms fuzz
+    return $ret
 }
 
 cmd_mkdocs() {

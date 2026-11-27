@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+
+# Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+###################
+# Logging helpers #
+###################
+
+# Send a decorated message to stdout, followed by a new line
+#
+say() {
+    [ -t 1 ] && [ -n "$TERM" ] \
+        && echo "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $*" \
+        || echo "[$MY_NAME] $*"
+}
+
+# Send a decorated message to stdout, without a trailing new line
+#
+say_noln() {
+    [ -t 1 ] && [ -n "$TERM" ] \
+        && echo -n "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $*" \
+        || echo "[$MY_NAME] $*"
+}
+
+# Send a warning-highlighted text to stdout
+#
+say_warn() {
+    [ -t 1 ] && [ -n "$TERM" ] \
+        && echo "$(tput setaf 3)[$MY_NAME] $*$(tput sgr0)" \
+        || echo "[$MY_NAME] $*"
+}
+
+# Send a text message to stderr
+#
+say_err() {
+    [ -t 2 ] && [ -n "$TERM" ] \
+        && echo "$(tput setaf 1)[$MY_NAME] $*$(tput sgr0)" 1>&2 \
+        || echo "[$MY_NAME] $*" 1>&2
+}
+
+# Exit with an error message and (optional) code
+# Usage: die [-c <error code>] <error message>
+#
+die() {
+    code=1
+    [[ "$1" = "-c" ]] && {
+        code="$2"
+        shift 2
+    }
+    say_err "$@"
+    exit "$code"
+}
+
+# Exit with an error message if the last exit code is not 0
+#
+ok_or_die() {
+    code=$?
+    [[ $code -eq 0 ]] || die -c $code "$@"
+}
+
+# Print an error message if the last exit code is not 0, but do not exit
+#
+# Use this for non-fatal errors
+ok_or_say_err() {
+  [[ $? -eq 0 ]] || say_err "$@"
+}
+
+#########################
+# Miscellaneous helpers #
+#########################
+
+get_target() {
+    if [[ $(uname -m) =~ "aarch64" ]]; then
+        echo "--target=aarch64-unknown-linux-gnu"
+        exit 0
+    fi
+
+    echo "--target=x86_64-unknown-linux-gnu"
+}
+
+# Builds an instrumented version of the specified fuzz harness
+#
+# Usage: instrument_binary <target>
+# prints: The path to instrumented binary
+instrument_binary() {
+  target=$1
+
+  # Subshell so that pipefail does not leak into the caller. Without it,
+  # a cargo failure would be masked by jq exiting 0.
+  (
+    set -o pipefail
+
+    # We have to use the gnu target for coverage collection,
+    # as on aarch64-unknown-linux-musl the instrument-coverage
+    # codegen option is not supported.
+    RUSTFLAGS='-Cinstrument-coverage' \
+        cargo build --bin "${target}_fuzz_target" \
+                    --features stdin_fuzz \
+                    --no-default-features \
+                    --message-format=json \
+                    --quiet "$(get_target)" \
+        | jq -r 'select(.executable != null) |  .executable'
+  )
+}
+
+# Verifies that the given argument is a valid fuzz target
+check_fuzz_target_arg() {
+  [[ -z $1 ]] && \
+     die "No fuzz target provided. Valid options are: $VALID_FUZZ_TARGETS_MSG."
+
+  [[ " ${VALID_FUZZ_TARGETS[@]} " =~ " $1 " ]] || \
+     die "Invalid fuzz target: $1. Valid options are: $VALID_FUZZ_TARGETS_MSG."
+}

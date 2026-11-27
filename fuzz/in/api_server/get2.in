@@ -1,0 +1,5 @@
+GET omachine-config HTTP/1.1
+Content-Length: 20
+Content-Type: application/json
+
+whatever second body

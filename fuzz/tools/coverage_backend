@@ -1,0 +1,83 @@
+#!/bin/bash
+
+# Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+MY_NAME="Coverage Backend"
+
+# Full path to the tools dir on the host.
+TOOLS_DIR="$(realpath "$(dirname "$0")")"
+source "${TOOLS_DIR}/constants"
+source "${TOOLS_DIR}/functions"
+
+# prints the help message
+cmd_help() {
+  cat << EOF
+Firecracker Fuzzer $MY_NAME
+Usage: $(basename "$0") [<args>] <target>
+    Reruns specified corpus items through an instrumented version of the given fuzz target, producing a llvm .profraw
+    named 'coverage.profraw' inside the afl output directory.
+Arguments
+    target
+        The fuzz target from which coverage data should be collected.
+        Valid options are: $VALID_FUZZ_TARGETS_MSG
+Options
+    --afl-dir <path> [optional]
+        Path to the AFL++ output directory of the fuzz run for which coverage should be collected.
+        Defaults to 'out_<target>'.
+Global arguments
+    -h, --help
+        Display this help message.
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    "-h"|"--help") { cmd_help; exit 0;} ;;
+    "--afl-dir") {
+       shift
+       afl_dir="$1"
+    } ;;
+    -*)
+        die "Unknown argument: $1. Please use --help for help."
+        ;;
+    *)
+      fuzz_target=$1
+    ;;
+  esac
+  shift
+done
+
+check_fuzz_target_arg "$fuzz_target"
+
+if [ -z "$afl_dir" ]; then
+  afl_dir="out_${fuzz_target}"
+fi
+
+say "Instrumenting ${fuzz_target} target binary..."
+binary=$(instrument_binary "$fuzz_target")
+
+# if compilation failed, cargo will never have printed a message with a
+# `executable` key, so the variable will be empty.
+if [ -z "$binary" ]; then
+  die "Failed to instrument binary"
+fi
+
+say "Collecting coverage data..."
+
+coverage_out="${afl_dir}/raw_coverage"
+
+# Remove everything from previous run
+if [ -d "$coverage_out" ]; then
+  rm -r "$coverage_out"
+fi
+
+profraw_dest="$coverage_out/coverage-%p.profraw"
+
+say "Collecting coverage from $(find "$afl_dir"/fuzzer*/queue/ -type f | wc -l) corpus items"
+
+for corpus in "$afl_dir"/fuzzer*/queue/*; do
+  LLVM_PROFILE_FILE="$profraw_dest" "$binary" < "$corpus"
+done
+
+say "Placed llvm profiling data at $coverage_out. Size of coverage data: $(du -ch $coverage_out | tail -1 | cut -f 1)"

@@ -1,0 +1,8 @@
+HTTP/1.1 400 
+Server: Firecracker API
+Connection: keep-alive
+Content-Type: application/json
+Content-Length: 80
+
+{ "error": "Invalid header.
+All previous unanswered requests will be dropped." }

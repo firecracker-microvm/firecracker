@@ -1,0 +1,446 @@
+#!/usr/bin/env bash
+
+# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Fuzzer tool
+#
+# Use this script to start a fuzzing session for Firecracker. It runs inside
+# the development container, so start it from the repository root with
+# `tools/devtool fuzz <command>`, e.g. `tools/devtool fuzz run block`.
+
+# Naming things is hard
+MY_NAME="Firecracker Fuzzer $(basename "$0")"
+
+# Full path to the tools dir.
+TOOLS_DIR="$(realpath "$(dirname "$0")")"
+source "${TOOLS_DIR}/constants"
+source "${TOOLS_DIR}/functions"
+
+# Helper function to start a number of AFL instances.
+# Args:
+#   $1  the number of AFL instances to be started.
+#   $2  path to the fuzzed binary.
+#   $3  cargo afl fuzz args.
+run_afl_fuzzers() {
+    local instances_to_start="$1"
+    local fuzz_target="$2"
+    local fuzz_output="$3"
+    local afl_args=("${@:4}")
+
+    # disable the ASCII UI that afl++ displays, as it breaks in the CI
+    # and spams the logs
+    export AFL_NO_UI=1
+
+    # Do not suppress stdout/stderr out from the fuzz target.
+    # This can result in a lot of console spam, but is the
+    # easiest/only way to get any sort of information about
+    # spurious failures
+    export AFL_DEBUG_CHILD=1
+
+    # disable the creation of README.txt files in the crashes
+    # directories. These would otherwise have to be filtered
+    # out when automatically collecting backtraces from
+    # the crash files
+    export AFL_NO_CRASH_README=1
+
+    if [[ "$fuzz_target" == *"vcpu_fuzz_target" ]] || [[ "$fuzz_target" = *"snapshot_fuzz_target" ]] || [[ "$fuzz_target" = *"bus_access_fuzz_target" ]]; then
+        # The vcpu and snapshot fuuz targets have a memory leak, so if we
+        # run the fuzzer loop for too many iterations, we get OOM related false-positives
+        # Thus, just reduce the loop count to 1000 (the default prior to afl 0.15.0 that
+        # we know to not cause issues) so that the fuzz process is recycled every so often,
+        # to clear up the memory leaks.
+        #
+        # This potential memory leak is not a problem for production usecases of firecracker,
+        # as a "load snapshot" operation can only happen once during the lifecycle of
+        # the firecracker process (so they cannot possibly accumulate like here).
+        export AFL_FUZZER_LOOPCOUNT=1000
+    fi
+
+    # ensure that we get as much information in stderr about panics
+    # in case they do not reproduce during post-mortem.
+    export RUST_BACKTRACE=full
+
+    for i in $(seq -f "%02g" 2 "$instances_to_start"); do
+        # create these directories ahead of time, for the stderr redirection to work
+        mkdir -p "$fuzz_output/fuzzer$i"
+        screen -d -m -S "fuzzer$i" bash -c "cargo afl fuzz \
+            -S fuzzer$i \
+            ${afl_args[*]} \
+            -- \
+            \"$fuzz_target\" \
+             2> \"$fuzz_output/fuzzer${i}/stderr\""
+    done
+
+    mkdir -p "$fuzz_output/fuzzer01";
+    cargo afl fuzz \
+        -M fuzzer01 \
+        "${afl_args[@]}" \
+        -- \
+        "$fuzz_target" \
+         2> "$fuzz_output/fuzzer01/stderr"
+}
+
+# `$0 help`
+# Show the detailed usage information.
+#
+cmd_help() {
+  cat << EOF
+Firecracker Fuzzer $(basename "$0")
+Usage: tools/devtool fuzz <command> [<command args>]
+
+Available commands:
+    help
+        Display this help message.
+
+    build <fuzz_target> [--debug]
+        Build the specified fuzz target in release mode with AFL instrumentation.
+        --debug           Build in debug mode instead, for crash analysis.
+
+    check
+        Type-check all fuzz targets without building AFL binaries or fuzzing.
+        Firecracker's PR CI runs this to catch changes that break the fuzzer.
+
+    seeds
+        Generate the fuzzing seeds under fuzz/in/.
+
+    run <fuzz_target> [-t <cores>] [-- [<cargo afl fuzz args>]]
+        Fuzz the specified target using AFL.
+        cargo afl is used to fuzz the target. All arguments after -- will be passed
+        through to cargo afl fuzz.
+        The fuzzer will run indefinitely by default. Pass -V <duration_in_sec> to AFL++
+        to change the fuzzer running time.
+        fuzz_target       Fuzz the specified target with AFL.
+                          Valid options are: $VALID_FUZZ_TARGETS_MSG.
+        -t                How many cores should be used to fuzz in parallel.
+                          Defaults to 4
+
+    reproduce <fuzz_target> [input_file]
+        Collect backtraces for the crashes AFL found. See \`tools/reproduce --help\`.
+
+    fmt [--check]
+        Format the fuzz targets with cargo fmt.
+EOF
+}
+
+get_environment() {
+    rustc --version > ./out_${1}/env; cargo afl --version >> ./out_${1}/env
+    ok_or_die "Failed to get the environment."
+}
+
+prepare_env() {
+    # Prepare environment to run fuzzers.
+    echo core > /proc/sys/kernel/core_pattern
+    echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+
+    if [[ "$BUILDKITE" = "true" ]]; then
+      # 12 GiB of 2M hugetlbfs pages. We run fuzzers on ag=n instances, meaning at most 12 fuzzers
+      # run in parallel. Give each of them 1G of hugepages, as each harness only uses a few MiB, this will be
+      # enough at the limited parallelism we run the fuzzers at (4 parallel threads per fuzzer).
+      # Only set this up in buildkite to prevent draining a dev-laptop's memory with hugepage allocation.
+      echo 6144 |tee /proc/sys/vm/nr_hugepages
+      ok_or_die "Failed to allocate hugepages."
+    fi
+}
+
+cmd_seeds() {
+  cargo test
+  ok_or_die "Failed to generate fuzzing seeds."
+}
+
+cmd_build() {
+  debug=false
+  target=""
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --debug) debug=true ;;
+      *) target="$1" ;;
+    esac
+    shift
+  done
+
+  check_fuzz_target_arg "$target"
+
+  if [ $debug = true ]; then
+    say "Building $target in debug mode"
+    cargo build --bin ${target}_fuzz_target --features stdin_fuzz --no-default-features $(get_target)
+  else
+    say "Building $target in release mode with AFL instrumentation"
+    cargo afl build --release --bin ${target}_fuzz_target $(get_target)
+  fi
+  ok_or_die "Failed to build target ${target}"
+}
+
+cmd_check() {
+  # Type-check all targets without building AFL binaries or fuzzing.
+  say "Checking all fuzz targets"
+  cargo check --all-targets $(get_target)
+  ok_or_die "Fuzz targets failed to compile"
+}
+
+# `$0 run` - fuzz a target using AFL
+# Please see `$0 help` for more information.
+#
+cmd_run() {
+    instances_to_start=4
+    # Default binary memory limit.
+    mem_limit=512
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help")  { cmd_help; exit 1; } ;;
+            "-t")           { instances_to_start=$2; shift; } ;;
+            "--")           { shift; break;     } ;;
+            --*|-*)
+                die "Unknown argument: $1. Please use --help for help."
+                ;;
+            *)
+                fuzz_target="$1"
+                ;;
+        esac
+        shift
+    done
+
+    check_fuzz_target_arg "$fuzz_target"
+
+    afl_args=("$@ -t 2000")
+
+    # Add the default memory limit if we did not get them in the fuzz command.
+    if [[ "$fuzz_target" = "vcpu" || "$fuzz_target" = "bus_access" ]]; then
+      add_default_mem_limit=false
+    else
+      add_default_mem_limit=true
+    fi
+    for flag in "${afl_args[@]}"; do
+        if [ "$flag" == "-m" ]; then
+          add_default_mem_limit=false;
+        fi
+    done
+
+    cmd_seeds
+
+    say "Starting release build ..."
+    # 'set -o pipefail' so that a cargo failure is not masked by jq exiting 0.
+    fuzz_target_bin_abs=$(set -o pipefail; cargo afl build --release --bin ${fuzz_target}_fuzz_target \
+                                --message-format=json --quiet $(get_target) \
+                      | jq -r 'select(.executable != null) |  .executable')
+    # If `cargo build` was not successful, we exit.
+    ok_or_die "Could not build the project"
+
+    [[ $add_default_mem_limit = true ]] && afl_args+=(-m "$mem_limit")
+    # Add the default input/output dirs.
+    afl_args+=(-i "$FUZZ_INPUT_DIR/$fuzz_target")
+    afl_args+=(-o "${FUZZ_OUTPUT_DIR}_${fuzz_target}")
+
+    [[ -z "$fuzz_target_bin_abs" ]] && \
+        die "Fuzz target binary not found!"
+
+    prepare_env
+    # Let Ctrl+C stop the fuzzers but not this script, so that the results still get processed.
+    trap : INT
+    # Subshell, so that the AFL++ settings it exports do not apply to the steps below.
+    (run_afl_fuzzers $instances_to_start $fuzz_target_bin_abs "out_${fuzz_target}" ${afl_args[@]})
+    afl_exit_code=$?
+    trap - INT
+    # The secondary instances run in detached screen sessions, which Ctrl+C does not reach.
+    for i in $(seq -f "%02g" 2 "$instances_to_start"); do
+        screen -S "fuzzer$i" -X quit > /dev/null 2>&1
+    done
+
+    # afl++ exits with status code 0 even if it finds crashes in the fuzz target.
+    # It will exit with code 130 if it got interrupted with CTRL+C. All other exit codes
+    # indicate that AFL++ itself crashed, so die
+    if [ "$afl_exit_code" -ne 0 ] && [ "$afl_exit_code" -ne 130 ]; then
+      die "AFL++ crashed with exit code $afl_exit_code"
+    fi
+
+    say "Fuzzing session ended successfully."
+    say "Fuzzing output placed under ${FUZZ_OUTPUT_DIR}_${fuzz_target}."
+
+    get_environment "$fuzz_target"
+
+    python3 ./tools/collect_statistics.py $fuzz_target
+    ok_or_say_err "Could not collect the statistics."
+
+    say "Output dir placed under ${FUZZ_OUTPUT_DIR}_${fuzz_target}"
+
+    ./tools/coverage_backend "$fuzz_target"
+    ok_or_say_err "Could not collect coverage data."
+
+    ./tools/coverage_frontend --target "$fuzz_target" \
+                     --profraw "${FUZZ_OUTPUT_DIR}_${fuzz_target}/raw_coverage/" \
+                     --report llvm_summary stdout \
+                     --report llvm_html "${FUZZ_OUTPUT_DIR}_$fuzz_target/coverage.html"\
+                     --report grcov_html "${FUZZ_OUTPUT_DIR}_$fuzz_target/coverage.tar.gz"\
+                     $(relevant_files_for_target "$fuzz_target")
+    ok_or_say_err "Could not generate coverage reports."
+
+    # Cleanup the files we just created
+    rm -rf ${FUZZ_OUTPUT_DIR}_${fuzz_target}/raw_coverage/
+
+    # Re-run all crashes the fuzzer found to collect backtraces and deal with expected crashes
+    ./tools/reproduce $fuzz_target
+
+    crashes_found=0
+    for fuzzer_dir in "${FUZZ_OUTPUT_DIR}_${fuzz_target}"/fuzzer*/; do
+      for crash in "${fuzzer_dir}"crashes/*; do
+        # filter out the backtrace files and 'expected' directories that we create
+        [ "${crash: -10}" == .backtrace ] && continue
+        [ -d "$crash" ] && continue
+
+        crashes_found=$((crashes_found + 1))
+      done;
+    done;
+
+    if [ $crashes_found -ne 0 ]; then
+      say_err "Fuzzing target ${fuzz_target} yielded ${crashes_found} crashes." \
+              "Backtraces have been stored in the out_${fuzz_target}/fuzzer*/crashes" \
+              "directories on a best-effort basis. Check the AFL++ logs to investigate" \
+              "unreproducible crashes"
+    else
+      say "Fuzzing target $fuzz_target concluded without finding any unexpected crashes. Whoop!"
+    fi
+
+    # Compress the crashes here to include the .backtrace files
+    (cd out_$fuzz_target && tar czf crashes.tar.gz ./fuzzer*/crashes)
+    ok_or_die "Could not compress crashes."
+
+    (cd out_$fuzz_target && tar czf hangs.tar.gz ./fuzzer*/hangs)
+    ok_or_die "Could not compress hangs."
+
+    [ $crashes_found -eq 0 ]
+}
+
+# For each fuzz target, gets the list of sources that should be included in coverage reports
+relevant_files_for_target() {
+  virtio_common="--source ../src/vmm/src/devices/virtio/device.rs \
+                 --source ../src/vmm/src/devices/virtio/queue.rs"
+  case "$1" in
+    "block") {
+      # Exclude io_uring modules, since block fuzzer only targets the sync engine
+      echo "--source ../src/vmm/src/devices/virtio/block/virtio/device.rs" \
+           "--source ../src/vmm/src/devices/virtio/block/virtio/io/mod.rs" \
+           "--source ../src/vmm/src/devices/virtio/block/virtio/io/sync_io.rs" \
+           "--source ../src/vmm/src/devices/virtio/block/virtio/mod.rs" \
+           "--source ../src/vmm/src/devices/virtio/block/virtio/request.rs" \
+           "$virtio_common"
+    };;
+    "block_mq") {
+      # The "block" scope plus what only block_mq reaches
+      echo "--source ../src/vmm/src/devices/virtio/block/virtio/device.rs" \
+           "--source ../src/vmm/src/devices/virtio/block/virtio/worker.rs" \
+           "--source ../src/vmm/src/devices/virtio/block/virtio/persist.rs" \
+           "--source ../src/vmm/src/devices/virtio/persist.rs" \
+           "--source ../src/vmm/src/devices/virtio/block/virtio/io/mod.rs" \
+           "--source ../src/vmm/src/devices/virtio/block/virtio/io/sync_io.rs" \
+           "--source ../src/vmm/src/devices/virtio/block/virtio/io/async_io.rs" \
+           "--source ../src/vmm/src/io_uring" \
+           "--source ../src/vmm/src/devices/virtio/block/virtio/mod.rs" \
+           "--source ../src/vmm/src/devices/virtio/block/virtio/request.rs" \
+           "--source ../src/vmm/src/vstate/memory_slice.rs" \
+           "$virtio_common"
+    };;
+    "net") {
+      echo "--source ../src/vmm/src/devices/virtio/net/mod.rs" \
+           "--source ../src/vmm/src/devices/virtio/net/device.rs" \
+           "--source ../src/vmm/src/devices/virtio/net/tap.rs" \
+           "--source ../src/vmm/src/devices/virtio/iovec.rs" \
+           "--source ../src/vmm/src/dumbo" \
+           "--source ../src/vmm/src/mmds" \
+           "$virtio_common"
+    };;
+    "legacy") {
+      echo "--source ../src/vmm/src/vstate/bus.rs" \
+           "--source ../src/vmm/src/devices/legacy"
+    };;
+    "rng") {
+      echo "--source ../src/vmm/src/devices/virtio/rng/mod.rs" \
+           "--source ../src/vmm/src/devices/virtio/rng/device.rs" \
+           "--source ../src/vmm/src/devices/virtio/iovec.rs" \
+           "$virtio_common"
+    };;
+    "mem_hotplug") {
+      echo "--source ../src/vmm/src/devices/virtio/mem/mod.rs" \
+           "--source ../src/vmm/src/devices/virtio/mem/device.rs" \
+           "--source ../src/vmm/src/devices/virtio/mem/request.rs" \
+           "$virtio_common"
+    };;
+    "vsock") {
+      echo "--source ../src/vmm/src/devices/virtio/vsock/mod.rs" \
+           "--source ../src/vmm/src/devices/virtio/vsock/csm" \
+           "--source ../src/vmm/src/devices/virtio/vsock/unix" \
+           "--source ../src/vmm/src/devices/virtio/vsock/device.rs" \
+           "--source ../src/vmm/src/devices/virtio/vsock/packet.rs" \
+           "--source ../src/vmm/src/devices/virtio/iovec.rs" \
+           "$virtio_common"
+    };;
+    "pmem") {
+      echo "--source ../src/vmm/src/devices/virtio/pmem/mod.rs" \
+           "--source ../src/vmm/src/devices/virtio/pmem/device.rs" \
+           "$virtio_common"
+    };;
+    "balloon") {
+      echo "--source ../src/vmm/src/devices/virtio/balloon/device.rs" \
+           "--source ../src/vmm/src/devices/virtio/balloon/mod.rs" \
+           "--source ../src/vmm/src/devices/virtio/balloon/util.rs" \
+           "$virtio_common"
+    };;
+    "vcpu") {
+      echo "--source ../src/vmm/src/vstate" \
+           "--source ../src/vmm/src/vmm_config/machine_config.rs"
+    } ;;
+    "snapshot") {
+      for persist_rs in $(find ../src -name persist.rs); do
+        echo -n "--source $persist_rs "
+      done
+      echo " --source ../src/vmm/src/snapshot" \
+           "--source ../src/vmm/src/vstate" \
+           "--source ../src/vmm/src/arch/" \
+           "--source ../src/vmm/src/builder.rs"
+    } ;;
+    "bus_access") {
+        echo "--source ../src/vmm/src/pci" \
+             "--source ../src/vmm/src/devices/virtio/transport/mmio.rs" \
+             "--source ../src/vmm/src/devices/virtio/transport/pci/common_config.rs" \
+             "--source ../src/vmm/src/devices/virtio/transport/pci/device.rs" \
+             "--source ../src/vmm/src/vstate/vm.rs"
+    } ;;
+    *) {
+      echo "--source ../src"
+    }
+  esac
+}
+
+cmd_reproduce() {
+  ./tools/reproduce "$@"
+}
+
+cmd_fmt() {
+  cargo fmt -- "$@"
+}
+
+main() {
+    if [ $# = 0 ]; then
+	    die "No command provided. Please use \`tools/devtool fuzz help\` for help."
+    fi
+
+    # $1 is now a command name. Check if it is a valid command and, if so,
+    # run it.
+    #
+    declare -f "cmd_$1" > /dev/null
+    ok_or_die "Unknown command: $1. Please use \`tools/devtool fuzz help\` for help."
+
+    cmd=$1
+    shift
+
+    # Build against the same dependency versions as Firecracker.
+    cp ../Cargo.lock .
+
+    # $@ is now a list of command-specific args
+    #
+    cmd_"$cmd" "$@"
+    ok_or_die "Command $cmd returned non-zero exit code"
+}
+
+main "$@"

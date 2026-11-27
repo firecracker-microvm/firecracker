@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+# Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Full path to the tools dir.
+TOOLS_DIR=$(cd "$(dirname "$0")" && pwd)
+
+# Full path to the fuzz sources dir.
+ROOT_DIR=$(cd "${TOOLS_DIR}/.." && pwd)
+
+# Full path to the fuzz input dir.
+FUZZ_INPUT_DIR="${ROOT_DIR}/in"
+
+# Full path to the fuzz output dir.
+FUZZ_OUTPUT_DIR="${ROOT_DIR}/out"
+
+# Array of valid fuzz targets
+VALID_FUZZ_TARGETS=()
+VALID_FUZZ_TARGETS_MSG=""
+
+for i in $(find ./src/bin/* -name "*_fuzz_target.rs"); do
+  target=`echo $i | sed -E "s/\.\/src\/bin\/(.+)_fuzz_target\.rs/\\1/g"`
+  VALID_FUZZ_TARGETS+=("$target")
+
+  if [ -z "$VALID_FUZZ_TARGETS_MSG" ]; then
+    VALID_FUZZ_TARGETS_MSG="and \"$target\"";
+  else
+    VALID_FUZZ_TARGETS_MSG="\"$target\", $VALID_FUZZ_TARGETS_MSG"
+  fi
+done
+

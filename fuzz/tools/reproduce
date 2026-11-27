@@ -1,0 +1,201 @@
+#!/bin/bash
+
+# Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+MY_NAME="Fuzzer Crash Reproducer"
+
+# Full path to the tools dir on the host.
+TOOLS_DIR="$(realpath "$(dirname $0)")"
+source "${TOOLS_DIR}/constants"
+source "${TOOLS_DIR}/functions"
+
+# Full path to the sources dir on the host.
+ROOT_DIR=$(cd "${TOOLS_DIR}/.." && pwd)
+
+cmd_help() {
+  cat << EOF
+Firecracker Fuzzer $(basename "$0")
+Usage: $(basename "$0") [<args>] <target> [input_file]
+    Tool assisting in the reproduction of crashes found by afl. Compiles the specified target
+    in debug mode and captures the backtrace it generates if fed the given input. Stores the
+    backtrace in a .backtrace file in the directory of the input file.
+
+Arguments
+    target
+        The fuzz target from which a backtrace should be collected. Valid options are:
+        $VALID_FUZZ_TARGETS_MSG.
+
+    input_file [Optional]
+        The file containing the input that caused the fuzz target to crash. If omitted,
+        the script tries to reproduce all crashes in the out_TARGET/crashes directory,
+        replacing TARGET with the target specified.
+
+Global arguments
+    -h, --help
+        Display this help message.
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    "-h"|"--help") { cmd_help; exit 1; } ;;
+    -*) { die "Unknown argument: $1. Please use --help for help."; } ;;
+    *) {
+      if [ -z "$FUZZ_TARGET" ]; then
+	FUZZ_TARGET="$1"
+      elif [ -z "$INPUT_FILE" ]; then
+	INPUT_FILE="$1"
+      else
+        die "Unexpected argument: $1"
+      fi
+    } ;;
+  esac
+  shift
+done
+
+check_fuzz_target_arg "$FUZZ_TARGET"
+
+if [ -n "$INPUT_FILE" ]; then
+  [ -f "$INPUT_FILE" ] || die "Could not find ${INPUT_FILE}."
+  # reproduce_file runs the target from a temporary directory.
+  INPUT_FILE=$(realpath "$INPUT_FILE")
+fi
+
+# The directory where afl-fuzz stored the run results
+FUZZ_OUTPUT="${ROOT_DIR}/out_${FUZZ_TARGET}"
+
+# Build everything once so the first report doesn't contain all the
+# cargo build-time output
+say "Recompiling with AFL instrumentation to match the binary that found the crash!"
+build_cmd="cargo afl build --release --bin ${FUZZ_TARGET}_fuzz_target $(get_target)"
+binary=$($build_cmd --message-format=json --quiet 2>/dev/null | jq -r 'select(.executable != null) | .executable')
+if [ -z "$binary" ]; then
+  $build_cmd
+  die "Failed to build target ${FUZZ_TARGET}"
+fi
+
+reproduce_file() {
+  crash_file=$1
+  core_dir=$(mktemp -d)
+
+  # Feed the input that caused a crash back into the fuzz target, this time storing the backtrace
+  (
+    ulimit -v 524288; # Apply virtual memory limit of 512M (ulimit is specified in kb), which is the same limit AFL uses at runtime (https://github.com/AFLplusplus/AFLplusplus/blob/775861ea94d00672c9e868db329073afd699b994/src/afl-forkserver.c#L874)
+    ulimit -c unlimited; # Allow unlimited core dump file size so we get a full coredump on crash
+    RUST_BACKTRACE=full bash -c "cd \"$core_dir\" && timeout -v --kill-after=1 5 \"$binary\" < \"$crash_file\"" 2>"${crash_file}.backtrace" 1>&2
+  )
+  exit_code=$?
+
+  # If a core dump was produced, copy it alongside the crash file and extract backtrace with GDB
+  if [ -f "$core_dir/core" ]; then
+    cp "$core_dir/core" "${crash_file}.core"
+    gdb -batch -ex bt "$binary" "$core_dir/core" 2>/dev/null >> "${crash_file}.backtrace"
+  fi
+
+  rm -rf "$core_dir"
+
+  if [ $exit_code -eq 0 ]; then
+    # Do not leave around empty files
+    rm "${crash_file}.backtrace" 2>/dev/null
+  fi
+
+  return $exit_code
+}
+
+# Save the number of hugepages, and restore it however the script exits
+old_nr_hugepages=$(cat /proc/sys/vm/nr_hugepages)
+trap 'echo $old_nr_hugepages |tee /proc/sys/vm/nr_hugepages' EXIT
+echo 6144 |tee /proc/sys/vm/nr_hugepages
+
+exit_code=0
+if [ -z "$INPUT_FILE" ]; then
+  # no input file - try to reproduce all crashes in the "out" directory
+  for fuzzer_dir in ${FUZZ_OUTPUT}/fuzzer*/; do
+    num_crashes=$(($(ls -n "${fuzzer_dir}crashes" | grep -v "^d" | grep -vc "\.backtrace$") - 1)) # need - 1 because of ls' "Total" line
+    num_analyzed_crashes=$(ls -n "${fuzzer_dir}crashes" | grep -c "\.backtrace")
+
+    new_crashes=$((num_crashes - num_analyzed_crashes))
+
+    say "Analyzing $new_crashes crashes in ${fuzzer_dir}crashes..."
+    if [ $num_analyzed_crashes -ne 0 ]; then
+        say_warn "NOTE! Skipping $num_analyzed_crashes that have already been analyzed and for which .backtrace files exist."
+    fi
+
+    # Always create this directory (makes counting the number of crash files easier)
+    mkdir -p "${fuzzer_dir}crashes/expected";
+
+    unreproducible=()
+    unexpected=()
+
+    for crash in ${fuzzer_dir}crashes/*; do
+      # filter out the files that we generate outselves
+      [ "${crash: -10}" == .backtrace ] && continue
+
+      # ignore crashes that have already been analyzed
+      [ -f "${crash}.backtrace" ] && continue
+
+      # ignore the 'expected' directory (or rather, all directories)
+      [ -d "$crash" ] && continue
+
+      reproduce_file "$crash"
+      target_exit_code=$?
+      # possible exit codes are
+      #  - 0 if the seed did not crash
+      #  - 101 if the seed panicked
+      #  - 102 if the seed panicked, but the panic was allow listed
+      #  - 134 if a thread other than main panicked (the panic hook aborts)
+      #  - 124 or 137 if the seed caused a timeout in reproduction
+
+      if [ $target_exit_code -eq 102 ]; then
+        # Sort expected failures into a separate directory. We might still want to investigate them at some point,
+        # but they should not cause the pipeline to fail
+        echo -en "\e[1;32m✓"
+        target_path="$fuzzer_dir/crashes/expected/$(basename "$crash")"
+        mv "$crash" "$target_path" && mv "${crash}.backtrace" "${target_path}.backtrace"
+      elif [ "$target_exit_code" -eq 0 ]; then
+        echo -en "\e[1;31m✘"
+        unreproducible+=("$crash")
+      else
+        echo -en "\e[1;31m✘"
+        unexpected+=("$crash")
+      fi
+    done
+
+    if [ $new_crashes -gt 0 ]; then
+      echo -e "\e[0m" # new line at the end of checkmarks and crosses + reset color
+    fi
+
+    actionable_crashes=$((${#unreproducible[@]} + ${#unexpected[@]}))
+    if [ $actionable_crashes -gt 0 ]; then
+      say_err "Found $actionable_crashes crashes that need to be investigated"
+      for crash in "${unreproducible[@]}"; do
+        say_err "Corpus item $crash reported by AFL++ as crash is not reproducible." \
+                "Please check the logs at ${fuzzer_dir}stderr (or logs/logs.zip, if one was downloaded with the crash) for a fuzz-time backtrace!"
+      done
+      for crash in "${unexpected[@]}"; do
+        # Since we pass --quiet to cargo, the first line in the file will be the panic summary
+        say_err "Corpus item $crash resulted in $(head -n3 "${crash}.backtrace")"
+      done
+
+      say "All other crashes matched allowlisted panics and have been stored in ${fuzzer_dir}crashes/expected."
+      exit_code=1
+    elif [ $new_crashes -gt 0 ]; then
+      say "All crashes matched allowlisted panics and have been stored in ${fuzzer_dir}crashes/expected."
+    fi
+  done
+else
+  reproduce_file "$INPUT_FILE"
+  target_exit_code=$?
+  if [ $target_exit_code -eq 102 ]; then
+    say "Input caused panic, but panic was allowlisted"
+  elif [ "$target_exit_code" -eq 0 ]; then
+    say "Input did not cause panic"
+  else
+    say_err "Input caused panic"
+    cat "${INPUT_FILE}.backtrace"
+    exit_code=1
+  fi
+fi
+
+exit $exit_code
