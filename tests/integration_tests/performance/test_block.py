@@ -4,6 +4,7 @@
 
 import concurrent
 import os
+from pathlib import Path
 
 import pytest
 
@@ -243,6 +244,61 @@ def test_block_vmdk_performance(
 
     emit_fio_metrics(results_dir, metrics)
 
+    for thread_name, values in cpu_util.items():
+        for value in values:
+            metrics.put_metric(f"cpu_utilization_{thread_name}", value, "Percent")
+
+
+@pytest.mark.nonci
+@pytest.mark.parametrize("fio_mode", [fio.Mode.RANDREAD, fio.Mode.RANDWRITE])
+def test_block_qcow2_performance(uvm, num_queues, fio_mode, metrics, results_dir):
+    """Monitor QCOW2 reads and writes on one inline or threaded synchronous queue."""
+    vm = uvm
+    raw = Path(vm.fsfiles) / "scratch.raw"
+    image = raw.with_suffix(".qcow2")
+    chunk = bytes(range(1, 256)) * 4096
+    remaining = BLOCK_DEVICE_SIZE_MB * 1024 * 1024
+    with raw.open("wb") as output:
+        while remaining:
+            count = min(remaining, len(chunk))
+            output.write(chunk[:count])
+            remaining -= count
+    check_output(
+        ["qemu-img", "convert", "-f", "raw", "-O", "qcow2", str(raw), str(image)]
+    )
+    raw.unlink()
+
+    vm.spawn(log_level="Info", emit_metrics=True)
+    vm.basic_config(vcpu_count=1, mem_size_mib=GUEST_MEM_MIB)
+    vm.add_net_iface()
+    vm.add_drive(
+        "scratch",
+        image,
+        image_format="Qcow2",
+        io_engine="Sync",
+        num_queues=num_queues,
+        cache_type="Writeback",
+    )
+    vm.start()
+
+    metrics.set_dimensions(
+        {
+            "performance_test": "test_block_qcow2_performance",
+            "image_format": "Qcow2",
+            "io_engine": "Sync",
+            "num_queues": "inline" if num_queues is None else str(num_queues),
+            "fio_mode": fio_mode.value,
+            "fio_block_size": "4096",
+            "fio_engine": fio.Engine.PSYNC.value,
+            **vm.dimensions,
+        }
+    )
+    next_cpu = vm.pin_threads(0)
+    if num_queues is not None:
+        assert vm.pin_block_workers("scratch", next_cpu) == next_cpu + 1
+
+    cpu_util = run_fio(vm, fio_mode, 4096, results_dir, fio.Engine.PSYNC)
+    emit_fio_metrics(results_dir, metrics)
     for thread_name, values in cpu_util.items():
         for value in values:
             metrics.put_metric(f"cpu_utilization_{thread_name}", value, "Percent")
