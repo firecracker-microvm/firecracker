@@ -1062,12 +1062,12 @@ impl VirtioDevice for Net {
     }
 
     /// Prepare saving state
-    fn prepare_save(&mut self) {
+    fn prepare_save(&mut self) -> Result<(), crate::devices::virtio::persist::PersistError> {
         // We shouldn't be messing with the queue if the device is not activated.
         // Anyways, if it isn't there's nothing to prepare; we haven't parsed any
         // descriptors yet from it and we can't have a deferred frame.
         if !self.is_activated() {
-            return;
+            return Ok(());
         }
 
         // Give potential deferred RX frame to guest
@@ -1078,6 +1078,7 @@ impl VirtioDevice for Net {
         self.rx_buffer.iovec.clear();
         self.rx_buffer.used_bytes = 0;
         self.rx_buffer.used_descriptors = 0;
+        Ok(())
     }
 }
 

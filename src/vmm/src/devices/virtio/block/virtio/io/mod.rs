@@ -7,6 +7,7 @@ pub mod sync_io;
 
 use std::fmt::Debug;
 use std::fs::File;
+use vmm_sys_util::eventfd::EventFd;
 
 pub use self::async_io::{AsyncFileEngine, AsyncIoError};
 pub use self::format::{DiskImageFormat, VmdkFileEngine, VmdkIoError};
@@ -221,6 +222,48 @@ impl FileEngine {
                 req,
                 error: BlockIoError::Vmdk(VmdkIoError::WriteNotSupported),
             }),
+        }
+    }
+
+    /// Return the completion event for an asynchronous engine.
+    pub fn completion_evt(&self) -> Option<&EventFd> {
+        match self {
+            FileEngine::Async(engine) => Some(engine.completion_evt()),
+            FileEngine::Sync(_) | FileEngine::Vmdk(_) => None,
+        }
+    }
+
+    /// Submit queued host operations.
+    pub fn kick_submission_queue(&mut self) -> Result<(), BlockIoError> {
+        match self {
+            FileEngine::Async(engine) => {
+                engine.kick_submission_queue().map_err(BlockIoError::Async)
+            }
+            FileEngine::Sync(_) | FileEngine::Vmdk(_) => Ok(()),
+        }
+    }
+
+    /// Consume a completed guest request, including any guest-memory read copies.
+    #[allow(clippy::type_complexity)]
+    pub fn pop(
+        &mut self,
+        mem: &GuestMemoryMmap,
+    ) -> Result<Option<(PendingRequest, Result<u32, BlockIoError>)>, BlockIoError> {
+        match self {
+            FileEngine::Async(engine) => {
+                engine
+                    .pop(mem)
+                    .map_err(BlockIoError::Async)
+                    .map(|completion| {
+                        completion.map(|cqe| {
+                            let result = cqe
+                                .result()
+                                .map_err(|err| BlockIoError::Async(AsyncIoError::IO(err)));
+                            (cqe.user_data(), result)
+                        })
+                    })
+            }
+            FileEngine::Sync(_) | FileEngine::Vmdk(_) => Ok(None),
         }
     }
 

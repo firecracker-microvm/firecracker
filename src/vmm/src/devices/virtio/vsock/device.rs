@@ -489,7 +489,7 @@ where
         }
     }
 
-    fn prepare_save(&mut self) {
+    fn prepare_save(&mut self) -> Result<(), crate::devices::virtio::persist::PersistError> {
         // Send Transport event to reset connections if device
         // is activated.
         if self.is_activated() {
@@ -497,6 +497,7 @@ where
                 error!("Failed to send reset transport event: {:?}", err);
             });
         }
+        Ok(())
     }
 }
 
@@ -729,7 +730,7 @@ mod tests {
         ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
         publish_evq_descriptor(&mut ctx);
 
-        ctx.device.prepare_save();
+        ctx.device.prepare_save().unwrap();
 
         assert!(ctx.device.pending_event_ack);
         assert_eq!(ctx.guest_evvq.used.idx.get(), 1);
@@ -741,7 +742,7 @@ mod tests {
         assert!(!ctx.device.is_activated());
 
         // Must not panic, must not arm the gate.
-        ctx.device.prepare_save();
+        ctx.device.prepare_save().unwrap();
 
         assert!(!ctx.device.pending_event_ack);
     }

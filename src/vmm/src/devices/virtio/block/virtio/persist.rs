@@ -326,7 +326,7 @@ mod tests {
             block.set_acked_features(block.avail_features());
             block.activate(mem.clone(), default_interrupt()).unwrap();
             // Pause the worker for snapshotting
-            block.prepare_save();
+            block.prepare_save().unwrap();
 
             let state = block.save();
             let serialized = bitcode::serialize(&state).unwrap();
@@ -363,7 +363,7 @@ mod tests {
 
             // Unused queues stay idle through the worker and snapshot lifecycle.
             block.kick();
-            block.prepare_save();
+            block.prepare_save().unwrap();
             block.commit_dirty();
 
             let state = block.save();

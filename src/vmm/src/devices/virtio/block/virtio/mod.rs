@@ -15,6 +15,7 @@ mod worker;
 use vm_memory::GuestMemoryError;
 
 pub use self::device::VirtioBlock;
+pub use self::io::BlockIoError;
 pub use self::request::*;
 pub use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;

@@ -132,9 +132,10 @@ impl DiskProperties {
     }
 
     fn file_engine_type(&self) -> FileEngineType {
-        match self.file_engine {
-            FileEngine::Async(_) => FileEngineType::Async,
-            FileEngine::Sync(_) | FileEngine::Vmdk(_) => FileEngineType::Sync,
+        if self.file_engine.completion_evt().is_some() {
+            FileEngineType::Async
+        } else {
+            FileEngineType::Sync
         }
     }
 
@@ -783,22 +784,23 @@ impl VirtioBlock {
     }
 
     /// Prepare device for being snapshotted.
-    pub fn prepare_save(&mut self) {
+    pub fn prepare_save(&mut self) -> Result<(), crate::devices::virtio::persist::PersistError> {
         match &mut self.state {
-            BlockRuntimeState::Inline(worker) => worker.prepare_save(FlushMode::DrainAndFlush),
+            BlockRuntimeState::Inline(worker) => worker.prepare_save(FlushMode::DrainAndFlush)?,
             BlockRuntimeState::Threaded(active) => {
                 let (last, rest) = active
                     .worker_handles
                     .split_last()
                     .expect("threaded block device must have at least one worker");
                 for handle in rest {
-                    handle.pause(FlushMode::Drain);
+                    handle.pause(FlushMode::Drain)?;
                 }
-                last.pause(FlushMode::DrainAndFlush);
+                last.pause(FlushMode::DrainAndFlush)?;
             }
             BlockRuntimeState::Configuring(_, _) => {}
             BlockRuntimeState::Placeholder => unreachable!("not a runtime state"),
         }
+        Ok(())
     }
 
     /// Spawn a parked worker thread for the next activation.
@@ -2412,7 +2414,7 @@ mod tests {
             // Add a batch of flush requests.
             add_flush_requests_batch(&mut block, &vq, 5);
             simulate_queue_event(&mut block, None);
-            block.prepare_save();
+            block.prepare_save().unwrap();
 
             // Check that all the pending flush requests were processed during `prepare_save()`.
             check_flush_requests_batch(5, &vq);
@@ -2700,14 +2702,14 @@ mod tests {
         // A running worker answers a commit request too.
         block.commit_dirty();
 
-        block.prepare_save();
+        block.prepare_save().unwrap();
         read_blk_req_descriptors(vq);
         vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
         mem.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(vq.dtable[0].addr.get()))
             .unwrap();
         mem.reset_dirty();
         block.kick();
-        block.prepare_save();
+        block.prepare_save().unwrap();
         assert_eq!(vq.used.idx.get(), 1);
         assert!(!used_ring_dirty(mem, vq));
     }
@@ -2760,7 +2762,7 @@ mod tests {
         set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone(), default_interrupt()).unwrap();
 
-        block.prepare_save();
+        block.prepare_save().unwrap();
         read_blk_req_descriptors(&vq);
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
         let status_addr = GuestAddress(vq.dtable[2].addr.get());
@@ -2770,7 +2772,7 @@ mod tests {
 
         block.kick();
         // A second pause waits until the resumed worker has processed its queue.
-        block.prepare_save();
+        block.prepare_save().unwrap();
 
         assert_eq!(vq.used.idx.get(), 1);
         assert_eq!(vq.used.ring[0].get().id, 0);
@@ -2787,7 +2789,7 @@ mod tests {
             set_queue(&mut block, 0, vq.create_queue());
             block.set_acked_features(1);
             block.activate(mem, default_interrupt()).unwrap();
-            block.prepare_save();
+            block.prepare_save().unwrap();
 
             assert!(block.reset());
             assert!(!block.is_activated());

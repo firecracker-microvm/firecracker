@@ -319,15 +319,34 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
     type Error = DevicePersistError;
 
     fn save(&self) -> Self::State {
+        self.try_save().expect("Failed to save MMIO devices")
+    }
+
+    fn try_save(&self) -> Result<Self::State, Self::Error> {
         let mut states = DeviceStates::default();
 
-        let _: Result<(), ()> = self.for_each_virtio_mmio_device(|_, devid, device| {
+        // Finish fallible block preparation before any vsock transport reset is queued.
+        self.for_each_virtio_mmio_device(|device_type, _, device| {
+            if *device_type == VirtioDeviceType::Block {
+                device
+                    .inner
+                    .lock()
+                    .expect("Poisoned lock")
+                    .locked_device()
+                    .prepare_save()?;
+            }
+            Ok::<_, DevicePersistError>(())
+        })?;
+
+        self.for_each_virtio_mmio_device(|device_type, devid, device| {
             let mmio_transport_locked = device.inner.lock().expect("Poisoned lock");
             let mut locked_device = mmio_transport_locked.locked_device();
             // We need to call `prepare_save()` on the device before saving the transport
             // so that, if we modify the transport state while preparing the device, e.g. sending
             // an interrupt to the guest, this is correctly captured in the saved transport state.
-            locked_device.prepare_save();
+            if *device_type != VirtioDeviceType::Block {
+                locked_device.prepare_save()?;
+            }
             let transport_state = mmio_transport_locked.save();
             let device_info = device.resources;
             let transport_state = MMIODeviceState {
@@ -437,9 +456,9 @@ impl<'a> Persist<'a> for MMIOVirtioDevices {
                 }
             };
 
-            Ok(())
-        });
-        states
+            Ok::<_, DevicePersistError>(())
+        })?;
+        Ok(states)
     }
 
     fn restore(

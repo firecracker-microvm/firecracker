@@ -71,7 +71,7 @@ enum ControlMsg {
 enum ControlResponse {
     DiskUpdated(Result<u64, VirtioBlockError>), // returns nsectors on success
     Reset(BlockResources),
-    Paused,
+    Paused(Result<(), BlockIoError>),
     QueueState(QueueState),
     DirtyCommitted,
 }
@@ -91,18 +91,6 @@ pub(crate) struct WorkerHandle {
 pub(crate) enum FlushMode {
     Drain,
     DrainAndFlush,
-}
-
-macro_rules! unwrap_async_file_engine_or_return {
-    ($file_engine: expr) => {
-        match $file_engine {
-            FileEngine::Async(engine) => engine,
-            FileEngine::Sync(_) | FileEngine::Vmdk(_) => {
-                error!("The block device doesn't use an async IO engine");
-                return;
-            }
-        }
-    };
 }
 
 impl BlockWorker {
@@ -202,9 +190,7 @@ impl BlockWorker {
                 });
         }
 
-        if let FileEngine::Async(ref mut engine) = self.resources.disk.file_engine
-            && let Err(err) = engine.kick_submission_queue()
-        {
+        if let Err(err) = self.resources.disk.file_engine.kick_submission_queue() {
             error!("BlockError submitting pending block requests: {:?}", err);
         }
 
@@ -220,30 +206,22 @@ impl BlockWorker {
             return;
         }
 
-        let engine = unwrap_async_file_engine_or_return!(&mut self.resources.disk.file_engine);
+        let engine = &mut self.resources.disk.file_engine;
         let queue = &mut self.resources.queue;
 
         loop {
             match engine.pop(&self.active_state.mem) {
                 Err(error) => {
-                    error!("Failed to read completed io_uring entry: {:?}", error);
+                    error!("Failed to read completed block request: {:?}", error);
                     break;
                 }
                 Ok(None) => break,
-                Ok(Some(cqe)) => {
-                    let res = cqe.result();
-                    let user_data = cqe.user_data();
-
-                    let (pending, res) = match res {
-                        Ok(count) => (user_data, Ok(count)),
-                        Err(error) => (
-                            user_data,
-                            Err(IoErr::FileEngine(BlockIoError::Async(
-                                async_io::AsyncIoError::IO(error),
-                            ))),
-                        ),
-                    };
-                    let finished = pending.finish(&self.active_state.mem, res, &self.metrics);
+                Ok(Some((pending, result))) => {
+                    let finished = pending.finish(
+                        &self.active_state.mem,
+                        result.map_err(IoErr::FileEngine),
+                        &self.metrics,
+                    );
                     queue
                         .add_used(finished.desc_idx, finished.num_bytes_to_mem)
                         .unwrap_or_else(|err| {
@@ -268,9 +246,12 @@ impl BlockWorker {
     }
 
     pub(crate) fn process_async_completion_event(&mut self) {
-        let engine = unwrap_async_file_engine_or_return!(&mut self.resources.disk.file_engine);
+        let Some(event) = self.resources.disk.file_engine.completion_evt() else {
+            error!("The block device doesn't use an async IO engine");
+            return;
+        };
 
-        if let Err(err) = engine.completion_evt().read() {
+        if let Err(err) = event.read() {
             error!("Failed to get async completion event: {:?}", err);
         } else {
             self.process_async_completion_queue();
@@ -295,7 +276,7 @@ impl BlockWorker {
     }
 
     /// Prepare device for being snapshotted.
-    pub(crate) fn prepare_save(&mut self, flush_mode: FlushMode) {
+    pub(crate) fn prepare_save(&mut self, flush_mode: FlushMode) -> Result<(), BlockIoError> {
         // Fsync errors are non-fatal; other drain errors are broken invariants.
         let result = match flush_mode {
             FlushMode::Drain => self.resources.disk.file_engine.drain(false),
@@ -317,6 +298,7 @@ impl BlockWorker {
         if matches!(&self.resources.disk.file_engine, FileEngine::Async(_)) {
             self.process_async_completion_queue();
         }
+        Ok(())
     }
 
     /// Update the backing file and return the new sector count.
@@ -419,9 +401,9 @@ impl WorkerHandle {
     }
 
     /// Pause data-path processing after completing pending I/O.
-    pub(crate) fn pause(&self, flush_mode: FlushMode) {
+    pub(crate) fn pause(&self, flush_mode: FlushMode) -> Result<(), BlockIoError> {
         match self.request_response(ControlMsg::Pause(flush_mode)) {
-            ControlResponse::Paused => {}
+            ControlResponse::Paused(result) => result,
             response => panic!("Unexpected block worker pause response: {response:?}"),
         }
     }
@@ -484,9 +466,9 @@ impl ThreadedWorker {
             EventSet::IN,
         ))
         .expect("Failed to register queue event");
-        if let FileEngine::Async(ref engine) = resources.disk.file_engine {
+        if let Some(event) = resources.disk.file_engine.completion_evt() {
             ops.add(Events::with_data(
-                engine.completion_evt(),
+                event,
                 Self::PROCESS_ASYNC_COMPLETION,
                 EventSet::IN,
             ))
@@ -501,9 +483,9 @@ impl ThreadedWorker {
             EventSet::IN,
         ))
         .expect("Failed to unregister queue event");
-        if let FileEngine::Async(ref engine) = resources.disk.file_engine {
+        if let Some(event) = resources.disk.file_engine.completion_evt() {
             ops.remove(Events::with_data(
-                engine.completion_evt(),
+                event,
                 Self::PROCESS_ASYNC_COMPLETION,
                 EventSet::IN,
             ))
@@ -589,22 +571,21 @@ impl ThreadedWorker {
     }
 
     fn pause_worker(&mut self, flush_mode: FlushMode, ops: &mut EventOps) {
-        match std::mem::replace(&mut self.state, WorkerState::Parked) {
-            WorkerState::Running(mut worker) => {
+        let mut worker = match std::mem::replace(&mut self.state, WorkerState::Parked) {
+            WorkerState::Running(worker) => {
                 Self::unregister_runtime_events(&worker.resources, ops);
-                worker.prepare_save(flush_mode);
-                self.state = WorkerState::Paused(worker);
+                worker
             }
-            WorkerState::Paused(worker) => {
-                self.state = WorkerState::Paused(worker);
-            }
+            WorkerState::Paused(worker) => worker,
             state => {
                 self.state = state;
                 panic!("Pause requested while block worker is not active")
             }
-        }
+        };
 
-        self.reply(ControlResponse::Paused);
+        let result = worker.prepare_save(flush_mode);
+        self.state = WorkerState::Paused(worker);
+        self.reply(ControlResponse::Paused(result));
     }
 
     fn send_queue_state(&self) {
@@ -791,7 +772,7 @@ mod tests {
 
         assert!(matches!(
             handle.from_worker.recv_timeout(RECV_TIMEOUT_SEC).unwrap(),
-            ControlResponse::Paused
+            ControlResponse::Paused(Ok(()))
         ));
         match handle.from_worker.recv_timeout(RECV_TIMEOUT_SEC).unwrap() {
             ControlResponse::QueueState(queue_state) => {
@@ -838,7 +819,7 @@ mod tests {
             handle.control_evt.write(1).unwrap();
             assert!(matches!(
                 handle.from_worker.recv_timeout(RECV_TIMEOUT_SEC).unwrap(),
-                ControlResponse::Paused
+                ControlResponse::Paused(Ok(()))
             ));
         };
         let queue_state = || {

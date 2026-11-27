@@ -787,6 +787,8 @@ pub enum DevicePersistError {
     Balloon(#[from] BalloonError),
     /// Block: {0}
     Block(#[from] BlockError),
+    /// Could not prepare device for snapshot: {0}
+    PrepareSave(#[from] crate::devices::virtio::persist::PersistError),
     /// MMIO Device manager: {0}
     MmioDeviceManager(#[from] mmio::MmioError),
     /// Mmio transport
@@ -834,6 +836,8 @@ pub enum DeviceManagerPersistError {
     Bus(#[from] BusError),
     /// Error creating DeviceManager: {0}
     DeviceManager(#[from] DeviceManagerCreateError),
+    /// Error saving devices: {0}
+    SaveDevices(#[from] DevicePersistError),
 }
 
 pub struct DeviceRestoreArgs<'a> {
@@ -863,20 +867,24 @@ impl<'a> Persist<'a> for DeviceManager {
     type Error = DeviceManagerPersistError;
 
     fn save(&self) -> Self::State {
+        self.try_save().expect("Failed to save devices")
+    }
+
+    fn try_save(&self) -> Result<Self::State, Self::Error> {
         let virtio_state = match &self.virtio_devices {
-            VirtioDevices::Mmio(mmio_devices) => VirtioDevicesState::Mmio(mmio_devices.save()),
-            VirtioDevices::Pci(pci_devices) => VirtioDevicesState::Pci(pci_devices.save()),
+            VirtioDevices::Mmio(mmio_devices) => VirtioDevicesState::Mmio(mmio_devices.try_save()?),
+            VirtioDevices::Pci(pci_devices) => VirtioDevicesState::Pci(pci_devices.try_save()?),
             // Enclaves are not snapshottable; mirror the previous behaviour of saving an
             // empty MMIO state.
             VirtioDevices::Enclave(_) => VirtioDevicesState::default(),
         };
 
-        DevicesState {
+        Ok(DevicesState {
             virtio_state,
             mmio_platform_state: self.mmio_platform_devices.save(),
             acpi_state: self.acpi_devices.save(),
             serial_state: self.serial_state(),
-        }
+        })
     }
 
     fn restore(

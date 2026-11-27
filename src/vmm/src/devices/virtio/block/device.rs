@@ -277,10 +277,13 @@ impl VirtioDevice for Block {
         }
     }
 
-    fn prepare_save(&mut self) {
+    fn prepare_save(&mut self) -> Result<(), crate::devices::virtio::persist::PersistError> {
         match self {
             Self::Virtio(b) => b.prepare_save(),
-            Self::VhostUser(b) => b.prepare_save(),
+            Self::VhostUser(b) => {
+                b.prepare_save();
+                Ok(())
+            }
         }
     }
 }
