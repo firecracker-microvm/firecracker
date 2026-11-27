@@ -1503,6 +1503,14 @@ definitions:
           This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
         enum: ["Sync", "Async"]
         default: "Sync"
+      direct_io:
+        type: boolean
+        default: false
+        description:
+          Opens the raw backing file or block device with O_DIRECT for reads and
+          writes. Requires a single virtio queue and host support for direct IO.
+          The cache_type field controls guest flushes independently.
+          Omit this field for vhost-user-block devices.
       image_format:
         type: string
         description:

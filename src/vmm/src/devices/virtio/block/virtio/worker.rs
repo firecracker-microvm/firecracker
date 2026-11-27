@@ -32,6 +32,7 @@ pub(crate) struct BlockWorker {
     pub(crate) rate_limiter: Arc<Mutex<RateLimiter>>,
     pub(crate) is_blocked: Arc<AtomicBool>,
     pub(crate) discard_supported: bool,
+    pub(crate) scatter_gather: bool,
     pub(crate) metrics: Arc<BlockDeviceMetrics>,
 }
 
@@ -135,41 +136,54 @@ impl BlockWorker {
         let mut used_any = false;
 
         while let Some(head) = queue.pop_or_enable_notification()? {
+            // A direct drive has one staging buffer. Wait for it before parsing and
+            // debiting another request. Its CQE will wake this queue.
+            if let FileEngine::Async(engine) = &self.resources.disk.file_engine
+                && engine.has_staged_request()
+            {
+                queue.undo_pop();
+                self.resources.is_io_engine_throttled = true;
+                break;
+            }
             self.metrics.remaining_reqs_count.add(queue.len().into());
-            let processing_result =
-                match Request::parse(&head, &self.active_state.mem, self.resources.disk.nsectors) {
-                    Ok(request) => {
-                        let is_rate_limited = {
-                            let mut rate_limiter = rate_limiter
-                                .lock()
-                                .expect("Poisoned block rate limiter lock");
-                            request.rate_limit(&mut rate_limiter)
-                        };
-                        if is_rate_limited {
-                            // Stop processing the queue and return this descriptor chain to the
-                            // avail ring, for later processing.
-                            queue.undo_pop();
-                            self.metrics.rate_limiter_throttled_events.inc();
-                            break;
-                        }
+            let processing_result = match Request::parse(
+                &head,
+                &self.active_state.mem,
+                self.resources.disk.nsectors,
+                self.scatter_gather,
+            ) {
+                Ok(request) => {
+                    let is_rate_limited = {
+                        let mut rate_limiter = rate_limiter
+                            .lock()
+                            .expect("Poisoned block rate limiter lock");
+                        request.rate_limit(&mut rate_limiter)
+                    };
+                    if is_rate_limited {
+                        // Stop processing the queue and return this descriptor chain to the
+                        // avail ring, for later processing.
+                        queue.undo_pop();
+                        self.metrics.rate_limiter_throttled_events.inc();
+                        break;
+                    }
 
-                        request.process(
-                            &mut self.resources.disk,
-                            head.index,
-                            &self.active_state.mem,
-                            &self.metrics,
-                            self.discard_supported,
-                        )
-                    }
-                    Err(err) => {
-                        error!("Failed to parse available descriptor chain: {:?}", err);
-                        self.metrics.execute_fails.inc();
-                        ProcessingResult::Executed(FinishedRequest {
-                            num_bytes_to_mem: 0,
-                            desc_idx: head.index,
-                        })
-                    }
-                };
+                    request.process(
+                        &mut self.resources.disk,
+                        head.index,
+                        &self.active_state.mem,
+                        &self.metrics,
+                        self.discard_supported,
+                    )
+                }
+                Err(err) => {
+                    error!("Failed to parse available descriptor chain: {:?}", err);
+                    self.metrics.execute_fails.inc();
+                    ProcessingResult::Executed(FinishedRequest {
+                        num_bytes_to_mem: 0,
+                        desc_idx: head.index,
+                    })
+                }
+            };
 
             match processing_result {
                 ProcessingResult::Submitted => {}
@@ -191,15 +205,16 @@ impl BlockWorker {
                 }
             }
         }
-        queue.advance_used_ring_idx();
-
-        if used_any && queue.prepare_kick() {
-            self.active_state
-                .interrupt
-                .trigger(VirtioInterruptType::Queue(self.resources.queue_idx))
-                .unwrap_or_else(|_| {
-                    self.metrics.event_fails.inc();
-                });
+        if used_any {
+            queue.advance_used_ring_idx();
+            if queue.prepare_kick() {
+                self.active_state
+                    .interrupt
+                    .trigger(VirtioInterruptType::Queue(self.resources.queue_idx))
+                    .unwrap_or_else(|_| {
+                        self.metrics.event_fails.inc();
+                    });
+            }
         }
 
         if let FileEngine::Async(ref mut engine) = self.resources.disk.file_engine
@@ -222,6 +237,7 @@ impl BlockWorker {
 
         let engine = unwrap_async_file_engine_or_return!(&mut self.resources.disk.file_engine);
         let queue = &mut self.resources.queue;
+        let mut used_any = false;
 
         loop {
             match engine.pop(&self.active_state.mem) {
@@ -243,6 +259,7 @@ impl BlockWorker {
                             ))),
                         ),
                     };
+                    used_any = true;
                     let finished = pending.finish(&self.active_state.mem, res, &self.metrics);
                     queue
                         .add_used(finished.desc_idx, finished.num_bytes_to_mem)
@@ -254,6 +271,9 @@ impl BlockWorker {
                         });
                 }
             }
+        }
+        if !used_any {
+            return;
         }
         queue.advance_used_ring_idx();
 
@@ -325,6 +345,16 @@ impl BlockWorker {
         disk_image_path: String,
         read_only: bool,
     ) -> Result<u64, VirtioBlockError> {
+        if matches!(self.resources.disk.file_engine, FileEngine::Async(_)) {
+            // The replacement ring only knows the new file. Publish every completion from the
+            // old ring first, including when the guest still has updates in flight during PATCH.
+            self.resources
+                .disk
+                .file_engine
+                .drain(false)
+                .map_err(VirtioBlockError::FileEngine)?;
+            self.process_async_completion_queue();
+        }
         self.resources.disk.update(disk_image_path, read_only)?;
         Ok(self.resources.disk.nsectors)
     }
@@ -777,6 +807,7 @@ mod tests {
             rate_limiter: block.rate_limiter.clone(),
             is_blocked: block.lock_rate_limiter().clone_blocked_flag(),
             discard_supported: false,
+            scatter_gather: false,
             metrics: block.metrics.clone(),
         };
         let handle = WorkerHandle::spawn(Arc::new(vec![]), queue_evt, "fc_test".into()).unwrap();
@@ -826,6 +857,7 @@ mod tests {
             rate_limiter: block.rate_limiter.clone(),
             is_blocked: block.lock_rate_limiter().clone_blocked_flag(),
             discard_supported: false,
+            scatter_gather: false,
             metrics: block.metrics.clone(),
         };
         let handle = WorkerHandle::spawn(Arc::new(vec![]), queue_evt, "fc_test".into()).unwrap();

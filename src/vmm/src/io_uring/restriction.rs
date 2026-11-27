@@ -22,6 +22,8 @@ use crate::io_uring::operation::OpCode;
 pub enum Restriction {
     /// Allow an operation.
     AllowOpCode(OpCode),
+    /// Permit ordering an operation after earlier submissions.
+    AllowDrain,
     /// Only allow operations on pre-registered fds.
     RequireFixedFds,
 }
@@ -39,6 +41,14 @@ impl From<&Restriction> for io_uring_restriction {
                     u16::try_from(io_uring_register_restriction_op::IORING_RESTRICTION_SQE_OP)
                         .unwrap();
                 instance.__bindgen_anon_1.sqe_op = *opcode as u8;
+            }
+            AllowDrain => {
+                instance.opcode = u16::try_from(
+                    io_uring_register_restriction_op::IORING_RESTRICTION_SQE_FLAGS_ALLOWED,
+                )
+                .unwrap();
+                instance.__bindgen_anon_1.sqe_flags =
+                    1 << io_uring_sqe_flags_bit::IOSQE_IO_DRAIN_BIT;
             }
             RequireFixedFds => {
                 instance.opcode = u16::try_from(

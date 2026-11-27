@@ -1770,6 +1770,7 @@ dependencies = [
  "memfd",
  "micro_http",
  "proptest",
+ "rustix",
  "serde",
  "serde_json",
  "slab",

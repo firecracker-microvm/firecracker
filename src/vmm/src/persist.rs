@@ -169,8 +169,9 @@ pub enum CreateSnapshotError {
     SnapshotBackingFile(&'static str, io::Error),
 }
 
-/// Snapshot version
-pub const SNAPSHOT_VERSION: Version = Version::new(13, 0, 0);
+/// Snapshot version. 13.1 adds direct I/O variants to the block file engine state.
+/// 13.2 also allows restored block devices to retain the SEG_MAX feature.
+pub const SNAPSHOT_VERSION: Version = Version::new(13, 2, 0);
 
 /// Creates a Microvm snapshot.
 pub fn create_snapshot(

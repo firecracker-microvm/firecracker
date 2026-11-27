@@ -94,6 +94,32 @@ def test_drive_io_engine(uvm, io_engine):
     )
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pytest.mark.parametrize(
+    "options,message",
+    [
+        ({"num_queues": 2}, "Direct IO requires a single virtio queue"),
+        ({"image_format": "Vmdk"}, "Direct IO requires a raw block image"),
+    ],
+)
+def test_direct_io_rejects_incompatible_drive(uvm, options, message):
+    """Direct IO requires a raw drive with one queue."""
+    uvm.spawn()
+    uvm.basic_config(vcpu_count=2, add_root_device=False)
+    backing = drive_tools.FilesystemFile(os.path.join(uvm.fsfiles, "direct"))
+    with pytest.raises(RuntimeError, match=message) as error:
+        uvm.api.drive.put(
+            drive_id="direct",
+            path_on_host=uvm.create_jailed_resource(backing.path),
+            is_root_device=False,
+            is_read_only=False,
+            direct_io=True,
+            **options,
+        )
+    assert error.value.args[2].status_code == 400
+
+
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_api_put_update_pre_boot(uvm, io_engine):
     """

@@ -28,6 +28,12 @@ pub const SECTOR_SIZE: u32 = (0x01_u32) << SECTOR_SHIFT;
 /// Keep this bounded so guest fstrim is split into predictable chunks instead
 /// of letting one large discard ioctl block the VMM thread for too long.
 pub const MAX_DISCARD_SECTORS: u32 = (128_u32 << 20) / SECTOR_SIZE;
+/// Maximum number of data descriptors in a native virtio-blk read or write.
+const MAX_DATA_SEGMENTS: u32 = 32;
+// Linux caps each readv/writev to INT_MAX rounded down to a host page boundary.
+// Account for hosts with up to 64 KiB base pages.
+const MAX_VECTORED_BYTES: u32 = 0x7fff_0000;
+const MAX_DATA_SEGMENT_SIZE: u32 = MAX_VECTORED_BYTES / MAX_DATA_SEGMENTS;
 /// The number of queues of block device.
 pub const DEFAULT_BLOCK_NUM_QUEUES: u16 = 1;
 
@@ -44,6 +50,8 @@ pub enum VirtioBlockError {
     Config,
     /// Guest gave us too few descriptors in a descriptor chain.
     DescriptorChainTooShort,
+    /// Guest supplied more data descriptors than the request can accept.
+    TooManyDataSegments,
     /// Guest gave us a descriptor that was too short to use.
     DescriptorLengthTooSmall,
     /// Getting a block's metadata fails for any reason: {0}
@@ -54,6 +62,10 @@ pub enum VirtioBlockError {
     InvalidDataLength,
     /// The requested operation would cause a seek beyond disk end.
     InvalidOffset,
+    /// Direct IO requires a raw block image.
+    DirectIoRequiresRaw,
+    /// Direct IO requires a single virtio queue.
+    DirectIoRequiresSingleQueue,
     /// Discard is not supported with the async IO engine.
     DiscardAsyncUnsupported,
     /// Discard is not supported with read-only drives.
