@@ -264,12 +264,12 @@ impl PciDevices {
     pub(crate) fn detach_pci_virtio_device(
         &mut self,
         vm: &KvmVm,
-        device_id: VirtioDeviceId,
+        device_id: &VirtioDeviceId,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
         let pci_device_arc = self
             .virtio_devices
-            .remove(&device_id)
+            .remove(device_id)
             .expect("device presence should be checked before detach");
 
         let sbdf = pci_device_arc.lock().expect("Poisoned lock").sbdf;
@@ -1060,8 +1060,8 @@ mod tests {
                 host_dev_name: String::from("hostname"),
                 guest_mac: None,
                 mtu: None,
-                rx_rate_limiter: None,
-                tx_rate_limiter: None,
+                rx_rate_limiter_config: None,
+                tx_rate_limiter_config: None,
                 dmb_size_mib: None,
             };
             insert_net_device_with_mmds(

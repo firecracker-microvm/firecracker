@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /// Module with helpers to read/write bytes into slices
-pub mod byte_order;
 /// Module with network related helpers
 pub mod net;
 /// Module with external libc functions

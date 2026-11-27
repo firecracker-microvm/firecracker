@@ -286,7 +286,7 @@ impl PciRootPort {
         let mut config = self.msix_config.lock().expect("Poisoned lock");
         let masked = config.masked || config.table_entries[0].masked();
         if masked {
-            config.set_pba_bit(0, false);
+            config.set_pba_bit(0, true);
             return;
         }
         if let Err(err) = config.vectors.trigger(0) {
@@ -639,7 +639,7 @@ mod tests {
         let took_irq = |rp: &PciRootPort| {
             let mut config = rp.msix_config.lock().unwrap();
             let pending = config.pba_entries[0] & 1 != 0;
-            config.set_pba_bit(0, true);
+            config.set_pba_bit(0, false);
             pending
         };
 

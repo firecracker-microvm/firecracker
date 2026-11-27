@@ -446,7 +446,7 @@ impl MsixConfig {
     }
 
     /// Set PBA bit for a vector
-    pub fn set_pba_bit(&mut self, vector: u16, reset: bool) {
+    pub fn set_pba_bit(&mut self, vector: u16, value: bool) {
         assert!(vector < MAX_MSIX_VECTORS_PER_DEVICE);
 
         if (vector as usize) >= self.table_entries.len() {
@@ -455,13 +455,12 @@ impl MsixConfig {
 
         let index = vector / BITS_PER_PBA_ENTRY;
         let shift = vector % BITS_PER_PBA_ENTRY;
-        let mut mask: u64 = 1u64 << shift;
+        let mask: u64 = 1u64 << shift;
 
-        if reset {
-            mask = !mask;
-            self.pba_entries[index as usize] &= mask;
-        } else {
+        if value {
             self.pba_entries[index as usize] |= mask;
+        } else {
+            self.pba_entries[index as usize] &= !mask;
         }
     }
 
@@ -488,7 +487,7 @@ impl MsixConfig {
         }
 
         // Clear the bit from PBA
-        self.set_pba_bit(vector, true);
+        self.set_pba_bit(vector, false);
     }
 }
 
@@ -937,7 +936,7 @@ mod tests {
     fn test_set_pba_bit_vector_too_big() {
         let mut config = MsixConfig::new(msix_vector_group(2), PciSBDF::from(0x42));
 
-        config.set_pba_bit(2048, false);
+        config.set_pba_bit(2048, true);
     }
 
     #[test]
@@ -954,7 +953,7 @@ mod tests {
 
         // We have two vectors, so setting the pending bit for the third one
         // should be ignored
-        config.set_pba_bit(2, false);
+        config.set_pba_bit(2, true);
         assert_eq!(config.pba_entries[0], 0);
 
         // Same for getting the bit
@@ -966,14 +965,14 @@ mod tests {
         let mut config = MsixConfig::new(msix_vector_group(128), PciSBDF::from(0x42));
         let mut buffer = [0u8; 8];
 
-        config.set_pba_bit(1, false);
+        config.set_pba_bit(1, true);
         assert_eq!(config.pba_entries[0], 2);
         assert_eq!(config.pba_entries[1], 0);
         config.read_pba(0, &mut buffer);
         assert_eq!(0x2, u64::from_le_bytes(buffer));
 
         let mut buffer = [0u8; 4];
-        config.set_pba_bit(96, false);
+        config.set_pba_bit(96, true);
         assert_eq!(config.pba_entries[0], 2);
         assert_eq!(config.pba_entries[1], 0x1_0000_0000);
         config.read_pba(8, &mut buffer);
@@ -985,7 +984,7 @@ mod tests {
     #[test]
     fn test_pending_interrupt() {
         let mut config = MsixConfig::new(msix_vector_group(2), PciSBDF::from(0x42));
-        config.set_pba_bit(1, false);
+        config.set_pba_bit(1, true);
         assert_eq!(config.get_pba_bit(1), 1);
         // Enable MSI-X vector and unmask interrupts
         // Individual vectors are still masked, so no change
@@ -1006,7 +1005,7 @@ mod tests {
         // Mask vectors and set pending bit for vector 0
         check_metric_after_block!(METRICS.interrupts.triggers, 0, {
             config.set_msg_ctl(0xc000);
-            config.set_pba_bit(0, false);
+            config.set_pba_bit(0, true);
         });
 
         // Unmask them

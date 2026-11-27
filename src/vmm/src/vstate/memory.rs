@@ -30,7 +30,7 @@ use vm_memory::{
 use crate::arch::host_page_size;
 use crate::logger::error;
 use crate::utils::{mib_to_bytes, u64_to_usize};
-use crate::vmm_config::machine_config::HugePageConfig;
+use crate::vmm_config::machine_config::{HugePageConfig, MachineConfig};
 use crate::vstate::vm::{KvmVm, VmError};
 use crate::{DirtyBitmap, align_down, align_up, warn_unrestricted};
 
@@ -1116,6 +1116,76 @@ impl MemfdBacking {
     }
 }
 
+/// Total size in bytes of guest memory: the given DRAM regions plus the `hotplug_size` bytes
+/// virtio-mem hotpluggable region. This is the size of the memfd when memory is memfd-backed,
+/// and of a full guest memory snapshot file.
+fn guest_memory_size(
+    dram: &[(GuestAddress, usize)],
+    hotplug_size: u64,
+) -> Result<u64, MemoryError> {
+    dram.iter()
+        .try_fold(hotplug_size, |acc, &(_, size)| acc.checked_add(size as u64))
+        .ok_or(MemoryError::OffsetTooLarge)
+}
+
+/// Allocates guest DRAM for `machine_config`, backed by anonymous memory, or by a memfd if
+/// `memfd` is set.
+///
+/// A memfd is created for DRAM *and* the `hotplug_size` bytes hotpluggable region, laid out
+/// like a guest memory snapshot file. The returned [`MemfdBacking`] must then be passed to
+/// [`allocate_memory_region`] so that the hotpluggable region is mapped from the same memfd,
+/// right after DRAM.
+pub fn allocate_guest_memory(
+    machine_config: &MachineConfig,
+    hotplug_size: u64,
+    memfd: bool,
+) -> Result<(Vec<GuestRegionMmap>, Option<MemfdBacking>), MemoryError> {
+    let regions = crate::arch::arch_memory_regions(mib_to_bytes(machine_config.mem_size_mib))?;
+
+    if memfd {
+        let mut backing = MemfdBacking::new(
+            guest_memory_size(&regions, hotplug_size)?,
+            machine_config.huge_pages,
+        )?;
+        let guest_memory = backing.allocate(
+            &regions,
+            machine_config.track_dirty_pages,
+            machine_config.huge_pages,
+        )?;
+        Ok((guest_memory, Some(backing)))
+    } else {
+        let guest_memory = anonymous(
+            &regions,
+            machine_config.track_dirty_pages,
+            machine_config.huge_pages,
+        )?;
+        Ok((guest_memory, None))
+    }
+}
+
+/// Allocates the hotpluggable guest memory region, from the memfd returned by
+/// [`allocate_guest_memory`] if there is one.
+pub fn allocate_memory_region(
+    machine_config: &MachineConfig,
+    start: GuestAddress,
+    size: usize,
+    backing: Option<&mut MemfdBacking>,
+) -> Result<GuestRegionMmap, MemoryError> {
+    let mut regions = match backing {
+        Some(backing) => backing.allocate(
+            &[(start, size)],
+            machine_config.track_dirty_pages,
+            machine_config.huge_pages,
+        )?,
+        None => anonymous(
+            &[(start, size)],
+            machine_config.track_dirty_pages,
+            machine_config.huge_pages,
+        )?,
+    };
+    Ok(regions.pop().unwrap())
+}
+
 /// Creates a GuestMemoryMmap given a `file` containing the data
 /// and a `state` containing mapping information.
 pub fn snapshot_file(
@@ -1570,6 +1640,71 @@ mod tests {
         let regions = vec![(GuestAddress(0), 2 * page_size)];
         let result = snapshot_file(file, &regions, false, HugePageConfig::None);
         assert!(matches!(result.unwrap_err(), MemoryError::OffsetTooLarge));
+    }
+
+    #[test]
+    fn test_guest_memory_size() {
+        let dram = [(GuestAddress(0), 0x1000), (GuestAddress(0x2000), 0x3000)];
+
+        assert_eq!(guest_memory_size(&dram, 0).unwrap(), 0x4000);
+        assert_eq!(guest_memory_size(&dram, 0x5000).unwrap(), 0x9000);
+        assert!(matches!(
+            guest_memory_size(&[(GuestAddress(0), usize::MAX)], 0x1000),
+            Err(MemoryError::OffsetTooLarge)
+        ));
+    }
+
+    #[test]
+    fn test_allocate_guest_memory() {
+        let machine_config = MachineConfig::default();
+        let dram_size = mib_to_bytes(machine_config.mem_size_mib) as u64;
+        // Right after DRAM, which does not start at guest address 0 on all architectures.
+        let hotplug_addr = crate::arch::arch_memory_regions(u64_to_usize(dram_size))
+            .unwrap()
+            .iter()
+            .map(|&(start, size)| start.0 + size as u64)
+            .max()
+            .map(GuestAddress)
+            .unwrap();
+        let hotplug_size = mib_to_bytes(256);
+
+        // Anonymous memory, for DRAM and the hotplug region alike.
+        let (regions, mut backing) =
+            allocate_guest_memory(&machine_config, hotplug_size as u64, false).unwrap();
+        assert!(backing.is_none());
+        assert!(regions.iter().all(|r| r.file_offset().is_none()));
+        let region = allocate_memory_region(
+            &machine_config,
+            hotplug_addr,
+            hotplug_size,
+            backing.as_mut(),
+        )
+        .unwrap();
+        assert!(region.file_offset().is_none());
+
+        // memfd: DRAM regions and then the hotplug region are mapped from one memfd, each at the
+        // sum of the sizes of the regions before it, which is the layout of a snapshot file.
+        let (regions, mut backing) =
+            allocate_guest_memory(&machine_config, hotplug_size as u64, true).unwrap();
+        let memfd = backing.as_ref().unwrap().file.as_raw_fd();
+        let mut offset = 0;
+        for region in &regions {
+            let file_offset = region.file_offset().unwrap();
+            assert_eq!(file_offset.file().as_raw_fd(), memfd);
+            assert_eq!(file_offset.start(), offset);
+            offset += region.len();
+        }
+        assert_eq!(offset, dram_size);
+        let region = allocate_memory_region(
+            &machine_config,
+            hotplug_addr,
+            hotplug_size,
+            backing.as_mut(),
+        )
+        .unwrap();
+        let file_offset = region.file_offset().unwrap();
+        assert_eq!(file_offset.file().as_raw_fd(), memfd);
+        assert_eq!(file_offset.start(), dram_size);
     }
 
     #[test]
