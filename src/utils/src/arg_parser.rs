@@ -8,6 +8,8 @@ pub type Result<T> = result::Result<T, UtilsArgParserError>;
 
 const ARG_PREFIX: &str = "--";
 const ARG_SEPARATOR: &str = "--";
+/// Command line flag for displaying enabled build features.
+pub const FEATURES_ARG: &str = "--features";
 const HELP_ARG: &str = "--help";
 const SHORT_HELP_ARG: &str = "-h";
 const VERSION_ARG: &str = "--version";
@@ -325,7 +327,7 @@ impl<'a> Arguments<'a> {
     }
 
     /// Clear split between the actual arguments of the process, the extra arguments if any
-    /// and the `--help` and `--version` arguments if present.
+    /// and the `--help`, `--features` and `--version` arguments if present.
     pub fn parse(&mut self, args: &[String]) -> Result<()> {
         // Skipping the first element of `args` as it is the name of the binary.
         let (args, extra_args) = Arguments::split_args(&args[1..]);
@@ -338,6 +340,16 @@ impl<'a> Arguments<'a> {
             let mut help_arg = Argument::new("help").help("Show the help message.");
             help_arg.user_value = Some(Value::Flag);
             self.insert_arg(help_arg);
+            return Ok(());
+        }
+
+        // Like --version, a registered --features flag exits without parsing other
+        // arguments or enforcing required arguments.
+        if args.iter().any(|arg| arg == FEATURES_ARG)
+            && let Some(argument) = self.args.get_mut("features")
+            && !argument.takes_value
+        {
+            argument.user_value = Some(Value::Flag);
             return Ok(());
         }
 
@@ -463,6 +475,67 @@ impl<'a> Arguments<'a> {
 mod tests {
     use super::*;
     use crate::arg_parser::Value;
+
+    #[test]
+    fn test_features_flag() {
+        let parser = build_arg_parser().arg(Argument::new("features"));
+
+        for args in [
+            vec!["binary", FEATURES_ARG],
+            vec!["binary", FEATURES_ARG, "--unknown"],
+            vec!["binary", FEATURES_ARG, "--version"],
+            vec!["binary", "--version", FEATURES_ARG],
+        ] {
+            let mut arguments = parser.arguments().clone();
+            let args: Vec<_> = args.into_iter().map(String::from).collect();
+            arguments.parse(&args).unwrap();
+            assert!(arguments.flag_present("features"));
+            assert!(!arguments.flag_present("version"));
+        }
+    }
+
+    #[test]
+    fn test_features_help_and_separator() {
+        let parser = build_arg_parser().arg(Argument::new("features"));
+
+        for help in ["--help", "-h"] {
+            let mut arguments = parser.arguments().clone();
+            arguments
+                .parse(&["binary", FEATURES_ARG, help].map(String::from))
+                .unwrap();
+            assert!(arguments.flag_present("help"));
+            assert!(!arguments.flag_present("features"));
+        }
+
+        let mut arguments = parser.arguments().clone();
+        arguments
+            .parse(&["binary", "--version", "--", FEATURES_ARG].map(String::from))
+            .unwrap();
+        assert!(arguments.flag_present("version"));
+        assert!(!arguments.flag_present("features"));
+        assert_eq!(arguments.extra_args(), vec![FEATURES_ARG]);
+    }
+
+    #[test]
+    fn test_unregistered_features() {
+        let mut arguments = Arguments::default();
+        assert_eq!(
+            arguments.parse(&["binary", FEATURES_ARG].map(String::from)),
+            Err(UtilsArgParserError::UnexpectedArgument(
+                "features".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn test_features_value_requires_arguments() {
+        let parser = build_arg_parser().arg(Argument::new("features").takes_value(true));
+        let mut arguments = parser.arguments().clone();
+        assert_eq!(
+            arguments.parse(&["binary", FEATURES_ARG].map(String::from)),
+            Err(UtilsArgParserError::MissingValue("features".to_string()))
+        );
+    }
 
     fn build_arg_parser() -> ArgParser<'static> {
         ArgParser::new()
