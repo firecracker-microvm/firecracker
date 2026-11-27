@@ -24,20 +24,54 @@
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
+use std::collections::BTreeMap;
+use std::sync::{Arc, RwLock};
 
 use crate::logger::{LatencyAggregateMetrics, SharedIncMetric};
 
-/// Stores aggregated virtio-mem metrics
-pub(super) static METRICS: VirtioMemDeviceMetrics = VirtioMemDeviceMetrics::new();
+/// Key of the VM's virtio-mem device in `METRICS`. Only this entry is flushed.
+const METRICS_KEY: u64 = 0;
+
+/// Metrics instances of every virtio-mem device created in this process.
+static METRICS: RwLock<BTreeMap<u64, Arc<VirtioMemDeviceMetrics>>> = RwLock::new(BTreeMap::new());
+
+// Tests get a unique key above METRICS_KEY so their devices are never flushed.
+#[cfg(test)]
+static NEXT_TEST_KEY: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(METRICS_KEY + 1);
+
+fn metrics_key() -> u64 {
+    #[cfg(not(test))]
+    return METRICS_KEY;
+    #[cfg(test)]
+    return NEXT_TEST_KEY.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Return the virtio-mem device's metrics instance, inserting a fresh one into `METRICS` if absent.
+pub(super) fn register() -> Arc<VirtioMemDeviceMetrics> {
+    Arc::clone(
+        METRICS
+            .write()
+            .unwrap()
+            .entry(metrics_key())
+            .or_insert_with(|| Arc::new(VirtioMemDeviceMetrics::default())),
+    )
+}
 
 /// Called by METRICS.flush(), this function facilitates serialization of virtio-mem device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_map(Some(1))?;
-    seq.serialize_entry("memory_hotplug", &METRICS)?;
+    let dev_name = "memory_hotplug";
+
+    match METRICS.read().unwrap().get(&METRICS_KEY) {
+        Some(metrics) => seq.serialize_entry(dev_name, metrics.as_ref())?,
+        None => seq.serialize_entry(dev_name, &VirtioMemDeviceMetrics::default())?,
+    }
+
     seq.end()
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Default, Debug, Serialize)]
 pub(super) struct VirtioMemDeviceMetrics {
     /// Number of device activation failures
     pub activate_fails: SharedIncMetric,
@@ -77,32 +111,6 @@ pub(super) struct VirtioMemDeviceMetrics {
     pub state_fails: SharedIncMetric,
 }
 
-impl VirtioMemDeviceMetrics {
-    /// Const default construction.
-    const fn new() -> Self {
-        Self {
-            activate_fails: SharedIncMetric::new(),
-            queue_event_fails: SharedIncMetric::new(),
-            queue_event_count: SharedIncMetric::new(),
-            plug_agg: LatencyAggregateMetrics::new(),
-            plug_count: SharedIncMetric::new(),
-            plug_bytes: SharedIncMetric::new(),
-            plug_fails: SharedIncMetric::new(),
-            unplug_agg: LatencyAggregateMetrics::new(),
-            unplug_count: SharedIncMetric::new(),
-            unplug_bytes: SharedIncMetric::new(),
-            unplug_fails: SharedIncMetric::new(),
-            unplug_discard_fails: SharedIncMetric::new(),
-            unplug_all_agg: LatencyAggregateMetrics::new(),
-            unplug_all_count: SharedIncMetric::new(),
-            unplug_all_fails: SharedIncMetric::new(),
-            state_agg: LatencyAggregateMetrics::new(),
-            state_count: SharedIncMetric::new(),
-            state_fails: SharedIncMetric::new(),
-        }
-    }
-}
-
 #[cfg(test)]
 pub mod tests {
     use super::*;
@@ -110,9 +118,17 @@ pub mod tests {
 
     #[test]
     fn test_memory_hotplug_metrics() {
-        let mem_metrics: VirtioMemDeviceMetrics = VirtioMemDeviceMetrics::new();
+        let mem_metrics = VirtioMemDeviceMetrics::default();
         mem_metrics.queue_event_count.inc();
         assert_eq!(mem_metrics.queue_event_count.count(), 1);
-        let _ = serde_json::to_string(&mem_metrics).unwrap();
+
+        let serialized = serde_json::to_string(&mem_metrics).unwrap();
+        let json_val: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+        let obj = json_val.as_object().unwrap();
+
+        assert_eq!(
+            obj.get("queue_event_count").and_then(|v| v.as_u64()),
+            Some(1)
+        );
     }
 }
