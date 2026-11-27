@@ -240,6 +240,11 @@ and this project adheres to
   connection, and closes it once the response has been acknowledged. Data the
   guest sends after that resets the connection.
 
+- [#6300](https://github.com/firecracker-microvm/firecracker/pull/6300): Fixed
+  snapshot restore on aarch64 hosts with a GICv2 interrupt controller, such as
+  the Raspberry Pi 5. The per-vCPU interrupt state was not saved, so restored
+  VMs came back with their timer interrupt disabled.
+
 ## [1.18.0]
 
 ### Added
