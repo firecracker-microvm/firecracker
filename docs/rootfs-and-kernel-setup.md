@@ -91,11 +91,22 @@ subcommand allows passing a specific kernel version to build. For example:
 
 will build only the 6.1 kernel.
 
-Currently supported kernel versions are: `5.10`, `5.10-no-acpi` (same as 5.10
-but without ACPI support) and `6.1`.
+Currently supported kernel versions are `5.10`, `5.10-no-acpi` (x86_64 only),
+`6.1`, and `6.18`.
 
 After the command finishes, the kernels along with the corresponding KConfig
 used will be stored under `resources/$(uname -m)`.
+
+On aarch64, the default guest kernel uses 4 KiB pages. Select `6.18-64k` to
+build a Linux 6.18 guest kernel with 64 KiB pages.
+
+```bash
+./tools/devtool build_ci_artifacts kernels 6.18-64k
+```
+
+The experimental image is written to
+`resources/aarch64/experimental/vmlinux-6.18.<patch>-64k` with a matching
+`.config` file. Select the image using the boot source's `kernel_image_path`.
 
 ## Creating a Linux rootfs Image
 

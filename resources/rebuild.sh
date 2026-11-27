@@ -127,7 +127,10 @@ function get_tag {
         || git --no-pager tag -l --sort=-v:refname | grep "kernel.*$KERNEL_VERSION\..*\.amzn2") | head -n1
 }
 
+# Build a kernel with artifact suffix $1 and the remaining config files in order.
 function build_al_kernel {
+    local flavour=$1
+    shift
     local KERNEL_CFG=$1
     # Extract the kernel version from the config file provided as parameter.
     local KERNEL_VERSION=$(echo $KERNEL_CFG | grep -Po "microvm-kernel-ci-$ARCH-\K(\d+\.\d+)")
@@ -175,7 +178,6 @@ function build_al_kernel {
     make olddefconfig
     make -j $(nproc) $target
     LATEST_VERSION=$(cat include/config/kernel.release)
-    flavour=$(basename $KERNEL_CFG .config |grep -Po "\d+\.\d+\K(-.*)" || true)
     # Strip off everything after the last number - sometimes AL kernels have some stuff there.
     # e.g. vmlinux-4.14.348-openela -> vmlinux-4.14.348
     normalized_version=$(echo "$LATEST_VERSION" | sed -E "s/(.*[[:digit:]]).*/\1/g")
@@ -232,7 +234,7 @@ function vmlinux_split_debuginfo {
     gzip -v $DEBUGINFO
 }
 
-# Build the CI and debug flavours of kernel version $1 (5.10, 6.1 or 6.18).
+# Build the selected flavours of kernel version $1 (5.10, 6.1 or 6.18).
 # $2 selects which flavours, see `kernels [version]` in the help.
 function build_al_kernel_flavours {
     local VERSION=$1
@@ -245,13 +247,19 @@ function build_al_kernel_flavours {
     local DEBUG_CONFIG=$PWD/guest_configs/debug.config
 
     if [[ "$SELECTED" == @(all|$VERSION) ]]; then
-        build_al_kernel $KERNEL_CFG $CI_CONFIG $NVME_CONFIG $EFI_CONFIG
+        build_al_kernel "" $KERNEL_CFG $CI_CONFIG $NVME_CONFIG $EFI_CONFIG
     fi
     if [[ $ARCH == "x86_64" && $VERSION == "5.10" && "$SELECTED" == @(all|5.10-no-acpi) ]]; then
-        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config $CI_CONFIG $NVME_CONFIG
+        build_al_kernel -no-acpi $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config $CI_CONFIG $NVME_CONFIG
+    fi
+    if [[ $ARCH == "aarch64" && $VERSION == "6.18" && "$SELECTED" == "6.18-64k" ]]; then
+        # Keep the experimental kernel out of the default test artifact discovery.
+        mkdir -p "$OUTPUT_DIR/experimental"
+        OUTPUT_DIR=$OUTPUT_DIR/experimental build_al_kernel -64k \
+            "$KERNEL_CFG" "$CI_CONFIG" "$NVME_CONFIG" "$EFI_CONFIG" "$PWD/guest_configs/arm64-64k.config"
     fi
     if [[ "$SELECTED" == @(all|$VERSION) ]]; then
-        OUTPUT_DIR=$OUTPUT_DIR/debug build_al_kernel $KERNEL_CFG $CI_CONFIG $NVME_CONFIG $EFI_CONFIG $FTRACE_CONFIG $DEBUG_CONFIG
+        OUTPUT_DIR=$OUTPUT_DIR/debug build_al_kernel "" $KERNEL_CFG $CI_CONFIG $NVME_CONFIG $EFI_CONFIG $FTRACE_CONFIG $DEBUG_CONFIG
         # build_al_kernel leaves the path of the kernel it built in OUTPUT_FILE.
         vmlinux_split_debuginfo $OUTPUT_FILE linux-$VERSION
     fi
@@ -264,7 +272,8 @@ function build_al_kernels {
         die "Too many arguments in '$(basename $0) kernels' command. Please use \`$0 help\` for help."
     else
         KERNEL_VERSION=$1
-        if [[ "$KERNEL_VERSION" != @(5.10|5.10-no-acpi|6.1|6.18) ]]; then
+        if [[ "$KERNEL_VERSION" != @(5.10|5.10-no-acpi|6.1|6.18) ]] &&
+           [[ "$ARCH" != "aarch64" || "$KERNEL_VERSION" != "6.18-64k" ]]; then
             die "Unsupported kernel version: '$KERNEL_VERSION'. Please use \`$0 help\` for help."
         fi
     fi
@@ -309,10 +318,11 @@ Available commands:
         Builds only the CI rootfs.
 
     kernels [version]
-        Builds our the currently supported CI kernels.
+        Builds the currently supported CI kernels.
 
         version: Optionally choose a kernel version to build. Supported
                  versions are: 5.10, 5.10-no-acpi, 6.1 or 6.18.
+                 On aarch64, 6.18-64k builds the experimental 64 KiB kernel.
 
     help
         Displays the help message and exits.
