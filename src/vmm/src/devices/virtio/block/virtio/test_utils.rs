@@ -29,6 +29,58 @@ use crate::rate_limiter::RateLimiter;
 use crate::vmm_config::{RateLimiterConfig, TokenBucketConfig};
 use crate::vstate::memory::{Bytes, GuestAddress};
 
+/// Create an empty 2 MiB QCOW2 image for block tests.
+#[cfg(test)]
+pub fn create_test_qcow2() -> TempFile {
+    use imago::file::File as ImagoFile;
+    use imago::qcow2::Qcow2;
+    use imago::{FormatCreateBuilder, StorageOpenOptions};
+
+    let file = TempFile::new().unwrap();
+    let storage = ImagoFile::from_open_file(
+        file.as_file().try_clone().unwrap(),
+        StorageOpenOptions::new()
+            .filename(file.as_path())
+            .write(true)
+            .direct(false),
+    )
+    .unwrap();
+    Qcow2::<ImagoFile>::create_builder(storage)
+        .size(2 * 1024 * 1024)
+        .create()
+        .unwrap();
+    file
+}
+
+/// Return an EIO filter for fault-injection tests. Install only on a disposable thread.
+#[cfg(test)]
+pub fn syscall_eio_filter(syscall: libc::c_long) -> crate::seccomp::BpfProgram {
+    let instructions = [
+        (libc::BPF_LD | libc::BPF_W | libc::BPF_ABS, 0, 0, 0),
+        (
+            libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K,
+            0,
+            1,
+            u32::try_from(syscall).unwrap(),
+        ),
+        (
+            libc::BPF_RET | libc::BPF_K,
+            0,
+            0,
+            libc::SECCOMP_RET_ERRNO | u32::try_from(libc::EIO).unwrap(),
+        ),
+        (libc::BPF_RET | libc::BPF_K, 0, 0, libc::SECCOMP_RET_ALLOW),
+    ];
+    instructions
+        .into_iter()
+        .map(|(code, jt, jf, k)| {
+            let code = u16::try_from(code).unwrap().to_ne_bytes();
+            let k = k.to_ne_bytes();
+            u64::from_ne_bytes([code[0], code[1], jt, jf, k[0], k[1], k[2], k[3]])
+        })
+        .collect()
+}
+
 /// Create a default Block instance to be used in tests.
 pub fn default_block(file_engine_type: FileEngineType) -> VirtioBlock {
     // Create backing file.

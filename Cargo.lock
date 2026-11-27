@@ -760,8 +760,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 [[package]]
 name = "imago"
 version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "806cbce8c1481e696ef9edf13e8cb41fea77557607146f60f9ceba809ba36238"
+source = "git+https://github.com/ChengyuZhu6/imago.git?rev=3c1a2c55e64a8ede5bee753fc453b68f28426b19#3c1a2c55e64a8ede5bee753fc453b68f28426b19"
 dependencies = [
  "cfg-if",
  "libc",
