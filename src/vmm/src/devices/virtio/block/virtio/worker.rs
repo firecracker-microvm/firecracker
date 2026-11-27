@@ -768,6 +768,107 @@ mod tests {
     use crate::vstate::memory::{Bytes, GuestAddress};
 
     #[test]
+    fn test_qcow2_snapshot_flush_error() {
+        use crate::devices::virtio::block::virtio::device::{DiskImageFormat, DiskProperties};
+        use crate::devices::virtio::block::virtio::io::Qcow2IoError;
+        use crate::devices::virtio::block::virtio::test_utils::create_test_qcow2;
+
+        for fail_syscall in [libc::SYS_fsync, libc::SYS_pwritev] {
+            let retry = thread::spawn(move || {
+                let file = create_test_qcow2();
+                let mut block = default_block(FileEngineType::Sync);
+                let BlockRuntimeState::Configuring(mut resources, _) =
+                    std::mem::replace(&mut block.state, BlockRuntimeState::Placeholder)
+                else {
+                    unreachable!()
+                };
+                let mut resources = resources.pop().unwrap();
+                resources.disk = DiskProperties::new(
+                    file.as_path().to_str().unwrap(),
+                    false,
+                    FileEngineType::Sync,
+                    DiskImageFormat::Qcow2,
+                )
+                .unwrap();
+                let mut worker = BlockWorker {
+                    resources,
+                    active_state: ActiveState {
+                        mem: default_mem(),
+                        interrupt: default_interrupt(),
+                    },
+                    rate_limiter: block.rate_limiter.clone(),
+                    is_blocked: block.lock_rate_limiter().clone_blocked_flag(),
+                    discard_supported: false,
+                    metrics: block.metrics.clone(),
+                };
+                worker
+                    .active_state
+                    .mem
+                    .write_slice(&[0xa5; 512], GuestAddress(0))
+                    .unwrap();
+                let FileEngine::Qcow2(engine) = &mut worker.resources.disk.file_engine else {
+                    unreachable!()
+                };
+                engine
+                    .write(0, &worker.active_state.mem, GuestAddress(0), 512)
+                    .unwrap();
+                let read_only_file = create_test_qcow2();
+                let read_only_disk = DiskProperties::new(
+                    read_only_file.as_path().to_str().unwrap(),
+                    true,
+                    FileEngineType::Sync,
+                    DiskImageFormat::Qcow2,
+                )
+                .unwrap();
+                let FileEngine::Qcow2(read_only_engine) = &read_only_disk.file_engine else {
+                    unreachable!();
+                };
+                apply_filter(&syscall_eio_filter(fail_syscall)).unwrap();
+                // Read-only images may live on filesystems without fsync support.
+                read_only_engine.flush().unwrap();
+
+                let err = worker.prepare_save(FlushMode::DrainAndFlush).unwrap_err();
+                match err {
+                    BlockIoError::Qcow2(Qcow2IoError::Flush(err)) => {
+                        assert_eq!(fail_syscall, libc::SYS_fsync);
+                        assert_eq!(err.raw_os_error(), Some(libc::EIO));
+                    }
+                    BlockIoError::Qcow2(Qcow2IoError::MetadataFlush(err)) => {
+                        // Metadata dependency barriers may also fail fsync before the final sync.
+                        assert_eq!(err.raw_os_error(), Some(libc::EIO));
+                    }
+                    err => panic!("Unexpected snapshot error: {err:?}"),
+                }
+                if fail_syscall == libc::SYS_fsync {
+                    worker.prepare_save(FlushMode::Drain).unwrap();
+                }
+                (worker, file)
+            })
+            .join()
+            .unwrap();
+            let (mut worker, file) = retry;
+            worker.prepare_save(FlushMode::DrainAndFlush).unwrap();
+            let mem = worker.active_state.mem.clone();
+            drop(worker);
+            // After the failure filter is gone, a successful retry must persist the mappings.
+            let mut disk = DiskProperties::new(
+                file.as_path().to_str().unwrap(),
+                false,
+                FileEngineType::Sync,
+                DiskImageFormat::Qcow2,
+            )
+            .unwrap();
+            let FileEngine::Qcow2(engine) = &mut disk.file_engine else {
+                unreachable!()
+            };
+            engine.read(0, &mem, GuestAddress(4096), 512).unwrap();
+            let mut actual = [0; 512];
+            mem.read_slice(&mut actual, GuestAddress(4096)).unwrap();
+            assert_eq!(actual, [0xa5; 512]);
+        }
+    }
+
+    #[test]
     fn test_control_msg_batch() {
         let mut block = default_block(FileEngineType::Sync);
         let BlockRuntimeState::Configuring(mut resources, _) =
