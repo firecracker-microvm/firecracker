@@ -435,15 +435,20 @@ impl Env {
     /// Look up the minor device number of a misc device by name in /proc/misc.
     fn get_misc_dev_minor_number(dev_name: &str) -> Result<u32, MiscDevParseError> {
         let buf = read_to_string("/proc/misc")?;
+        Self::parse_misc_dev_minor_number(&buf, dev_name)
+    }
 
+    /// Parse the contents of /proc/misc. The kernel prints each entry with
+    /// "%3i %s\n", so minor numbers below 100 are padded with leading spaces.
+    fn parse_misc_dev_minor_number(buf: &str, dev_name: &str) -> Result<u32, MiscDevParseError> {
         for line in buf.lines() {
-            let dev: Vec<&str> = line.split(' ').collect();
-            if dev.len() < 2 {
+            let mut fields = line.split_whitespace();
+            let (Some(minor), Some(name)) = (fields.next(), fields.next()) else {
                 continue;
-            }
+            };
 
-            if dev[1] == dev_name {
-                return Ok(dev[0].parse::<u32>()?);
+            if name == dev_name {
+                return Ok(minor.parse::<u32>()?);
             }
         }
 
@@ -1225,6 +1230,31 @@ mod tests {
         } else {
             assert!(env.uffd_dev_minor.is_some());
         }
+    }
+
+    #[test]
+    fn test_parse_misc_dev_minor_number() {
+        // Same layout as the kernel's "%3i %s\n": minors below 100 are padded.
+        let buf = "200 tun\n  1 psaux\n 58 network_throughput\n257 userfaultfd\n";
+
+        assert_eq!(Env::parse_misc_dev_minor_number(buf, "tun").unwrap(), 200);
+        assert_eq!(Env::parse_misc_dev_minor_number(buf, "psaux").unwrap(), 1);
+        assert_eq!(
+            Env::parse_misc_dev_minor_number(buf, "network_throughput").unwrap(),
+            58
+        );
+        assert_eq!(
+            Env::parse_misc_dev_minor_number(buf, "userfaultfd").unwrap(),
+            257
+        );
+        assert!(matches!(
+            Env::parse_misc_dev_minor_number(buf, "kvm"),
+            Err(MiscDevParseError::NotFound)
+        ));
+        assert!(matches!(
+            Env::parse_misc_dev_minor_number("x1 broken\n", "broken"),
+            Err(MiscDevParseError::ParseDevMinor(_))
+        ));
     }
 
     #[test]
