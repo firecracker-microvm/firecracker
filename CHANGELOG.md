@@ -119,6 +119,11 @@ and this project adheres to
   the maximum number of vCPUs of a KVM microVM from 32 to 64. CPUID leaf 0xB
   (and 0x1F where present) subleaf 1 `EAX[4:0]` now reports 6 instead of 5 for
   every microVM; the topology a guest reports is unchanged.
+- [#6466](https://github.com/firecracker-microvm/firecracker/pull/6466): Removed
+  the `regex` dependency from `jailer` by parsing `/proc/mounts` directly with
+  `split_ascii_whitespace()`, shrinking the stripped `jailer` musl release
+  binary by about 70% on x86_64 (from 2.13 MiB to 654 KiB) and avoiding runtime
+  regex compilation during cgroup discovery.
 
 ### Deprecated
 
