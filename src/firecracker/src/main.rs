@@ -384,6 +384,11 @@ fn main_exec() -> Result<(), MainError> {
     .and_then(seccomp::get_filters)
     .map_err(MainError::SeccompFilter)?;
 
+    // The host kernel version is cached on first use. Read it now, before any seccomp
+    // filter is installed, so that devices created or updated after boot (for example
+    // Async discard drives on block devices) do not need `uname` on their threads.
+    vmm::arch::host_kernel_version();
+
     let vmm_config_json = arguments
         .single_value("config-file")
         .map(fs::read_to_string)

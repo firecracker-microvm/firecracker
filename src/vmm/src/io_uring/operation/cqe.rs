@@ -32,7 +32,9 @@ impl<T: Debug> Cqe<T> {
         let res = self.res;
 
         if res < 0 {
-            Err(std::io::Error::from_raw_os_error(res))
+            Err(std::io::Error::from_raw_os_error(
+                res.checked_neg().unwrap_or(libc::EIO),
+            ))
         } else {
             Ok(u32::try_from(self.res).unwrap())
         }
@@ -61,12 +63,11 @@ mod tests {
         // Check that `result()` returns an `Error` when `res` is negative.
         {
             let user_data = 10_u8;
-            let cqe: Cqe<u8> = Cqe::new(-22, user_data);
+            let cqe = Cqe::new(-libc::EINVAL, user_data);
 
-            assert_eq!(
-                cqe.result().unwrap_err().kind(),
-                std::io::Error::from_raw_os_error(-22).kind()
-            );
+            let err = cqe.result().unwrap_err();
+            assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
+            assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
         }
 
         // Check that `result()` returns Ok() when `res` is positive.
@@ -76,6 +77,27 @@ mod tests {
 
             assert_eq!(cqe.result().unwrap(), 128);
         }
+    }
+
+    #[test]
+    fn test_errno_outside_i32_range() {
+        let err = Cqe::new(i32::MIN, ()).result().unwrap_err();
+        assert_eq!(err.raw_os_error(), Some(libc::EIO));
+    }
+
+    #[test]
+    fn test_kernel_write_to_read_only_fd_errno() {
+        use crate::io_uring::{IoUring, Operation};
+
+        let file = std::fs::File::open("/dev/null").unwrap();
+        let mut ring = IoUring::new(2, vec![&file], vec![], None).unwrap();
+        ring.push(Operation::write(0, b"x".as_ptr() as usize, 1, 0, 42u8))
+            .unwrap();
+        ring.submit_and_wait_all().unwrap();
+        let cqe = ring.pop().unwrap().unwrap();
+        assert_eq!(cqe.result().unwrap_err().raw_os_error(), Some(libc::EBADF));
+        assert_eq!(cqe.count(), 0);
+        assert_eq!(cqe.user_data(), 42);
     }
 
     #[test]
