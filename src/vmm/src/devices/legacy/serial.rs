@@ -10,7 +10,6 @@ use std::fmt::Debug;
 use std::fs::File;
 use std::io::{self, Read, Stdin, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::sync::{Arc, Barrier};
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use libc::EFD_NONBLOCK;
@@ -24,7 +23,7 @@ use crate::devices::legacy::EventFdTrigger;
 use crate::logger::{IncMetric, SharedIncMetric, error, warn};
 use crate::rate_limiter::{BucketReduction, TokenBucket};
 use crate::utils::usize_to_u64;
-use crate::vstate::bus::BusDevice;
+use crate::vstate::bus::{BusDevice, BusWriteAction};
 
 /// Metrics specific to the UART device.
 #[derive(Debug, Serialize, Default)]
@@ -420,7 +419,7 @@ where
         }
     }
 
-    fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> BusWriteAction {
         if let (Ok(offset), 1) = (u8::try_from(offset), data.len()) {
             if let Err(err) = self.serial.write(offset, data[0]) {
                 // Counter incremented for any handle_write() error.
@@ -430,7 +429,7 @@ where
         } else {
             METRICS.missed_write_count.inc();
         }
-        None
+        BusWriteAction::Continue
     }
 }
 

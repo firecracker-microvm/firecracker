@@ -33,6 +33,7 @@ use vmm::vmm_config::drive::BlockDeviceConfig;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::machine_config::{HugePageConfig, MachineConfig, MachineConfigUpdate};
 use vmm::vmm_config::net::NetworkInterfaceConfig;
+use vmm::vmm_config::pvpanic::PvPanicConfig;
 use vmm::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendConfig, MemBackendType,
     SnapshotLoadHugePageConfig, SnapshotType,
@@ -379,6 +380,7 @@ fn verify_load_snapshot(
             resume_vm: true,
             network_overrides: vec![],
             vsock_override: None,
+            pvpanic_override: None,
             drive_overrides: vec![],
             pmem_overrides: vec![],
             clock_realtime: false,
@@ -453,6 +455,7 @@ fn test_load_snapshot_rejects_hugetlbfs_with_file_backend() {
             resume_vm: false,
             network_overrides: vec![],
             vsock_override: None,
+            pvpanic_override: None,
             drive_overrides: vec![],
             pmem_overrides: vec![],
             clock_realtime: false,
@@ -528,6 +531,7 @@ fn verify_load_snap_disallowed_after_boot_resources(res: VmmAction, res_name: &s
         resume_vm: false,
         network_overrides: vec![],
         vsock_override: None,
+        pvpanic_override: None,
         drive_overrides: vec![],
         pmem_overrides: vec![],
         clock_realtime: false,
@@ -603,4 +607,7 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
     let req =
         VmmAction::UpdateMachineConfiguration(MachineConfigUpdate::from(MachineConfig::default()));
     verify_load_snap_disallowed_after_boot_resources(req, "SetVmConfiguration");
+
+    let req = VmmAction::SetPvPanicDevice(PvPanicConfig::default());
+    verify_load_snap_disallowed_after_boot_resources(req, "SetPvPanicDevice");
 }

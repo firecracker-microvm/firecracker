@@ -14,7 +14,7 @@ use vmm::rpc_interface::{
     RuntimeApiController, VmmAction,
 };
 use vmm::seccomp::BpfThreadMap;
-use vmm::vmm_config::instance_info::InstanceInfo;
+use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::{EventManager, FcExitCode, Vmm};
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
@@ -66,14 +66,19 @@ impl ApiServerAdapter {
             request: None,
         }));
         event_manager.add_subscriber(api_adapter.clone());
+        let mut was_running =
+            vmm.lock().expect("Poisoned lock").instance_info.state == VmState::Running;
         loop {
             event_manager
                 .run()
                 .expect("EventManager events driver fatal error");
-            api_adapter
-                .lock()
-                .expect("Poisoned lock")
-                .handle_request(event_manager);
+            {
+                let mut api_adapter = api_adapter.lock().expect("Poisoned lock");
+                let request_is_pause = api_adapter.handle_request(event_manager);
+                if was_running || request_is_pause {
+                    api_adapter.wait_until_resumed(event_manager, &vmm);
+                }
+            }
 
             let mut locked_vmm = vmm.lock().expect("Poisoned lock");
             locked_vmm.complete_hotplug_removals(event_manager);
@@ -81,7 +86,7 @@ impl ApiServerAdapter {
             match locked_vmm.shutdown_exit_code() {
                 Some(FcExitCode::Ok) => break,
                 Some(exit_code) => return Err(ApiServerError::MicroVMStoppedWithError(exit_code)),
-                None => continue,
+                None => was_running = locked_vmm.instance_info.state == VmState::Running,
             }
         }
         Ok(())
@@ -89,7 +94,7 @@ impl ApiServerAdapter {
 
     fn _handle_request(&mut self, req_action: VmmAction, event_manager: &mut EventManager) {
         // This is called in the main event loop, but also needs to be called
-        // here due to the inner loop in handle_request() when the VM is
+        // here due to the inner loop in wait_until_resumed() when the VM is
         // paused. Without it a CreateSnapshot request might arrive while
         // removals are still pending corrupting the snapshot state.
         self.controller.complete_hotplug_removals(event_manager);
@@ -102,30 +107,25 @@ impl ApiServerAdapter {
             .expect("one-shot channel closed");
     }
 
-    fn handle_request(&mut self, event_manager: &mut EventManager) {
-        if let Some(api_request) = self.request.take() {
-            let request_is_pause = *api_request == VmmAction::Pause;
-            self._handle_request(*api_request, event_manager);
+    fn handle_request(&mut self, event_manager: &mut EventManager) -> bool {
+        let Some(api_request) = self.request.take() else {
+            return false;
+        };
+        let request_is_pause = *api_request == VmmAction::Pause;
+        self._handle_request(*api_request, event_manager);
+        request_is_pause
+    }
 
-            // If the latest req is a pause request, temporarily switch to a mode where we
-            // do blocking `recv`s on the `from_api` receiver in a loop, until we get
-            // unpaused. The device emulation is implicitly paused since we do not
-            // return to `run_microvm` and hence `event_manager.run()` is not called
-            // again: device fds (virtqueue notifications, tap, rate limiters, timers)
-            // are not polled until we break out of this loop on `Resume`.
-            if request_is_pause {
-                // This loop only attempts to process API requests, so things like the
-                // metric flush timerfd handling are frozen as well (an explicit `FlushMetrics`
-                // request still goes through).
-                loop {
-                    let req = self.from_api.recv().expect("Error receiving API request.");
-                    let req_is_resume = *req == VmmAction::Resume;
-                    self._handle_request(*req, event_manager);
-                    if req_is_resume {
-                        break;
-                    }
-                }
-            }
+    fn wait_until_resumed(&mut self, event_manager: &mut EventManager, vmm: &Mutex<Vmm>) {
+        // This loop only attempts to process API requests, so things like the
+        // metric flush timerfd handling are frozen as well (an explicit `FlushMetrics`
+        // request still goes through).
+        while {
+            let vmm = vmm.lock().expect("Poisoned lock");
+            vmm.instance_info.state == VmState::Paused && vmm.shutdown_exit_code().is_none()
+        } {
+            let req = self.from_api.recv().expect("Error receiving API request.");
+            self._handle_request(*req, event_manager);
         }
     }
 }

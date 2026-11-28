@@ -517,6 +517,15 @@ fn create_gpio_keys_node(fdt: &mut FdtWriter) -> Result<(), FdtError> {
     Ok(())
 }
 
+fn create_pvpanic_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<(), FdtError> {
+    // The pvpanic MMIO binding describes a single register range and no interrupt.
+    let node = fdt.begin_node(&format!("pvpanic@{:x}", dev_info.addr))?;
+    fdt.property_string("compatible", "qemu,pvpanic-mmio")?;
+    fdt.property_array_u64("reg", &[dev_info.addr, dev_info.len])?;
+    fdt.end_node(node)?;
+    Ok(())
+}
+
 fn create_devices_node(
     fdt: &mut FdtWriter,
     device_manager: &DeviceManager,
@@ -535,6 +544,10 @@ fn create_devices_node(
     {
         create_gpio_pl061_node(fdt, gpio_pl061_info)?;
         create_gpio_keys_node(fdt)?;
+    }
+
+    if let Some(pvpanic_info) = device_manager.mmio_platform_devices.pvpanic_device_info() {
+        create_pvpanic_node(fdt, pvpanic_info)?;
     }
 
     if let Some(mmio_virtio_devices) = device_manager.mmio_virtio_devices() {
@@ -636,6 +649,7 @@ mod tests {
     use crate::device_manager::tests::{default_device_manager, mmio_devices_mut};
     use crate::test_utils::arch_mem;
     use crate::utils::u64_to_usize;
+    use crate::vmm_config::pvpanic::PvPanicAction;
     use crate::vstate::memory::GuestAddress;
     use crate::{EventManager, Kvm};
 
@@ -657,10 +671,10 @@ mod tests {
         let kvm = Kvm::new(vec![]).unwrap();
         let vm = KvmVm::new(kvm).unwrap();
         let gic = create_gic(vm.fd(), 1, None).unwrap();
-        let initrd = InitrdConfig {
+        let initrd = Some(InitrdConfig {
             address: GuestAddress(0x1000_0000),
             size: 0x1000,
-        };
+        });
 
         let mut cmdline = Cmdline::new(4096).unwrap();
         cmdline.insert("console", "/dev/tty0").unwrap();
@@ -686,7 +700,7 @@ mod tests {
             CString::new("console=tty0").unwrap(),
             &device_manager,
             &gic,
-            &Some(initrd),
+            &initrd,
         )
         .unwrap();
         let generated_fdt = device_tree::DeviceTree::load(&dtb_bytes).unwrap();
@@ -714,5 +728,46 @@ mod tests {
             .map(|c| &c.name)
             .collect();
         assert_eq!(&generated_root_names, &expected_root_nodes);
+
+        device_manager
+            .attach_pvpanic_device(&vm, PvPanicAction::None)
+            .unwrap();
+        let resources = device_manager
+            .mmio_platform_devices
+            .pvpanic_device_info()
+            .unwrap();
+        let dtb_bytes = create_fdt(
+            &mem,
+            vec![0],
+            CString::new("console=tty0").unwrap(),
+            &device_manager,
+            &gic,
+            &initrd,
+        )
+        .unwrap();
+        let with_pvpanic = device_tree::DeviceTree::load(&dtb_bytes).unwrap();
+        assert_eq!(
+            with_pvpanic.root.children.len(),
+            expected_root_nodes.len() + 1
+        );
+        let node = with_pvpanic
+            .root
+            .children
+            .iter()
+            .find(|node| node.name == format!("pvpanic@{:x}", resources.addr))
+            .unwrap();
+        let compatible = &node
+            .props
+            .iter()
+            .find(|(name, _)| name == "compatible")
+            .unwrap()
+            .1;
+        assert_eq!(compatible, b"qemu,pvpanic-mmio\0");
+        let reg = &node.props.iter().find(|(name, _)| name == "reg").unwrap().1;
+        assert_eq!(
+            reg,
+            &[resources.addr.to_be_bytes(), resources.len.to_be_bytes()].concat()
+        );
+        assert!(!node.props.iter().any(|(name, _)| name == "interrupts"));
     }
 }

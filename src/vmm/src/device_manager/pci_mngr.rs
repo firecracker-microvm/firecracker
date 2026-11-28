@@ -1219,6 +1219,7 @@ mod tests {
   "entropy": {{
     "rate_limiter": null
   }},
+  "pvpanic": null,
   "pmem": [
     {{
       "id": "pmem",

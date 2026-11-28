@@ -26,6 +26,7 @@
   - [Resuming the microVM](#resuming-the-microvm)
   - [Loading snapshots](#loading-snapshots)
     - [Overriding host resources](#overriding-host-resources)
+    - [Overriding the pvpanic action](#overriding-the-pvpanic-action)
 - [Provisioning host disk space for snapshots](#provisioning-host-disk-space-for-snapshots)
 - [Ensure continued network connectivity for clones](#ensure-continued-network-connectivity-for-clones)
 - [Snapshot security and uniqueness](#snapshot-security-and-uniqueness)
@@ -589,6 +590,21 @@ before the snapshot, and is not notified of any change to the backing file.
 vhost-user block devices do not support snapshots, so they cannot be overridden.
 Loading the snapshot fails if an override targets a device that the snapshot
 does not contain.
+
+#### Overriding the pvpanic action
+
+For snapshots containing a [pvpanic device](../pvpanic.md), `PUT /snapshot/load`
+accepts `pvpanic_override: {"panic_action": "none"}` or
+`pvpanic_override: {"panic_action": "pause"}`. Omission or `null` preserves the
+saved action. An override object must contain `panic_action`; `{}` is invalid.
+Loading fails with HTTP 400 if the snapshot has no pvpanic device.
+
+The override changes only the existing device's action, before restoration and
+any guest execution. It does not modify the original snapshot file. Subsequent
+snapshots save the effective action, which is also returned by `GET /vm/config`.
+Restore creates a new notification eventfd and rearms panic reporting without
+rebooting the guest. The panic metric is a process-local latch and is not reset
+by loading a snapshot in the same Firecracker process.
 
 ## Provisioning host disk space for snapshots
 

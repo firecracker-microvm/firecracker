@@ -7,7 +7,7 @@
 
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Barrier, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use vmm_sys_util::eventfd::EventFd;
 
@@ -17,7 +17,7 @@ use crate::devices::virtio::device_status;
 use crate::devices::virtio::queue::QueueConfig;
 use crate::logger::{IncMetric, METRICS, error, warn};
 use crate::utils::byte_order;
-use crate::vstate::bus::BusDevice;
+use crate::vstate::bus::{BusDevice, BusWriteAction};
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
@@ -303,7 +303,7 @@ impl BusDevice for MmioTransport {
         };
     }
 
-    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> BusWriteAction {
         fn hi(v: &mut GuestAddress, x: u32) {
             *v = (*v & 0xffff_ffff) | (u64::from(x) << 32)
         }
@@ -371,7 +371,7 @@ impl BusDevice for MmioTransport {
                 );
             }
         }
-        None
+        BusWriteAction::Continue
     }
 }
 

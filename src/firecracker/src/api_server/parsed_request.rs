@@ -28,6 +28,7 @@ use super::request::metrics::parse_put_metrics;
 use super::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
 use super::request::net::{parse_patch_net, parse_put_net};
 use super::request::pmem::{parse_patch_pmem, parse_put_pmem};
+use super::request::pvpanic::parse_put_pvpanic;
 use super::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
 use super::request::version::parse_get_version;
 use super::request::vsock::parse_put_vsock;
@@ -120,6 +121,9 @@ impl TryFrom<&Request> for ParsedRequest {
                 parse_put_device_passthrough(body, path_tokens.next())
             }
             (Method::Put, "entropy", Some(body)) => parse_put_entropy(body),
+            (Method::Put, "pvpanic", Some(body)) if path_tokens.next().is_none() => {
+                parse_put_pvpanic(body)
+            }
             (Method::Put, "hotplug", Some(body)) if path_tokens.next() == Some("memory") => {
                 parse_put_memory_hotplug(body)
             }

@@ -1,12 +1,10 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::{Arc, Barrier};
-
 use utils::time::TimestampUs;
 
 use crate::logger::info;
-use crate::vstate::bus::BusDevice;
+use crate::vstate::bus::{BusDevice, BusWriteAction};
 
 const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
 
@@ -17,10 +15,10 @@ pub struct BootTimer {
 }
 
 impl BusDevice for BootTimer {
-    fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> BusWriteAction {
         // Only handle byte length instructions at a zero offset.
         if data.len() != 1 || offset != 0 {
-            return None;
+            return BusWriteAction::Continue;
         }
 
         if data[0] == MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE {
@@ -37,7 +35,7 @@ impl BusDevice for BootTimer {
             );
         }
 
-        None
+        BusWriteAction::Continue
     }
 
     fn read(&mut self, _base: u64, _offset: u64, _data: &mut [u8]) {}

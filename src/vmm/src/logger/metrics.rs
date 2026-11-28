@@ -906,12 +906,15 @@ impl InterruptMetrics {
 pub struct VmmMetrics {
     /// Metric for signaling a panic has occurred.
     pub panic_count: SharedStoreMetric,
+    /// Indicates whether a guest kernel panic has been reported (0 or 1).
+    pub guest_panic_count: SharedStoreMetric,
 }
 impl VmmMetrics {
     /// Const default construction.
     pub const fn new() -> Self {
         Self {
             panic_count: SharedStoreMetric::new(),
+            guest_panic_count: SharedStoreMetric::new(),
         }
     }
 }
@@ -1220,8 +1223,15 @@ mod tests {
 
     #[test]
     fn test_serialize() {
-        let s = serde_json::to_string(&FirecrackerMetrics::default());
-        s.unwrap();
+        let metrics = FirecrackerMetrics::new();
+        let value = serde_json::to_value(&metrics).unwrap();
+        assert_eq!(value["vmm"]["guest_panic_count"], 0);
+        metrics.vmm.guest_panic_count.store(1);
+        for _ in 0..2 {
+            let value = serde_json::to_value(&metrics).unwrap();
+            assert_eq!(value["vmm"]["guest_panic_count"], 1);
+            assert_eq!(value["vmm"]["panic_count"], 0);
+        }
     }
 
     #[test]

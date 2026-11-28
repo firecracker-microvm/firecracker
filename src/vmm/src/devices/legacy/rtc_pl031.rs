@@ -8,6 +8,8 @@ use vm_superio::Rtc;
 use vm_superio::rtc_pl031::RtcEvents;
 
 use crate::logger::{IncMetric, SharedIncMetric, warn};
+#[cfg(target_arch = "aarch64")]
+use crate::vstate::bus::BusWriteAction;
 
 /// Metrics specific to the RTC device.
 #[derive(Debug, Serialize, Default)]
@@ -127,14 +129,9 @@ impl crate::vstate::bus::BusDevice for RTCDevice {
         self.bus_read(offset, data)
     }
 
-    fn write(
-        &mut self,
-        _base: u64,
-        offset: u64,
-        data: &[u8],
-    ) -> Option<std::sync::Arc<std::sync::Barrier>> {
+    fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> BusWriteAction {
         self.bus_write(offset, data);
-        None
+        BusWriteAction::Continue
     }
 }
 

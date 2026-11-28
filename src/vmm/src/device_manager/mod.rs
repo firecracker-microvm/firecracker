@@ -36,7 +36,7 @@ use crate::devices::legacy::SerialDevice;
 use crate::devices::legacy::serial::{SerialOut, SerialOutInner};
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::{PL061Device, PL061Error, RTCDevice};
-use crate::devices::pseudo::BootTimer;
+use crate::devices::pseudo::{BootTimer, PvPanic};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::block::BlockError;
@@ -64,6 +64,7 @@ use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfaceError};
 use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
+use crate::vmm_config::pvpanic::PvPanicAction;
 use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::{KvmVm, Vm};
@@ -333,6 +334,39 @@ impl DeviceManager {
         Ok(())
     }
 
+    /// Create and attach an armed pvpanic device with dynamically allocated MMIO resources.
+    pub fn attach_pvpanic_device(
+        &mut self,
+        vm: &KvmVm,
+        panic_action: PvPanicAction,
+    ) -> Result<(), AttachDeviceError> {
+        let panic_evt =
+            Arc::new(EventFd::new(libc::EFD_NONBLOCK).map_err(MmioError::CreatePvPanicEvent)?);
+        let pvpanic = PvPanic::new(panic_evt, panic_action);
+        self.mmio_platform_devices
+            .register_mmio_pvpanic(vm, pvpanic, None)?;
+        Ok(())
+    }
+
+    /// Returns the shared eventfd signaled when the guest reports a panic.
+    pub fn pvpanic_evt(&self) -> Option<&EventFd> {
+        self.mmio_platform_devices
+            .pvpanic
+            .as_ref()
+            .map(|device| device.panic_evt.as_ref())
+    }
+
+    /// Returns the configured action, locking only the pvpanic device state.
+    pub fn pvpanic_action(&self) -> Option<PvPanicAction> {
+        self.mmio_platform_devices.pvpanic.as_ref().map(|device| {
+            device
+                .inner
+                .lock()
+                .expect("Poisoned pvpanic lock")
+                .panic_action()
+        })
+    }
+
     pub(crate) fn attach_vmgenid_device(&mut self, vm: &KvmVm) -> Result<(), AttachDeviceError> {
         self.acpi_devices.attach_vmgenid(vm)?;
         self.acpi_devices.activate_vmgenid(vm)?;
@@ -372,6 +406,7 @@ impl DeviceManager {
             VirtioDevices::Enclave(_) => (),
         }
 
+        self.mmio_platform_devices.append_aml_bytes(dsdt_data)?;
         self.acpi_devices.append_aml_bytes(dsdt_data)
     }
 

@@ -810,6 +810,34 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /pvpanic:
+    put:
+      summary: Creates/updates a pvpanic device. Pre-boot only.
+      description:
+        Enables guest panic reporting. An empty object selects the none action,
+        which reports panics without pausing the microVM. Repeated pre-boot
+        requests replace the configuration. Changes after boot or snapshot load
+        are rejected, including while paused. Not supported on Nitro Enclaves.
+      operationId: putPvPanicDevice
+      parameters:
+        - name: body
+          in: body
+          description: Guest panic reporting configuration
+          required: true
+          schema:
+            $ref: "#/definitions/PvPanic"
+      responses:
+        204:
+          description: Pvpanic device configured
+        400:
+          description: Invalid configuration or operation not supported after boot
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
   /serial:
     put:
       summary: Configures the serial console
@@ -1728,6 +1756,9 @@ definitions:
         $ref: "#/definitions/Vsock"
       entropy:
         $ref: "#/definitions/EntropyDevice"
+      pvpanic:
+        $ref: "#/definitions/PvPanic"
+        description: Null when disabled; otherwise the effective panic action.
       device-passthrough:
         type: array
         description: Configurations for all device passthrough devices.
@@ -2180,6 +2211,13 @@ definitions:
           for restoring a snapshot with a different socket path than the one used
           when the snapshot was created. For example, when the original socket path
           is no longer available or when deploying to a different environment.
+      pvpanic_override:
+        $ref: "#/definitions/PvPanicOverride"
+        description:
+          Overrides the action of an existing pvpanic device before restore and
+          guest execution. Omitted or null preserves the saved action. An override
+          is rejected if the snapshot has no pvpanic device. Does not modify the
+          snapshot file; subsequent snapshots save the effective action.
       drive_overrides:
         type: array
         description:
@@ -2259,6 +2297,30 @@ definitions:
         enum:
           - Paused
           - Resumed
+
+  PvPanic:
+    type: object
+    additionalProperties: false
+    description: Enables guest panic reporting over MMIO.
+    properties:
+      panic_action:
+        type: string
+        enum: [none, pause]
+        default: none
+        description:
+          none reports the panic without pausing. pause also pauses the microVM.
+          Neither action disables the device.
+
+  PvPanicOverride:
+    type: object
+    additionalProperties: false
+    required:
+      - panic_action
+    properties:
+      panic_action:
+        type: string
+        enum: [none, pause]
+        description: Panic action to use for the restored device.
 
   EntropyDevice:
     type: object

@@ -44,6 +44,7 @@ use crate::vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
 use crate::vmm_config::pmem::{PmemConfig, PmemConfigError, PmemDeviceUpdateConfig};
+use crate::vmm_config::pvpanic::PvPanicConfig;
 use crate::vmm_config::serial::SerialConfig;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
@@ -124,6 +125,8 @@ pub enum VmmAction {
     /// Set the entropy device using `EntropyDeviceConfig` as input. This action can only be called
     /// before the microVM has booted.
     SetEntropyDevice(EntropyDeviceConfig),
+    /// Sets or replaces the pvpanic configuration. This action is pre-boot only.
+    SetPvPanicDevice(PvPanicConfig),
     /// Add a passthrough device using `DevicePassthroughConfig` as input. After the microVM has
     /// booted, this hot-plugs the device.
     InsertPassthroughDevice(DevicePassthroughConfig),
@@ -534,6 +537,11 @@ impl<'a> PrebootApiController<'a> {
                     EnclaveConfigError::NotConfigured,
                 )),
             SetEntropyDevice(config) => self.set_entropy_device(config),
+            SetPvPanicDevice(config) => {
+                self.boot_path = true;
+                self.vm_resources.set_pvpanic_device(config);
+                Ok(VmmData::Empty)
+            }
             InsertPassthroughDevice(config) => self.insert_passthrough_device(config),
             SetMemoryHotplugDevice(config) => self.set_memory_hotplug_device(config),
             // Operations not allowed pre-boot.
@@ -961,6 +969,7 @@ impl RuntimeApiController {
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
             | SetEntropyDevice(_)
+            | SetPvPanicDevice(_)
             | SetMemoryHotplugDevice(_)
             | StartMicroVm
             | UpdateMachineConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
@@ -982,8 +991,8 @@ impl RuntimeApiController {
 
     /// Pauses the microVM by pausing the vCPUs.
     ///
-    /// Device emulation is not stopped here; `ApiServerAdapter::handle_request` stops
-    /// polling the event loop once this returns `Ok`.
+    /// Device emulation is not stopped here; the main event loop stops polling
+    /// device events once this returns `Ok`.
     pub fn pause(&mut self) -> Result<VmmData, VmmActionError> {
         let pause_start_us = get_time_us(ClockType::Monotonic);
 
@@ -1438,6 +1447,9 @@ mod tests {
         check_unsupported(runtime_request(VmmAction::SetBalloonDevice(
             BalloonDeviceConfig::default(),
         )));
+        check_unsupported(runtime_request(VmmAction::SetPvPanicDevice(
+            PvPanicConfig::default(),
+        )));
         check_unsupported(runtime_request(VmmAction::SetVsockDevice(
             VsockDeviceConfig {
                 vsock_id: Some(String::new()),
@@ -1468,6 +1480,7 @@ mod tests {
                 resume_vm: false,
                 network_overrides: vec![],
                 vsock_override: None,
+                pvpanic_override: None,
                 drive_overrides: vec![],
                 pmem_overrides: vec![],
                 clock_realtime: false,

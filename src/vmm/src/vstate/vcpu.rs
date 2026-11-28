@@ -26,7 +26,7 @@ use crate::gdb::target::{GdbTargetError, get_raw_tid};
 use crate::logger::{IncMetric, METRICS, error, info, warn};
 use crate::seccomp::{BpfProgram, BpfProgramRef};
 use crate::utils::signal::{Killable, register_signal_handler, sigrtmin};
-use crate::vstate::bus::Bus;
+use crate::vstate::bus::{Bus, BusWriteAction};
 use crate::vstate::vm::KvmVm;
 
 /// Signal number (SIGRTMIN) used to kick Vcpus.
@@ -252,8 +252,7 @@ impl Vcpu {
                 // specific. On x86 the i8042 emulation signals the main thread
                 // directly without calling Vcpu::exit().
                 Ok(VcpuEmulation::Stopped) => return self.exit(FcExitCode::Ok),
-                // If the emulation requests a pause lets do this
-                #[cfg(feature = "gdb")]
+                // Pause without sending an unsolicited response to the VMM.
                 Ok(VcpuEmulation::Paused) => {
                     #[cfg(target_arch = "x86_64")]
                     self.kvm_vcpu.kvmclock_ctrl();
@@ -407,24 +406,54 @@ impl Vcpu {
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
     pub fn run_emulation(&mut self) -> Result<VcpuEmulation, VcpuError> {
-        match self.kvm_vcpu.fd.run() {
-            Err(ref err) if err.errno() == libc::EINTR => {
-                self.kvm_vcpu.fd.set_kvm_immediate_exit(0);
-                // Notify that this KVM_RUN was interrupted.
-                Ok(VcpuEmulation::Interrupted)
-            }
-            #[cfg(feature = "gdb")]
-            Ok(VcpuExit::Debug(_)) => {
-                if let Some(gdb_event) = &self.gdb_event {
-                    gdb_event
-                        .send(get_raw_tid(self.kvm_vcpu.index.into()))
-                        .expect("Unable to notify gdb event");
+        let mut pause_requested = false;
+        loop {
+            let emulation = match self.kvm_vcpu.fd.run() {
+                Err(ref err) if err.errno() == libc::EINTR => {
+                    self.kvm_vcpu.fd.set_kvm_immediate_exit(0);
+                    return Ok(if pause_requested {
+                        VcpuEmulation::Paused
+                    } else {
+                        VcpuEmulation::Interrupted
+                    });
                 }
+                #[cfg(feature = "gdb")]
+                Ok(VcpuExit::Debug(_)) => {
+                    if let Some(gdb_event) = &self.gdb_event {
+                        gdb_event
+                            .send(get_raw_tid(self.kvm_vcpu.index.into()))
+                            .expect("Unable to notify gdb event");
+                    }
 
-                Ok(VcpuEmulation::Paused)
+                    return Ok(VcpuEmulation::Paused);
+                }
+                emulation_result => {
+                    handle_kvm_exit(&mut self.kvm_vcpu.peripherals, emulation_result)?
+                }
+            };
+            match emulation {
+                VcpuEmulation::Paused => {
+                    // KVM must complete the pending MMIO/PIO instruction before we pause.
+                    // Re-enter with immediate_exit so the following instruction cannot run.
+                    pause_requested = true;
+                    self.kvm_vcpu.fd.set_kvm_immediate_exit(1);
+                }
+                VcpuEmulation::Handled if pause_requested => (),
+                other => return Ok(other),
             }
-            emulation_result => handle_kvm_exit(&mut self.kvm_vcpu.peripherals, emulation_result),
         }
+    }
+}
+
+/// Consume a device write action after the bus and device locks have been released.
+pub(crate) fn handle_bus_write_action(action: BusWriteAction) -> VcpuEmulation {
+    match action {
+        BusWriteAction::Continue => VcpuEmulation::Handled,
+        BusWriteAction::WaitFor(barrier) => {
+            barrier.wait();
+            VcpuEmulation::Handled
+        }
+        BusWriteAction::PauseVcpu => VcpuEmulation::Paused,
     }
 }
 
@@ -447,14 +476,23 @@ fn handle_kvm_exit(
                 Ok(VcpuEmulation::Handled)
             }
             VcpuExit::MmioWrite(addr, data) => {
+                // By default, we continue execution (VcpuHandled) if there is no mmio_bus
+                // or mmio write errors.
+                let mut action = BusWriteAction::Continue;
+
+                // Update the action based on the mmio_bus write result.
                 if let Some(mmio_bus) = &peripherals.mmio_bus {
                     let _metric = METRICS.vcpu.exit_mmio_write_agg.record_latency_metrics();
-                    if let Err(err) = mmio_bus.write(addr, data) {
-                        warn!("Invalid MMIO read @ {addr:#x}:{:#x}: {err}", data.len());
+                    match mmio_bus.write(addr, data) {
+                        Ok(act) => action = act,
+                        Err(err) => {
+                            warn!("Invalid MMIO write @ {addr:#x}:{:#x}: {err}", data.len())
+                        }
                     }
                     METRICS.vcpu.exit_mmio_write.inc();
                 }
-                Ok(VcpuEmulation::Handled)
+
+                Ok(handle_bus_write_action(action))
             }
             // Documentation specifies that below kvm exits are considered
             // errors.
@@ -675,8 +713,7 @@ pub enum VcpuEmulation {
     Interrupted,
     /// Stopped.
     Stopped,
-    /// Pause request
-    #[cfg(feature = "gdb")]
+    /// Pause request.
     Paused,
 }
 
@@ -708,8 +745,20 @@ pub(crate) mod tests {
     impl BusDevice for DummyDevice {
         fn read(&mut self, _base: u64, _offset: u64, _data: &mut [u8]) {}
 
-        fn write(&mut self, _base: u64, _offset: u64, _data: &[u8]) -> Option<Arc<Barrier>> {
-            None
+        fn write(&mut self, _base: u64, _offset: u64, _data: &[u8]) -> BusWriteAction {
+            BusWriteAction::Continue
+        }
+    }
+
+    struct WriteActionDevice {
+        action: BusWriteAction,
+        writes: usize,
+    }
+
+    impl BusDevice for WriteActionDevice {
+        fn write(&mut self, _base: u64, _offset: u64, _data: &[u8]) -> BusWriteAction {
+            self.writes += 1;
+            std::mem::take(&mut self.action)
         }
     }
 
@@ -1064,6 +1113,122 @@ pub(crate) mod tests {
         assert_eq!(vcpu.run_emulation().unwrap(), VcpuEmulation::Handled);
         assert_eq!(vcpu.kvm_vcpu.fd.get_kvm_run().exit_reason, KVM_EXIT_MMIO);
         assert_eq!(read_mmio_load_regs(&vcpu).1, 1);
+    }
+
+    #[test]
+    fn test_pause_vcpu_completes_pending_io() {
+        #[cfg(target_arch = "aarch64")]
+        use crate::arch::aarch64::vcpu::tests::{read_mmio_load_regs, setup_mmio_load_vcpu};
+        #[cfg(target_arch = "x86_64")]
+        use crate::arch::x86_64::vcpu::tests::{read_mmio_load_regs, setup_mmio_load_vcpu};
+        use crate::vstate::memory::Bytes;
+
+        #[cfg(target_arch = "x86_64")]
+        let programs: &[(&[u8], u64, bool)] = &[
+            (
+                &[
+                    0xbe, 0x00, 0x40, // mov si, 0x4000
+                    0xb8, 0xa5, 0x00, // mov ax, 0xa5
+                    0x31, 0xdb, // xor bx, bx
+                    0x88, 0x04, // mov [si], al
+                    0x43, // inc bx
+                    0x88, 0x04, // mov [si], al
+                ],
+                0x100a,
+                false,
+            ),
+            (
+                &[
+                    0xba, 0x10, 0x00, // mov dx, 0x10
+                    0xb8, 0xa5, 0x00, // mov ax, 0xa5
+                    0x31, 0xdb, // xor bx, bx
+                    0xee, // out dx, al
+                    0x43, // inc bx
+                    0xee, // out dx, al
+                ],
+                0x1009,
+                true,
+            ),
+        ];
+        #[cfg(target_arch = "aarch64")]
+        let programs: &[(&[u8], u64, bool)] = &[(
+            &[
+                0x00, 0x00, 0x88, 0xd2, // mov x0, #0x4000
+                0xa1, 0x14, 0x80, 0xd2, // mov x1, #0xa5
+                0x02, 0x00, 0x80, 0xd2, // mov x2, #0
+                0x01, 0x00, 0x00, 0x39, // strb w1, [x0]
+                0x42, 0x04, 0x00, 0x91, // add x2, x2, #1
+                0x01, 0x00, 0x00, 0x39, // strb w1, [x0]
+            ],
+            0x1010,
+            false,
+        )];
+
+        for &(code, completed_pc, pio) in programs {
+            let (vm, mut vcpu) = setup_mmio_load_vcpu();
+            vm.guest_memory()
+                .write_slice(code, GuestAddress(0x1000))
+                .unwrap();
+            let bus = Arc::new(Bus::new());
+            let device = Arc::new(Mutex::new(WriteActionDevice {
+                action: BusWriteAction::PauseVcpu,
+                writes: 0,
+            }));
+            bus.insert(device.clone(), if pio { 0x10 } else { 0x4000 }, 1)
+                .unwrap();
+            #[cfg(target_arch = "x86_64")]
+            if pio {
+                vcpu.kvm_vcpu.peripherals.pio_bus = Some(bus.clone());
+            }
+            vcpu.set_mmio_bus(bus);
+
+            assert!(matches!(vcpu.running(), VcpuRunState::Paused));
+            assert_eq!(vcpu.kvm_vcpu.fd.get_kvm_run().immediate_exit, 0);
+            assert_eq!(
+                read_mmio_load_regs(&vcpu).2,
+                completed_pc,
+                "Write must advance PC"
+            );
+            assert_eq!(
+                read_mmio_load_regs(&vcpu).1,
+                0,
+                "Next instruction must not execute"
+            );
+            assert_eq!(device.lock().unwrap().writes, 1);
+            let responses = vcpu.response_receiver.as_ref().unwrap();
+            assert!(matches!(responses.try_recv(), Err(TryRecvError::Empty)));
+
+            // A self-paused vCPU still acknowledges the VMM's Pause request exactly once.
+            vcpu.event_sender
+                .as_ref()
+                .unwrap()
+                .send(VcpuEvent::Pause)
+                .unwrap();
+            assert!(matches!(vcpu.paused(), VcpuRunState::Paused));
+            assert_eq!(
+                vcpu.response_receiver.as_ref().unwrap().try_recv().unwrap(),
+                VcpuResponse::Paused
+            );
+            vcpu.event_sender
+                .as_ref()
+                .unwrap()
+                .send(VcpuEvent::Resume)
+                .unwrap();
+            assert!(matches!(vcpu.paused(), VcpuRunState::Running));
+            assert_eq!(
+                vcpu.response_receiver.as_ref().unwrap().try_recv().unwrap(),
+                VcpuResponse::Resumed
+            );
+
+            // Resume executes the marker and the second write, without repeating the first.
+            assert_eq!(vcpu.run_emulation().unwrap(), VcpuEmulation::Handled);
+            assert_eq!(read_mmio_load_regs(&vcpu).1, 1);
+            assert_eq!(device.lock().unwrap().writes, 2);
+            assert!(matches!(
+                vcpu.response_receiver.as_ref().unwrap().try_recv(),
+                Err(TryRecvError::Empty)
+            ));
+        }
     }
 
     #[test]

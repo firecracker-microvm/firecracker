@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use super::machine_config::HugePageConfig;
+use super::pvpanic::PvPanicAction;
 
 /// The snapshot type options that are available when
 /// creating a new snapshot.
@@ -72,6 +73,41 @@ pub struct NetworkOverride {
 pub struct VsockOverride {
     /// The path to the UDS that will be used for the vsock interface
     pub uds_path: String,
+}
+
+/// Overrides the panic action of an existing pvpanic device on snapshot restore.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PvPanicOverride {
+    /// Action to use after restore. Must be explicitly provided.
+    pub panic_action: PvPanicAction,
+}
+
+impl<'de> Deserialize<'de> for PvPanicOverride {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Fields {
+            panic_action: PvPanicAction,
+        }
+        struct OverrideVisitor;
+        impl<'de> serde::de::Visitor<'de> for OverrideVisitor {
+            type Value = PvPanicOverride;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a pvpanic override object with panic_action")
+            }
+            fn visit_map<M: serde::de::MapAccess<'de>>(
+                self,
+                map: M,
+            ) -> Result<Self::Value, M::Error> {
+                let fields =
+                    Fields::deserialize(serde::de::value::MapAccessDeserializer::new(map))?;
+                Ok(PvPanicOverride {
+                    panic_action: fields.panic_action,
+                })
+            }
+        }
+        deserializer.deserialize_map(OverrideVisitor)
+    }
 }
 
 /// Allows for changing the backing file of a block device during snapshot restore
@@ -138,6 +174,8 @@ pub struct LoadSnapshotParams {
     pub network_overrides: Vec<NetworkOverride>,
     /// When set, the vsock backend UDS path will be overridden
     pub vsock_override: Option<VsockOverride>,
+    /// When set, replaces the pvpanic action saved in the snapshot.
+    pub pvpanic_override: Option<PvPanicOverride>,
     /// The block devices whose backing files to override on load.
     pub drive_overrides: Vec<DriveOverride>,
     /// The pmem devices whose backing files to override on load.
@@ -180,6 +218,8 @@ pub struct LoadSnapshotConfig {
     /// Whether or not to override the vsock backend UDS path.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vsock_override: Option<VsockOverride>,
+    /// When set, replaces the pvpanic action saved in the snapshot.
+    pub pvpanic_override: Option<PvPanicOverride>,
     /// The block devices whose backing files to override on load.
     #[serde(default)]
     pub drive_overrides: Vec<DriveOverride>,
@@ -219,4 +259,49 @@ pub enum VmState {
 pub struct Vm {
     /// The microVM state, which can be `paused` or `resumed`.
     pub state: VmState,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_snapshot_pvpanic_override_parser() {
+        for (field, expected) in [
+            ("", None),
+            (r#", "pvpanic_override":null"#, None),
+            (
+                r#", "pvpanic_override":{"panic_action":"none"}"#,
+                Some(PvPanicOverride {
+                    panic_action: PvPanicAction::None,
+                }),
+            ),
+            (
+                r#", "pvpanic_override":{"panic_action":"pause"}"#,
+                Some(PvPanicOverride {
+                    panic_action: PvPanicAction::Pause,
+                }),
+            ),
+        ] {
+            let json = format!(r#"{{"snapshot_path":"state","mem_file_path":"mem"{field}}}"#);
+            let parsed = serde_json::from_str::<LoadSnapshotConfig>(&json).unwrap();
+            assert_eq!(parsed.pvpanic_override, expected, "{json}");
+        }
+        for input in [
+            "{}",
+            "[]",
+            "true",
+            r#"{"panic_action":null}"#,
+            r#"{"panic_action":"Pause"}"#,
+            r#"{"panic_action":"none","unknown":1}"#,
+        ] {
+            let json = format!(
+                r#"{{"snapshot_path":"state","mem_file_path":"mem","pvpanic_override":{input}}}"#
+            );
+            assert!(
+                serde_json::from_str::<LoadSnapshotConfig>(&json).is_err(),
+                "{json}"
+            );
+        }
+    }
 }

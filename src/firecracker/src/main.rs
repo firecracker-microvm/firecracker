@@ -696,7 +696,13 @@ fn run_without_api(
         match locked_vmm.shutdown_exit_code() {
             Some(FcExitCode::Ok) => break,
             Some(exit_code) => return Err(RunWithoutApiError::Shutdown(exit_code)),
-            None => continue,
+            None => {}
+        }
+        if locked_vmm.instance_info.state == VmState::Paused {
+            drop(locked_vmm);
+            loop {
+                std::thread::park();
+            }
         }
     }
     Ok(())

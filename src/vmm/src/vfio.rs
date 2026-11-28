@@ -4,7 +4,7 @@
 use std::ops::DerefMut;
 use std::os::fd::AsRawFd;
 use std::path::Path;
-use std::sync::{Arc, Barrier};
+use std::sync::Arc;
 
 use arrayvec::ArrayVec;
 use kvm_bindings::{
@@ -34,7 +34,7 @@ use crate::utils::{
     u64_to_usize, usize_to_u64,
 };
 use crate::vmm_config::device_passthrough::DevicePassthroughConfig;
-use crate::vstate::bus::{BusDevice, BusError};
+use crate::vstate::bus::{BusDevice, BusError, BusWriteAction};
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::{GuestMemoryMmap, GuestRegionType};
 use crate::vstate::resources::ResourceAllocator;
@@ -319,7 +319,7 @@ impl BusDevice for VfioDevice {
         }
     }
 
-    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> BusWriteAction {
         match vfio_distribute_emulated_access(
             &self.emulated_areas,
             &self.msix_state.cap,
@@ -345,7 +345,7 @@ impl BusDevice for VfioDevice {
                 self.device.region_write(bar_idx as u32, data, offset);
             }
         }
-        None
+        BusWriteAction::Continue
     }
 }
 
@@ -384,12 +384,7 @@ fn vfio_device_reset_command_reg(device: &InternalVfioDevice) {
 }
 
 impl PciDevice for VfioDevice {
-    fn write_config_register(
-        &mut self,
-        reg_idx: u16,
-        offset: u8,
-        data: &[u8],
-    ) -> Option<Arc<Barrier>> {
+    fn write_config_register(&mut self, reg_idx: u16, offset: u8, data: &[u8]) -> BusWriteAction {
         let mut handled: bool = false;
         if BAR0_REG_IDX <= reg_idx && reg_idx < BAR0_REG_IDX + u16::from(NUM_BAR_REGS) {
             // reg_idx is in [BAR0_REG, BAR0_REG+NUM_BAR_REGS), so the difference is 0..5.
@@ -453,7 +448,7 @@ impl PciDevice for VfioDevice {
             self.device
                 .region_write(VFIO_PCI_CONFIG_REGION_INDEX, data, config_offset);
         }
-        None
+        BusWriteAction::Continue
     }
     fn read_config_register(&mut self, reg_idx: u16) -> u32 {
         let mut result: u32 = 0;

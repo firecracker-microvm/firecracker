@@ -34,6 +34,7 @@ use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError, init_metrics
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::pmem::{PmemBuilder, PmemConfig, PmemConfigError};
+use crate::vmm_config::pvpanic::PvPanicConfig;
 use crate::vmm_config::serial::SerialConfig;
 use crate::vmm_config::vsock::*;
 use crate::vstate::memory;
@@ -111,6 +112,7 @@ pub struct VmmConfig {
     pub network_interfaces: Vec<NetworkInterfaceConfig>,
     pub vsock: Option<VsockDeviceConfig>,
     pub entropy: Option<EntropyDeviceConfig>,
+    pub pvpanic: Option<PvPanicConfig>,
     #[serde(default, rename = "pmem")]
     pub pmem_devices: Vec<PmemConfig>,
     #[serde(skip)]
@@ -141,6 +143,8 @@ pub struct VmResources {
     pub net_builder: NetBuilder,
     /// The entropy device builder.
     pub entropy: EntropyDeviceBuilder,
+    /// Optional pvpanic device configuration.
+    pub pvpanic: Option<PvPanicConfig>,
     /// The pmem device configs.
     pub pmem: PmemBuilder,
     /// The memory hotplug configuration.
@@ -272,6 +276,10 @@ impl VmResources {
             resources.build_entropy_device(entropy_device_config)?;
         }
 
+        if let Some(pvpanic_config) = vmm_config.pvpanic {
+            resources.set_pvpanic_device(pvpanic_config);
+        }
+
         for pmem_config in vmm_config.pmem_devices.into_iter() {
             resources.build_pmem_device(pmem_config)?;
         }
@@ -294,6 +302,11 @@ impl VmResources {
         }
 
         Ok(resources)
+    }
+
+    /// Sets or replaces the pvpanic boot configuration.
+    pub fn set_pvpanic_device(&mut self, config: PvPanicConfig) {
+        self.pvpanic = Some(config);
     }
 
     /// Validate the VM configuration for incompatibilities
@@ -717,6 +730,7 @@ impl From<&VmResources> for VmmConfig {
             network_interfaces: resources.net_builder.configs(),
             vsock: resources.vsock.config(),
             entropy: resources.entropy.config(),
+            pvpanic: resources.pvpanic,
             pmem_devices: resources.pmem.configs.clone(),
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots.
             serial_config: None,
@@ -760,6 +774,39 @@ mod tests {
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vstate::vm::MAX_SUPPORTED_KVM_VCPUS;
+
+    #[test]
+    fn test_pvpanic_resources_from_json() {
+        let kernel = TempFile::new().unwrap();
+        for (input, expected) in [
+            (None, Value::Null),
+            (Some(Value::Null), Value::Null),
+            (
+                Some(serde_json::json!({"panic_action": "pause"})),
+                serde_json::json!({"panic_action": "pause"}),
+            ),
+        ] {
+            let mut config = serde_json::json!({
+                "boot-source": {"kernel_image_path": kernel.as_path()}, "drives": []
+            });
+            if let Some(input) = input {
+                config["pvpanic"] = input;
+            }
+            let resources = VmResources::from_json(
+                &config.to_string(),
+                &InstanceInfo::default(),
+                HTTP_MAX_PAYLOAD_SIZE,
+                None,
+                false,
+            )
+            .unwrap();
+            assert_eq!(
+                serde_json::to_value(VmmConfig::from(&resources)).unwrap()["pvpanic"],
+                expected,
+                "{config}"
+            );
+        }
+    }
 
     fn default_net_cfg() -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {
@@ -844,6 +891,7 @@ mod tests {
             boot_timer: false,
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
             entropy: Default::default(),
+            pvpanic: None,
             pmem: Default::default(),
             pci_enabled: false,
             serial_out_path: None,

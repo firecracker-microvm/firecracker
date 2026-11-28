@@ -231,6 +231,7 @@ fn validate_supported_devices(vm_resources: &VmResources) -> Result<(), EnclaveB
         (vm_resources.balloon.get().is_some(), "balloon"),
         (!vm_resources.pmem.configs.is_empty(), "pmem"),
         (vm_resources.memory_hotplug.is_some(), "memory hotplug"),
+        (vm_resources.pvpanic.is_some(), "pvpanic"),
         (has_vhost_user_block, "vhost-user block"),
         (
             !vm_resources.device_passthrough.configs.is_empty(),
@@ -787,7 +788,11 @@ mod tests {
             .configs
             .push(DevicePassthroughConfig::default());
 
+        let mut pvpanic = clean();
+        pvpanic.set_pvpanic_device(crate::vmm_config::pvpanic::PvPanicConfig::default());
+
         for (expected, resources) in [
+            ("pvpanic", pvpanic),
             ("balloon", balloon),
             ("pmem", pmem),
             ("memory hotplug", hotplug),

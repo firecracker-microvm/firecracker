@@ -23,7 +23,7 @@ use crate::arch::BOOT_DEVICE_MEM_START;
 use crate::arch::{GPIO_PL061_MEM_START, RTC_MEM_START, SERIAL_MEM_START};
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::{PL061Device, RTCDevice, SerialDevice};
-use crate::devices::pseudo::BootTimer;
+use crate::devices::pseudo::{BootTimer, PvPanic};
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceType};
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
 #[cfg(target_arch = "x86_64")]
@@ -47,6 +47,8 @@ pub enum MmioError {
     Cmdline(#[from] linux_loader::cmdline::Error),
     /// Could not create IRQ for MMIO device: {0}
     CreateIrq(#[from] std::io::Error),
+    /// Could not create pvpanic notification eventfd: {0}
+    CreatePvPanicEvent(std::io::Error),
     /// Invalid MMIO IRQ configuration.
     InvalidIrqConfig,
     /// Failed to register IO event: {0}
@@ -360,10 +362,20 @@ impl MMIOVirtioDevices {
     }
 }
 
+/// MMIO pvpanic device and its shared VMM notification eventfd.
+#[derive(Debug)]
+pub(crate) struct MMIOPvPanicDevice {
+    pub(crate) resources: MMIODeviceInfo,
+    pub(crate) inner: Arc<Mutex<PvPanic>>,
+    pub(crate) panic_evt: Arc<vmm_sys_util::eventfd::EventFd>,
+}
+
 #[derive(Debug, Default)]
 pub struct MMIOPlatformDevices {
     /// Boot timer device
     pub(crate) boot_timer: Option<MMIODevice<BootTimer>>,
+    /// Guest panic notification device.
+    pub(crate) pvpanic: Option<MMIOPvPanicDevice>,
     #[cfg(target_arch = "aarch64")]
     /// Real-Time clock on Aarch64 platforms
     pub(crate) rtc: Option<MMIODevice<RTCDevice>>,
@@ -408,6 +420,69 @@ impl MMIOPlatformDevices {
         self.boot_timer = Some(device);
 
         Ok(())
+    }
+
+    /// Register pvpanic with saved resources, or allocate one MMIO page on cold boot.
+    pub fn register_mmio_pvpanic(
+        &mut self,
+        vm: &KvmVm,
+        pvpanic: PvPanic,
+        device_info_opt: Option<MMIODeviceInfo>,
+    ) -> Result<(), MmioError> {
+        let resources = if let Some(device_info) = device_info_opt {
+            // The VM's restored allocator already reserves this range. Do not allocate again.
+            device_info
+        } else {
+            let range = vm.resource_allocator().mmio32_memory.allocate(
+                MMIO_LEN,
+                MMIO_LEN,
+                AllocPolicy::FirstMatch,
+            )?;
+            MMIODeviceInfo {
+                addr: range.start(),
+                len: MMIO_LEN,
+                gsi: None,
+            }
+        };
+        let device = MMIOPvPanicDevice {
+            resources,
+            panic_evt: pvpanic.panic_evt().clone(),
+            inner: Arc::new(Mutex::new(pvpanic)),
+        };
+        vm.common
+            .mmio_bus
+            .insert(device.inner.clone(), resources.addr, resources.len)?;
+        self.pvpanic = Some(device);
+        Ok(())
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) fn append_aml_bytes(&self, dsdt_data: &mut Vec<u8>) -> Result<(), aml::AmlError> {
+        let Some(device) = &self.pvpanic else {
+            return Ok(());
+        };
+        let resources = device.resources;
+        aml::Device::new(
+            "PVPN".try_into()?,
+            vec![
+                &aml::Name::new("_HID".try_into()?, &"QEMU0001")?,
+                &aml::Name::new("_UID".try_into()?, &aml::ZERO)?,
+                &aml::Name::new(
+                    "_CRS".try_into()?,
+                    &aml::ResourceTemplate::new(vec![&aml::Memory32Fixed::new(
+                        true,
+                        resources.addr.try_into().unwrap(),
+                        resources.len.try_into().unwrap(),
+                    )]),
+                )?,
+            ],
+        )
+        .append_aml_bytes(dsdt_data)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    pub fn pvpanic_device_info(&self) -> Option<&MMIODeviceInfo> {
+        self.pvpanic.as_ref().map(|device| &device.resources)
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -585,17 +660,58 @@ pub(crate) mod tests {
     use vmm_sys_util::eventfd::EventFd;
 
     use super::*;
+    #[cfg(target_arch = "x86_64")]
+    use crate::builder::tests::default_vmm;
     use crate::devices::virtio::ActivateError;
     use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
     use crate::devices::virtio::queue::{Queue, QueueConfig};
     use crate::devices::virtio::transport::VirtioInterrupt;
     use crate::devices::virtio::transport::mmio::IrqTrigger;
     use crate::test_utils::multi_region_mem_raw;
+    use crate::vmm_config::pvpanic::PvPanicAction;
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
-    use crate::{arch, impl_device_type};
+    use crate::{DeviceManager, arch, impl_device_type};
 
     const QUEUE_SIZES: &[u16] = &[64];
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_pvpanic_aml_uses_allocated_resources() {
+        let mut vmm = default_vmm();
+        let vm = vmm.vm.as_kvm().unwrap();
+        let mut bytes = Vec::new();
+        vmm.device_manager
+            .mmio_platform_devices
+            .append_aml_bytes(&mut bytes)
+            .unwrap();
+        assert!(bytes.is_empty());
+        vm.resource_allocator()
+            .mmio32_memory
+            .allocate(MMIO_LEN, MMIO_LEN, AllocPolicy::FirstMatch)
+            .unwrap();
+        vmm.device_manager
+            .attach_pvpanic_device(vm, PvPanicAction::None)
+            .unwrap();
+        let resources = vmm
+            .device_manager
+            .mmio_platform_devices
+            .pvpanic
+            .as_ref()
+            .unwrap()
+            .resources;
+        vmm.device_manager.append_aml_bytes(&mut bytes).unwrap();
+        assert!(bytes.windows(8).any(|window| window == b"QEMU0001"));
+        let mut memory = Vec::new();
+        aml::Memory32Fixed::new(
+            true,
+            resources.addr.try_into().unwrap(),
+            resources.len.try_into().unwrap(),
+        )
+        .append_aml_bytes(&mut memory)
+        .unwrap();
+        assert!(bytes.windows(memory.len()).any(|window| window == memory));
+    }
 
     impl MMIOVirtioDevices {
         pub(crate) fn register_virtio_test_device(
@@ -740,7 +856,7 @@ pub(crate) mod tests {
 
     #[test]
     #[cfg_attr(target_arch = "x86_64", allow(unused_mut))]
-    fn test_register_virtio_device() {
+    fn test_register_mmio_devices() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = multi_region_mem_raw(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
@@ -790,6 +906,39 @@ pub(crate) mod tests {
                 Ok::<(), ()>(())
             })
             .unwrap();
+
+        let mut platform_manager = DeviceManager::default();
+        assert!(platform_manager.pvpanic_evt().is_none());
+        let gsis_before = vm.resource_allocator().gsi_legacy_allocator.clone();
+        platform_manager
+            .attach_pvpanic_device(&vm, PvPanicAction::None)
+            .unwrap();
+        let device = platform_manager
+            .mmio_platform_devices
+            .pvpanic
+            .as_ref()
+            .unwrap();
+        assert_eq!(device.resources.addr, dev.resources.addr + MMIO_LEN);
+        assert_eq!(device.resources.len, MMIO_LEN);
+        assert_eq!(device.resources.gsi, None);
+        assert_eq!(vm.resource_allocator().gsi_legacy_allocator, gsis_before);
+        vm.common
+            .mmio_bus
+            .read(device.resources.addr, &mut [0])
+            .unwrap();
+        let next = vm
+            .resource_allocator()
+            .mmio32_memory
+            .allocate(MMIO_LEN, MMIO_LEN, AllocPolicy::FirstMatch)
+            .unwrap();
+        assert_eq!(next.start(), device.resources.addr + MMIO_LEN);
+
+        // The manager getter must not lock the device or clone its file descriptor.
+        let locked = device.inner.lock().unwrap();
+        assert!(std::ptr::eq(
+            platform_manager.pvpanic_evt().unwrap(),
+            locked.panic_evt().as_ref()
+        ));
     }
 
     #[test]
@@ -962,5 +1111,21 @@ pub(crate) mod tests {
             ),
             "Invalid MMIO IRQ configuration.".to_string()
         );
+
+        let vm = KvmVm::new(Kvm::new(vec![]).unwrap()).unwrap();
+        vm.resource_allocator().mmio32_memory =
+            vm_allocator::AddressAllocator::new(arch::MEM_32BIT_DEVICES_START, MMIO_LEN).unwrap();
+        vm.resource_allocator()
+            .mmio32_memory
+            .allocate(MMIO_LEN, MMIO_LEN, AllocPolicy::FirstMatch)
+            .unwrap();
+        let mut platform_manager = DeviceManager::default();
+        assert!(matches!(
+            platform_manager.attach_pvpanic_device(&vm, PvPanicAction::None),
+            Err(crate::device_manager::AttachDeviceError::MmioTransport(
+                MmioError::Allocator(_)
+            ))
+        ));
+        assert!(platform_manager.pvpanic_evt().is_none());
     }
 }

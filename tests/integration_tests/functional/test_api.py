@@ -21,6 +21,7 @@ from framework.artifacts import (
     GUEST_KERNEL_DEFAULT,
     GUEST_KERNELS_6_1,
     pin_guest_kernel,
+    pin_pci,
     pin_rootfs_mode,
 )
 from framework.kvm import MAX_SUPPORTED_VCPUS, default_boot_args
@@ -1512,6 +1513,33 @@ def test_pmem_rate_limiter_api(uvm, rootfs):
 
 @pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_pci(False)
+def test_api_pvpanic(uvm):
+    """Allow pre-boot replacement; reject invalid requests and post-boot updates."""
+    uvm.spawn()
+    uvm.basic_config()
+    assert uvm.api.vm_config.get().json()["pvpanic"] is None
+    uvm.api.pvpanic.put()
+    assert uvm.api.vm_config.get().json()["pvpanic"] == {"panic_action": "none"}
+    for action in ["pause", "none"]:
+        uvm.api.pvpanic.put(panic_action=action)
+        assert uvm.api.vm_config.get().json()["pvpanic"] == {"panic_action": action}
+    url = uvm.api.endpoint + "/pvpanic"
+    for body in ["invalid", '{"panic_action":null}']:
+        response = uvm.api.session.put(url, data=body)
+        assert response.status_code == HTTPStatus.BAD_REQUEST, body
+    response = uvm.api.session.request("DELETE", url)
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    uvm.start()
+    for paused in [False, True]:
+        if paused:
+            uvm.pause()
+        with pytest.raises(RuntimeError, match=NOT_SUPPORTED_AFTER_START):
+            uvm.api.pvpanic.put()
+
+
+@pin_vm_backend(VM_BACKEND_KVM)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configured):
     """
     Test the configuration of a microVM after restoring from a snapshot.
@@ -1655,6 +1683,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
 
     # We should expect a null entropy device
     expected_cfg["entropy"] = None
+    expected_cfg["pvpanic"] = None
 
     # No passthrough devices configured
     expected_cfg["device-passthrough"] = []
@@ -1852,6 +1881,7 @@ def test_get_full_config(uvm):
 
     # We should expect a null entropy device
     expected_cfg["entropy"] = None
+    expected_cfg["pvpanic"] = None
 
     # No passthrough devices configured
     expected_cfg["device-passthrough"] = []

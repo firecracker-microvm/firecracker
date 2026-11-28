@@ -11,7 +11,7 @@ use std::cmp;
 use std::fmt::{Debug, Formatter};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::{Arc, Mutex};
 
 use kvm_ioctls::{IoEventAddress, NoDatamatch};
 use serde::{Deserialize, Serialize};
@@ -38,7 +38,7 @@ use crate::pci::{
     PciCapabilityId, PciClassCode, PciDevice, PciMassStorageSubclass, PciNetworkControllerSubclass,
     PciSBDF,
 };
-use crate::vstate::bus::BusDevice;
+use crate::vstate::bus::{BusDevice, BusWriteAction};
 use crate::vstate::interrupts::{InterruptError, MsixVectorGroup};
 use crate::vstate::vm::KvmVm;
 
@@ -682,19 +682,19 @@ impl VirtioPciDevice {
         }
     }
 
-    fn write_cap_pci_cfg(&mut self, offset: usize, data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write_cap_pci_cfg(&mut self, offset: usize, data: &[u8]) -> BusWriteAction {
         let cap_slice = self.cap_pci_cfg_info.cap.as_mut_slice();
         let data_len = data.len();
         let cap_len = cap_slice.len();
         if offset + data_len > cap_len {
             error!("Failed to write cap_pci_cfg to config space");
-            return None;
+            return BusWriteAction::Continue;
         }
 
         if offset < std::mem::size_of::<VirtioPciCap>() {
             let (_, right) = cap_slice.split_at_mut(offset);
             right[..data_len].copy_from_slice(data);
-            None
+            BusWriteAction::Continue
         } else {
             let bar_offset: u32 = self.cap_pci_cfg_info.cap.cap.offset.into();
             let len = u32::from(self.cap_pci_cfg_info.cap.cap.length) as usize;
@@ -705,7 +705,7 @@ impl VirtioPciDevice {
                 let len = len.min(data.len());
                 self.write_bar(0, bar_offset as u64, &data[..len])
             } else {
-                None
+                BusWriteAction::Continue
             }
         }
     }
@@ -1001,12 +1001,7 @@ impl VirtioInterrupt for VirtioInterruptMsix {
 }
 
 impl PciDevice for VirtioPciDevice {
-    fn write_config_register(
-        &mut self,
-        reg_idx: u16,
-        offset: u8,
-        data: &[u8],
-    ) -> Option<Arc<Barrier>> {
+    fn write_config_register(&mut self, reg_idx: u16, offset: u8, data: &[u8]) -> BusWriteAction {
         let in_bars = BAR0_REG_IDX <= reg_idx && reg_idx < BAR0_REG_IDX + u16::from(NUM_BAR_REGS);
         let in_msix_cap_header = reg_idx * 4 == self.msix_config_cap_offset;
         let in_pci_cfg = self.cap_pci_cfg_info.in_range(reg_idx, offset, data.len());
@@ -1015,7 +1010,7 @@ impl PciDevice for VirtioPciDevice {
             #[allow(clippy::cast_possible_truncation)]
             let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
             self.bars.write(bar_idx, offset, data);
-            None
+            BusWriteAction::Continue
         } else if in_msix_cap_header {
             // For the MsixCap structure, we need to capture writes to the second 2 bytes
             // of the capability header where Function Mask and MSI-X Enable bits are present.
@@ -1026,7 +1021,7 @@ impl PciDevice for VirtioPciDevice {
                 .write_msg_ctl_register(offset, data);
             self.configuration
                 .write_config_register(reg_idx, offset, data);
-            None
+            BusWriteAction::Continue
         } else if in_pci_cfg {
             let offset = (reg_idx * 4 + u16::from(offset) - self.cap_pci_cfg_info.offset) as usize;
             self.write_cap_pci_cfg(offset, data)
@@ -1037,7 +1032,7 @@ impl PciDevice for VirtioPciDevice {
             if !mem_enabled_before && self.memory_space_enabled() {
                 self.maybe_relocate_bar();
             }
-            None
+            BusWriteAction::Continue
         }
     }
 
@@ -1129,7 +1124,7 @@ impl PciDevice for VirtioPciDevice {
         }
     }
 
-    fn write_bar(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write_bar(&mut self, _base: u64, offset: u64, data: &[u8]) -> BusWriteAction {
         match offset {
             o if o < u64::from(COMMON_CONFIG_BAR_OFFSET + COMMON_CONFIG_SIZE) => {
                 self.common_config.write(
@@ -1250,7 +1245,7 @@ impl PciDevice for VirtioPciDevice {
                 // https://github.com/firecracker-microvm/firecracker/issues/6281
             }
         }
-        None
+        BusWriteAction::Continue
     }
 }
 
@@ -1259,7 +1254,7 @@ impl BusDevice for VirtioPciDevice {
         self.read_bar(base, offset, data)
     }
 
-    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> BusWriteAction {
         self.write_bar(base, offset, data)
     }
 }
