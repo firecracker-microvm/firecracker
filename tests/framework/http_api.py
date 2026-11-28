@@ -203,3 +203,4 @@ class Api:
         self.serial = Resource(self, "/serial")
         self.memory_hotplug = Resource(self, "/hotplug/memory")
         self.device_passthrough = Resource(self, "/device-passthrough", "id")
+        self.vhost_user_device = Resource(self, "/vhost-user-devices", "id")

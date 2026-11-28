@@ -487,6 +487,10 @@ pub struct PutRequestsMetrics {
     pub device_passthrough_count: SharedIncMetric,
     /// Number of failures in attaching a passthrough device.
     pub device_passthrough_fails: SharedIncMetric,
+    /// Number of PUTs triggering a vhost-user device attach.
+    pub vhost_user_count: SharedIncMetric,
+    /// Number of failures in attaching a vhost-user device.
+    pub vhost_user_fails: SharedIncMetric,
 }
 impl PutRequestsMetrics {
     /// Const default construction.
@@ -522,6 +526,8 @@ impl PutRequestsMetrics {
             hotplug_memory_fails: SharedIncMetric::new(),
             device_passthrough_count: SharedIncMetric::new(),
             device_passthrough_fails: SharedIncMetric::new(),
+            vhost_user_count: SharedIncMetric::new(),
+            vhost_user_fails: SharedIncMetric::new(),
         }
     }
 }
